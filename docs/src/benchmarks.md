@@ -90,3 +90,55 @@ applies it, and it means `update!` is not unconditionally factorization-free.
 Cholesky and the full-KKT Bunch-Kaufman factorization described under
 [Algorithm](@ref "The linear system"), including the near-parallel-row family that
 equilibration cannot fix.
+
+## On PureBLAS instead of OpenBLAS
+
+[PureBLAS.jl](https://github.com/el-oso/PureBLAS.jl) is a pure-Julia BLAS/LAPACK. Its
+`activate()` overlays per-symbol forwards onto libblastrampoline, so PureOSQP runs on it
+**with no code changes** — the same `mul!`, `cholesky!` and `ldiv!` calls are rerouted in
+process. Reproduce with `bench/pureblas_backend.jl` (setup instructions in its header).
+
+Note `BLAS.get_config()` cannot show this: OpenBLAS stays loaded and the forwards sit on
+top of it. `PureBLAS.is_active()` is the check, and the benchmark asserts it at every
+measurement — otherwise a rerouting that silently failed would look like a clean tie.
+
+| n | m | OpenBLAS | PureBLAS | ratio | iterations | \|Δx\| |
+|---|---|---|---|---|---|---|
+| 25 | 50 | 0.337 ms | 0.390 ms | 0.86× | 225 / 225 | 4.7e-15 |
+| 50 | 100 | 1.34 ms | 1.91 ms | 0.70× | 350 / 350 | 6.2e-15 |
+| 100 | 200 | 12.3 ms | 24.9 ms | 0.50× | 1500 / 1500 | 1.3e-14 |
+| 200 | 400 | 25.7 ms | 51.2 ms | 0.50× | 650 / 650 | 2.2e-14 |
+| 100 | 50 | 1.34 ms | 1.39 ms | 0.96× | 50 / 50 | 8.7e-15 |
+
+**Correctness is exact**: identical iteration counts and solutions agreeing to `1e-14`, so
+PureBLAS is a faithful drop-in. **Speed is 1.0–2.0× worse**, and the per-operation
+breakdown says precisely why:
+
+| operation (n=200, m=400) | OpenBLAS | PureBLAS | ratio | runs |
+|---|---|---|---|---|
+| `gemv A*x` | 3.62 µs | 4.75 µs | 0.76× | every iteration |
+| **`gemv Aᵀy` (transposed)** | 4.29 µs | **42.1 µs** | **0.10×** | every iteration |
+| `gemv At*y` (materialized transpose) | 3.59 µs | 5.49 µs | 0.66× | — |
+| `syrk WᵀW` | 314 µs | 235 µs | **1.34×** | on a ρ update |
+| `potrf` | 119 µs | 58.4 µs | **2.03×** | on a ρ update |
+| `trsv F\b` | 11.7 µs | 12.2 µs | 0.96× | every iteration |
+
+PureBLAS *wins* on the Level-3 work — `syrk` 1.34× and `potrf` 2.03× — which is what its
+own benchmarks target. But PureOSQP's inner loop is Level-2-bound: it does a handful of
+`gemv` and one `trsv` per iteration and touches `syrk`/`potrf` only when ρ changes, which
+on these problems is a few times in hundreds of iterations. The whole-solve ratio is
+therefore set by `gemv`, and specifically by the **transposed** path, which is ~10× slower
+than OpenBLAS and ~6× slower than PureBLAS's own non-transposed path on the identical
+data. That gap is reproducible across shapes (m=100/400/2000), and closing it would be
+worth roughly a 2× swing here.
+
+### On the threading
+
+The two sides are not symmetric, and the numbers should be read knowing it. OpenBLAS is
+pinned with `BLAS.set_num_threads(1)`; PureBLAS is plain Julia, so it is bounded by
+`Threads.nthreads()` — 12 in the run above — which `BLAS.set_num_threads` does not affect.
+The comparison is therefore tilted *toward* PureBLAS, and it still loses.
+
+Giving OpenBLAS more threads does not change the verdict, because at these sizes the
+workload does not parallelize: at n=200, m=400 it took 25.4 ms on 1 thread, 25.8 ms on 4
+and 26.3 ms on 8, against PureBLAS's 51.3 ms.

@@ -1,0 +1,96 @@
+{
+  "blas_threads": 1,
+  "cpu_threads": 16,
+  "julia_threads": 12,
+  "julia_version": "1.12.7",
+  "ops": [
+    {
+      "op": "gemv  A*x",
+      "t_openblas": 3.624375e-6,
+      "t_pureblas": 4.751857142857143e-6
+    },
+    {
+      "op": "gemv  A'y (trans)",
+      "t_openblas": 4.293857142857143e-6,
+      "t_pureblas": 4.2139e-5
+    },
+    {
+      "op": "gemv  At*y (dense)",
+      "t_openblas": 3.593e-6,
+      "t_pureblas": 5.485333333333333e-6
+    },
+    {
+      "op": "syrk  W'W",
+      "t_openblas": 0.00031356,
+      "t_pureblas": 0.000234822
+    },
+    {
+      "op": "potrf",
+      "t_openblas": 0.000118643,
+      "t_pureblas": 5.84e-5
+    },
+    {
+      "op": "trsv  F\\b",
+      "t_openblas": 1.1702e-5,
+      "t_pureblas": 1.2213e-5
+    }
+  ],
+  "pureblas_version": "0.1.1",
+  "solve": [
+    {
+      "dobj": 7.105427357601002e-15,
+      "dx": 4.6629367034256575e-15,
+      "iter_openblas": 225,
+      "iter_pureblas": 225,
+      "m": 50,
+      "n": 25,
+      "ratio": 0.8646983186742396,
+      "t_openblas": 0.000336915,
+      "t_pureblas": 0.000389633
+    },
+    {
+      "dobj": 2.842170943040401e-14,
+      "dx": 6.217248937900877e-15,
+      "iter_openblas": 350,
+      "iter_pureblas": 350,
+      "m": 100,
+      "n": 50,
+      "ratio": 0.7007231489506365,
+      "t_openblas": 0.001335654,
+      "t_pureblas": 0.001906108
+    },
+    {
+      "dobj": 1.1368683772161603e-13,
+      "dx": 1.2656542480726785e-14,
+      "iter_openblas": 1500,
+      "iter_pureblas": 1500,
+      "m": 200,
+      "n": 100,
+      "ratio": 0.49567451664547457,
+      "t_openblas": 0.012334499,
+      "t_pureblas": 0.024884271
+    },
+    {
+      "dobj": 2.842170943040401e-14,
+      "dx": 2.1926904736346842e-14,
+      "iter_openblas": 650,
+      "iter_pureblas": 650,
+      "m": 400,
+      "n": 200,
+      "ratio": 0.5008960625055427,
+      "t_openblas": 0.02567053,
+      "t_pureblas": 0.051249215
+    },
+    {
+      "dobj": 1.4210854715202004e-14,
+      "dx": 8.715250743307479e-15,
+      "iter_openblas": 50,
+      "iter_pureblas": 50,
+      "m": 50,
+      "n": 100,
+      "ratio": 0.9645437110034356,
+      "t_openblas": 0.001342287,
+      "t_pureblas": 0.001391629
+    }
+  ]
+}
