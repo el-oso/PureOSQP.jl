@@ -1,0 +1,70 @@
+{
+  "julia_version": "1.12.7",
+  "note": "agreement check only; no timings, because each oracle call pays interpreter startup and a JSON round trip",
+  "oracle": "libosqp 1.x via the osqp Python wheel, run as a subprocess",
+  "results": [
+    {
+      "iter_1x": 125,
+      "iter_pure": 125,
+      "m": 20,
+      "n": 10,
+      "objdiff": 0.0,
+      "status_1x": "solved",
+      "status_pure": "SOLVED"
+    },
+    {
+      "iter_1x": 300,
+      "iter_pure": 300,
+      "m": 50,
+      "n": 25,
+      "objdiff": 1.491533321054182e-15,
+      "status_1x": "solved",
+      "status_pure": "SOLVED"
+    },
+    {
+      "iter_1x": 1400,
+      "iter_pure": 1400,
+      "m": 100,
+      "n": 50,
+      "objdiff": 8.063423796639763e-16,
+      "status_1x": "solved",
+      "status_pure": "SOLVED"
+    },
+    {
+      "iter_1x": 2625,
+      "iter_pure": 2625,
+      "m": 200,
+      "n": 100,
+      "objdiff": 2.4915719362566712e-15,
+      "status_1x": "solved",
+      "status_pure": "SOLVED"
+    },
+    {
+      "iter_1x": 700,
+      "iter_pure": 700,
+      "m": 400,
+      "n": 200,
+      "objdiff": 3.4240667227817052e-15,
+      "status_1x": "solved",
+      "status_pure": "SOLVED"
+    },
+    {
+      "iter_1x": 50,
+      "iter_pure": 50,
+      "m": 50,
+      "n": 100,
+      "objdiff": 5.050270011152145e-16,
+      "status_1x": "solved",
+      "status_pure": "SOLVED"
+    },
+    {
+      "iter_1x": 1875,
+      "iter_pure": 1875,
+      "m": 500,
+      "n": 50,
+      "objdiff": 2.41504132613258e-13,
+      "status_1x": "solved",
+      "status_pure": "SOLVED"
+    }
+  ]
+}

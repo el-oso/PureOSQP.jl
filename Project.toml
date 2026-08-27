@@ -1,0 +1,11 @@
+name = "PureOSQP"
+uuid = "cf5699a0-4369-4b2d-98bd-300948c5dc67"
+version = "0.1.0"
+authors = ["el-oso <15278831+el-oso@users.noreply.github.com>"]
+
+[deps]
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+
+[compat]
+LinearAlgebra = "1"
+julia = "1.10"

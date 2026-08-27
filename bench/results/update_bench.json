@@ -1,0 +1,57 @@
+{
+  "julia_version": "1.12.7",
+  "oracle": "libosqp 1.x, timed inside its own process",
+  "results": [
+    {
+      "m": 20,
+      "n": 10,
+      "objdiff": 1.5207998772277452e-14,
+      "refactorizations": 8,
+      "steps": 20,
+      "t_fresh": 0.002662839,
+      "t_osqp_v1": 0.0018171158153563738,
+      "t_update": 0.001996274
+    },
+    {
+      "m": 50,
+      "n": 25,
+      "objdiff": 4.321054989023766e-12,
+      "refactorizations": 14,
+      "steps": 20,
+      "t_fresh": 0.011312356,
+      "t_osqp_v1": 0.009773032972589135,
+      "t_update": 0.005377403
+    },
+    {
+      "m": 100,
+      "n": 50,
+      "objdiff": 7.567559729671576e-14,
+      "refactorizations": 7,
+      "steps": 20,
+      "t_fresh": 0.04529517,
+      "t_osqp_v1": 0.05930865788832307,
+      "t_update": 0.026142946
+    },
+    {
+      "m": 200,
+      "n": 100,
+      "objdiff": 3.85820595847054e-13,
+      "refactorizations": 3,
+      "steps": 20,
+      "t_fresh": 0.179887348,
+      "t_osqp_v1": 0.49094440089538693,
+      "t_update": 0.156973777
+    },
+    {
+      "m": 400,
+      "n": 200,
+      "objdiff": 1.8815143013858674e-15,
+      "refactorizations": 1,
+      "steps": 20,
+      "t_fresh": 0.802770229,
+      "t_osqp_v1": 2.4199760939227417,
+      "t_update": 0.634451532
+    }
+  ],
+  "steps": 20
+}
