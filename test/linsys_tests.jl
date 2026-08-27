@@ -6,16 +6,16 @@
     P = (X = randn(n, n); Matrix(X'X))
     A = randn(m, n)
     ws = setup(P, randn(n), A, -rand(m), rand(m); scaling = 0, sigma = 1.0e-6, rho = 0.1)
-    @test ws.backend === :cholesky
+    @test ws.linsys isa PureOSQP.ReducedCholesky
     K = [P + ws.settings.sigma * I  A'; A  -Diagonal(1 ./ ws.rho_vec)]
     bx, bz = randn(n), randn(m)
-    PureOSQP.solve_kkt!(ws, bx, bz)
+    PureOSQP.solve_system!(ws.linsys, ws, bx, bz)
     ref = K \ [bx; bz]
     @test ws.xtilde ≈ ref[1:n] rtol = 1.0e-9
     @test ws.ztilde ≈ A * ws.xtilde rtol = 1.0e-9
 end
 
-@testitem "an ill-conditioned A falls back to Bunch-Kaufman" begin
+@testitem "an ill-conditioned A falls back to the full KKT backend at setup" begin
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     Random.seed!(6)
@@ -25,11 +25,11 @@ end
     A = U * Diagonal(exp10.(range(0, 11; length = n))) * V'
     P = zeros(n, n)
     ws = setup(P, randn(n), A, -ones(m), ones(m); scaling = 0)
-    @test ws.backend === :bunchkaufman
+    @test ws.linsys isa PureOSQP.FullKKT
     bx, bz = randn(n), randn(m)
-    PureOSQP.solve_kkt!(ws, bx, bz)
-    # At this conditioning a Float64 `K \ b` is no more trustworthy than the solver, so the
-    # reference is computed in extended precision.
+    PureOSQP.solve_system!(ws.linsys, ws, bx, bz)
+    # At this conditioning a Float64 `K \ b` is no more trustworthy than the solver, so
+    # the reference is computed in extended precision.
     K = [P + ws.settings.sigma * I  A'; A  -Diagonal(1 ./ ws.rho_vec)]
     ref = Float64.(big.(K) \ big.([bx; bz]))[1:n]
     @test norm(ws.xtilde .- ref, Inf) < 1.0e-4 * norm(ref, Inf)
@@ -50,4 +50,27 @@ end
 
 @testitem "linsys rejects an unknown backend" begin
     @test_throws "linsys must be :auto or :kkt" setup([1.0;;], [0.0], [1.0;;], [0.0], [1.0]; linsys = :magic)
+end
+
+@testitem "the LinearSystem contract is enforced, not decorative" begin
+    using LinearAlgebra, SparseArrays, OSQP, Random, TypeContracts
+    include(joinpath(@__DIR__, "helpers.jl"))
+    LS = PureOSQP.LinearSystem
+    spec = TypeContracts.list_contract(LS)
+    @test length(spec) == 2
+
+    # Both shipped backends satisfy it.
+    for B in (
+            PureOSQP.ReducedCholesky{Float64, Cholesky{Float64, Matrix{Float64}}},
+            PureOSQP.FullKKT{Float64, BunchKaufman{Float64, Matrix{Float64}, Vector{Int}}},
+        )
+        @test TypeContracts.satisfies(B, LS).satisfied
+    end
+
+    # And a type that declares the supertype without implementing it is rejected. Without
+    # this the contract could be satisfied vacuously and nobody would notice.
+    @eval struct IncompleteBackend <: PureOSQP.LinearSystem end
+    @test !TypeContracts.satisfies(IncompleteBackend, LS).satisfied
+    @test length(TypeContracts.satisfies(IncompleteBackend, LS).missing_methods) == 2
+    @test_throws TypeContracts.InterfaceError TypeContracts.check_contract(IncompleteBackend, LS)
 end

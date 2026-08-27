@@ -16,7 +16,9 @@ Rows with `l == u` are equality constraints.
 ## What makes this different
 
 `P` and `A` may be **any `AbstractMatrix`** and are never copied or modified. There is no
-sparse-matrix dependency anywhere: the only dependency is `LinearAlgebra`. The solver is
+sparse-matrix dependency anywhere: the numerics use `LinearAlgebra` alone, and the only
+other dependency is TypeContracts.jl, which declares the linear-system backend interface
+and checks it at precompilation. The solver is
 built for dense and structured data, where the reference implementation's sparse machinery
 is a liability rather than a help.
 

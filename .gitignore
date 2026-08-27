@@ -1,5 +1,5 @@
 bench/oracle_v1/.venv
-scratch/
-Manifest.toml
 docs/build/
 docs/node_modules/
+Manifest.toml
+scratch/

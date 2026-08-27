@@ -1,5 +1,7 @@
 [deps]
+AllocCheck = "9b6a8646-10ed-4001-bbdc-1d2f46dfbb1a"
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+JET = "c3a54625-cd67-489e-a8e7-0a5a0ff4e31b"
 JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 OSQP = "ab2f91bb-94b4-55e3-9ba0-7f65df51de79"
@@ -7,3 +9,4 @@ Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 PureOSQP = "cf5699a0-4369-4b2d-98bd-300948c5dc67"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+StrictMode = "0e98b4f4-d0e6-42ac-af0a-707c24852f32"

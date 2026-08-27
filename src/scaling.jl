@@ -78,9 +78,16 @@ end
 `out` must not alias `ws.tmp_n`, which is used as scratch.
 """
 function mul_A!(out::AbstractVector{T}, ws::Workspace{T}, x::AbstractVector{T}) where {T}
-    ws.tmp_n .= ws.D .* x
+    for i in eachindex(ws.tmp_n, ws.D, x)
+        ws.tmp_n[i] = ws.D[i] * x[i]
+    end
     mul!(out, ws.A, ws.tmp_n)
-    out .*= ws.E
+    # Written as a loop, not `out .*= ws.E`: an in-place broadcast has `out` on both sides,
+    # which leaves an `unaliascopy` branch that AllocCheck reports as a possible allocation
+    # even though it never fires. The loop makes the no-allocation property provable.
+    for i in eachindex(out, ws.E)
+        out[i] *= ws.E[i]
+    end
     return out
 end
 
@@ -92,9 +99,13 @@ end
 `out` must not alias `ws.tmp_m`, which is used as scratch.
 """
 function mul_At!(out::AbstractVector{T}, ws::Workspace{T}, y::AbstractVector{T}) where {T}
-    ws.tmp_m .= ws.E .* y
+    for i in eachindex(ws.tmp_m, ws.E, y)
+        ws.tmp_m[i] = ws.E[i] * y[i]
+    end
     mul!(out, ws.A', ws.tmp_m)
-    out .*= ws.D
+    for i in eachindex(out, ws.D)
+        out[i] *= ws.D[i]
+    end
     return out
 end
 
@@ -106,9 +117,12 @@ end
 `out` must not alias `ws.tmp_n`, which is used as scratch.
 """
 function mul_P!(out::AbstractVector{T}, ws::Workspace{T}, x::AbstractVector{T}) where {T}
-    ws.tmp_n .= ws.D .* x
+    for i in eachindex(ws.tmp_n, ws.D, x)
+        ws.tmp_n[i] = ws.D[i] * x[i]
+    end
     mul!(out, ws.P, ws.tmp_n)
-    out .*= ws.D
-    out .*= ws.c
+    for i in eachindex(out, ws.D)
+        out[i] *= ws.D[i] * ws.c
+    end
     return out
 end

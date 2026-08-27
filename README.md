@@ -13,7 +13,12 @@ subject to  l ≤ Ax ≤ u
 ```
 
 `P` and `A` may be **any `AbstractMatrix`**, are never copied or modified, and there is no
-sparse-matrix dependency anywhere. The only dependency is `LinearAlgebra`.
+sparse-matrix dependency anywhere. The numerics use `LinearAlgebra` alone; the only other
+dependency is [TypeContracts.jl](https://github.com/el-oso/TypeContracts.jl), which
+declares the linear-system backend interface and checks it at precompilation.
+
+The hot path is proven allocation-free and type-stable, and every public entry point
+compiles under `juliac --trim`. See [Guarantees](https://el-oso.github.io/PureOSQP.jl/dev/guarantees).
 
 ```julia
 using PureOSQP
@@ -107,11 +112,17 @@ sample saved under `bench/results/`.
 
 ## Relationship to upstream OSQP
 
-This is a from-scratch Julia implementation of the algorithm, written against the OSQP
-paper and against the Apache-2.0 reference implementation, which was read for the details
-the paper leaves out (equilibration, the ρ schedule, polishing, the certificate
-thresholds). It is a derivation of that work, not an independent reinvention, and it is
-released under the same license.
+A Julia implementation of the algorithm, written against the OSQP paper and against the
+Apache-2.0 reference implementation, which was read directly for the details the paper
+leaves out (equilibration, the ρ schedule, polishing, the certificate thresholds); OSQP's
+own C unit tests are ported too. It is a **derivative work**, not an independent
+reinvention, and **not** a clean-room implementation — clean room means reimplementing
+without source access, which is a precaution for code you are not licensed to copy, and
+Apache-2.0 already grants that right in exchange for attribution.
+
+Full citations, the deliberate differences from upstream, and why the license stays
+Apache-2.0 rather than becoming MIT: see
+[Attribution](https://el-oso.github.io/PureOSQP.jl/dev/attribution).
 
 ## Reference
 

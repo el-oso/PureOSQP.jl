@@ -19,7 +19,8 @@ PureOSQP.mul_A!
 PureOSQP.mul_At!
 PureOSQP.mul_P!
 PureOSQP.refactor!
-PureOSQP.solve_kkt!
+PureOSQP.factorize!
+PureOSQP.solve_system!
 PureOSQP.admm_step!
 PureOSQP.set_rho_vec!
 PureOSQP.adapt_rho!
@@ -28,4 +29,13 @@ PureOSQP.check_termination
 PureOSQP.is_primal_infeasible
 PureOSQP.is_dual_infeasible
 PureOSQP.polish!
+```
+
+## Linear-system backends
+
+```@docs
+PureOSQP.LinearSystem
+PureOSQP.ReducedCholesky
+PureOSQP.FullKKT
+PureOSQP.refactor!
 ```

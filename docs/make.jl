@@ -13,8 +13,10 @@ makedocs(;
         "Home" => "index.md",
         "Examples" => "examples.md",
         "Algorithm" => "algorithm.md",
+        "Guarantees" => "guarantees.md",
         "Benchmarks" => "benchmarks.md",
         "API" => "api.md",
+        "Attribution" => "attribution.md",
     ],
     # Not a blanket `true`: a failing @example block must fail the build, since the
     # examples page is the only thing checking that the documented code still runs.

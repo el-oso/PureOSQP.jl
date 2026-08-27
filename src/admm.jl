@@ -14,18 +14,32 @@ function admm_step!(ws::Workspace{T}) where {T}
     a = ws.settings.alpha
     ws.x, ws.x_prev = ws.x_prev, ws.x
     ws.z, ws.z_prev = ws.z_prev, ws.z
-    ws.rhs_x .= ws.settings.sigma .* ws.x_prev .- ws.q
-    if ws.m > 0
-        ws.rhs_z .= ws.z_prev .- ws.rho_inv_vec .* ws.y
+    σ = ws.settings.sigma
+    for i in eachindex(ws.rhs_x)
+        ws.rhs_x[i] = σ * ws.x_prev[i] - ws.q[i]
     end
-    solve_kkt!(ws, ws.rhs_x, ws.rhs_z)
-    ws.x .= a .* ws.xtilde .+ (one(T) - a) .* ws.x_prev
-    ws.delta_x .= ws.x .- ws.x_prev
+    for i in eachindex(ws.rhs_z)
+        ws.rhs_z[i] = ws.z_prev[i] - ws.rho_inv_vec[i] * ws.y[i]
+    end
+    solve_system!(ws.linsys, ws, ws.rhs_x, ws.rhs_z)
+    for i in eachindex(ws.x)
+        xi = a * ws.xtilde[i] + (one(T) - a) * ws.x_prev[i]
+        ws.x[i] = xi
+        ws.delta_x[i] = xi - ws.x_prev[i]
+    end
     if ws.m > 0
-        ws.z .= a .* ws.ztilde .+ (one(T) - a) .* ws.z_prev .+ ws.rho_inv_vec .* ws.y
-        ws.z .= clamp.(ws.z, ws.l, ws.u)
-        ws.delta_y .= ws.rho_vec .* (a .* ws.ztilde .+ (one(T) - a) .* ws.z_prev .- ws.z)
-        ws.y .+= ws.delta_y
+        # One pass, written as a loop rather than in-place broadcasts: `z .= clamp.(z, …)`
+        # and `y .+= δy` put the destination on both sides, which leaves an `unaliascopy`
+        # branch that AllocCheck reports as a possible allocation. The loop is provably
+        # allocation-free and also avoids re-reading `ztilde` and `z_prev` three times.
+        for i in eachindex(ws.z)
+            relaxed = a * ws.ztilde[i] + (one(T) - a) * ws.z_prev[i]
+            zi = clamp(relaxed + ws.rho_inv_vec[i] * ws.y[i], ws.l[i], ws.u[i])
+            ws.z[i] = zi
+            dy = ws.rho_vec[i] * (relaxed - zi)
+            ws.delta_y[i] = dy
+            ws.y[i] += dy
+        end
     end
     return ws
 end

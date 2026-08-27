@@ -14,16 +14,6 @@ end
 @inline has_solution(s::Status) = s === SOLVED || s === SOLVED_INACCURATE || s === MAX_ITER_REACHED
 
 @inline INFTY(::Type{T}) where {T} = min(T(1.0e30), prevfloat(typemax(T)))
-
-"""
-    supports_bunchkaufman(T) -> Bool
-
-Whether `bunchkaufman!` is available for `Symmetric{T,Matrix{T}}` on the running Julia.
-Checked rather than keyed to a version number: before Julia 1.11 only BLAS floats were
-covered, and that boundary is the kind of thing that moves.
-"""
-@inline supports_bunchkaufman(::Type{T}) where {T} =
-    hasmethod(bunchkaufman!, Tuple{Symmetric{T, Matrix{T}}})
 @inline MIN_SCALING(::Type{T}) where {T} = T(1.0e-4)
 @inline MAX_SCALING(::Type{T}) where {T} = T(1.0e4)
 @inline RHO_MIN(::Type{T}) where {T} = T(1.0e-6)
@@ -119,7 +109,7 @@ end
 Solver state. The caller's `P` and `A` are held by reference and never mutated: Ruiz
 equilibration lives in the factors `D`, `E`, `c` and is applied lazily on every product.
 """
-mutable struct Workspace{T <: AbstractFloat, MP <: AbstractMatrix, MA <: AbstractMatrix, FC, FB}
+mutable struct Workspace{T <: AbstractFloat, MP <: AbstractMatrix, MA <: AbstractMatrix, LS <: LinearSystem}
     P::MP
     A::MA
     n::Int
@@ -155,13 +145,7 @@ mutable struct Workspace{T <: AbstractFloat, MP <: AbstractMatrix, MA <: Abstrac
     rho_vec::Vector{T}
     rho_inv_vec::Vector{T}
     constr_type::Vector{Int8}
-    W::Matrix{T}
-    R::Matrix{T}
-    K::Matrix{T}
-    kkt_rhs::Vector{T}
-    chol::FC
-    bk::FB
-    backend::Symbol
+    linsys::LS
     refactor_count::Int
     prim_res::T
     dual_res::T
@@ -229,21 +213,7 @@ function setup(
     l0 = T[max(T(li), -inf) for li in l]
     u0 = T[min(T(ui), inf) for ui in u]
     z1(k) = zeros(T, k)
-    dummy = Symmetric(fill(one(T), 1, 1))
-    chol0 = cholesky!(copy(dummy))
-    # Before Julia 1.11 `bunchkaufman!` covers only BLAS floats, so `Float16` and
-    # `BigFloat` have no factorization for the full KKT system. The reduced Cholesky path
-    # still works for them; only the `:kkt` backend and polishing are unavailable.
-    bk0 = supports_bunchkaufman(T) ? bunchkaufman!(copy(dummy)) : nothing
-    if isnothing(bk0)
-        settings.linsys === :kkt && throw(
-            ArgumentError("linsys = :kkt needs bunchkaufman! for $T, which this Julia version ($(VERSION)) does not provide. Use linsys = :auto, or Float32/Float64.")
-        )
-        settings.polish && throw(
-            ArgumentError("polish = true needs bunchkaufman! for $T, which this Julia version ($(VERSION)) does not provide. Disable polishing, or use Float32/Float64.")
-        )
-    end
-    ws = Workspace{T, typeof(P), typeof(A), typeof(chol0), typeof(bk0)}(
+    make(ls) = Workspace{T, typeof(P), typeof(A), typeof(ls)}(
         P, A, n, m,
         q0, l0, u0,
         copy(q0), copy(l0), copy(u0),
@@ -252,18 +222,31 @@ function setup(
         z1(m), z1(n), z1(n),
         z1(n), z1(m), z1(n), z1(m), z1(n), z1(m),
         settings.rho, ones(T, m), ones(T, m), zeros(Int8, m),
-        Matrix{T}(undef, m, n), Matrix{T}(undef, n, n),
-        Matrix{T}(undef, 0, 0), T[],
-        chol0,
-        bk0,
-        :cholesky, 0,
+        ls, 0,
         zero(T), zero(T), zero(T), zero(T), zero(T), 0, UNSOLVED, false,
         settings,
     )
+    if settings.linsys === :kkt
+        ws = make(FullKKT{T}(n, m))
+        scale!(ws)
+        set_rho_vec!(ws, settings.rho)
+        refactor!(ws)
+        return ws
+    end
+    # :auto prefers the reduced Cholesky and settles the choice here, once. The backend is
+    # then part of the workspace's type, so the per-iteration solve dispatches statically.
+    ws = make(ReducedCholesky{T}(n, m))
     scale!(ws)
     set_rho_vec!(ws, settings.rho)
-    refactor!(ws)
-    return ws
+    if factorize!(ws.linsys, ws)
+        ws.refactor_count += 1
+        return ws
+    end
+    kkt = make(FullKKT{T}(n, m))
+    scale!(kkt)
+    set_rho_vec!(kkt, settings.rho)
+    refactor!(kkt)
+    return kkt
 end
 
 """

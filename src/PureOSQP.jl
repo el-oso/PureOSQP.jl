@@ -14,14 +14,16 @@ Mathematical Programming Computation 12(4):637–672, 2020.
 module PureOSQP
 
 using LinearAlgebra
+using TypeContracts: TypeContracts, @contract, @verify
 
 export setup, solve, solve!, update!, warm_start!, Settings, Solution, Status
+export LinearSystem, ReducedCholesky, FullKKT
 export SOLVED, PRIMAL_INFEASIBLE, DUAL_INFEASIBLE, MAX_ITER_REACHED, NON_CONVEX, UNSOLVED
 export SOLVED_INACCURATE, PRIMAL_INFEASIBLE_INACCURATE, DUAL_INFEASIBLE_INACCURATE
 
+include("linsys.jl")
 include("types.jl")
 include("scaling.jl")
-include("linsys.jl")
 include("rho.jl")
 include("termination.jl")
 include("admm.jl")

@@ -27,7 +27,9 @@ function update_residuals!(ws::Workspace{T}) where {T}
     scaled = ws.settings.scaling > 0
     if m > 0
         mul_A!(ws.Ax, ws, ws.x)
-        ws.work_m .= ws.Ax .- ws.z
+        for i in eachindex(ws.work_m, ws.Ax, ws.z)
+            ws.work_m[i] = ws.Ax[i] - ws.z[i]
+        end
         ws.scaled_prim_res = norm_inf(ws.work_m)
         ws.prim_res = if scaled
             r = zero(T)
@@ -43,10 +45,14 @@ function update_residuals!(ws::Workspace{T}) where {T}
         ws.scaled_prim_res = zero(T)
     end
     mul_P!(ws.Px, ws, ws.x)
-    ws.work_n .= ws.q .+ ws.Px
+    for i in eachindex(ws.work_n, ws.q, ws.Px)
+        ws.work_n[i] = ws.q[i] + ws.Px[i]
+    end
     if m > 0
         mul_At!(ws.Aty, ws, ws.y)
-        ws.work_n .+= ws.Aty
+        for i in eachindex(ws.work_n, ws.Aty)
+            ws.work_n[i] += ws.Aty[i]
+        end
     else
         fill!(ws.Aty, zero(T))
     end

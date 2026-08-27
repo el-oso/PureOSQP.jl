@@ -1,0 +1,4 @@
+[StrictMode]
+analysis = "fast"
+checks_enabled = true
+fail_mode = "error"
