@@ -28,8 +28,8 @@ reuses the equilibration factors, buffers and iterates, and refactorizes only wh
 never for `q`; for `l`/`u` only when a row changes constraint class; always for `P`/`A`.
 `ws.refactor_count` makes that observable, and the tests assert it.
 
-Measured over 20-step sequences (`bench/update_bench.jl`): **1.15–2.10×** saved versus a
-fresh `setup` per step, and **0.91–3.81×** versus libosqp 1.x. The saving is bounded by
+Measured over 20-step sequences (`bench/update_bench.jl`): **1.11–2.16×** saved versus a
+fresh `setup` per step, and **1.41–3.62×** versus libosqp 1.x. The saving is bounded by
 setup's share of the run, so it is largest where solves are short. Note the factorization
 count is not always 1 — equilibration rescales the bounds, so a row whose scaled gap falls
 under `RHO_TOL` is reclassified as an equality, which changes its `ρ`.

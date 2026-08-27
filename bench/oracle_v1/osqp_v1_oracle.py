@@ -59,16 +59,30 @@ def build(problem):
 
 
 def solve_once(problem):
-    model, _ = build(problem)
+    model, setup_time = build(problem)
     res = model.solve()
-    return {
+    out = {
         "status": str(res.info.status),
         "x": finite(res.x),
         "y": finite(res.y),
         "obj_val": None if not np.isfinite(res.info.obj_val) else float(res.info.obj_val),
         "iter": int(res.info.iter),
+        "setup_time": setup_time,
         "version": osqp.__version__,
     }
+    # `repeat` times the whole setup+solve, the same span the Julia side benchmarks, and
+    # reports the minimum. Timing happens in this process, so interpreter startup and the
+    # JSON round trip are excluded.
+    repeat = int(problem.get("repeat", 0))
+    if repeat > 0:
+        best = float("inf")
+        for _ in range(repeat):
+            t0 = time.perf_counter()
+            m, _ = build(problem)
+            m.solve()
+            best = min(best, time.perf_counter() - t0)
+        out["total_time"] = best
+    return out
 
 
 def solve_sequence(problem):

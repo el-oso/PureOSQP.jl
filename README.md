@@ -89,22 +89,28 @@ validated rather than silently accepted, and a run without a meaningful solution
 
 ## Benchmarks
 
-Dense random QPs, `eps_abs = eps_rel = 1e-6`, single-threaded BLAS, versus libosqp 0.6.2:
+Dense random QPs, `eps_abs = eps_rel = 1e-6`, single-threaded BLAS, against **both**
+reference versions. libosqp 1.x has no Julia wrapper, so it is timed inside the subprocess
+oracle around the same `setup + solve` span:
 
-| n | m | PureOSQP | libosqp 0.6.2 | speedup | iters | objective rel. Δ |
-|---|---|---|---|---|---|---|
-| 50 | 100 | 2.71 ms | 5.81 ms | 2.14× | 900 / 900 | 1.8e-15 |
-| 200 | 400 | 38.4 ms | 130 ms | 3.39× | 1175 / 1175 | 4.4e-15 |
-| 400 | 800 | 134 ms | 1747 ms | 13.0× | 625 / 625 | 3.9e-15 |
-| 200 | 2000 | 299 ms | 2044 ms | 6.84× | 3025 / 3025 | 7.1e-15 |
-| 100 | 50 | 1.63 ms | 1.17 ms | **0.72×** | 50 / 50 | 4.4e-15 |
-| 10 | 20 | 0.153 ms | 0.081 ms | **0.53×** | 100 / 100 | 3.8e-15 |
+| n | m | PureOSQP | libosqp 0.6.2 | vs | libosqp 1.x | vs | iterations (all three) |
+|---|---|---|---|---|---|---|---|
+| 25 | 50 | 0.842 ms | 1.51 ms | 1.79× | 1.86 ms | 2.20× | 675 |
+| 50 | 100 | 2.85 ms | 5.51 ms | 1.93× | 5.70 ms | 2.00× | 900 |
+| 200 | 400 | 42.1 ms | 141 ms | 3.35× | 128 ms | 3.05× | 1175 |
+| 400 | 800 | 107 ms | 675 ms | 6.29× | 630 ms | 5.87× | 625 |
+| 200 | 2000 | 336 ms | 1445 ms | 4.31× | 1314 ms | 3.91× | 3025 |
+| 100 | 50 | 1.36 ms | 1.27 ms | **0.94×** | 1.73 ms | 1.27× | 50 |
+
+**Iteration counts are identical across all three implementations in every case**, and
+objectives agree to about `1e-15`.
 
 These are **dense** problems, which is the reference implementation's worst case: a sparse
 solver handed dense matrices, paying scalar sparse LDLᵀ where PureOSQP gets BLAS-3 dense
 Cholesky. Read it as a storage-format comparison, not a solver-quality one — on sparse
 problems the reference implementation is expected to win, and PureOSQP has no sparse
-backend. It already loses here on small problems and when `m < n`.
+backend. It already loses to 0.6.2 at `n = 100, m = 50`, where the reduced system is barely
+smaller than the full one.
 
 Full tables, the libosqp 1.x agreement check and the linear-system backend comparison:
 `bench/headtohead.jl`, `bench/headtohead_v1.jl` and `bench/kkt_backend.jl`, with every

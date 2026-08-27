@@ -17,7 +17,7 @@
       "iter_pure": 300,
       "m": 50,
       "n": 25,
-      "objdiff": 1.491533321054182e-15,
+      "objdiff": 2.0508583164495006e-15,
       "status_1x": "solved",
       "status_pure": "SOLVED"
     },
@@ -26,7 +26,7 @@
       "iter_pure": 1400,
       "m": 100,
       "n": 50,
-      "objdiff": 8.063423796639763e-16,
+      "objdiff": 4.838054277983858e-16,
       "status_1x": "solved",
       "status_pure": "SOLVED"
     },
@@ -44,7 +44,7 @@
       "iter_pure": 700,
       "m": 400,
       "n": 200,
-      "objdiff": 3.4240667227817052e-15,
+      "objdiff": 3.579706119271783e-15,
       "status_1x": "solved",
       "status_pure": "SOLVED"
     },
@@ -62,7 +62,7 @@
       "iter_pure": 1875,
       "m": 500,
       "n": 50,
-      "objdiff": 2.41504132613258e-13,
+      "objdiff": 1.1296161041587875e-13,
       "status_1x": "solved",
       "status_pure": "SOLVED"
     }
