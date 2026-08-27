@@ -1,14 +1,9 @@
 using Documenter, DocumenterVitepress, PureOSQP
-using Documenter: Remotes
 
 makedocs(;
     modules = [PureOSQP],
     authors = "el-oso",
     sitename = "PureOSQP.jl",
-    # Stated rather than inferred from git, so the docs build in a bare checkout too
-    # while keeping per-source links working.
-    repo = Remotes.GitHub("el-oso", "PureOSQP.jl"),
-    remotes = Dict(dirname(@__DIR__) => Remotes.GitHub("el-oso", "PureOSQP.jl")),
     format = DocumenterVitepress.MarkdownVitepress(
         repo = "github.com/el-oso/PureOSQP.jl",
         devbranch = "main",
