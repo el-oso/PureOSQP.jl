@@ -115,3 +115,26 @@ end
         @test Base.isexported(PureOSQP, Symbol(s))
     end
 end
+
+@testitem "an eltype without bunchkaufman! still solves on the Cholesky path" begin
+    using LinearAlgebra, SparseArrays, OSQP, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    # Before Julia 1.11, bunchkaufman! covers only BLAS floats. Float16 must still work
+    # through the reduced Cholesky, and the paths that genuinely need the factorization
+    # must say so at setup rather than failing somewhere deeper.
+    T = Float16
+    P = Matrix{T}([4 1; 1 2])
+    q = T[1, 1]
+    A = Matrix{T}([1 1; 1 0; 0 1])
+    l = T[1, 0, 0]
+    u = T[1, 0.7, 0.7]
+    s = PureOSQP.solve(P, q, A, l, u; eps_abs = T(1.0e-2), eps_rel = T(1.0e-2))
+    @test s isa Solution{T}
+    @test s.status == SOLVED
+    if !PureOSQP.supports_bunchkaufman(T)
+        @test_throws "linsys = :kkt needs bunchkaufman!" setup(P, q, A, l, u; linsys = :kkt)
+        @test_throws "polish = true needs bunchkaufman!" setup(P, q, A, l, u; polish = true)
+    else
+        @test setup(P, q, A, l, u; linsys = :kkt).backend === :bunchkaufman
+    end
+end

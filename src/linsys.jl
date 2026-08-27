@@ -52,6 +52,9 @@ function refactor!(ws::Workspace{T}) where {T}
         ws.backend = :cholesky
         ws.refactor_count += 1
     else
+        isnothing(ws.bk) && throw(
+            ArgumentError("the reduced matrix is not positive definite and the full-KKT fallback needs bunchkaufman! for $T, which this Julia version ($(VERSION)) does not provide. Use Float32 or Float64.")
+        )
         build_kkt!(ws)
         ws.bk = bunchkaufman!(Symmetric(ws.K, :L); check = true)
         ws.backend = :bunchkaufman

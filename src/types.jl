@@ -14,6 +14,16 @@ end
 @inline has_solution(s::Status) = s === SOLVED || s === SOLVED_INACCURATE || s === MAX_ITER_REACHED
 
 @inline INFTY(::Type{T}) where {T} = min(T(1.0e30), prevfloat(typemax(T)))
+
+"""
+    supports_bunchkaufman(T) -> Bool
+
+Whether `bunchkaufman!` is available for `Symmetric{T,Matrix{T}}` on the running Julia.
+Checked rather than keyed to a version number: before Julia 1.11 only BLAS floats were
+covered, and that boundary is the kind of thing that moves.
+"""
+@inline supports_bunchkaufman(::Type{T}) where {T} =
+    hasmethod(bunchkaufman!, Tuple{Symmetric{T, Matrix{T}}})
 @inline MIN_SCALING(::Type{T}) where {T} = T(1.0e-4)
 @inline MAX_SCALING(::Type{T}) where {T} = T(1.0e4)
 @inline RHO_MIN(::Type{T}) where {T} = T(1.0e-6)
@@ -221,7 +231,18 @@ function setup(
     z1(k) = zeros(T, k)
     dummy = Symmetric(fill(one(T), 1, 1))
     chol0 = cholesky!(copy(dummy))
-    bk0 = bunchkaufman!(copy(dummy))
+    # Before Julia 1.11 `bunchkaufman!` covers only BLAS floats, so `Float16` and
+    # `BigFloat` have no factorization for the full KKT system. The reduced Cholesky path
+    # still works for them; only the `:kkt` backend and polishing are unavailable.
+    bk0 = supports_bunchkaufman(T) ? bunchkaufman!(copy(dummy)) : nothing
+    if isnothing(bk0)
+        settings.linsys === :kkt && throw(
+            ArgumentError("linsys = :kkt needs bunchkaufman! for $T, which this Julia version ($(VERSION)) does not provide. Use linsys = :auto, or Float32/Float64.")
+        )
+        settings.polish && throw(
+            ArgumentError("polish = true needs bunchkaufman! for $T, which this Julia version ($(VERSION)) does not provide. Disable polishing, or use Float32/Float64.")
+        )
+    end
     ws = Workspace{T, typeof(P), typeof(A), typeof(chol0), typeof(bk0)}(
         P, A, n, m,
         q0, l0, u0,
