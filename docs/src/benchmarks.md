@@ -13,16 +13,16 @@ implementation as a Julia user gets it. PureOSQP is timed on OpenBLAS and again 
 
 | n | m | PureOSQP | PureOSQP + PureBLAS | OSQP | vs | vs (PureBLAS) | iterations | objective rel. Δ |
 |---|---|---|---|---|---|---|---|---|
-| 10 | 20 | 0.037 ms | 0.035 ms | 0.064 ms | 1.71× | 1.81× | 100 | 3.3e-15 |
-| 25 | 50 | 0.454 ms | 0.406 ms | 1.38 ms | 3.05× | 3.41× | 675 | 1.4e-15 |
-| 50 | 100 | 1.37 ms | 1.28 ms | 5.01 ms | 3.66× | 3.90× | 900 | 1.3e-15 |
-| 100 | 200 | 3.36 ms | 2.96 ms | 20.4 ms | 6.06× | 6.88× | 850 | 1.3e-15 |
-| 200 | 400 | 15.6 ms | 13.0 ms | 127 ms | 8.11× | 9.75× | 1175 | 4.1e-15 |
-| 400 | 800 | 40.8 ms | 42.8 ms | 613 ms | **15.04×** | 14.34× | 625 | 4.5e-15 |
-| 100 | 50 | 0.344 ms | 0.331 ms | 1.15 ms | 3.35× | 3.48× | 50 | 7.5e-16 |
-| 200 | 100 | 1.18 ms | 1.14 ms | 7.29 ms | 6.18× | 6.41× | 50 | 1.1e-14 |
-| 100 | 1000 | 119 ms | 112 ms | 680 ms | 5.70× | 6.09× | 7475 | 1.7e-11 |
-| 200 | 2000 | 229 ms | 197 ms | 1334 ms | 5.83× | 6.76× | 3025 | 8.0e-15 |
+| 10 | 20 | 0.038 ms | 0.035 ms | 0.064 ms | 1.70× | 1.82× | 100 | 3.3e-15 |
+| 25 | 50 | 0.460 ms | 0.415 ms | 1.39 ms | 3.02× | 3.34× | 675 | 1.3e-15 |
+| 50 | 100 | 1.37 ms | 1.29 ms | 5.04 ms | 3.69× | 3.90× | 900 | 1.3e-15 |
+| 100 | 200 | 3.52 ms | 2.99 ms | 20.5 ms | 5.82× | 6.87× | 850 | 1.3e-15 |
+| 200 | 400 | 16.3 ms | 13.5 ms | 128 ms | 7.81× | 9.44× | 1175 | 4.1e-15 |
+| 400 | 800 | 40.9 ms | 40.2 ms | 618 ms | **15.12×** | 15.39× | 625 | 4.5e-15 |
+| 100 | 50 | 0.347 ms | 0.334 ms | 1.16 ms | 3.36× | 3.49× | 50 | 7.5e-16 |
+| 200 | 100 | 1.18 ms | 1.15 ms | 7.29 ms | 6.16× | 6.37× | 50 | 1.1e-14 |
+| 100 | 1000 | 120 ms | 112 ms | 679 ms | 5.67× | 6.05× | 7475 | 1.7e-11 |
+| 200 | 2000 | 229 ms | 211 ms | 1302 ms | 5.69× | 6.16× | 3025 | 7.9e-15 |
 
 **The iteration count is identical to OSQP in every case**, measured with
 `check_dualgap = false` to match libosqp 0.6.2, which has no duality-gap termination test.
@@ -69,11 +69,11 @@ PureBLAS column.
 
 | n | m | `update!` | fresh `setup` each step | saved | libosqp 1.x | vs | `update!` + PureBLAS | vs | factorizations |
 |---|---|---|---|---|---|---|---|---|---|
-| 10 | 20 | 0.95 ms | 1.38 ms | 1.45× | 1.80 ms | 1.88× | 0.84 ms | 1.13× | 8 |
-| 25 | 50 | 3.05 ms | 6.50 ms | 2.13× | 9.78 ms | 3.21× | 2.70 ms | 1.13× | 14 |
-| 50 | 100 | 15.7 ms | 23.8 ms | 1.52× | 58.6 ms | 3.73× | 14.5 ms | 1.08× | 7 |
-| 100 | 200 | 90.0 ms | 88.7 ms | **0.99×** | 485 ms | 5.39× | 80.2 ms | 1.12× | 3 |
-| 200 | 400 | 337 ms | 363 ms | 1.08× | 2458 ms | 7.30× | 281 ms | 1.20× | 1 |
+| 10 | 20 | 0.96 ms | 1.40 ms | 1.47× | 1.84 ms | 1.92× | 0.82 ms | 1.17× | 8 |
+| 25 | 50 | 3.07 ms | 6.43 ms | 2.09× | 9.95 ms | 3.24× | 2.70 ms | 1.14× | 14 |
+| 50 | 100 | 15.8 ms | 23.9 ms | 1.51× | 58.7 ms | 3.72× | 15.0 ms | 1.05× | 7 |
+| 100 | 200 | 89.3 ms | 81.9 ms | **0.92×** | 487 ms | 5.45× | 82.0 ms | 1.09× | 3 |
+| 200 | 400 | 343 ms | 359 ms | 1.05× | 2387 ms | 6.96× | 290 ms | 1.18× | 1 |
 
 "Factorizations" counts the whole 20-step sequence: one from `setup`, plus one per step
 whose constraint classification changed.
@@ -91,7 +91,7 @@ numbers.** A re-solve sequence refactorizes far more often per iteration than on
 solve does, and `potrf` and `potri` are where the two libraries differ most and in opposite
 directions — PureBLAS is 1.98× faster on the first and 0.67× on the second, so at `n = 200`
 it is about 1.15× *behind* on the combined factorization step while still ahead per
-iteration. It nonetheless comes out ahead on every row here, by 1.08–1.20×, so at these
+iteration. It nonetheless comes out ahead on every row here, by 1.05–1.18×, so at these
 factorization counts the per-iteration advantage still dominates. The margin does not track
 the factorization count cleanly, which is what you would expect when refactorization cost
 grows as `n³` and the loop's cost grows as iterations times `n²`.
@@ -219,10 +219,10 @@ product. Reproduce with `julia --project=bench bench/matrix_types.jl`.
 
 | problem | as `Matrix` | structured | speedup | iterations |
 |---|---|---|---|---|
-| dense `P` (vs `Symmetric`) | 35.2 ms | 36.5 ms | 0.96× | 4375 |
-| diagonal `P` (vs `Diagonal`) | 5.25 ms | 6.54 ms | 0.80× | 550 |
-| tridiagonal `P` (vs `Symmetric`) | 21.3 ms | 22.7 ms | 0.94× | 2550 |
-| `A` as a `SubArray` | 7.90 ms | 9.42 ms | 0.84× | 900 |
+| dense `P` (vs `Symmetric`) | 35.4 ms | 36.7 ms | 0.96× | 4375 |
+| diagonal `P` (vs `Diagonal`) | 5.25 ms | 6.57 ms | 0.80× | 550 |
+| tridiagonal `P` (vs `Symmetric`) | 21.4 ms | 22.8 ms | 0.94× | 2550 |
+| `A` as a `SubArray` | 7.99 ms | 9.43 ms | 0.85× | 900 |
 
 **Structured storage does not help here — it costs a little.** The mechanism works: a
 `Diagonal` `P` really does get an `O(n)` product instead of `O(n²)`. But `P` is not where
@@ -244,12 +244,12 @@ package extension walks `nzrange` instead of indexing.
 
 | n | m | density | densified | sparse input | OSQP | best vs OSQP |
 |---|---|---|---|---|---|---|
-| 200 | 400 | 1% | 8.16 ms | 3.54 ms | 4.80 ms | 1.36× |
-| 200 | 400 | 5% | 13.2 ms | 8.53 ms | 24.4 ms | 2.86× |
-| 200 | 400 | 20% | 13.1 ms | 18.4 ms | 37.5 ms | 2.87× |
-| 400 | 800 | 1% | 41.4 ms | 16.5 ms | 39.1 ms | 2.37× |
-| 400 | 800 | 5% | 60.1 ms | 38.4 ms | 110 ms | 2.87× |
-| 400 | 800 | 20% | 137 ms | 183 ms | 385 ms | 2.80× |
+| 200 | 400 | 1% | 8.19 ms | 3.56 ms | 4.83 ms | 1.36× |
+| 200 | 400 | 5% | 13.2 ms | 8.53 ms | 24.6 ms | 2.88× |
+| 200 | 400 | 20% | 13.2 ms | 18.5 ms | 37.9 ms | 2.88× |
+| 400 | 800 | 1% | 42.3 ms | 16.7 ms | 39.2 ms | 2.34× |
+| 400 | 800 | 5% | 59.4 ms | 38.3 ms | 110 ms | 2.87× |
+| 400 | 800 | 20% | 135 ms | 181 ms | 380 ms | 2.82× |
 
 Iteration counts are identical everywhere — the storage changes the speed, never the path,
 and the benchmark asserts that rather than assuming it.

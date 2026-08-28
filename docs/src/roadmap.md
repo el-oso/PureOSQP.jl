@@ -20,10 +20,39 @@ cannot be stopped from the keyboard and reported as such. `time_limit` exists an
 the ADMM loop, but not setup, since setup is not timed either — upstream's budget covers
 the whole run because it times every phase.
 
-**Code generation.** `osqp_codegen` emits a self-contained C solver for a fixed problem
-structure, with embedded-mode, float-type and printing/profiling/interrupt toggles. The
-comparable capability here is `juliac --trim`, which the reference has no equivalent of,
-but the two are not interchangeable: trimming produces a Julia binary, not embeddable C.
+**Code generation** — a documented difference rather than work to be done.
+
+`osqp_codegen` writes four files: `workspace.h`, `workspace.c`, `osqp_configure.h` and an
+`emosqp.c` example `main`. Into them it bakes the settings, the scaled `P`, `q`, `A`, `l`,
+`u`, the equilibration vectors, `rho_vec`, the starting iterate and the numeric
+factorization. Every scratch vector becomes a fixed-size file-scope array, so the generated
+program has no allocation site at all. Under `embedded_mode = 2` it also bakes the KKT
+matrix, its index maps and the symbolic factorization, which is what lets `P` and `A`
+change and be refactorized with no symbolic phase and no heap; `embedded_mode = 1` fixes
+the matrices and `ρ` and updates only `q`, `l` and `u`.
+
+Most of that has a counterpart here. Baked settings, data and factorization are what
+`setup` already returns in a concretely typed workspace that `solve!` and `update!` reuse.
+Static dispatch with no reflection is what `test/trim_tests.jl` proves, negative control
+included. There is no symbolic phase or sparsity pattern to bake, because the factored
+matrix is dense. And the deployment story is closer than it sounds: `juliac --output-lib
+--compile-ccallable --experimental --trim=safe` turns a `Base.@ccallable` wrapper around
+[`solve`](@ref) into a 3.7 MB shared library exporting a C symbol, callable from a plain C
+`main` with no `jl_init`.
+
+What does not close is the difference underneath: OSQP emits C source, Julia emits machine
+code that needs the Julia runtime. The trimmed binary wants roughly 89 MB of shared
+libraries beside it — libjulia, libjulia-internal, and the OpenBLAS the dense
+factorizations genuinely use — plus about 19 ms of one-time initialization, and the garbage
+collector is in the address space whether or not the hot path touches it. Decisively,
+Julia does not exist for the targets code generation aims at: a Cortex-M part, a
+fixed-point DSP, a toolchain qualified for DO-178C. A C source file compiles for all of
+them.
+
+So this stays listed as a difference, not a gap to close. Emitting C from this package
+would be a second implementation of the solver, and for the dense case what it emitted
+would be a pair of loops and a Cholesky — not what anyone reaching for a generated solver
+wants. If matching it ever became the goal, the honest form is a separate C library.
 
 **Indirect (matrix-free) solve.** The whole conjugate-gradient path is absent:
 `cg_max_iter`, `cg_tol_reduction`, `cg_tol_fraction` and the diagonal preconditioner.

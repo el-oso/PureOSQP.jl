@@ -55,11 +55,13 @@ are not densified, but the reduced matrix the solver forms and factors is dense.
 ## How it differs from the reference implementation
 
 The inner KKT system is eliminated to an `n×n` symmetric positive definite system, rather
-than factoring the `(n+m)×(n+m)` quasi-definite system with a sparse LDLᵀ. Upstream avoids
-that because `AᵀA` destroys sparsity; with sparsity off the table the objection does not
-apply, and the reduced form is faster in every regime measured. Pass `linsys = :kkt` to
-force the full quasi-definite factorization, which is slower but more accurate at moderate
-conditioning; the whole test corpus runs through both backends.
+than factoring the `(n+m)×(n+m)` quasi-definite system as upstream does. Upstream avoids
+the reduction because `AᵀA` destroys sparsity, and that is true here too — the reduced
+matrix is dense whatever `A` looked like. The question is whether a sparse factorization of
+the full KKT would still win, and it was measured rather than assumed: it does win the
+per-iteration solve at 1% density, loses the factorization, and by 5% density loses both.
+Pass `linsys = :kkt` to force the full quasi-definite factorization, which is slower but
+more accurate at moderate conditioning; the whole test corpus runs through both backends.
 
 That reduced matrix is then inverted, once per factorization, and each iteration solves by
 a single `symv` instead of a Cholesky `ldiv!`. Both are `2n²` flops, but a triangular solve
@@ -110,12 +112,12 @@ and again on [PureBLAS](https://github.com/el-oso/PureBLAS.jl):
 
 | n | m | PureOSQP | + PureBLAS | OSQP | vs | vs (PureBLAS) | iterations |
 |---|---|---|---|---|---|---|---|
-| 25 | 50 | 0.454 ms | 0.406 ms | 1.38 ms | 3.05× | 3.41× | 675 |
-| 50 | 100 | 1.37 ms | 1.28 ms | 5.01 ms | 3.66× | 3.90× | 900 |
-| 200 | 400 | 15.6 ms | 13.0 ms | 127 ms | 8.11× | 9.75× | 1175 |
-| 400 | 800 | 40.8 ms | 42.8 ms | 613 ms | **15.04×** | 14.34× | 625 |
-| 200 | 2000 | 229 ms | 197 ms | 1334 ms | 5.83× | 6.76× | 3025 |
-| 100 | 50 | 0.344 ms | 0.331 ms | 1.15 ms | 3.35× | 3.48× | 50 |
+| 25 | 50 | 0.460 ms | 0.415 ms | 1.39 ms | 3.02× | 3.34× | 675 |
+| 50 | 100 | 1.37 ms | 1.29 ms | 5.04 ms | 3.69× | 3.90× | 900 |
+| 200 | 400 | 16.3 ms | 13.5 ms | 128 ms | 7.81× | 9.44× | 1175 |
+| 400 | 800 | 40.9 ms | 40.2 ms | 618 ms | **15.12×** | 15.39× | 625 |
+| 200 | 2000 | 229 ms | 211 ms | 1302 ms | 5.69× | 6.16× | 3025 |
+| 100 | 50 | 0.347 ms | 0.334 ms | 1.16 ms | 3.36× | 3.49× | 50 |
 
 **Iteration counts are identical to OSQP in every case**, and objectives agree to about
 `1e-15`. That is measured with `check_dualgap = false`, which is what libosqp 0.6.2 does:
@@ -124,17 +126,17 @@ solver stopping on three criteria cannot be expected to match one stopping on tw
 oracle since it has no Julia wrapper. Switching BLAS changes neither: PureBLAS gives
 `|Δx| ≈ 1e-14` on identical iteration counts.
 
-PureBLAS is the faster of the two on every case but `n = 400, m = 800`.
+PureBLAS is the faster of the two on every case in this table.
 
 These are **dense** problems, which is the reference implementation's worst case: a sparse
 solver handed dense matrices, paying scalar sparse LDLᵀ where PureOSQP gets BLAS-3 dense
 Cholesky. Read it as a storage-format comparison, not a solver-quality one. Two benchmarks
 give the other side of the picture:
 
-- **sparse `A`** — PureOSQP leads at every density measured, by 1.50× at `n = 200, m = 400`
-  and 1% density up to 3.18× at 5%. Hand it the sparse matrices rather than dense copies
+- **sparse `A`** — PureOSQP leads at every density measured, by 1.36× at `n = 200, m = 400`
+  and 1% density up to 2.88× at 5%. Hand it the sparse matrices rather than dense copies
   below ~10% density: a `SparseArrays` package extension walks the stored entries during
-  equilibration, worth 1.6–1.7× overall;
+  equilibration, worth 2.3–2.5× overall;
 - **a dense QP solver** — [DAQP](https://github.com/darnstrom/daqp), active-set, is 30×
   faster at `n = 10`; PureOSQP is 1.7× ahead by `n = 200, m = 400`. On one small dense QP,
   use DAQP. ADMM earns its place on sequences, through warm starts and cheap re-solves.
