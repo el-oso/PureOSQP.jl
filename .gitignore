@@ -4,3 +4,4 @@ docs/build/
 docs/node_modules/
 Manifest.toml
 scratch/
+.claude-reap.sh
