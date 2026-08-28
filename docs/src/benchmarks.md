@@ -260,3 +260,32 @@ differs.
 This is the boundary of what PureOSQP is for. It is a dense solver; if `A` is sparse and
 stays sparse, the reference implementation is the better tool and this package has no
 sparse backend to offer.
+
+### Does keeping `A` sparse help?
+
+The table above hands PureOSQP dense copies. It does not have to: any `AbstractMatrix`
+works, and lazy scaling means the per-iteration products call `mul!` on whatever was
+passed, so a `SparseMatrixCSC` keeps sparse products. Only the factorization buffers are
+dense either way. Passing the sparse matrices straight through:
+
+| n | m | density | densified | kept sparse | gain |
+|---|---|---|---|---|---|
+| 200 | 400 | 1% | 21.4 ms | 17.5 ms | 1.22× |
+| 200 | 400 | 5% | 31.3 ms | 36.4 ms | 0.86× |
+| 200 | 400 | 20% | 31.3 ms | 48.2 ms | 0.65× |
+| 400 | 800 | 1% | 93.6 ms | 76.0 ms | 1.23× |
+| 400 | 800 | 5% | 125 ms | 167 ms | 0.75× |
+| 400 | 800 | 20% | 255 ms | 360 ms | 0.71× |
+
+Only at 1% density, and only by about 1.2×. From 5% up, keeping the matrix sparse is
+actively *worse* — sparse `mul!` loses to dense BLAS-2 well before the flop count says it
+should, because the dense kernel streams contiguous memory while the sparse one chases
+indices. So densifying at the door, which is what the main table does, is the better
+default; PureOSQP just never forces it on you.
+
+That also answers why PureOSQP trails OSQP at low density, and it is not the products. At
+1%, `A` has ~800 nonzeros, so OSQP's per-iteration work is a few thousand flops against
+PureOSQP's ~240,000 — a 100× gap in arithmetic that sparse products recover only a
+fraction of. The rest is the factorization: PureOSQP forms `AᵀρA` and factors it densely,
+`O(mn²) + O(n³)`, while OSQP's sparse LDLᵀ on a nearly-empty KKT matrix is close to free.
+Nothing in this package's design fixes that; a sparse `A` wants a sparse factorization.

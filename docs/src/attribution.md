@@ -87,10 +87,43 @@ matrix:
 
 If you use PureOSQP in published work, cite the OSQP papers — the algorithm is theirs.
 
-Two further OSQP papers cover functionality this package does **not** implement, listed so
-the record is complete: Schubiger, Banjac and Lygeros (2020) on GPU acceleration and the
-PCG linear-system method, and Banjac, Stellato, Moehle, Goulart, Bemporad and Boyd (2017)
-on embedded code generation.
+### The rest of the OSQP bibliography
+
+The [OSQP citing page](https://osqp.org/citing/) lists five papers. The two above are the
+ones this package implements; the remaining three cover functionality it does **not**, and
+are reproduced here so the record is complete rather than selective.
+
+```bibtex
+@article{osqp-gpu,
+  author  = {Schubiger, M. and Banjac, G. and Lygeros, J.},
+  title   = {{GPU} acceleration of {ADMM} for large-scale quadratic programming},
+  journal = {Journal of Parallel and Distributed Computing},
+  volume  = {144},
+  pages   = {55--67},
+  year    = {2020},
+  doi     = {10.1016/j.jpdc.2020.05.021},
+}
+
+@inproceedings{osqp-codegen,
+  author    = {Banjac, G. and Stellato, B. and Moehle, N. and Goulart, P. and
+               Bemporad, A. and Boyd, S.},
+  title     = {Embedded code generation using the {OSQP} solver},
+  booktitle = {IEEE Conference on Decision and Control (CDC)},
+  year      = {2017},
+  doi       = {10.1109/CDC.2017.8263928},
+}
+
+@inproceedings{miosqp,
+  author    = {Stellato, B. and Naik, V. V. and Bemporad, A. and Goulart, P. and Boyd, S.},
+  title     = {Embedded mixed-integer quadratic optimization using the {OSQP} solver},
+  booktitle = {European Control Conference (ECC)},
+  year      = {2018},
+  doi       = {10.23919/ECC.2018.8550136},
+}
+```
+
+GPU acceleration and its PCG linear-system method, embedded code generation, and
+branch-and-bound for mixed-integer QPs are all outside this package's scope.
 
 ## Upstream
 
