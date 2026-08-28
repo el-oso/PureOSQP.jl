@@ -5,7 +5,21 @@
 #   (3) libosqp 1.x                -- setup once, then update + solve per step
 # The libosqp timings are measured inside its own process (see bench/oracle_v1), so they
 # exclude interpreter startup and the JSON round trip.
+#
+# When PureBLAS is present, (1) is measured a second time with it activated. This loop is
+# where the BLAS choice is least predictable from the single-solve numbers: a re-solve
+# sequence refactorizes far more often per iteration than one long solve does, so it
+# weights `potrf` and `potri` — where the two libraries differ most, and in opposite
+# directions — much more heavily. Run it with `--project=bench/pureblas`; the column is
+# skipped otherwise.
 using PureOSQP, LinearAlgebra, Random, Printf, JSON
+
+const HAVE_PUREBLAS = try
+    @eval using PureBLAS
+    true
+catch
+    false
+end
 
 BLAS.set_num_threads(1)
 
@@ -59,6 +73,23 @@ function pure_with_update(P, q0, A, l0, u0, seq)
     return (t, objs, ws.refactor_count)
 end
 
+"""
+The same `update!` sequence with PureBLAS rerouting LinearAlgebra. Activation is asserted
+at the measurement rather than assumed: `BLAS.get_config()` cannot see the libblastrampoline
+forwards, so a reroute that silently failed would look like a clean tie.
+"""
+function pureblas_with_update(P, q0, A, l0, u0, seq)
+    PureBLAS.is_active() && PureBLAS.deactivate()
+    pure_with_update(P, q0, A, l0, u0, seq[1:2])
+    PureBLAS.activate()
+    @assert PureBLAS.is_active()
+    pure_with_update(P, q0, A, l0, u0, seq[1:2])       # compile on this backend too
+    t, objs, nrefac = pure_with_update(P, q0, A, l0, u0, seq)
+    @assert PureBLAS.is_active()
+    PureBLAS.deactivate()
+    return (t, objs, nrefac)
+end
+
 function pure_without_update(P, q0, A, l0, u0, seq)
     objs = Float64[]
     t = @elapsed for s in seq
@@ -89,15 +120,17 @@ end
 
 py = find_interpreter()
 isnothing(py) && @info "No interpreter with `osqp` found; the libosqp 1.x column is skipped."
+HAVE_PUREBLAS || @info "PureBLAS not available; that column is skipped."
 
 const CASES = [(10, 20), (25, 50), (50, 100), (100, 200), (200, 400)]
 
 results = []
 @printf(
-    "%5s %6s | %11s %11s %8s | %11s %8s | %5s %9s\n", "n", "m",
-    "update!", "fresh setup", "saved", "libosqp1x", "ratio", "refac", "obj Δ"
+    "%5s %6s | %11s %11s %8s | %11s %8s | %11s %8s | %5s %9s\n", "n", "m",
+    "update!", "fresh setup", "saved", "libosqp1x", "ratio", "+PureBLAS", "vs(pb)",
+    "refac", "obj Δ"
 )
-println("-"^88)
+println("-"^112)
 for (n, m) in CASES
     P, q0, A, l0, u0, seq = make_sequence(n, m; seed = n + m)
     pure_with_update(P, q0, A, l0, u0, seq[1:2])          # warm up compilation
@@ -110,16 +143,25 @@ for (n, m) in CASES
     t_c, objs_c = isnothing(py) ? (NaN, Float64[]) : osqp_sequence(py, P, q0, A, l0, u0, seq)
     objdiff = isempty(objs_c) ? NaN :
         maximum(abs, objs_upd .- objs_c) / max(1, maximum(abs, objs_c))
+    t_pb, dx_pb = if HAVE_PUREBLAS
+        tp, objs_pb, refac_pb = pureblas_with_update(P, q0, A, l0, u0, seq)
+        # The BLAS must not change the path, only the speed.
+        @assert refac_pb == nrefac "PureBLAS changed the factorization count"
+        (tp, maximum(abs, objs_upd .- objs_pb) / max(1, maximum(abs, objs_upd)))
+    else
+        (NaN, NaN)
+    end
     push!(
         results, (;
             n, m, steps = STEPS, t_update = t_upd, t_fresh = t_new,
-            t_osqp_v1 = t_c, refactorizations = nrefac, objdiff,
+            t_osqp_v1 = t_c, t_pureblas = t_pb, dobj_pureblas = dx_pb,
+            refactorizations = nrefac, objdiff,
         )
     )
     @printf(
-        "%5d %6d | %9.2f ms %9.2f ms %7.2fx | %9.2f ms %7.2fx | %5d %9.1e\n",
+        "%5d %6d | %9.2f ms %9.2f ms %7.2fx | %9.2f ms %7.2fx | %9.2f ms %7.2fx | %5d %9.1e\n",
         n, m, 1.0e3t_upd, 1.0e3t_new, t_new / t_upd, 1.0e3t_c, t_c / t_upd,
-        nrefac, objdiff
+        1.0e3t_pb, t_upd / t_pb, nrefac, objdiff
     )
     flush(stdout)
 end
@@ -132,6 +174,11 @@ open(joinpath(@__DIR__, "results", "update_bench.json"), "w") do io
         io, Dict(
             "steps" => STEPS, "julia_version" => string(VERSION),
             "oracle" => "libosqp 1.x, timed inside its own process",
+            "pureblas_commit" => !HAVE_PUREBLAS ? "absent" : try
+                    strip(read(`git -C $(pkgdir(PureBLAS)) rev-parse --short HEAD`, String))
+            catch
+                    "unknown"
+            end,
             "results" => [Dict(string(k) => v for (k, v) in pairs(r)) for r in results],
         ), 2
     )

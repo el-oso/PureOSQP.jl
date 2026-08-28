@@ -1,56 +1,67 @@
 {
   "julia_version": "1.12.7",
   "oracle": "libosqp 1.x, timed inside its own process",
+  "pureblas_commit": "ea79919",
   "results": [
     {
+      "dobj_pureblas": 9.314006759829484e-14,
       "m": 20,
       "n": 10,
       "objdiff": 6.083199508910981e-14,
       "refactorizations": 8,
       "steps": 20,
-      "t_fresh": 0.00138583,
-      "t_osqp_v1": 0.0018049809732474387,
-      "t_update": 0.000943537
+      "t_fresh": 0.001380374,
+      "t_osqp_v1": 0.0017953329370357096,
+      "t_pureblas": 0.000840944,
+      "t_update": 0.00095371
     },
     {
+      "dobj_pureblas": 1.8125469248246393e-11,
       "m": 50,
       "n": 25,
       "objdiff": 1.7495187911591266e-12,
       "refactorizations": 14,
       "steps": 20,
-      "t_fresh": 0.00652645,
-      "t_osqp_v1": 0.009868961933534592,
-      "t_update": 0.003111973
+      "t_fresh": 0.006502574,
+      "t_osqp_v1": 0.009775660058949143,
+      "t_pureblas": 0.002697666,
+      "t_update": 0.003049377
     },
     {
+      "dobj_pureblas": 2.137179897981685e-15,
       "m": 100,
       "n": 50,
       "objdiff": 3.7983515459583905e-14,
       "refactorizations": 7,
       "steps": 20,
-      "t_fresh": 0.023765143,
-      "t_osqp_v1": 0.05847718607401475,
-      "t_update": 0.015625139
+      "t_fresh": 0.023833944,
+      "t_osqp_v1": 0.05859190912451595,
+      "t_pureblas": 0.01451593,
+      "t_update": 0.015689568
     },
     {
+      "dobj_pureblas": 1.4202986673636267e-13,
       "m": 200,
       "n": 100,
       "objdiff": 3.353210876741251e-13,
       "refactorizations": 3,
       "steps": 20,
-      "t_fresh": 0.080918964,
-      "t_osqp_v1": 0.4964265138260089,
-      "t_update": 0.088354557
+      "t_fresh": 0.088725596,
+      "t_osqp_v1": 0.48471296107163653,
+      "t_pureblas": 0.080213939,
+      "t_update": 0.089989968
     },
     {
+      "dobj_pureblas": 1.6463250137126376e-15,
       "m": 400,
       "n": 200,
       "objdiff": 2.8222714520788013e-15,
       "refactorizations": 1,
       "steps": 20,
-      "t_fresh": 0.358442521,
-      "t_osqp_v1": 2.4102167748496868,
-      "t_update": 0.334614431
+      "t_fresh": 0.363234415,
+      "t_osqp_v1": 2.4576994318631478,
+      "t_pureblas": 0.280922136,
+      "t_update": 0.336861264
     }
   ],
   "steps": 20

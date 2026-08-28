@@ -62,15 +62,16 @@ row.
 
 `P` and `A` fixed, `q`, `l` and `u` changing every step — the receding-horizon loop OSQP is
 most used for. 20 solves per case. Reproduce with
-`julia --project=bench bench/update_bench.jl`.
+`julia --project=bench bench/update_bench.jl`, or `--project=bench/pureblas` to include the
+PureBLAS column.
 
-| n | m | `update!` | fresh `setup` each step | saved | libosqp 1.x | vs | factorizations |
-|---|---|---|---|---|---|---|---|
-| 10 | 20 | 0.94 ms | 1.39 ms | 1.47× | 1.80 ms | 1.91× | 8 |
-| 25 | 50 | 3.11 ms | 6.53 ms | 2.10× | 9.87 ms | 3.17× | 14 |
-| 50 | 100 | 15.6 ms | 23.8 ms | 1.52× | 58.5 ms | 3.74× | 7 |
-| 100 | 200 | 88.4 ms | 80.9 ms | **0.92×** | 496 ms | 5.62× | 3 |
-| 200 | 400 | 335 ms | 358 ms | 1.07× | 2410 ms | 7.20× | 1 |
+| n | m | `update!` | fresh `setup` each step | saved | libosqp 1.x | vs | `update!` + PureBLAS | vs | factorizations |
+|---|---|---|---|---|---|---|---|---|---|
+| 10 | 20 | 0.95 ms | 1.38 ms | 1.45× | 1.80 ms | 1.88× | 0.84 ms | 1.13× | 8 |
+| 25 | 50 | 3.05 ms | 6.50 ms | 2.13× | 9.78 ms | 3.21× | 2.70 ms | 1.13× | 14 |
+| 50 | 100 | 15.7 ms | 23.8 ms | 1.52× | 58.6 ms | 3.73× | 14.5 ms | 1.08× | 7 |
+| 100 | 200 | 90.0 ms | 88.7 ms | **0.99×** | 485 ms | 5.39× | 80.2 ms | 1.12× | 3 |
+| 200 | 400 | 337 ms | 363 ms | 1.08× | 2458 ms | 7.30× | 281 ms | 1.20× | 1 |
 
 "Factorizations" counts the whole 20-step sequence: one from `setup`, plus one per step
 whose constraint classification changed.
@@ -78,10 +79,20 @@ whose constraint classification changed.
 **`update!` is worth much less than it used to be, and that is a consequence of making
 `setup` faster.** Its whole benefit is skipping setup; once setup dropped sevenfold (see
 [Sparse A](@ref "Sparse A")) there was far less left to skip. At `n = 100` it is now
-slightly *behind* rebuilding — the two runs also differ in warm starting, so they take
-different numbers of iterations and the comparison is no longer purely setup-versus-setup.
-It pays where solves are short and setup is a large share, and it remains the right call
-when you want warm starting; at the larger sizes it is close to a wash.
+level with rebuilding — the two runs also differ in warm starting, so they take different
+numbers of iterations and the comparison is no longer purely setup-versus-setup. It pays
+where solves are short and setup is a large share, and it remains the right call when you
+want warm starting; at the larger sizes it is close to a wash.
+
+**This loop is the case where the BLAS choice is least predictable from the single-solve
+numbers.** A re-solve sequence refactorizes far more often per iteration than one long
+solve does, and `potrf` and `potri` are where the two libraries differ most and in opposite
+directions — PureBLAS is 1.98× faster on the first and 0.67× on the second, so at `n = 200`
+it is about 1.15× *behind* on the combined factorization step while still ahead per
+iteration. It nonetheless comes out ahead on every row here, by 1.08–1.20×, so at these
+factorization counts the per-iteration advantage still dominates. The margin does not track
+the factorization count cleanly, which is what you would expect when refactorization cost
+grows as `n³` and the loop's cost grows as iterations times `n²`.
 
 The factorization count is not always 1: equilibration rescales the bounds, so a row whose
 scaled gap `ũ - l̃` falls under `RHO_TOL` is reclassified as an equality and its `ρ`
