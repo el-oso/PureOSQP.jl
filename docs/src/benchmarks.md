@@ -132,15 +132,25 @@ own benchmarks target. But PureOSQP's inner loop is Level-2-bound: it does a han
 on these problems is a few times in hundreds of iterations. The whole-solve ratio is
 therefore set by `gemv`, and specifically by the **transposed** path.
 
-**That gemv-T number is a configuration result, not a verdict on PureBLAS.** PureBLAS
-autotunes per machine, and two of its seven knobs — `gemvt_percol_window` and `gemvt_pf` —
-govern exactly this path; the window is decided *per size*, so an unpinned default is not
-expected to be competitive. On the machine these numbers come from, no knobs are pinned,
-and PureBLAS's calibrator (`bench/calibrate.jl`) refuses to run because the CPU is not
-frequency-locked (`powersave`, boost on, 623–5091 MHz). So this measures **uncalibrated
-PureBLAS**, and the honest reading is "PureOSQP's workload leans on the one PureBLAS path
-that most needs per-machine tuning, which was untuned here" — not that the kernel is slow.
-A fair number needs the knobs pinned on a clock-locked box first.
+**On whether tuning would close that gap: it was tried, and it does not.** PureBLAS
+autotunes per machine and two of its seven knobs — `gemvt_percol_window` and `gemvt_pf` —
+govern this path, so the obvious suspicion is that an unpinned default is the whole story.
+Running its calibrator (off-lock, which is why these are not gate-valid numbers) says
+otherwise: the window knob reports *"NO window reproduces the measured winners — the knob's
+SHAPE is wrong for this box, not just its value. Reporting, not pinning"*, so it pins
+nothing at all.
+
+The gap is also not confined to the sizes PureOSQP happens to use. Measured on square `A`,
+gemv-T with PureBLAS is 7.1× slower at n=64, 9.5× at n=200, 9.7× at n=1024 and 3.5× at
+n=4096 — worst in the middle of the range and never better than 3.5×. The calibrator tunes
+at n=512–4096, so PureOSQP's n=200 sits below the tuned range, but the gap is present
+across all of it.
+
+So the honest reading is narrower than "PureBLAS is slower": on this machine its
+**transposed** gemv is several times slower than OpenBLAS across every size measured, its
+non-transposed gemv is only ~1.5× slower, and its Level-3 kernels are *faster*. PureOSQP is
+simply Level-2-bound and lands on the one path where that gap lives. A gate-valid number
+still needs a frequency-locked box.
 
 ### On the threading
 
