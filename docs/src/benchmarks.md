@@ -283,9 +283,26 @@ should, because the dense kernel streams contiguous memory while the sparse one 
 indices. So densifying at the door, which is what the main table does, is the better
 default; PureOSQP just never forces it on you.
 
-That also answers why PureOSQP trails OSQP at low density, and it is not the products. At
-1%, `A` has ~800 nonzeros, so OSQP's per-iteration work is a few thousand flops against
-PureOSQP's ~240,000 — a 100× gap in arithmetic that sparse products recover only a
-fraction of. The rest is the factorization: PureOSQP forms `AᵀρA` and factors it densely,
-`O(mn²) + O(n³)`, while OSQP's sparse LDLᵀ on a nearly-empty KKT matrix is close to free.
-Nothing in this package's design fixes that; a sparse `A` wants a sparse factorization.
+### Where the gap below 5% actually is
+
+Splitting the same runs into setup and iterations, `n = 200`, `m = 400`:
+
+| density | | setup | iterations | total | iters |
+|---|---|---|---|---|---|
+| 1% | PureOSQP | **9.43 ms** | 4.03 ms | 13.5 ms | 150 |
+| | OSQP | **0.44 ms** | 1.43 ms | 1.87 ms | 150 |
+| 5% | PureOSQP | 9.56 ms | 11.2 ms | 20.7 ms | 450 |
+| | OSQP | 2.21 ms | 11.5 ms | 13.7 ms | 450 |
+| 20% | PureOSQP | 9.53 ms | **20.1 ms** | 29.7 ms | 825 |
+| | OSQP | 3.66 ms | **31.8 ms** | 35.5 ms | 825 |
+
+**It is setup, not the iteration loop.** PureOSQP's setup is flat at ~9.5 ms across all
+three densities, because it forms `AᵀρA` and factors it densely no matter how sparse `A`
+was: `O(mn²) + O(n³)`, a cost that cannot see sparsity. OSQP's setup tracks the nonzero
+count instead — 0.44 ms at 1%, 3.66 ms at 20%. At 1% that one difference is 9.0 ms of an
+11.6 ms total gap, about 80% of it.
+
+The iteration loop is a much smaller effect and turns over: 2.8× behind at 1%, level at
+5%, and 1.6× *ahead* at 20%, where dense BLAS-2 beats sparse products on the same
+iteration count. So the fix for sparse problems would be a sparse factorization, not
+faster products — and that is precisely the thing this package does not have.
