@@ -67,11 +67,11 @@ most used for. 20 solves per case, `eps_abs = eps_rel = 1e-6`. Reproduce with
 
 | n | m | `update!` | fresh `setup` each step | saved | libosqp 1.x | vs | factorizations |
 |---|---|---|---|---|---|---|---|
-| 10 | 20 | 1.54 ms | 2.16 ms | 1.40× | 2.17 ms | 1.41× | 8 |
-| 25 | 50 | 5.29 ms | 11.5 ms | 2.16× | 11.4 ms | 2.15× | 14 |
-| 50 | 100 | 29.5 ms | 50.6 ms | 1.71× | 62.6 ms | 2.12× | 7 |
-| 100 | 200 | 182 ms | 201 ms | 1.11× | 546 ms | 3.00× | 3 |
-| 200 | 400 | 742 ms | 908 ms | 1.22× | 2687 ms | 3.62× | 1 |
+| 10 | 20 | 1.51 ms | 2.10 ms | 1.39× | 1.79 ms | 1.19× | 8 |
+| 25 | 50 | 4.84 ms | 10.3 ms | 2.13× | 9.73 ms | 2.01× | 14 |
+| 50 | 100 | 25.8 ms | 44.8 ms | 1.73× | 54.8 ms | 2.12× | 7 |
+| 100 | 200 | 160 ms | 176 ms | 1.11× | 486 ms | 3.04× | 3 |
+| 200 | 400 | 630 ms | 809 ms | 1.28× | 2358 ms | 3.74× | 1 |
 
 "Factorizations" counts the whole 20-step sequence: one from `setup`, plus one per step
 whose constraint classification changed.
@@ -83,6 +83,19 @@ it is 2.16×. And the factorization count is not always 1: equilibration rescale
 so a row whose scaled gap `ũ - l̃` falls under `RHO_TOL` is reclassified as an equality and
 its `ρ` changes. That is upstream's rule applied to the scaled bounds exactly as upstream
 applies it, and it means `update!` is not unconditionally factorization-free.
+
+The same sequences under PureBLAS rather than OpenBLAS, 20 solves each:
+
+| n | m | OpenBLAS | PureBLAS | ratio |
+|---|---|---|---|---|
+| 25 | 50 | 4.72 ms | 3.85 ms | 1.23× |
+| 50 | 100 | 17.3 ms | 15.2 ms | 1.14× |
+| 100 | 200 | 127 ms | 116 ms | 1.09× |
+| 200 | 400 | 531 ms | 474 ms | 1.12× |
+
+Slightly better than the single-solve ratios, which is what the composition predicts:
+`update!` removes most of the factorizations, so a larger share of the run is the
+`gemv`-bound iteration loop, and that is where PureBLAS is ahead.
 
 ## Linear-system backend
 
