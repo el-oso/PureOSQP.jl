@@ -15,7 +15,12 @@ BLAS.set_num_threads(1)
 
 const OPTS = (eps_abs = 1.0e-6, eps_rel = 1.0e-6, max_iter = 20_000)
 
-solve_pure(P, q, A, l, u) = PureOSQP.solve(P, q, A, l, u; OPTS...)
+# PureOSQP only: libosqp 0.6.2 has no duality-gap test and would reject the setting. With
+# it on, the two solvers stop on different criteria and the iteration-count assertions
+# below would be comparing the criteria rather than the algorithms.
+const PURE_ONLY = (check_dualgap = false,)
+
+solve_pure(P, q, A, l, u) = PureOSQP.solve(P, q, A, l, u; OPTS..., PURE_ONLY...)
 
 function solve_osqp(P, q, A, l, u)
     model = OSQP.Model()

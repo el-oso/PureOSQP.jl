@@ -10,8 +10,14 @@ function set_rho_vec!(ws::Workspace{T}, rho::T) where {T}
     ws.rho = clamp(rho, RHO_MIN(T), RHO_MAX(T))
     loose = INFTY(T) * MIN_SCALING(T)
     changed = false
+    # With `rho_is_vec = false` every row is treated as a plain inequality, so `ρ` is
+    # uniform. The classification still runs, because it is what decides whether a
+    # refactorization is needed when bounds move between classes.
+    split = ws.settings.rho_is_vec
     for i in 1:ws.m
-        t = if ws.l[i] < -loose && ws.u[i] > loose
+        t = if !split
+            Int8(0)
+        elseif ws.l[i] < -loose && ws.u[i] > loose
             Int8(-1)
         elseif ws.u[i] - ws.l[i] < RHO_TOL(T)
             Int8(1)

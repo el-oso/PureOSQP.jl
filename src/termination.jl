@@ -119,6 +119,20 @@ function eps_dual(ws::Workspace{T}) where {T}
 end
 
 """
+    eps_duality_gap(ws)
+
+Tolerance for the duality-gap test, relative to the size of the terms that make up the
+gap. Without the relative part a problem whose objective is `1e8` could never pass.
+"""
+function eps_duality_gap(ws::Workspace{T}) where {T}
+    s = ws.settings
+    mx = max(abs(ws.xtPx), abs(ws.qtx), abs(ws.SCy))
+    # The stored terms are scaled; unscale unless termination is being judged scaled.
+    (s.scaling > 0 && !s.scaled_termination) && (mx /= ws.c)
+    return s.eps_abs + s.eps_rel * mx
+end
+
+"""
     project_polar_reccone!(v, l, u)
 
 Project `v` onto the polar of the recession cone of `[l, u]`, in place.
@@ -218,14 +232,23 @@ function check_termination(ws::Workspace{T}, approximate::Bool = false) where {T
     inf = INFTY(T)
     (ws.prim_res > inf || ws.dual_res > inf) && return NON_CONVEX
     f = approximate ? T(10) : one(T)
-    prim_ok = ws.m == 0 || ws.prim_res < f * eps_prim(ws)
+    scaled_term = s.scaled_termination && s.scaling > 0
+    pres = scaled_term ? ws.scaled_prim_res : ws.prim_res
+    dres = scaled_term ? ws.scaled_dual_res : ws.dual_res
+    prim_ok = iszero(ws.m) || pres < f * eps_prim(ws)
     if !prim_ok && is_primal_infeasible(ws, f * s.eps_prim_inf)
         return approximate ? PRIMAL_INFEASIBLE_INACCURATE : PRIMAL_INFEASIBLE
     end
-    dual_ok = ws.dual_res < f * eps_dual(ws)
+    dual_ok = dres < f * eps_dual(ws)
     if !dual_ok && is_dual_infeasible(ws, f * s.eps_dual_inf)
         return approximate ? DUAL_INFEASIBLE_INACCURATE : DUAL_INFEASIBLE
     end
     (prim_ok && dual_ok) || return UNSOLVED
+    # The gap is checked only once the residuals pass, so it can delay convergence but
+    # never declare it: a point with a small gap and a large residual is not a solution.
+    if s.check_dualgap
+        gap = scaled_term ? ws.scaled_duality_gap : ws.duality_gap
+        abs(gap) < f * eps_duality_gap(ws) || return UNSOLVED
+    end
     return approximate ? SOLVED_INACCURATE : SOLVED
 end

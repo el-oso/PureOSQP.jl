@@ -27,7 +27,10 @@ end
 
 pure(P, q, A, l, u) = PureOSQP.solve(
     P, q, A, l, u;
-    eps_abs = TOL, eps_rel = TOL, max_iter = 20_000
+    # `check_dualgap = false` matches libosqp 0.6.2's termination criteria. Left on, the
+    # gap test can only add iterations, which would make this a comparison of stopping
+    # rules dressed up as a comparison of solvers.
+    eps_abs = TOL, eps_rel = TOL, max_iter = 20_000, check_dualgap = false
 ).x
 
 function osqp(P, q, A, l, u)

@@ -65,6 +65,9 @@ struct Settings{T <: AbstractFloat}
     adaptive_rho_interval::Int
     adaptive_rho_tolerance::T
     check_termination::Int
+    check_dualgap::Bool
+    scaled_termination::Bool
+    rho_is_vec::Bool
     polish::Bool
     polish_refine_iter::Int
     delta::T
@@ -78,6 +81,7 @@ function Settings{T}(;
         eps_abs = 1.0e-3, eps_rel = 1.0e-3, eps_prim_inf = 1.0e-4, eps_dual_inf = 1.0e-4,
         scaling = 10, adaptive_rho = true, adaptive_rho_interval = 50,
         adaptive_rho_tolerance = 5.0, check_termination = 25,
+        check_dualgap = true, scaled_termination = false, rho_is_vec = true,
         polish = false, polish_refine_iter = 3, delta = 1.0e-6,
         warm_starting = true, verbose = false, linsys = :auto,
     ) where {T <: AbstractFloat}
@@ -101,6 +105,7 @@ function Settings{T}(;
         T(eps_abs), T(eps_rel), T(eps_prim_inf), T(eps_dual_inf),
         Int(scaling), Bool(adaptive_rho), Int(adaptive_rho_interval),
         T(adaptive_rho_tolerance), Int(check_termination),
+        Bool(check_dualgap), Bool(scaled_termination), Bool(rho_is_vec),
         Bool(polish), Int(polish_refine_iter), T(delta),
         Bool(warm_starting), Bool(verbose), Symbol(linsys),
     )

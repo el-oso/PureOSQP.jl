@@ -12,7 +12,7 @@
         "polish_tests.jl" => 3,
         "scaling_tests.jl" => 6,
         "setup_tests.jl" => 10,
-        "solve_tests.jl" => 14,
+        "solve_tests.jl" => 16,
         "trim_tests.jl" => 1,
         "update_tests.jl" => 5,
     )

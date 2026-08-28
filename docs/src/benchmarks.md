@@ -24,7 +24,9 @@ implementation as a Julia user gets it. PureOSQP is timed on OpenBLAS and again 
 | 100 | 1000 | 119 ms | 112 ms | 680 ms | 5.70× | 6.09× | 7475 | 1.7e-11 |
 | 200 | 2000 | 229 ms | 197 ms | 1334 ms | 5.83× | 6.76× | 3025 | 8.0e-15 |
 
-**The iteration count is identical to OSQP in every case.** That is the result worth caring
+**The iteration count is identical to OSQP in every case**, measured with
+`check_dualgap = false` to match libosqp 0.6.2, which has no duality-gap termination test.
+PureOSQP defaults that test on, following libosqp 1.x. That is the result worth caring
 about: the equilibration, the ρ schedule and the termination tests reproduce the reference
 exactly, not approximately. The objective agrees to about `1e-15`, and switching BLAS
 changes neither — PureBLAS gives bit-comparable answers (`|Δx| ≈ 1e-14`) on the same

@@ -36,7 +36,8 @@ end
     # post-loop check is what assigns the status.
     s = PureOSQP.solve(
         P, q, A, l, u; max_iter = 200, alpha = 1.6, polish = false,
-        scaling = 0, check_termination = 0, warm_starting = false
+        scaling = 0, check_termination = 0, warm_starting = false,
+        check_dualgap = false        # 0.6.2 has no duality-gap test; this ports its case
     )
     @test s.iter == 200
     @test s.status == SOLVED

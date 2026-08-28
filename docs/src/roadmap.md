@@ -30,9 +30,11 @@ but the two are not interchangeable: trimming produces a Julia binary, not embed
 Every backend here factors an explicit matrix, so a problem that can only supply
 matrix-vector products cannot be solved.
 
-**Duality-gap termination.** libosqp 1.x can terminate on the duality gap
-(`check_dualgap`) in addition to the primal and dual residuals. Only the residual tests
-are implemented.
+**Duality-gap termination is implemented** and on by default, matching libosqp 1.x. It
+binds rarely on well-scaled problems, where the residuals already imply a small gap, but
+it does bind: across a sweep of badly scaled objectives it changed the iteration count in
+114 of 600 comparable runs. Comparisons against libosqp 0.6.2 pin it off, since 0.6.2 has
+no such test.
 
 **`ρ` adaptation on KKT error.** Upstream offers four modes: disabled, fixed iteration
 interval, wall-clock fraction, and relative KKT-error decrease. This package implements the
@@ -53,9 +55,8 @@ carries no such problem and is simply not built.
 
 ## Missing settings
 
-- `scaled_termination` — the scaled primal residual is already computed for the `ρ` rule,
-  but termination always uses the unscaled residuals.
-- `rho_is_vec` — `ρ` is always a vector here; upstream can run it as a scalar.
+`check_dualgap`, `scaled_termination` and `rho_is_vec` are implemented. What remains:
+
 - `linsys_solver` selection across QDLDL, MKL Pardiso and CUDA backends. The equivalent
   choice here is `linsys = :auto | :kkt`, which selects a formulation rather than a library.
 - `device`, `profiler_level`, `allocate_solution` — embedded and GPU concerns with no

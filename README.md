@@ -112,7 +112,9 @@ and again on [PureBLAS](https://github.com/el-oso/PureBLAS.jl):
 | 100 | 50 | 0.344 ms | 0.331 ms | 1.15 ms | 3.35× | 3.48× | 50 |
 
 **Iteration counts are identical to OSQP in every case**, and objectives agree to about
-`1e-15`. The same holds against libosqp 1.x, checked separately through a subprocess
+`1e-15`. That is measured with `check_dualgap = false`, which is what libosqp 0.6.2 does:
+PureOSQP defaults the duality-gap termination test *on*, following libosqp 1.x, and a
+solver stopping on three criteria cannot be expected to match one stopping on two. The same holds against libosqp 1.x, checked separately through a subprocess
 oracle since it has no Julia wrapper. Switching BLAS changes neither: PureBLAS gives
 `|Δx| ≈ 1e-14` on identical iteration counts.
 

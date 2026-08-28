@@ -24,6 +24,11 @@ const SETTINGS = (
     scaling = 10, adaptive_rho = true, polish = false,
 )
 
+# PureOSQP only, and deliberately not in SETTINGS, which is splatted into `OSQP.setup!`
+# too: libosqp 0.6.2 has no duality-gap test and would reject the setting. Leaving it on
+# would also make the iteration-count comparison a comparison of termination criteria.
+const PURE_ONLY = (check_dualgap = false,)
+
 function make_problem(n, m; seed = 0)
     Random.seed!(seed)
     X = randn(n, n)
@@ -46,21 +51,21 @@ end
 
 function bench_case(n, m; seed = 0)
     P, q, A, l, u = make_problem(n, m; seed)
-    sp = PureOSQP.solve(P, q, A, l, u; SETTINGS...)
+    sp = PureOSQP.solve(P, q, A, l, u; SETTINGS..., PURE_ONLY...)
     rc = run_osqp(P, q, A, l, u)
     @assert sp.status == PureOSQP.SOLVED "PureOSQP: $(sp.status)"
     @assert rc.info.status == :Solved "OSQP.jl: $(rc.info.status)"
 
     HAVE_PUREBLAS && PureBLAS.is_active() && PureBLAS.deactivate()
-    t_pure = @belapsed PureOSQP.solve($P, $q, $A, $l, $u; SETTINGS...)
+    t_pure = @belapsed PureOSQP.solve($P, $q, $A, $l, $u; SETTINGS..., PURE_ONLY...)
     t_osqp = @belapsed run_osqp($P, $q, $A, $l, $u)
 
     t_pb, dx = NaN, NaN
     if HAVE_PUREBLAS
         PureBLAS.activate()
         @assert PureBLAS.is_active()
-        sb = PureOSQP.solve(P, q, A, l, u; SETTINGS...)
-        t_pb = @belapsed PureOSQP.solve($P, $q, $A, $l, $u; SETTINGS...)
+        sb = PureOSQP.solve(P, q, A, l, u; SETTINGS..., PURE_ONLY...)
+        t_pb = @belapsed PureOSQP.solve($P, $q, $A, $l, $u; SETTINGS..., PURE_ONLY...)
         PureBLAS.deactivate()
         @assert sb.iter == sp.iter "PureBLAS changed the iteration count"
         dx = maximum(abs, sb.x .- sp.x)

@@ -318,3 +318,77 @@ end
     @test again.solve_time > 0
     @test iszero(again.polish_time)    # polishing was not requested
 end
+
+@testitem "the duality-gap test is a real extra condition" begin
+    using LinearAlgebra, SparseArrays, OSQP, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    opts = (eps_abs = 1.0e-6, eps_rel = 1.0e-6, max_iter = 100_000)
+
+    # The gap check must bind somewhere: if it never changed an outcome, defaulting it on
+    # would be cost without effect. It binds rarely on well-scaled problems -- the
+    # residuals usually imply the gap -- so this sweeps badly scaled objectives, where the
+    # gap tolerance and the residual tolerances are set by different quantities.
+    bound = Ref(0)
+    for trial in 1:25
+        Random.seed!(900 + trial)
+        n, m = rand(3:12), rand(4:20)
+        X = randn(n, n)
+        P = Matrix(X'X) * 10.0^rand(-3:3)
+        A = randn(m, n) * 10.0^rand(-2:2)
+        q = randn(n) * 10.0^rand(-3:3)
+        b = A * randn(n)
+        l, u = b .- rand(m), b .+ rand(m)
+        with = PureOSQP.solve(P, q, A, l, u; opts..., check_dualgap = true)
+        without = PureOSQP.solve(P, q, A, l, u; opts..., check_dualgap = false)
+        (with.status == SOLVED && without.status == SOLVED) || continue
+
+        # It can only delay convergence, never declare it early.
+        @test with.iter >= without.iter
+        with.iter > without.iter && (bound[] += 1)
+
+        # Both are genuine solutions; the gap-checked one is no worse. The tolerance is
+        # loose because these objectives are deliberately scaled by up to 1e3, and the
+        # referee's measure is relative to the problem, not to `eps_abs`. Tight-tolerance
+        # refereeing on well-scaled data is covered by its own test.
+        @test maximum(kkt_residuals(P, q, A, l, u, with.x, with.y)) < 1.0e-2
+        @test abs(with.duality_gap) <= max(abs(without.duality_gap), 1.0e-8)
+    end
+    @test bound[] > 0
+
+    # And the setting is honoured rather than ignored: with the residual tolerances wide
+    # open and the gap tolerance doing the work, the two disagree on when to stop.
+    P, q, A, l, u = random_qp(15, 40; seed = 731)
+    loose = (eps_abs = 1.0e-3, eps_rel = 1.0e-3, max_iter = 100_000)
+    a = PureOSQP.solve(P, q, A, l, u; loose..., check_dualgap = true)
+    b = PureOSQP.solve(P, q, A, l, u; loose..., check_dualgap = false)
+    @test a.iter >= b.iter
+    @test abs(a.duality_gap) <= abs(b.duality_gap) + 1.0e-8
+end
+
+@testitem "scaled_termination and rho_is_vec change what they claim to" begin
+    using LinearAlgebra, SparseArrays, OSQP, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    P, q, A, l, u = random_qp(12, 30; seed = 77, colscale = 3)
+    opts = (eps_abs = 1.0e-8, eps_rel = 1.0e-8, max_iter = 100_000)
+
+    # Judging termination in scaled space is a different test, so it may stop elsewhere;
+    # either way the answer must still be a solution of the original problem.
+    unscaled = PureOSQP.solve(P, q, A, l, u; opts..., scaled_termination = false)
+    scaled = PureOSQP.solve(P, q, A, l, u; opts..., scaled_termination = true)
+    @test unscaled.status == SOLVED
+    @test scaled.status == SOLVED
+    @test maximum(kkt_residuals(P, q, A, l, u, scaled.x, scaled.y)) < 1.0e-4
+    @test scaled.x ≈ unscaled.x rtol = 1.0e-3
+
+    # `rho_is_vec = false` drops the equality/inequality split, so every row shares one ρ.
+    A2 = [1.0 0.0; 0.0 1.0; 1.0 1.0]
+    l2 = [1.0, -Inf, 0.0]
+    u2 = [1.0, Inf, 1.0]
+    split = setup(zeros(2, 2), zeros(2), A2, l2, u2; scaling = 0, rho = 0.1)
+    flat = setup(
+        zeros(2, 2), zeros(2), A2, l2, u2; scaling = 0, rho = 0.1, rho_is_vec = false
+    )
+    @test length(unique(split.rho_vec)) == 3     # equality, free, inequality
+    @test all(≈(0.1), flat.rho_vec)
+    @test all(iszero, flat.constr_type)
+end

@@ -30,7 +30,13 @@ end
     for (n, m) in ((10, 20), (25, 50), (40, 15), (30, 200))
         P, q, A, l, u = random_qp(n, m; seed = n + m)
         c = osqp_ref(P, q, A, l, u; eps_abs = 1.0e-6, eps_rel = 1.0e-6, max_iter = 20_000)
-        j = PureOSQP.solve(P, q, A, l, u; eps_abs = 1.0e-6, eps_rel = 1.0e-6, max_iter = 20_000)
+        # `check_dualgap = false` matches libosqp 0.6.2, which has no duality-gap test.
+        # Comparing iteration counts across two different termination criteria would
+        # measure the difference in criteria, not agreement between the algorithms.
+        j = PureOSQP.solve(
+            P, q, A, l, u; eps_abs = 1.0e-6, eps_rel = 1.0e-6, max_iter = 20_000,
+            check_dualgap = false
+        )
         @test j.status == SOLVED
         @test c.info.status == :Solved
         @test abs(j.obj_val - c.info.obj_val) <= 1.0e-6 * max(1, abs(c.info.obj_val))
