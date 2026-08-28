@@ -89,21 +89,23 @@ validated rather than silently accepted, and a run without a meaningful solution
 
 ## Benchmarks
 
-Dense random QPs, `eps_abs = eps_rel = 1e-6`, single-threaded BLAS, against **both**
-reference versions. libosqp 1.x has no Julia wrapper, so it is timed inside the subprocess
-oracle around the same `setup + solve` span:
+Dense random QPs, `eps_abs = eps_rel = 1e-6`, single-threaded BLAS, against
+[OSQP.jl](https://github.com/osqp/OSQP.jl) (libosqp 0.6.2). PureOSQP is timed on OpenBLAS
+and again on [PureBLAS](https://github.com/el-oso/PureBLAS.jl):
 
-| n | m | PureOSQP | libosqp 0.6.2 | vs | libosqp 1.x | vs | iterations (all three) |
+| n | m | PureOSQP | + PureBLAS | OSQP | vs | vs (PureBLAS) | iterations |
 |---|---|---|---|---|---|---|---|
-| 25 | 50 | 0.842 ms | 1.51 ms | 1.79× | 1.86 ms | 2.20× | 675 |
-| 50 | 100 | 2.85 ms | 5.51 ms | 1.93× | 5.70 ms | 2.00× | 900 |
-| 200 | 400 | 42.1 ms | 141 ms | 3.35× | 128 ms | 3.05× | 1175 |
-| 400 | 800 | 107 ms | 675 ms | 6.29× | 630 ms | 5.87× | 625 |
-| 200 | 2000 | 336 ms | 1445 ms | 4.31× | 1314 ms | 3.91× | 3025 |
-| 100 | 50 | 1.36 ms | 1.27 ms | **0.94×** | 1.73 ms | 1.27× | 50 |
+| 25 | 50 | 0.744 ms | 0.636 ms | 1.38 ms | 1.86× | 2.18× | 675 |
+| 50 | 100 | 2.57 ms | 2.34 ms | 5.00 ms | 1.95× | 2.13× | 900 |
+| 200 | 400 | 37.6 ms | 33.7 ms | 126 ms | 3.35× | 3.74× | 1175 |
+| 400 | 800 | 96.6 ms | 101 ms | 600 ms | **6.21×** | 5.96× | 625 |
+| 200 | 2000 | 273 ms | 267 ms | 1288 ms | 4.72× | 4.82× | 3025 |
+| 100 | 50 | 1.33 ms | 1.29 ms | 1.15 ms | **0.87×** | 0.89× | 50 |
 
-**Iteration counts are identical across all three implementations in every case**, and
-objectives agree to about `1e-15`.
+**Iteration counts are identical to OSQP in every case**, and objectives agree to about
+`1e-15`. The same holds against libosqp 1.x, checked separately through a subprocess
+oracle since it has no Julia wrapper. Switching BLAS changes neither: PureBLAS gives
+`|Δx| ≈ 1e-14` on identical iteration counts.
 
 These are **dense** problems, which is the reference implementation's worst case: a sparse
 solver handed dense matrices, paying scalar sparse LDLᵀ where PureOSQP gets BLAS-3 dense

@@ -3,38 +3,42 @@
 Reproduce with `julia --project=bench bench/headtohead.jl`. Every sample is written to
 `bench/results/headtohead.json`.
 
-## Against both reference versions
+## Against OSQP
 
 Dense random QPs, `eps_abs = eps_rel = 1e-6`, single-threaded BLAS, adaptive ρ pinned to a
-50-iteration interval everywhere so all three are deterministic.
+50-iteration interval on both sides so the comparison is deterministic. **OSQP** here is
+[OSQP.jl](https://github.com/osqp/OSQP.jl), which wraps libosqp 0.6.2 — the reference
+implementation as a Julia user gets it. PureOSQP is timed on OpenBLAS and again on
+[PureBLAS](https://github.com/el-oso/PureBLAS.jl) (commit `ea79919`).
 
-libosqp 0.6.2 is timed through OSQP.jl with BenchmarkTools. libosqp 1.x has no Julia
-wrapper, so it is timed **inside** the subprocess oracle (`bench/oracle_v1/`) around the
-same `setup + solve` span, which excludes interpreter startup and the JSON round trip.
-
-| n | m | PureOSQP | libosqp 0.6.2 | vs | libosqp 1.x | vs | iterations (all three) | objective rel. Δ |
+| n | m | PureOSQP | PureOSQP + PureBLAS | OSQP | vs | vs (PureBLAS) | iterations | objective rel. Δ |
 |---|---|---|---|---|---|---|---|---|
-| 10 | 20 | 0.060 ms | 0.070 ms | 1.16× | 0.376 ms | 6.22× | 100 | 3.8e-15 |
-| 25 | 50 | 0.842 ms | 1.51 ms | 1.79× | 1.86 ms | 2.20× | 675 | 1.4e-15 |
-| 50 | 100 | 2.85 ms | 5.51 ms | 1.93× | 5.70 ms | 2.00× | 900 | 1.8e-15 |
-| 100 | 200 | 8.47 ms | 22.4 ms | 2.64× | 22.3 ms | 2.63× | 850 | 1.3e-15 |
-| 200 | 400 | 42.1 ms | 141 ms | 3.35× | 128 ms | 3.05× | 1175 | 4.4e-15 |
-| 400 | 800 | 107 ms | 675 ms | 6.29× | 630 ms | 5.87× | 625 | 4.1e-15 |
-| 100 | 50 | 1.36 ms | 1.27 ms | **0.94×** | 1.73 ms | 1.27× | 50 | 4.4e-15 |
-| 200 | 100 | 5.96 ms | 7.83 ms | 1.31× | 7.34 ms | 1.23× | 50 | 1.1e-14 |
-| 100 | 1000 | 173 ms | 764 ms | 4.43× | 718 ms | 4.16× | 7475 | 2.6e-11 |
-| 200 | 2000 | 336 ms | 1445 ms | 4.31× | 1314 ms | 3.91× | 3025 | 7.1e-15 |
+| 10 | 20 | 0.051 ms | 0.044 ms | 0.063 ms | 1.23× | 1.42× | 100 | 3.8e-15 |
+| 25 | 50 | 0.744 ms | 0.636 ms | 1.38 ms | 1.86× | 2.18× | 675 | 1.4e-15 |
+| 50 | 100 | 2.57 ms | 2.34 ms | 5.00 ms | 1.95× | 2.13× | 900 | 1.8e-15 |
+| 100 | 200 | 7.95 ms | 7.40 ms | 20.4 ms | 2.56× | 2.75× | 850 | 1.3e-15 |
+| 200 | 400 | 37.6 ms | 33.7 ms | 126 ms | 3.35× | 3.74× | 1175 | 4.4e-15 |
+| 400 | 800 | 96.6 ms | 101 ms | 600 ms | **6.21×** | 5.96× | 625 | 4.1e-15 |
+| 100 | 50 | 1.33 ms | 1.29 ms | 1.15 ms | **0.87×** | 0.89× | 50 | 4.4e-15 |
+| 200 | 100 | 5.49 ms | 5.35 ms | 7.24 ms | 1.32× | 1.35× | 50 | 1.1e-14 |
+| 100 | 1000 | 152 ms | 131 ms | 672 ms | 4.43× | **5.13×** | 7475 | 2.6e-11 |
+| 200 | 2000 | 273 ms | 267 ms | 1288 ms | 4.72× | 4.82× | 3025 | 7.1e-15 |
 
-**The iteration counts are identical across all three implementations, in every case.**
-That is the result worth caring about: the equilibration, the ρ schedule and the
-termination tests reproduce the reference exactly, not approximately, and against both the
-version this port was transcribed from and the current one. The objective agrees to about
-`1e-15`.
+**The iteration count is identical to OSQP in every case.** That is the result worth caring
+about: the equilibration, the ρ schedule and the termination tests reproduce the reference
+exactly, not approximately. The objective agrees to about `1e-15`, and switching BLAS
+changes neither — PureBLAS gives bit-comparable answers (`|Δx| ≈ 1e-14`) on the same
+iteration counts.
 
-Two caveats on the numbers themselves. At `n = 10` the 1.x column is dominated by SciPy
-matrix construction inside the timed span, not by libosqp — it overstates 1.x there; the
-0.6.2 column is the fair small-problem comparison. And PureOSQP is genuinely slower than
-0.6.2 at `n = 100, m = 50`, where the reduced system is barely smaller than the full one.
+The same agreement holds against **libosqp 1.x**, which has no Julia wrapper and so is
+checked separately by `bench/headtohead_v1.jl` through a subprocess oracle: identical
+iteration counts on all seven of its cases, objectives to `1e-13`. It is left out of the
+timing table because timing a subprocess measures the subprocess.
+
+PureOSQP is genuinely slower than OSQP at `n = 100, m = 50` (0.87×), where the reduced
+system is barely smaller than the full one and there is no dense-linear-algebra advantage
+to collect. PureBLAS helps everywhere except `n = 400, m = 800`, where it is marginally
+behind OpenBLAS.
 
 ## How to read this
 
@@ -47,7 +51,7 @@ expected to win, and PureOSQP has no answer for a sparse `A` beyond treating it 
 
 **What the matching iteration counts do and do not show.** They mean the algorithm's
 control logic tracks the reference. But the count is *quantized*: with
-`check_termination = 25`, matching counts say all three crossed the threshold within the
+`check_termination = 25`, matching counts say both crossed the threshold within the
 same 25-iteration window, not that the iterates agree. That the iterates agree is a
 separate result — the transcription test, matching to `1e-10` over the first 25 iterations
 across both linear-system backends and both scaled and unscaled space. And the returned `y`
