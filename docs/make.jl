@@ -16,6 +16,7 @@ makedocs(;
         "Guarantees" => "guarantees.md",
         "Benchmarks" => "benchmarks.md",
         "API" => "api.md",
+        "Roadmap" => "roadmap.md",
         "Attribution" => "attribution.md",
     ],
     # Not a blanket `true`: a failing @example block must fail the build, since the
