@@ -2,6 +2,61 @@
     return v < MIN_SCALING(T) ? one(T) : min(v, MAX_SCALING(T))
 end
 
+# ── column traversals ───────────────────────────────────────────────────────────────────
+# Equilibration and the factorization both walk the caller's matrices one column at a time.
+# These three functions are the only places that do, so a matrix type that can enumerate a
+# column faster than by index needs to override just them. `ext/PureOSQPSparseArraysExt.jl`
+# does exactly that for `SparseMatrixCSC`, where indexing `M[i, j]` is a binary search and
+# the generic loop visits every structural zero.
+
+"`max(w[i] * |M[i, j]|)` over the column."
+@inline function weighted_colmax(::Type{T}, M::AbstractMatrix, j::Integer, w::AbstractVector) where {T}
+    r = zero(T)
+    for i in axes(M, 1)
+        r = max(r, w[i] * abs(T(M[i, j])))
+    end
+    return r
+end
+
+"""
+    weighted_colmax_rowmax!(T, e, M, j, w, s) -> max(w[i] * |M[i,j]|)
+
+The column maximum, and at the same time `e[i] = max(e[i], s * |M[i,j]|)` — the row norms
+accumulated in the same pass rather than gathered by a second traversal.
+"""
+@inline function weighted_colmax_rowmax!(
+        ::Type{T}, e::AbstractVector, M::AbstractMatrix, j::Integer,
+        w::AbstractVector, s
+    ) where {T}
+    r = zero(T)
+    for i in axes(M, 1)
+        v = abs(T(M[i, j]))
+        r = max(r, w[i] * v)
+        e[i] = max(e[i], s * v)
+    end
+    return r
+end
+
+"`dest[i, j] = f(M[i, j], i)` over the column, with `dest` already zeroed."
+@inline function scaled_col!(
+        ::Type{T}, dest::AbstractMatrix, M::AbstractMatrix, j::Integer, f::F
+    ) where {T, F}
+    for i in axes(M, 1)
+        dest[i, j] = f(T(M[i, j]), i)
+    end
+    return dest
+end
+
+"`dest[i, j] += f(M[i, j], i)` over the column."
+@inline function add_scaled_col!(
+        ::Type{T}, dest::AbstractMatrix, M::AbstractMatrix, j::Integer, f::F
+    ) where {T, F}
+    for i in axes(M, 1)
+        dest[i, j] += f(T(M[i, j]), i)
+    end
+    return dest
+end
+
 """
     scale!(ws)
 
@@ -35,17 +90,9 @@ function scale!(ws::Workspace{T}) where {T}
         # cost more than everything else in setup put together.
         fill!(e, zero(T))
         for j in 1:n
-            pj = zero(T)
-            for i in 1:n
-                pj = max(pj, D[i] * abs(T(P[i, j])))
-            end
+            pj = weighted_colmax(T, P, j, D)
             dj = D[j]
-            aj = zero(T)
-            for i in 1:m
-                v = abs(T(A[i, j]))
-                aj = max(aj, E[i] * v)
-                e[i] = max(e[i], dj * v)
-            end
+            aj = weighted_colmax_rowmax!(T, e, A, j, E, dj)
             d[j] = limit_scaling(max(ws.c * dj * pj, dj * aj))
         end
         for i in 1:m
@@ -59,11 +106,7 @@ function scale!(ws::Workspace{T}) where {T}
         # Cost normalization: average column ∞-norm of the scaled P, against ‖q̃‖∞.
         acc = zero(T)
         for j in 1:n
-            pj = zero(T)
-            for i in 1:n
-                pj = max(pj, D[i] * abs(T(P[i, j])))
-            end
-            acc += ws.c * D[j] * pj
+            acc += ws.c * D[j] * weighted_colmax(T, P, j, D)
         end
         ct = max(acc / n, limit_scaling(maximum(abs, ws.q; init = zero(T))))
         ct = inv(limit_scaling(ct))

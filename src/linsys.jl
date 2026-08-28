@@ -79,22 +79,22 @@ means it was not positive definite.
 """
 function factorize!(ls::ReducedCholesky{T}, ws)::Bool where {T}
     n, m = ws.n, ws.m
+    # `scaled_col!` writes only the entries the matrix actually has, so W is zeroed first.
+    fill!(ls.W, zero(T))
+    rho, E, D = ws.rho_vec, ws.E, ws.D
     for j in 1:n
-        dj = ws.D[j]
-        for i in 1:m
-            ls.W[i, j] = sqrt(ws.rho_vec[i]) * ws.E[i] * T(ws.A[i, j]) * dj
-        end
+        dj = D[j]
+        scaled_col!(T, ls.W, ws.A, j, (a, i) -> sqrt(rho[i]) * E[i] * a * dj)
     end
     if m > 0
         mul!(ls.R, ls.W', ls.W)
     else
         fill!(ls.R, zero(T))
     end
+    c = ws.c
     for j in 1:n
-        dj = ws.D[j]
-        for i in 1:n
-            ls.R[i, j] += ws.c * ws.D[i] * T(ws.P[i, j]) * dj
-        end
+        dj = D[j]
+        add_scaled_col!(T, ls.R, ws.P, j, (p, i) -> c * D[i] * p * dj)
     end
     for i in 1:n
         ls.R[i, i] += ws.settings.sigma

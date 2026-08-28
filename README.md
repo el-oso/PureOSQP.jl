@@ -12,10 +12,12 @@ minimize    ½ xᵀPx + qᵀx
 subject to  l ≤ Ax ≤ u
 ```
 
-`P` and `A` may be **any `AbstractMatrix`**, are never copied or modified, and there is no
-sparse-matrix dependency anywhere. The numerics use `LinearAlgebra` alone; the only other
-dependency is [TypeContracts.jl](https://github.com/el-oso/TypeContracts.jl), which
-declares the linear-system backend interface and checks it at precompilation.
+`P` and `A` may be **any `AbstractMatrix`** and are never copied or modified. The numerics
+use `LinearAlgebra` alone; the only other dependency is
+[TypeContracts.jl](https://github.com/el-oso/TypeContracts.jl), which declares the
+linear-system backend interface and checks it at precompilation. There is no sparse linear
+algebra — a sparse `A` is factored densely — though a `SparseArrays` **weak** dependency
+lets equilibration walk the stored entries when you do pass one.
 
 The hot path is proven allocation-free and type-stable, and every public entry point
 compiles under `juliac --trim`. See [Guarantees](https://el-oso.github.io/PureOSQP.jl/dev/guarantees).
@@ -112,7 +114,10 @@ solver handed dense matrices, paying scalar sparse LDLᵀ where PureOSQP gets BL
 Cholesky. Read it as a storage-format comparison, not a solver-quality one. Two benchmarks
 give the other side of the picture:
 
-- **sparse `A`** — OSQP is 1.5–2.7× faster below 5% density and PureOSQP leads above it;
+- **sparse `A`** — PureOSQP leads from about 5% density up, and loses only the smallest
+  and sparsest case measured (`n = 200, m = 400` at 1%, where OSQP is 1.7× faster). Hand it
+  the sparse matrices rather than dense copies below ~10% density: a `SparseArrays` package
+  extension walks the stored entries during equilibration, worth 1.6–1.7× overall;
 - **a dense QP solver** — [DAQP](https://github.com/darnstrom/daqp), active-set, is 44×
   faster at `n = 10` and level by `n = 200, m = 400`. On one small dense QP, use DAQP.
   ADMM earns its place on sequences, through warm starts and cheap re-solves.

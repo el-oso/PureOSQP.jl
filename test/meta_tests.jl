@@ -10,7 +10,7 @@
         "meta_tests.jl" => 1,
         "oracle_tests.jl" => 4,
         "polish_tests.jl" => 3,
-        "scaling_tests.jl" => 4,
+        "scaling_tests.jl" => 6,
         "setup_tests.jl" => 10,
         "solve_tests.jl" => 7,
         "trim_tests.jl" => 1,

@@ -74,12 +74,13 @@ function run_structured(n, m)
 end
 
 function run_sparse()
-    println("\n\nSparse A — where OSQP's sparse factorization is the right tool.\n")
+    println("\n\nSparse A. PureOSQP is measured both ways: handed dense copies, and handed")
+    println("the sparse matrices, where the SparseArrays extension walks `nzrange`.\n")
     @printf(
-        "%6s %6s %8s | %11s %11s %8s | %6s %6s\n",
-        "n", "m", "density", "PureOSQP", "OSQP", "vs", "it_pu", "it_osqp"
+        "%6s %6s %8s | %11s %11s %11s | %8s %8s | %6s\n",
+        "n", "m", "density", "densified", "sparse in", "OSQP", "vs OSQP", "gain", "iters"
     )
-    println("-"^76)
+    println("-"^92)
     rows = NamedTuple[]
     for (n, m) in ((200, 400), (400, 800)), density in (0.01, 0.05, 0.2)
         Random.seed!(n + m + round(Int, 1000density))
@@ -92,19 +93,24 @@ function run_sparse()
         q = randn(n)
         Pd, Ad = Matrix(Psp), Matrix(A)
         sp = solve_pure(Pd, q, Ad, l, u)
+        ss = solve_pure(Psp, q, A, l, u)
         so = solve_osqp(Psp, q, A, l, u)
         (sp.status == PureOSQP.SOLVED && so.info.status == :Solved) || continue
+        # Storage must not change the answer, only the speed.
+        @assert ss.iter == sp.iter "sparse input changed the iteration count"
         tp = @belapsed solve_pure($Pd, $q, $Ad, $l, $u)
+        ts = @belapsed solve_pure($Psp, $q, $A, $l, $u)
         to = @belapsed solve_osqp($Psp, $q, $A, $l, $u)
         push!(
             rows, (;
-                n, m, density, t_pure = tp, t_osqp = to, ratio = to / tp,
+                n, m, density, t_densified = tp, t_sparse = ts, t_osqp = to,
+                ratio = to / ts, gain = tp / ts,
                 iter_pure = sp.iter, iter_osqp = so.info.iter,
             )
         )
         @printf(
-            "%6d %6d %7.0f%% | %9.3f ms %9.3f ms %7.2fx | %6d %6d\n",
-            n, m, 100density, 1.0e3tp, 1.0e3to, to / tp, sp.iter, so.info.iter
+            "%6d %6d %7.0f%% | %9.3f ms %9.3f ms %9.3f ms | %7.2fx %7.2fx | %6d\n",
+            n, m, 100density, 1.0e3tp, 1.0e3ts, 1.0e3to, to / ts, tp / ts, sp.iter
         )
         flush(stdout)
     end

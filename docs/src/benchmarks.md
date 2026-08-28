@@ -208,8 +208,8 @@ product. Reproduce with `julia --project=bench bench/matrix_types.jl`.
 
 | problem | as `Matrix` | structured | speedup | iterations |
 |---|---|---|---|---|
-| dense `P` (vs `Symmetric`) | 61.7 ms | 63.7 ms | 0.97× | 4375 |
-| diagonal `P` (vs `Diagonal`) | 8.58 ms | 9.85 ms | 0.87× | 550 |
+| dense `P` (vs `Symmetric`) | 62.0 ms | 63.7 ms | 0.97× | 4375 |
+| diagonal `P` (vs `Diagonal`) | 8.53 ms | 9.78 ms | 0.87× | 550 |
 | tridiagonal `P` (vs `Symmetric`) | 36.8 ms | 38.1 ms | 0.96× | 2550 |
 | `A` as a `SubArray` | 13.5 ms | 14.9 ms | 0.90× | 900 |
 
@@ -227,59 +227,69 @@ is not a speed feature.
 
 ## Sparse A
 
-The case the rest of this page avoids. `A` and `P` genuinely sparse, so OSQP's sparse LDLᵀ
-is playing to its strength and PureOSQP has no answer but to treat them as dense.
+`A` and `P` genuinely sparse, so OSQP's sparse LDLᵀ is playing to its strength. PureOSQP is
+measured both ways: handed dense copies, and handed the sparse matrices directly, where a
+package extension walks `nzrange` instead of indexing.
 
-| n | m | density | PureOSQP | OSQP | vs | iterations |
+| n | m | density | densified | sparse input | OSQP | best vs OSQP |
 |---|---|---|---|---|---|---|
-| 200 | 400 | 1% | 13.2 ms | 4.82 ms | **0.37×** | 475 |
-| 200 | 400 | 5% | 22.9 ms | 24.5 ms | 1.07× | 875 |
-| 200 | 400 | 20% | 22.8 ms | 37.9 ms | 1.66× | 875 |
-| 400 | 800 | 1% | 59.2 ms | 38.9 ms | **0.66×** | 550 |
-| 400 | 800 | 5% | 91.1 ms | 109 ms | 1.20× | 900 |
-| 400 | 800 | 20% | 220 ms | 382 ms | 1.74× | 2350 |
+| 200 | 400 | 1% | 13.2 ms | 8.08 ms | 4.81 ms | **0.59×** |
+| 200 | 400 | 5% | 22.8 ms | 17.1 ms | 24.5 ms | 1.43× |
+| 200 | 400 | 20% | 22.9 ms | 27.3 ms | 37.9 ms | 1.65× |
+| 400 | 800 | 1% | 59.0 ms | 34.9 ms | 38.7 ms | 1.11× |
+| 400 | 800 | 5% | 90.1 ms | 69.5 ms | 111 ms | 1.59× |
+| 400 | 800 | 20% | 222 ms | 268 ms | 381 ms | 1.72× |
 
-The crossover sits just under 5%: below it the sparse factorization wins, above it the
-dense one does. Iteration counts are identical at every density — the two solvers take the
-same path and only the linear algebra underneath differs. At 1% the answer is simply "use
-OSQP".
+Iteration counts are identical everywhere — the storage changes the speed, never the path,
+and the benchmark asserts that rather than assuming it.
 
-### Where the remaining gap is
+**PureOSQP wins every row except one: `n = 200, m = 400` at 1% density, where OSQP is 1.7×
+faster.** That is the one cell in this whole page where the reference implementation is
+still ahead, and it is the case it is built for — a small, very sparse problem where the
+KKT matrix is nearly empty.
 
-Splitting the same runs into setup and iterations, `n = 200`, `m = 400`:
+**Which storage to pass depends on density.** Below about 10%, hand PureOSQP the sparse
+matrices: the products are 4–8× cheaper and equilibration walks only the stored entries,
+worth 1.6–1.7× overall. Above it, densify: sparse `mul!` loses to dense BLAS-2 once there
+is enough work per row, and at 20% the sparse path is 1.2× *slower* than the dense one.
+The solver does not choose for you, because the right choice depends on a density it would
+have to compute.
 
-| density | | setup | iterations | total |
-|---|---|---|---|---|
-| 1% | PureOSQP | 1.25 ms | 4.12 ms | 5.36 ms |
-| | OSQP | 0.44 ms | 1.43 ms | 1.87 ms |
-| 5% | PureOSQP | 1.27 ms | 11.4 ms | 12.6 ms |
-| | OSQP | 2.22 ms | 11.5 ms | 13.8 ms |
-| 20% | PureOSQP | 1.27 ms | 20.2 ms | 21.5 ms |
-| | OSQP | 3.69 ms | 31.9 ms | 35.6 ms |
+### The SparseArrays extension
 
-PureOSQP's setup is flat at ~1.26 ms whatever the density, because it forms `AᵀρA` and
-factors it densely regardless of how sparse `A` was. OSQP's setup tracks the nonzero count
-instead, from 0.44 ms at 1% to 3.69 ms at 20% — so from 5% up, OSQP's setup is the more
-expensive of the two.
+PureOSQP's per-iteration products go through `mul!`, which sparse matrices already handle
+well. Equilibration and the factorization were the problem: they walk the caller's matrices
+entry by entry, and the generic loop visits every structural zero and reaches each through
+`M[i, j]`, which on CSC is a binary search. Equilibration was **10.7× slower on a sparse
+matrix than on a dense one** — the opposite of what the storage should give.
 
-What remains at 1% is the iteration loop, 4.12 ms against 1.43 ms, and that is simple
-arithmetic: `A` has ~800 nonzeros, so OSQP does a few thousand flops per iteration where
-PureOSQP does ~240,000 on the dense array. No amount of tuning closes a 100× flop gap; a
-sparse `A` wants sparse products and a sparse factorization, which is exactly what this
-package does not have.
+The four column traversals are now overridable, and `ext/PureOSQPSparseArraysExt.jl`
+specialises them for `SparseMatrixCSC`. `SparseArrays` is a weak dependency, so the core
+still has none beyond `LinearAlgebra` and TypeContracts, and the extension can only load
+when the caller already has sparse matrices to pass.
 
-**That setup figure used to be 9.4 ms.** Equilibration gathered the row norms of `A` in a
-second pass with the row index outermost, which walks a column-major array across its rows;
-on these shapes the strided reads cost more than everything else in setup combined. Folding
-that into the existing column pass took `scale!` from 8.72 ms to 0.54 ms and setup from
-9.44 ms to 1.25 ms, which is where most of the movement in the tables above comes from.
+| at 1% density, n=200, m=400 | dense input | sparse input |
+|---|---|---|
+| `scale!` | 571 µs | **67.5 µs** |
+| `factorize!` | 549 µs | 423 µs |
+| `setup` | 1265 µs | **633 µs** |
+| full solve | 13.1 ms | **8.01 ms** |
 
-### Does keeping `A` sparse help?
+A test asserts the two storages produce **identical** `D`, `E` and `c`, so the extension
+cannot drift into being a behaviour change.
 
-The table hands PureOSQP dense copies. It does not have to — any `AbstractMatrix` works and
-the per-iteration products call `mul!` on whatever is passed. Measured at `n = 200`,
-`m = 400`, passing the sparse matrices straight through takes 9.95 / 20.7 / 32.5 ms at
-1 / 5 / 20% density against 5.40 / 12.6 / 21.6 ms densified: **densifying is 1.5–1.9×
-faster at every density**. Sparse `mul!` loses to dense BLAS-2 well before the flop count
-says it should, and equilibration's elementwise reads are slower on a sparse array too. So
-densify at the door, which is what this table does; PureOSQP simply never forces it.
+### Why OSQP still wins the sparsest case
+
+Splitting the 1% case, `n = 200`, `m = 400`: PureOSQP's setup is now 0.63 ms against OSQP's
+0.44 ms, so setup is no longer the story. What remains is the iteration loop — and within
+it, the triangular solve. The reduced system is `n×n` and **dense whatever `A` looked
+like**, so `ldiv!` costs ~12 µs per iteration, which at 475 iterations is most of the
+remaining time. OSQP's sparse LDLᵀ on a nearly-empty KKT matrix is far cheaper.
+
+Nothing in the column traversals fixes that. Closing it needs a **sparse factorization
+backend** — and the reference implementation's own design is the hint: for sparse problems
+libosqp does not form `P + σI + AᵀρA` at all, because `AᵀA` fills in catastrophically when
+`A` has even one dense row. It factors the full quasi-definite KKT instead. Since the
+linear-system backend here is already a declared, checked interface
+([`LinearSystem`](@ref)), that is a third implementation rather than a patch — it is not
+built, and it is the honest answer to "make it competitive at 1%".
