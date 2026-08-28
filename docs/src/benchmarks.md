@@ -110,9 +110,12 @@ measurement — otherwise a rerouting that silently failed would look like a cle
 | 200 | 400 | 25.7 ms | 51.2 ms | 0.50× | 650 / 650 | 2.2e-14 |
 | 100 | 50 | 1.34 ms | 1.39 ms | 0.96× | 50 / 50 | 8.7e-15 |
 
+Measured against PureBLAS at commit `3ba7d47`, **uncalibrated** — see the note below the
+breakdown, which is the main thing to know before reading the ratios.
+
 **Correctness is exact**: identical iteration counts and solutions agreeing to `1e-14`, so
-PureBLAS is a faithful drop-in. **Speed is 1.0–2.0× worse**, and the per-operation
-breakdown says precisely why:
+PureBLAS is a faithful drop-in. **Speed is 1.0–2.0× worse here**, and the per-operation
+breakdown says precisely where it goes:
 
 | operation (n=200, m=400) | OpenBLAS | PureBLAS | ratio | runs |
 |---|---|---|---|---|
@@ -127,10 +130,17 @@ PureBLAS *wins* on the Level-3 work — `syrk` 1.34× and `potrf` 2.03× — whi
 own benchmarks target. But PureOSQP's inner loop is Level-2-bound: it does a handful of
 `gemv` and one `trsv` per iteration and touches `syrk`/`potrf` only when ρ changes, which
 on these problems is a few times in hundreds of iterations. The whole-solve ratio is
-therefore set by `gemv`, and specifically by the **transposed** path, which is ~10× slower
-than OpenBLAS and ~6× slower than PureBLAS's own non-transposed path on the identical
-data. That gap is reproducible across shapes (m=100/400/2000), and closing it would be
-worth roughly a 2× swing here.
+therefore set by `gemv`, and specifically by the **transposed** path.
+
+**That gemv-T number is a configuration result, not a verdict on PureBLAS.** PureBLAS
+autotunes per machine, and two of its seven knobs — `gemvt_percol_window` and `gemvt_pf` —
+govern exactly this path; the window is decided *per size*, so an unpinned default is not
+expected to be competitive. On the machine these numbers come from, no knobs are pinned,
+and PureBLAS's calibrator (`bench/calibrate.jl`) refuses to run because the CPU is not
+frequency-locked (`powersave`, boost on, 623–5091 MHz). So this measures **uncalibrated
+PureBLAS**, and the honest reading is "PureOSQP's workload leans on the one PureBLAS path
+that most needs per-machine tuning, which was untuned here" — not that the kernel is slow.
+A fair number needs the knobs pinned on a clock-locked box first.
 
 ### On the threading
 
