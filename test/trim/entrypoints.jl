@@ -13,6 +13,10 @@ solve_polish(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u; polis
 solve_kkt(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u; linsys = :kkt)
 solve_unscaled(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u; scaling = 0)
 
+# `verbose` prints through hand-written formatting precisely because `--trim` rejects
+# Printf and `Base.stdout`. Pinned as its own entry point so that stays checked.
+solve_verbose(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u; verbose = true)
+
 function setup_solve_update(P::M, q::V, A::M, l::V, u::V)
     ws = PureOSQP.setup(P, q, A, l, u)
     PureOSQP.solve!(ws)
