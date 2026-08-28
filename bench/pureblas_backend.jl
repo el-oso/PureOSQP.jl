@@ -138,6 +138,12 @@ open(joinpath(@__DIR__, "results", "pureblas_backend.json"), "w") do io
     JSON.print(
         io, Dict(
             "pureblas_version" => string(pkgversion(PureBLAS)),
+            # The version string does not move between branches; record the commit, which does.
+            "pureblas_commit" => try
+                strip(read(`git -C $(pkgdir(PureBLAS)) rev-parse --short HEAD`, String))
+            catch
+                "unknown"
+            end,
             "julia_version" => string(VERSION),
             "blas_threads" => BLAS.get_num_threads(),
             "julia_threads" => Threads.nthreads(),

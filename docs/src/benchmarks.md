@@ -104,60 +104,52 @@ measurement — otherwise a rerouting that silently failed would look like a cle
 
 | n | m | OpenBLAS | PureBLAS | ratio | iterations | \|Δx\| |
 |---|---|---|---|---|---|---|
-| 25 | 50 | 0.337 ms | 0.390 ms | 0.86× | 225 / 225 | 4.7e-15 |
-| 50 | 100 | 1.34 ms | 1.91 ms | 0.70× | 350 / 350 | 6.2e-15 |
-| 100 | 200 | 12.3 ms | 24.9 ms | 0.50× | 1500 / 1500 | 1.3e-14 |
-| 200 | 400 | 25.7 ms | 51.2 ms | 0.50× | 650 / 650 | 2.2e-14 |
-| 100 | 50 | 1.34 ms | 1.39 ms | 0.96× | 50 / 50 | 8.7e-15 |
+| 25 | 50 | 0.318 ms | 0.286 ms | **1.11×** | 225 / 225 | 4.8e-15 |
+| 50 | 100 | 1.31 ms | 1.23 ms | **1.06×** | 350 / 350 | 4.0e-15 |
+| 100 | 200 | 12.2 ms | 11.5 ms | **1.06×** | 1500 / 1500 | 8.7e-15 |
+| 200 | 400 | 25.1 ms | 23.6 ms | **1.06×** | 650 / 650 | 1.1e-14 |
+| 100 | 50 | 1.33 ms | 1.30 ms | **1.02×** | 50 / 50 | 8.1e-15 |
 
-Measured against PureBLAS at commit `3ba7d47`, **uncalibrated** — see the note below the
-breakdown, which is the main thing to know before reading the ratios.
-
-**Correctness is exact**: identical iteration counts and solutions agreeing to `1e-14`, so
-PureBLAS is a faithful drop-in. **Speed is 1.0–2.0× worse here**, and the per-operation
-breakdown says precisely where it goes:
+**Correctness is exact** — identical iteration counts and solutions agreeing to `1e-14`, so
+PureBLAS is a faithful drop-in — **and it is faster than OpenBLAS on every case**. The
+per-operation breakdown shows where that comes from:
 
 | operation (n=200, m=400) | OpenBLAS | PureBLAS | ratio | runs |
 |---|---|---|---|---|
-| `gemv A*x` | 3.62 µs | 4.75 µs | 0.76× | every iteration |
-| **`gemv Aᵀy` (transposed)** | 4.29 µs | **42.1 µs** | **0.10×** | every iteration |
-| `gemv At*y` (materialized transpose) | 3.59 µs | 5.49 µs | 0.66× | — |
-| `syrk WᵀW` | 314 µs | 235 µs | **1.34×** | on a ρ update |
-| `potrf` | 119 µs | 58.4 µs | **2.03×** | on a ρ update |
-| `trsv F\b` | 11.7 µs | 12.2 µs | 0.96× | every iteration |
+| `gemv A*x` | 3.32 µs | 3.14 µs | 1.06× | every iteration |
+| `gemv Aᵀy` (transposed) | 3.90 µs | 2.48 µs | **1.57×** | every iteration |
+| `gemv At*y` (materialized transpose) | 3.24 µs | 2.92 µs | 1.11× | — |
+| `syrk WᵀW` | 311 µs | 233 µs | **1.33×** | on a ρ update |
+| `potrf` | 115 µs | 57.6 µs | **2.00×** | on a ρ update |
+| `trsv F\b` | 11.5 µs | 12.3 µs | 0.93× | every iteration |
 
-PureBLAS *wins* on the Level-3 work — `syrk` 1.34× and `potrf` 2.03× — which is what its
-own benchmarks target. But PureOSQP's inner loop is Level-2-bound: it does a handful of
-`gemv` and one `trsv` per iteration and touches `syrk`/`potrf` only when ρ changes, which
-on these problems is a few times in hundreds of iterations. The whole-solve ratio is
-therefore set by `gemv`, and specifically by the **transposed** path.
+PureOSQP's inner loop is Level-2-bound: it does a handful of `gemv` and one `trsv` per
+iteration and touches `syrk`/`potrf` only when ρ changes, which on these problems is a few
+times in hundreds of iterations. So the whole-solve ratio tracks `gemv` — the 1.33× and
+2.00× on the Level-3 kernels contribute far less than their size suggests.
 
-**On whether tuning would close that gap: it was tried, and it does not.** PureBLAS
-autotunes per machine and two of its seven knobs — `gemvt_percol_window` and `gemvt_pf` —
-govern this path, so the obvious suspicion is that an unpinned default is the whole story.
-Running its calibrator says otherwise: the window knob reports *"NO window reproduces the
-measured winners — the knob's
-SHAPE is wrong for this box, not just its value. Reporting, not pinning"*, so it pins
-nothing at all.
+### What an earlier measurement got wrong
 
-The gap is also not confined to the sizes PureOSQP happens to use. Measured on square `A`,
-gemv-T with PureBLAS is 7.1× slower at n=64, 9.5× at n=200, 9.7× at n=1024 and 3.5× at
-n=4096 — worst in the middle of the range and never better than 3.5×. The calibrator tunes
-at n=512–4096, so PureOSQP's n=200 sits below the tuned range, but the gap is present
-across all of it.
+A previous version of this page reported PureBLAS at 0.49–0.96×, with transposed `gemv`
+**10× slower** than OpenBLAS. That was real, and it was a genuine bug rather than a tuning
+problem: PureBLAS's BLAS-2 SIMD path was unreachable *through `activate()`* specifically,
+so every measurement taken via the libblastrampoline reroute — which is how this benchmark
+runs — fell back to a scalar path. The same kernels called directly were fine. It is fixed
+upstream; transposed `gemv` went from 41.6 µs to 2.48 µs, a 17× improvement, and the
+whole-solve ratio from 0.50× to 1.06×.
 
-So the honest reading is narrower than "PureBLAS is slower": on this machine its
-**transposed** gemv is several times slower than OpenBLAS across every size measured, its
-non-transposed gemv is only ~1.5× slower, and its Level-3 kernels are *faster*. PureOSQP is
-simply Level-2-bound and lands on the one path where that gap lives.
+The mistaken diagnosis is worth recording too. The obvious suspicion was per-machine
+tuning: PureBLAS autotunes, and two of its seven knobs (`gemvt_percol_window`, `gemvt_pf`)
+govern exactly this path. That hypothesis was wrong. Running `PureBLAS.tune!(unlocked=true)`
+here — three independent calibration runs on an idle machine — pins **nothing**:
+`sytrf_cmult` disagreed across runs (`[1, 2, 2]`) and every other knob tied, so the report
+is "the in-code defaults are adequate here". The numbers above are therefore already the
+tuned numbers, and tuning was never what stood between the two libraries.
 
 ### On the threading
 
-The two sides are not symmetric, and the numbers should be read knowing it. OpenBLAS is
-pinned with `BLAS.set_num_threads(1)`; PureBLAS is plain Julia, so it is bounded by
-`Threads.nthreads()` — 12 in the run above — which `BLAS.set_num_threads` does not affect.
-The comparison is therefore tilted *toward* PureBLAS, and it still loses.
-
-Giving OpenBLAS more threads does not change the verdict, because at these sizes the
-workload does not parallelize: at n=200, m=400 it took 25.4 ms on 1 thread, 25.8 ms on 4
-and 26.3 ms on 8, against PureBLAS's 51.3 ms.
+The two sides are not symmetric. OpenBLAS is pinned with `BLAS.set_num_threads(1)`;
+PureBLAS is plain Julia, so it is bounded by `Threads.nthreads()` — 12 in these runs —
+which `BLAS.set_num_threads` does not affect. Giving OpenBLAS more threads does not change
+the picture at these sizes: at n=200, m=400 it took 25.4 ms on 1 thread, 25.8 ms on 4 and
+26.3 ms on 8.
