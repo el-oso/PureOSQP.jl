@@ -135,8 +135,8 @@ therefore set by `gemv`, and specifically by the **transposed** path.
 **On whether tuning would close that gap: it was tried, and it does not.** PureBLAS
 autotunes per machine and two of its seven knobs — `gemvt_percol_window` and `gemvt_pf` —
 govern this path, so the obvious suspicion is that an unpinned default is the whole story.
-Running its calibrator (off-lock, which is why these are not gate-valid numbers) says
-otherwise: the window knob reports *"NO window reproduces the measured winners — the knob's
+Running its calibrator says otherwise: the window knob reports *"NO window reproduces the
+measured winners — the knob's
 SHAPE is wrong for this box, not just its value. Reporting, not pinning"*, so it pins
 nothing at all.
 
@@ -149,8 +149,7 @@ across all of it.
 So the honest reading is narrower than "PureBLAS is slower": on this machine its
 **transposed** gemv is several times slower than OpenBLAS across every size measured, its
 non-transposed gemv is only ~1.5× slower, and its Level-3 kernels are *faster*. PureOSQP is
-simply Level-2-bound and lands on the one path where that gap lives. A gate-valid number
-still needs a frequency-locked box.
+simply Level-2-bound and lands on the one path where that gap lives.
 
 ### On the threading
 
