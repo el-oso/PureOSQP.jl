@@ -182,3 +182,37 @@ end
 
     @test :cold_start! in names(PureOSQP)
 end
+
+@testitem "time_limit stops the loop and reports it" begin
+    using LinearAlgebra, SparseArrays, OSQP, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    # Tight tolerances on a problem that needs many iterations, so the limit binds well
+    # before convergence rather than racing it.
+    P, q, A, l, u = random_qp(60, 150; seed = 44)
+    opts = (eps_abs = 1.0e-12, eps_rel = 1.0e-12, max_iter = 200_000)
+
+    unlimited = PureOSQP.solve(P, q, A, l, u; opts...)
+    limited = PureOSQP.solve(P, q, A, l, u; opts..., time_limit = 0.01)
+
+    @test limited.status == TIME_LIMIT_REACHED
+    @test limited.iter < unlimited.iter
+    # The point is unconverged but meaningful: it is reported, not replaced with NaN.
+    @test PureOSQP.has_solution(limited.status)
+    @test all(isfinite, limited.x)
+    @test all(isfinite, limited.y)
+    @test isfinite(limited.obj_val)
+    @test limited.prim_res >= 0
+
+    # Wall clock is only bounded loosely from above -- one iteration can overshoot -- but a
+    # 10 ms budget must not take anything like the unlimited run.
+    t = @elapsed PureOSQP.solve(P, q, A, l, u; opts..., time_limit = 0.01)
+    @test t < 1.0
+
+    # A limit that cannot bind leaves the result identical to no limit at all.
+    generous = PureOSQP.solve(P, q, A, l, u; opts..., time_limit = 1000.0)
+    @test generous.status == unlimited.status
+    @test generous.iter == unlimited.iter
+
+    @test_throws "time_limit must be positive" PureOSQP.solve(P, q, A, l, u; time_limit = 0)
+    @test_throws "time_limit must be positive" PureOSQP.solve(P, q, A, l, u; time_limit = -1)
+end

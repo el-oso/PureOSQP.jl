@@ -7,11 +7,14 @@
     DUAL_INFEASIBLE
     DUAL_INFEASIBLE_INACCURATE
     MAX_ITER_REACHED
+    TIME_LIMIT_REACHED
     NON_CONVEX
 end
 
 "Statuses that carry a meaningful primal-dual point."
-@inline has_solution(s::Status) = s === SOLVED || s === SOLVED_INACCURATE || s === MAX_ITER_REACHED
+@inline has_solution(s::Status) =
+    s === SOLVED || s === SOLVED_INACCURATE || s === MAX_ITER_REACHED ||
+    s === TIME_LIMIT_REACHED
 
 @inline INFTY(::Type{T}) where {T} = min(T(1.0e30), prevfloat(typemax(T)))
 @inline MIN_SCALING(::Type{T}) where {T} = T(1.0e-4)
@@ -34,6 +37,7 @@ struct Settings{T <: AbstractFloat}
     sigma::T
     alpha::T
     max_iter::Int
+    time_limit::T
     eps_abs::T
     eps_rel::T
     eps_prim_inf::T
@@ -52,7 +56,7 @@ struct Settings{T <: AbstractFloat}
 end
 
 function Settings{T}(;
-        rho = 0.1, sigma = 1.0e-6, alpha = 1.6, max_iter = 4000,
+        rho = 0.1, sigma = 1.0e-6, alpha = 1.6, max_iter = 4000, time_limit = Inf,
         eps_abs = 1.0e-3, eps_rel = 1.0e-3, eps_prim_inf = 1.0e-4, eps_dual_inf = 1.0e-4,
         scaling = 10, adaptive_rho = true, adaptive_rho_interval = 50,
         adaptive_rho_tolerance = 5.0, check_termination = 25,
@@ -64,6 +68,7 @@ function Settings{T}(;
     rho > 0 || throw(ArgumentError("rho must be positive, got $rho"))
     0 < alpha < 2 || throw(ArgumentError("alpha must lie in (0, 2), got $alpha"))
     max_iter > 0 || throw(ArgumentError("max_iter must be positive, got $max_iter"))
+    time_limit > 0 || throw(ArgumentError("time_limit must be positive (Inf disables it), got $time_limit"))
     eps_abs >= 0 && eps_rel >= 0 || throw(ArgumentError("eps_abs and eps_rel must be non-negative"))
     eps_abs > 0 || eps_rel > 0 || throw(ArgumentError("at least one of eps_abs, eps_rel must be positive"))
     eps_prim_inf > 0 && eps_dual_inf > 0 || throw(ArgumentError("eps_prim_inf and eps_dual_inf must be positive"))
@@ -74,7 +79,7 @@ function Settings{T}(;
     polish_refine_iter >= 0 || throw(ArgumentError("polish_refine_iter must be non-negative"))
     delta > 0 || throw(ArgumentError("delta must be positive, got $delta"))
     return Settings{T}(
-        T(rho), T(sigma), T(alpha), Int(max_iter),
+        T(rho), T(sigma), T(alpha), Int(max_iter), T(time_limit),
         T(eps_abs), T(eps_rel), T(eps_prim_inf), T(eps_dual_inf),
         Int(scaling), Bool(adaptive_rho), Int(adaptive_rho_interval),
         T(adaptive_rho_tolerance), Int(check_termination),

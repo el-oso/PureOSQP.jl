@@ -53,6 +53,7 @@ function status_name(s::Status)
     s === DUAL_INFEASIBLE && return "dual infeasible"
     s === DUAL_INFEASIBLE_INACCURATE && return "dual infeasible inaccurate"
     s === MAX_ITER_REACHED && return "maximum iterations reached"
+    s === TIME_LIMIT_REACHED && return "time limit reached"
     s === NON_CONVEX && return "problem non convex"
     return "unsolved"
 end
@@ -141,6 +142,14 @@ Run the ADMM loop on an existing workspace. Safe to call repeatedly; with
 If the iteration limit is reached, the termination tests are retried once at ten times the
 requested tolerances before the run is declared unconverged, which is where the
 `*_INACCURATE` statuses come from.
+
+`time_limit` bounds this loop and returns `TIME_LIMIT_REACHED`. It measures the loop only:
+equilibration and the first factorization happen in [`setup`](@ref) and are not counted,
+so on a fresh workspace the wall-clock cost of `solve` exceeds the limit by however long
+setup took. The status is returned as soon as the budget is spent, without re-checking the
+tolerances, so a run that stops this way reports `TIME_LIMIT_REACHED` even if its last
+point would have passed. The iterates are still meaningful and
+[`has_solution`](@ref PureOSQP.has_solution) accepts it, as it does `MAX_ITER_REACHED`.
 """
 function solve!(ws::Workspace{T}) where {T}
     s = ws.settings
@@ -149,9 +158,24 @@ function solve!(ws::Workspace{T}) where {T}
     ws.polished = false
     ws.iter = 0
     s.verbose && print_header(ws)
+    # `time_ns` is monotonic and costs tens of nanoseconds against a per-iteration cost of
+    # microseconds, but the whole check is skipped when no limit is set, so the default
+    # path is exactly what it was. A limit makes the iteration count machine-dependent,
+    # which is why it is off unless asked for.
+    limited = isfinite(s.time_limit)
+    started = time_ns()
+    budget = limited ? round(UInt64, Float64(s.time_limit) * 1.0e9) : typemax(UInt64)
     for iter in 1:s.max_iter
         ws.iter = iter
         admm_step!(ws)
+        if limited && time_ns() - started >= budget
+            # Report the residuals of the point actually reached, not the stale ones from
+            # the last scheduled check.
+            update_residuals!(ws)
+            ws.status = TIME_LIMIT_REACHED
+            s.verbose && print_row(ws)
+            break
+        end
         adapting = s.adaptive_rho && s.adaptive_rho_interval > 0 &&
             iter % s.adaptive_rho_interval == 0
         checking = s.check_termination > 0 && iter % s.check_termination == 0

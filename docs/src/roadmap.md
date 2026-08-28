@@ -15,10 +15,10 @@ Some entries are deliberate and will stay; those are marked as such and explaine
 `..._get_vec`), which is what lets a QP sit inside a differentiable program as a layer.
 Nothing here corresponds to it. This is the largest capability gap.
 
-**Time limit and interruption.** The solver does no timing at all, so there is no
-`time_limit` setting, no `TIME_LIMIT_REACHED` status, no interrupt checking and no
-`SIGINT` status. A run that takes `max_iter = 20000` iterations cannot be bounded by
-wall-clock.
+**Interruption.** There is no interrupt checking and no `SIGINT` status, so a long run
+cannot be stopped from the keyboard and reported as such. `time_limit` exists and bounds
+the ADMM loop, but not setup, since setup is not timed either — upstream's budget covers
+the whole run because it times every phase.
 
 **Code generation.** `osqp_codegen` emits a self-contained C solver for a fixed problem
 structure, with embedded-mode, float-type and printing/profiling/interrupt toggles. The
@@ -49,7 +49,7 @@ and `polished`, plus the infeasibility certificates. `OSQPInfo` also carries:
 |---|---|
 | `dual_obj_val`, `duality_gap` | the test referee computes the gap from problem data; the solver never reports it |
 | `rho_estimate`, `rho_updates` | `ws.refactor_count` conflates `ρ` updates with data-driven refactorizations, so neither can be recovered from it |
-| `setup_time`, `solve_time`, `update_time`, `polish_time`, `run_time` | no timing is collected |
+| `setup_time`, `solve_time`, `update_time`, `polish_time`, `run_time` | `time_limit` times the loop internally, but no duration is reported |
 | `rel_kkt_error`, `primdual_int` | 1.x convergence diagnostics |
 | `status_polish` | upstream distinguishes five polish outcomes; `polished::Bool` cannot separate "no active set found, skipped" from "attempted and failed" |
 
@@ -90,9 +90,9 @@ measurements. A `SparseArrays` extension does specialise equilibration's column 
 
 ## Suggested order
 
-The small items close real holes for little work: add `time_limit`, separate `ρ` updates
-from refactorizations in the reported counts, and report `duality_gap` and a real polish
-status. Derivatives and a MathOptInterface wrapper are projects rather than fixes.
+The small items close real holes for little work: separate `ρ` updates from
+refactorizations in the reported counts, and report `duality_gap` and a real polish status.
+Derivatives and a MathOptInterface wrapper are projects rather than fixes.
 
 Note that anything printing or timing has to respect the `--trim` guarantee, which
 analyses code whether or not the branch that reaches it is ever taken. `verbose` is the

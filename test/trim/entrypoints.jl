@@ -17,6 +17,9 @@ solve_unscaled(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u; sca
 # Printf and `Base.stdout`. Pinned as its own entry point so that stays checked.
 solve_verbose(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u; verbose = true)
 
+# `time_limit` puts `time_ns` and the UInt64 budget arithmetic on the solve path.
+solve_time_limited(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u; time_limit = 10.0)
+
 function setup_solve_update(P::M, q::V, A::M, l::V, u::V)
     ws = PureOSQP.setup(P, q, A, l, u)
     PureOSQP.solve!(ws)

@@ -19,6 +19,7 @@ using TypeContracts: TypeContracts, @contract, @verify
 export setup, solve, solve!, update!, warm_start!, cold_start!, Settings, Solution, Status
 export LinearSystem, ReducedCholesky, FullKKT
 export SOLVED, PRIMAL_INFEASIBLE, DUAL_INFEASIBLE, MAX_ITER_REACHED, NON_CONVEX, UNSOLVED
+export TIME_LIMIT_REACHED
 export SOLVED_INACCURATE, PRIMAL_INFEASIBLE_INACCURATE, DUAL_INFEASIBLE_INACCURATE
 
 include("linsys.jl")

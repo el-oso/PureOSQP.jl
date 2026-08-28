@@ -140,7 +140,16 @@ global does not survive `--trim`. `redirect_stdout` still captures it.
 | `DUAL_INFEASIBLE` | a certificate of dual infeasibility was found; `sol.dual_inf_cert` holds it |
 | `PRIMAL_INFEASIBLE_INACCURATE`, `DUAL_INFEASIBLE_INACCURATE` | as above, found only at ten times the requested tolerances |
 | `MAX_ITER_REACHED` | the iteration limit was hit and even the relaxed check failed |
+| `TIME_LIMIT_REACHED` | `time_limit` was spent before the residuals converged |
 | `NON_CONVEX` | residuals diverged |
+
+`time_limit` bounds the ADMM loop and defaults to `Inf`. It measures the loop only —
+equilibration and the first factorization happen in `setup` and are not counted — so a
+`solve` on fresh data takes longer than the limit by however long setup ran. The budget is
+checked every iteration, and the status is returned as soon as it is spent without
+re-testing the tolerances, so a run can report `TIME_LIMIT_REACHED` at a point that would
+have passed. Setting it makes the iteration count depend on the machine, which is why it
+is off by default.
 
 An unconverged result is never reported as `SOLVED`. Whenever there is no meaningful
 primal-dual point — an infeasibility, or `NON_CONVEX` — `x` and `y` are filled with `NaN`
