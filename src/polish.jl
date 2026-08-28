@@ -4,7 +4,9 @@
 Residuals of an arbitrary scaled point, reported in problem space. Used to decide whether
 a polished point is an improvement.
 """
-function residuals_at(ws::Workspace{T}, x::Vector{T}, y::Vector{T}, z::Vector{T}) where {T}
+function residuals_at(
+        ws::Workspace{T}, x::AbstractVector{T}, y::AbstractVector{T}, z::AbstractVector{T}
+    ) where {T}
     scaled = ws.settings.scaling > 0
     pr = zero(T)
     if ws.m > 0

@@ -104,47 +104,53 @@ struct Solution{T <: AbstractFloat}
 end
 
 """
-    Workspace{T,MP,MA}
+    Workspace{T,MP,MA,V,VI,LS}
 
 Solver state. The caller's `P` and `A` are held by reference and never mutated: Ruiz
 equilibration lives in the factors `D`, `E`, `c` and is applied lazily on every product.
+
+The buffers are `similar` to the `q` that built the workspace, so they follow the array
+type of the caller's data rather than always being `Vector`.
 """
-mutable struct Workspace{T <: AbstractFloat, MP <: AbstractMatrix, MA <: AbstractMatrix, LS <: LinearSystem}
+mutable struct Workspace{
+        T <: AbstractFloat, MP <: AbstractMatrix, MA <: AbstractMatrix,
+        V <: AbstractVector{T}, VI <: AbstractVector{Int8}, LS <: LinearSystem,
+    }
     P::MP
     A::MA
     n::Int
     m::Int
-    q0::Vector{T}
-    l0::Vector{T}
-    u0::Vector{T}
-    q::Vector{T}
-    l::Vector{T}
-    u::Vector{T}
-    D::Vector{T}
-    E::Vector{T}
+    q0::V
+    l0::V
+    u0::V
+    q::V
+    l::V
+    u::V
+    D::V
+    E::V
     c::T
-    x::Vector{T}
-    y::Vector{T}
-    z::Vector{T}
-    x_prev::Vector{T}
-    z_prev::Vector{T}
-    xtilde::Vector{T}
-    ztilde::Vector{T}
-    delta_x::Vector{T}
-    delta_y::Vector{T}
-    Ax::Vector{T}
-    Px::Vector{T}
-    Aty::Vector{T}
-    rhs_x::Vector{T}
-    rhs_z::Vector{T}
-    tmp_n::Vector{T}
-    tmp_m::Vector{T}
-    work_n::Vector{T}
-    work_m::Vector{T}
+    x::V
+    y::V
+    z::V
+    x_prev::V
+    z_prev::V
+    xtilde::V
+    ztilde::V
+    delta_x::V
+    delta_y::V
+    Ax::V
+    Px::V
+    Aty::V
+    rhs_x::V
+    rhs_z::V
+    tmp_n::V
+    tmp_m::V
+    work_n::V
+    work_m::V
     rho::T
-    rho_vec::Vector{T}
-    rho_inv_vec::Vector{T}
-    constr_type::Vector{Int8}
+    rho_vec::V
+    rho_inv_vec::V
+    constr_type::VI
     linsys::LS
     refactor_count::Int
     prim_res::T
@@ -209,25 +215,33 @@ function setup(
         throw(ArgumentError("P + sigma*I is not positive definite: P is indefinite, so the problem is not convex. Increase sigma if P + sigma*I can be made positive definite."))
     end
     inf = INFTY(T)
-    q0 = collect(T, q)
-    l0 = T[max(T(li), -inf) for li in l]
-    u0 = T[min(T(ui), inf) for ui in u]
-    z1(k) = zeros(T, k)
-    make(ls) = Workspace{T, typeof(P), typeof(A), typeof(ls)}(
+    # `similar`, not `collect`: the buffers inherit the caller's array type, and every
+    # later buffer is `similar` to `q0` in turn.
+    q0 = copyto!(similar(q, T, n), q)
+    l0 = max.(copyto!(similar(l, T, m), l), -inf)
+    u0 = min.(copyto!(similar(u, T, m), u), inf)
+    # A single definition, and no default argument: a local function assigned more than
+    # once is boxed, which turns every call through it into a dynamic dispatch and makes
+    # the entry points fail `--trim`.
+    buf(k, v) = fill!(similar(q0, T, k), v)
+    z = zero(T)
+    o = one(T)
+    ctype = fill!(similar(q0, Int8, m), zero(Int8))
+    make(ls) = Workspace{T, typeof(P), typeof(A), typeof(q0), typeof(ctype), typeof(ls)}(
         P, A, n, m,
         q0, l0, u0,
         copy(q0), copy(l0), copy(u0),
-        ones(T, n), ones(T, m), one(T),
-        z1(n), z1(m), z1(m), z1(n), z1(m), z1(n), z1(m), z1(n), z1(m),
-        z1(m), z1(n), z1(n),
-        z1(n), z1(m), z1(n), z1(m), z1(n), z1(m),
-        settings.rho, ones(T, m), ones(T, m), zeros(Int8, m),
+        buf(n, o), buf(m, o), o,
+        buf(n, z), buf(m, z), buf(m, z), buf(n, z), buf(m, z), buf(n, z), buf(m, z), buf(n, z), buf(m, z),
+        buf(m, z), buf(n, z), buf(n, z),
+        buf(n, z), buf(m, z), buf(n, z), buf(m, z), buf(n, z), buf(m, z),
+        settings.rho, buf(m, o), buf(m, o), ctype,
         ls, 0,
         zero(T), zero(T), zero(T), zero(T), zero(T), 0, UNSOLVED, false,
         settings,
     )
     if settings.linsys === :kkt
-        ws = make(FullKKT{T}(n, m))
+        ws = make(FullKKT(q0, n, m))
         scale!(ws)
         set_rho_vec!(ws, settings.rho)
         refactor!(ws)
@@ -235,14 +249,14 @@ function setup(
     end
     # :auto prefers the reduced Cholesky and settles the choice here, once. The backend is
     # then part of the workspace's type, so the per-iteration solve dispatches statically.
-    ws = make(ReducedCholesky{T}(n, m))
+    ws = make(ReducedCholesky(q0, n, m))
     scale!(ws)
     set_rho_vec!(ws, settings.rho)
     if factorize!(ws.linsys, ws)
         ws.refactor_count += 1
         return ws
     end
-    kkt = make(FullKKT{T}(n, m))
+    kkt = make(FullKKT(q0, n, m))
     scale!(kkt)
     set_rho_vec!(kkt, settings.rho)
     refactor!(kkt)

@@ -48,13 +48,20 @@ linear-algebra backend, and the duality-gap termination check added in libosqp 1
 
 ## How it differs from the reference implementation
 
-The inner KKT system is eliminated to an `n×n` symmetric positive definite system and
-factored with `cholesky!`, rather than factoring the `(n+m)×(n+m)` quasi-definite system
-with a sparse LDLᵀ. Upstream avoids that because `AᵀA` destroys sparsity; with sparsity off
-the table the objection does not apply, and the reduced form is faster in every dense
-regime measured. Pass `linsys = :kkt` to force the full quasi-definite factorization, which
-is slower but more accurate at moderate conditioning; the whole test corpus runs through
-both backends.
+The inner KKT system is eliminated to an `n×n` symmetric positive definite system, rather
+than factoring the `(n+m)×(n+m)` quasi-definite system with a sparse LDLᵀ. Upstream avoids
+that because `AᵀA` destroys sparsity; with sparsity off the table the objection does not
+apply, and the reduced form is faster in every regime measured. Pass `linsys = :kkt` to
+force the full quasi-definite factorization, which is slower but more accurate at moderate
+conditioning; the whole test corpus runs through both backends.
+
+That reduced matrix is then inverted, once per factorization, and each iteration solves by
+a single `symv` instead of a Cholesky `ldiv!`. Both are `2n²` flops, but a triangular solve
+produces its entries in sequence and a symmetric product does not, which is worth about 7×
+at `n = 200` — the factor is small and cache-resident, so the sequential dependency, not
+bandwidth, is what bounds it. Inverting is safe here specifically because the reduced
+matrix carries the `σI` regularization that bounds its conditioning; the residuals of the
+two forms agree to within a small factor.
 
 Equilibration is stored as factors rather than applied to the matrices, so every
 per-iteration product runs through the caller's own `P` and `A` and a structured or lazy
@@ -97,30 +104,32 @@ and again on [PureBLAS](https://github.com/el-oso/PureBLAS.jl):
 
 | n | m | PureOSQP | + PureBLAS | OSQP | vs | vs (PureBLAS) | iterations |
 |---|---|---|---|---|---|---|---|
-| 25 | 50 | 0.713 ms | 0.587 ms | 1.39 ms | 1.94× | 2.36× | 675 |
-| 50 | 100 | 2.18 ms | 1.97 ms | 5.02 ms | 2.30× | 2.55× | 900 |
-| 200 | 400 | 29.2 ms | 25.5 ms | 126 ms | 4.31× | 4.93× | 1175 |
-| 400 | 800 | 62.3 ms | 66.8 ms | 604 ms | **9.70×** | 9.05× | 625 |
-| 200 | 2000 | 241 ms | 224 ms | 1302 ms | 5.41× | 5.80× | 3025 |
-| 100 | 50 | 0.453 ms | 0.412 ms | 1.15 ms | 2.53× | 2.79× | 50 |
+| 25 | 50 | 0.454 ms | 0.406 ms | 1.38 ms | 3.05× | 3.41× | 675 |
+| 50 | 100 | 1.37 ms | 1.28 ms | 5.01 ms | 3.66× | 3.90× | 900 |
+| 200 | 400 | 15.6 ms | 13.0 ms | 127 ms | 8.11× | 9.75× | 1175 |
+| 400 | 800 | 40.8 ms | 42.8 ms | 613 ms | **15.04×** | 14.34× | 625 |
+| 200 | 2000 | 229 ms | 197 ms | 1334 ms | 5.83× | 6.76× | 3025 |
+| 100 | 50 | 0.344 ms | 0.331 ms | 1.15 ms | 3.35× | 3.48× | 50 |
 
 **Iteration counts are identical to OSQP in every case**, and objectives agree to about
 `1e-15`. The same holds against libosqp 1.x, checked separately through a subprocess
 oracle since it has no Julia wrapper. Switching BLAS changes neither: PureBLAS gives
 `|Δx| ≈ 1e-14` on identical iteration counts.
 
+PureBLAS is the faster of the two on every case but `n = 400, m = 800`.
+
 These are **dense** problems, which is the reference implementation's worst case: a sparse
 solver handed dense matrices, paying scalar sparse LDLᵀ where PureOSQP gets BLAS-3 dense
 Cholesky. Read it as a storage-format comparison, not a solver-quality one. Two benchmarks
 give the other side of the picture:
 
-- **sparse `A`** — PureOSQP leads from about 5% density up, and loses only the smallest
-  and sparsest case measured (`n = 200, m = 400` at 1%, where OSQP is 1.7× faster). Hand it
-  the sparse matrices rather than dense copies below ~10% density: a `SparseArrays` package
-  extension walks the stored entries during equilibration, worth 1.6–1.7× overall;
-- **a dense QP solver** — [DAQP](https://github.com/darnstrom/daqp), active-set, is 44×
-  faster at `n = 10` and level by `n = 200, m = 400`. On one small dense QP, use DAQP.
-  ADMM earns its place on sequences, through warm starts and cheap re-solves.
+- **sparse `A`** — PureOSQP leads at every density measured, by 1.50× at `n = 200, m = 400`
+  and 1% density up to 3.18× at 5%. Hand it the sparse matrices rather than dense copies
+  below ~10% density: a `SparseArrays` package extension walks the stored entries during
+  equilibration, worth 1.6–1.7× overall;
+- **a dense QP solver** — [DAQP](https://github.com/darnstrom/daqp), active-set, is 30×
+  faster at `n = 10`; PureOSQP is 1.7× ahead by `n = 200, m = 400`. On one small dense QP,
+  use DAQP. ADMM earns its place on sequences, through warm starts and cheap re-solves.
 
 Full tables, plus structured-storage and matrix-type results and the libosqp 1.x agreement
 check: `bench/headtohead.jl`, `bench/solvers.jl`, `bench/matrix_types.jl`,

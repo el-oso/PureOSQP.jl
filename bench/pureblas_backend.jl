@@ -1,7 +1,7 @@
 # PureOSQP on PureBLAS instead of OpenBLAS.
 #
 # PureBLAS.activate() overlays per-symbol forwards onto libblastrampoline, so PureOSQP
-# needs no code changes: the same `mul!`, `cholesky!` and `ldiv!` calls are rerouted in
+# needs no code changes: the same `mul!`, `cholesky!` and `symv` calls are rerouted in
 # process. Note `BLAS.get_config()` does NOT show this — OpenBLAS stays loaded and the
 # forwards sit on top of it — so activation is asserted with `PureBLAS.is_active()`.
 #
@@ -75,8 +75,9 @@ end
 
 """
 The individual BLAS calls PureOSQP makes, so a whole-solve ratio can be attributed rather
-than guessed at. `gemv` and `trsv` run every iteration; `syrk` and `potrf` only on a rho
-update.
+than guessed at. `gemv` and `symv` run every iteration; `syrk`, `potrf` and `potri` only on
+a rho update. `trsv` is measured for comparison even though the solver no longer calls it:
+it is what `symv` replaced, and the pair is the reason for the replacement.
 """
 function op_breakdown(n, m)
     Random.seed!(1)
@@ -89,6 +90,7 @@ function op_breakdown(n, m)
     Xn = randn(n, n)
     S = Matrix(Symmetric(Xn'Xn + n * I))
     F = cholesky(Symmetric(copy(S)))
+    Sinv = Symmetric(inv(F), :U)
     b = randn(n)
     At = Matrix(A')
     return [
@@ -97,6 +99,8 @@ function op_breakdown(n, m)
         "gemv  At*y (dense)" => op_pair(() -> mul!(ox, At, y)),
         "syrk  W'W" => op_pair(() -> mul!(R, W', W)),
         "potrf" => op_pair(() -> cholesky!(Symmetric(copy(S)); check = false)),
+        "potri" => op_pair(() -> inv(F)),
+        "symv  R⁻¹b" => op_pair(() -> mul!(ox, Sinv, b)),
         "trsv  F\\b" => op_pair(() -> ldiv!(F, copy(b))),
     ]
 end

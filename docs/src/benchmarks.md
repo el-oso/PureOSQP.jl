@@ -13,16 +13,16 @@ implementation as a Julia user gets it. PureOSQP is timed on OpenBLAS and again 
 
 | n | m | PureOSQP | PureOSQP + PureBLAS | OSQP | vs | vs (PureBLAS) | iterations | objective rel. Δ |
 |---|---|---|---|---|---|---|---|---|
-| 10 | 20 | 0.050 ms | 0.042 ms | 0.064 ms | 1.28× | 1.50× | 100 | 3.8e-15 |
-| 25 | 50 | 0.713 ms | 0.587 ms | 1.39 ms | 1.94× | 2.36× | 675 | 1.4e-15 |
-| 50 | 100 | 2.18 ms | 1.97 ms | 5.02 ms | 2.30× | 2.55× | 900 | 1.8e-15 |
-| 100 | 200 | 5.93 ms | 5.34 ms | 20.5 ms | 3.46× | 3.84× | 850 | 1.3e-15 |
-| 200 | 400 | 29.2 ms | 25.5 ms | 126 ms | 4.31× | 4.93× | 1175 | 4.4e-15 |
-| 400 | 800 | 62.3 ms | 66.8 ms | 604 ms | **9.70×** | 9.05× | 625 | 4.1e-15 |
-| 100 | 50 | 0.453 ms | 0.412 ms | 1.15 ms | 2.53× | 2.79× | 50 | 4.4e-15 |
-| 200 | 100 | 1.49 ms | 1.36 ms | 7.22 ms | 4.86× | 5.31× | 50 | 1.1e-14 |
-| 100 | 1000 | 145 ms | 131 ms | 693 ms | 4.79× | 5.29× | 7475 | 2.6e-11 |
-| 200 | 2000 | 241 ms | 224 ms | 1302 ms | 5.41× | 5.80× | 3025 | 7.1e-15 |
+| 10 | 20 | 0.037 ms | 0.035 ms | 0.064 ms | 1.71× | 1.81× | 100 | 3.3e-15 |
+| 25 | 50 | 0.454 ms | 0.406 ms | 1.38 ms | 3.05× | 3.41× | 675 | 1.4e-15 |
+| 50 | 100 | 1.37 ms | 1.28 ms | 5.01 ms | 3.66× | 3.90× | 900 | 1.3e-15 |
+| 100 | 200 | 3.36 ms | 2.96 ms | 20.4 ms | 6.06× | 6.88× | 850 | 1.3e-15 |
+| 200 | 400 | 15.6 ms | 13.0 ms | 127 ms | 8.11× | 9.75× | 1175 | 4.1e-15 |
+| 400 | 800 | 40.8 ms | 42.8 ms | 613 ms | **15.04×** | 14.34× | 625 | 4.5e-15 |
+| 100 | 50 | 0.344 ms | 0.331 ms | 1.15 ms | 3.35× | 3.48× | 50 | 7.5e-16 |
+| 200 | 100 | 1.18 ms | 1.14 ms | 7.29 ms | 6.18× | 6.41× | 50 | 1.1e-14 |
+| 100 | 1000 | 119 ms | 112 ms | 680 ms | 5.70× | 6.09× | 7475 | 1.7e-11 |
+| 200 | 2000 | 229 ms | 197 ms | 1334 ms | 5.83× | 6.76× | 3025 | 8.0e-15 |
 
 **The iteration count is identical to OSQP in every case.** That is the result worth caring
 about: the equilibration, the ρ schedule and the termination tests reproduce the reference
@@ -34,9 +34,8 @@ The same agreement holds against **libosqp 1.x**, which has no Julia wrapper and
 checked separately by `bench/headtohead_v1.jl` through a subprocess oracle: identical
 iteration counts on all seven of its cases, objectives to `1e-13`. It is left out of the
 timing table because timing a subprocess measures the subprocess.
-PureOSQP is now ahead of OSQP on every case in this table, including `n = 100, m = 50`,
-which it used to lose. PureBLAS helps everywhere except `n = 400, m = 800`, where it is
-marginally behind OpenBLAS.
+
+PureOSQP is ahead of OSQP on every case in this table.
 
 ## How to read this
 
@@ -67,11 +66,11 @@ most used for. 20 solves per case. Reproduce with
 
 | n | m | `update!` | fresh `setup` each step | saved | libosqp 1.x | vs | factorizations |
 |---|---|---|---|---|---|---|---|
-| 10 | 20 | 1.36 ms | 1.86 ms | 1.37× | 1.81 ms | 1.33× | 8 |
-| 25 | 50 | 4.77 ms | 9.25 ms | 1.94× | 9.63 ms | 2.02× | 14 |
-| 50 | 100 | 25.8 ms | 37.0 ms | 1.43× | 57.6 ms | 2.23× | 7 |
-| 100 | 200 | 158 ms | 144 ms | **0.91×** | 484 ms | 3.07× | 3 |
-| 200 | 400 | 631 ms | 643 ms | 1.02× | 2374 ms | 3.76× | 1 |
+| 10 | 20 | 0.94 ms | 1.39 ms | 1.47× | 1.80 ms | 1.91× | 8 |
+| 25 | 50 | 3.11 ms | 6.53 ms | 2.10× | 9.87 ms | 3.17× | 14 |
+| 50 | 100 | 15.6 ms | 23.8 ms | 1.52× | 58.5 ms | 3.74× | 7 |
+| 100 | 200 | 88.4 ms | 80.9 ms | **0.92×** | 496 ms | 5.62× | 3 |
+| 200 | 400 | 335 ms | 358 ms | 1.07× | 2410 ms | 7.20× | 1 |
 
 "Factorizations" counts the whole 20-step sequence: one from `setup`, plus one per step
 whose constraint classification changed.
@@ -81,22 +80,13 @@ whose constraint classification changed.
 [Sparse A](@ref "Sparse A")) there was far less left to skip. At `n = 100` it is now
 slightly *behind* rebuilding — the two runs also differ in warm starting, so they take
 different numbers of iterations and the comparison is no longer purely setup-versus-setup.
-It still pays where solves are short and setup is a large share, and it remains the right
-call when you want warm starting, but the 2× figures this table used to show are gone.
+It pays where solves are short and setup is a large share, and it remains the right call
+when you want warm starting; at the larger sizes it is close to a wash.
 
 The factorization count is not always 1: equilibration rescales the bounds, so a row whose
 scaled gap `ũ - l̃` falls under `RHO_TOL` is reclassified as an equality and its `ρ`
 changes. That is upstream's rule applied to the scaled bounds exactly as upstream applies
 it, and it means `update!` is not unconditionally factorization-free.
-
-The same sequences under PureBLAS rather than OpenBLAS:
-
-| n | m | OpenBLAS | PureBLAS | ratio |
-|---|---|---|---|---|
-| 25 | 50 | 4.72 ms | 3.85 ms | 1.23× |
-| 50 | 100 | 17.3 ms | 15.2 ms | 1.14× |
-| 100 | 200 | 127 ms | 116 ms | 1.09× |
-| 200 | 400 | 531 ms | 474 ms | 1.12× |
 
 ## Linear-system backend
 
@@ -109,7 +99,7 @@ equilibration cannot fix.
 
 [PureBLAS.jl](https://github.com/el-oso/PureBLAS.jl) is a pure-Julia BLAS/LAPACK. Its
 `activate()` overlays per-symbol forwards onto libblastrampoline, so PureOSQP runs on it
-**with no code changes** — the same `mul!`, `cholesky!` and `ldiv!` calls are rerouted in
+**with no code changes** — the same `mul!`, `cholesky!` and `symv` calls are rerouted in
 process. Reproduce with `bench/pureblas_backend.jl` (setup instructions in its header).
 
 Note `BLAS.get_config()` cannot show this: OpenBLAS stays loaded and the forwards sit on
@@ -121,27 +111,35 @@ records alongside the timings.
 
 | n | m | OpenBLAS | PureBLAS | ratio | iterations | \|Δx\| |
 |---|---|---|---|---|---|---|
-| 25 | 50 | 0.279 ms | 0.238 ms | 1.17× | 225 | 4.8e-15 |
-| 50 | 100 | 0.922 ms | 0.832 ms | 1.11× | 350 | 4.0e-15 |
-| 100 | 200 | 10.2 ms | 9.30 ms | 1.10× | 1500 | 8.7e-15 |
-| 200 | 400 | 16.8 ms | 14.6 ms | 1.15× | 650 | 1.1e-14 |
-| 100 | 50 | 0.453 ms | 0.413 ms | 1.10× | 50 | 8.1e-15 |
+| 25 | 50 | 0.198 ms | 0.186 ms | 1.07× | 225 | 4.2e-15 |
+| 50 | 100 | 0.611 ms | 0.582 ms | 1.05× | 350 | 4.3e-15 |
+| 100 | 200 | 5.94 ms | 5.20 ms | 1.14× | 1500 | 8.7e-15 |
+| 200 | 400 | 9.44 ms | 8.12 ms | 1.16× | 650 | 1.0e-14 |
+| 100 | 50 | 0.346 ms | 0.333 ms | 1.04× | 50 | 8.4e-15 |
 
 **Correctness is exact** — identical iteration counts and solutions agreeing to `1e-14`, so
 PureBLAS is a faithful drop-in — **and it is faster than OpenBLAS on every case**:
 
 | operation (n=200, m=400) | OpenBLAS | PureBLAS | ratio | runs |
 |---|---|---|---|---|
-| `gemv A*x` | 3.26 µs | 2.67 µs | 1.22× | every iteration |
-| `gemv Aᵀy` (transposed) | 4.02 µs | 2.51 µs | **1.60×** | every iteration |
-| `gemv At*y` (materialized transpose) | 3.74 µs | 2.75 µs | 1.36× | — |
-| `syrk WᵀW` | 309 µs | 233 µs | **1.33×** | on a ρ update |
-| `potrf` | 116 µs | 58.2 µs | **2.00×** | on a ρ update |
-| `trsv F\b` | 11.7 µs | 12.0 µs | 0.97× | every iteration |
+| `gemv A*x` | 3.38 µs | 3.07 µs | 1.10× | every iteration |
+| `gemv Aᵀy` (transposed) | 3.91 µs | 2.53 µs | **1.55×** | every iteration |
+| `gemv At*y` (materialized transpose) | 3.79 µs | 3.00 µs | 1.26× | — |
+| `syrk WᵀW` | 313 µs | 233 µs | **1.34×** | on a ρ update |
+| `potrf` | 114 µs | 57.7 µs | **1.98×** | on a ρ update |
+| `potri` | 216 µs | 322 µs | **0.67×** | on a ρ update |
+| `symv R⁻¹b` | 1.58 µs | 1.35 µs | 1.17× | every iteration |
+| `trsv F\b` | 11.6 µs | 12.1 µs | 0.96× | — |
 
-PureOSQP's inner loop is Level-2-bound: it does a handful of `gemv` and one `trsv` per
-iteration and touches `syrk`/`potrf` only when ρ changes, so the whole-solve ratio tracks
-`gemv`.
+PureOSQP's inner loop is Level-2-bound: it does a handful of `gemv` and one `symv` per
+iteration and touches `syrk`/`potrf`/`potri` only when ρ changes, so the whole-solve ratio
+tracks `gemv`. `potri` is the one operation where PureBLAS is behind, and inverting the
+factor put it on the ρ-update path — but at one call per update against hundreds of
+iterations, it does not move the whole-solve number.
+
+`trsv` is listed for reference only: it is what `symv` replaced. The two are the same
+`2n²` flops on either BLAS, and the 7× between them is the sequential dependency, not the
+library.
 
 ### What an earlier measurement got wrong
 
@@ -175,19 +173,19 @@ family. Reproduce with `julia --project=bench bench/solvers.jl`.
 
 | n | m | PureOSQP | OSQP | DAQP | Clarabel |
 |---|---|---|---|---|---|
-| 10 | 20 | 0.132 ms | 0.156 ms | **0.003 ms** | 0.128 ms |
-| 25 | 50 | 0.274 ms | 0.538 ms | **0.035 ms** | 0.646 ms |
-| 50 | 100 | 0.921 ms | 2.15 ms | **0.206 ms** | 2.86 ms |
-| 100 | 200 | 10.3 ms | 34.7 ms | **1.86 ms** | 17.2 ms |
-| 200 | 400 | 16.9 ms | 76.1 ms | 16.0 ms | 111 ms |
-| 100 | 50 | 0.455 ms | 1.16 ms | **0.359 ms** | 6.02 ms |
+| 10 | 20 | 0.091 ms | 0.155 ms | **0.003 ms** | 0.129 ms |
+| 25 | 50 | 0.197 ms | 0.538 ms | **0.035 ms** | 0.655 ms |
+| 50 | 100 | 0.611 ms | 2.15 ms | **0.208 ms** | 2.90 ms |
+| 100 | 200 | 5.81 ms | 34.3 ms | **1.87 ms** | 17.2 ms |
+| 200 | 400 | **9.49 ms** | 76.7 ms | 16.1 ms | 112 ms |
+| 100 | 50 | **0.348 ms** | 1.15 ms | 0.359 ms | 6.06 ms |
 
 DAQP is a dense active-set solver, and on small problems it is the right tool by a wide
-margin — 44× faster at `n = 10`. The gap closes with size, and by `n = 200, m = 400` the
-two are level. That shape is what the algorithms predict: an active-set method walks a
-handful of expensive iterations and terminates exactly, which is unbeatable when the active
-set is small, while ADMM's cost per iteration grows more slowly. If you have one small
-dense QP and no sequence, reach for DAQP.
+margin — 30× faster at `n = 10`. The gap closes with size, and by `n = 200, m = 400`
+PureOSQP is 1.7× ahead. That shape is what the algorithms predict: an active-set method
+walks a handful of expensive iterations and terminates exactly, which is unbeatable when
+the active set is small, while ADMM's cost per iteration grows more slowly. If you have one
+small dense QP and no sequence, reach for DAQP.
 
 What ADMM buys instead is the behaviour the rest of this page measures: iteration counts
 that do not depend on the active set, warm starts, cheap re-solves, and a factorization
@@ -208,10 +206,10 @@ product. Reproduce with `julia --project=bench bench/matrix_types.jl`.
 
 | problem | as `Matrix` | structured | speedup | iterations |
 |---|---|---|---|---|
-| dense `P` (vs `Symmetric`) | 62.0 ms | 63.7 ms | 0.97× | 4375 |
-| diagonal `P` (vs `Diagonal`) | 8.53 ms | 9.78 ms | 0.87× | 550 |
-| tridiagonal `P` (vs `Symmetric`) | 36.8 ms | 38.1 ms | 0.96× | 2550 |
-| `A` as a `SubArray` | 13.5 ms | 14.9 ms | 0.90× | 900 |
+| dense `P` (vs `Symmetric`) | 35.2 ms | 36.5 ms | 0.96× | 4375 |
+| diagonal `P` (vs `Diagonal`) | 5.25 ms | 6.54 ms | 0.80× | 550 |
+| tridiagonal `P` (vs `Symmetric`) | 21.3 ms | 22.7 ms | 0.94× | 2550 |
+| `A` as a `SubArray` | 7.90 ms | 9.42 ms | 0.84× | 900 |
 
 **Structured storage does not help here — it costs a little.** The mechanism works: a
 `Diagonal` `P` really does get an `O(n)` product instead of `O(n²)`. But `P` is not where
@@ -219,7 +217,7 @@ the time goes. Each iteration also does two products with `A`, which at `m = 2n`
 times the work of the dense `P` product, and `A` is dense in every row above. Meanwhile
 equilibration reads `P[i, j]` over the whole matrix, and on a `Diagonal` each off-diagonal
 read is a branch returning zero where the dense array is a straight load — which is where
-the 0.87× comes from.
+the 0.80× comes from.
 
 So the honest claim is narrow: the caller's matrices are never copied or mutated, any
 `AbstractMatrix` works, and a cheaper `mul!` is used when one exists. On a dense `A` that
@@ -233,27 +231,25 @@ package extension walks `nzrange` instead of indexing.
 
 | n | m | density | densified | sparse input | OSQP | best vs OSQP |
 |---|---|---|---|---|---|---|
-| 200 | 400 | 1% | 13.2 ms | 8.08 ms | 4.81 ms | **0.59×** |
-| 200 | 400 | 5% | 22.8 ms | 17.1 ms | 24.5 ms | 1.43× |
-| 200 | 400 | 20% | 22.9 ms | 27.3 ms | 37.9 ms | 1.65× |
-| 400 | 800 | 1% | 59.0 ms | 34.9 ms | 38.7 ms | 1.11× |
-| 400 | 800 | 5% | 90.1 ms | 69.5 ms | 111 ms | 1.59× |
-| 400 | 800 | 20% | 222 ms | 268 ms | 381 ms | 1.72× |
+| 200 | 400 | 1% | 8.16 ms | 3.54 ms | 4.80 ms | 1.36× |
+| 200 | 400 | 5% | 13.2 ms | 8.53 ms | 24.4 ms | 2.86× |
+| 200 | 400 | 20% | 13.1 ms | 18.4 ms | 37.5 ms | 2.87× |
+| 400 | 800 | 1% | 41.4 ms | 16.5 ms | 39.1 ms | 2.37× |
+| 400 | 800 | 5% | 60.1 ms | 38.4 ms | 110 ms | 2.87× |
+| 400 | 800 | 20% | 137 ms | 183 ms | 385 ms | 2.80× |
 
 Iteration counts are identical everywhere — the storage changes the speed, never the path,
 and the benchmark asserts that rather than assuming it.
 
-**PureOSQP wins every row except one: `n = 200, m = 400` at 1% density, where OSQP is 1.7×
-faster.** That is the one cell in this whole page where the reference implementation is
-still ahead, and it is the case it is built for — a small, very sparse problem where the
-KKT matrix is nearly empty.
+**PureOSQP is ahead on every row.** The narrowest margin is the case OSQP is built for — a
+small, very sparse problem where the KKT matrix is nearly empty — and even there it is
+1.36×.
 
 **Which storage to pass depends on density.** Below about 10%, hand PureOSQP the sparse
-matrices: the products are 4–8× cheaper and equilibration walks only the stored entries,
-worth 1.6–1.7× overall. Above it, densify: sparse `mul!` loses to dense BLAS-2 once there
-is enough work per row, and at 20% the sparse path is 1.2× *slower* than the dense one.
-The solver does not choose for you, because the right choice depends on a density it would
-have to compute.
+matrices: equilibration walks only the stored entries, worth 2.3–2.5× overall. Above it,
+densify: sparse `mul!` loses to dense BLAS-2 once there is enough work per row, and at 20%
+the sparse path is about 1.4× *slower* than the dense one. The solver does not choose for
+you, because the right choice depends on a density it would have to compute.
 
 ### The SparseArrays extension
 
@@ -270,26 +266,35 @@ when the caller already has sparse matrices to pass.
 
 | at 1% density, n=200, m=400 | dense input | sparse input |
 |---|---|---|
-| `scale!` | 571 µs | **67.5 µs** |
-| `factorize!` | 549 µs | 423 µs |
-| `setup` | 1265 µs | **633 µs** |
-| full solve | 13.1 ms | **8.01 ms** |
+| `scale!` | 548 µs | **67.6 µs** |
+| `factorize!` | 767 µs | 626 µs |
+| `setup` | 1475 µs | **844 µs** |
+| full solve | 8.16 ms | **3.54 ms** |
 
 A test asserts the two storages produce **identical** `D`, `E` and `c`, so the extension
 cannot drift into being a behaviour change.
 
-### Why OSQP still wins the sparsest case
+### How the sparsest case was closed
 
-Splitting the 1% case, `n = 200`, `m = 400`: PureOSQP's setup is now 0.63 ms against OSQP's
-0.44 ms, so setup is no longer the story. What remains is the iteration loop — and within
-it, the triangular solve. The reduced system is `n×n` and **dense whatever `A` looked
-like**, so `ldiv!` costs ~12 µs per iteration, which at 475 iterations is most of the
-remaining time. OSQP's sparse LDLᵀ on a nearly-empty KKT matrix is far cheaper.
+The 1% case, `n = 200`, `m = 400`, used to be the one cell where OSQP was ahead, by 1.7×.
+Splitting it showed setup was not the story — what remained was the iteration loop, and
+within it the triangular solve. The reduced system is `n×n` and **dense whatever `A` looked
+like**, so `ldiv!` cost ~12 µs per iteration, which at 475 iterations was most of the time.
 
-Nothing in the column traversals fixes that. Closing it needs a **sparse factorization
-backend** — and the reference implementation's own design is the hint: for sparse problems
-libosqp does not form `P + σI + AᵀρA` at all, because `AᵀA` fills in catastrophically when
-`A` has even one dense row. It factors the full quasi-definite KKT instead. Since the
-linear-system backend here is already a declared, checked interface
-([`LinearSystem`](@ref)), that is a third implementation rather than a patch — it is not
-built, and it is the honest answer to "make it competitive at 1%".
+The obvious reading was that this needed a sparse factorization backend, mirroring
+upstream's own design. Measurement says otherwise, twice over.
+
+First, a sparse factorization does not pay here. A sparse LDLᵀ of the full KKT matrix does
+beat the dense solve — 6.31 µs against 11.37 µs at 1% — but loses the factorization, 141 µs
+against 110 µs, and by 5% density it is 6.6× behind on the factorization and behind on the
+solve as well. The fill-in table under [Algorithm](@ref "The linear system") explains why:
+the factor is 48–83% dense even when the matrix is not.
+
+Second, and decisively, the dense solve was simply running well below what the hardware
+allows. The kernel was two triangular solves, whose entries must be computed in sequence.
+Replacing it with a `symv` against the inverted factor — identical flop count, no
+dependency chain — took the per-iteration solve from 11.4 µs to 1.6 µs, and the cell from
+8.08 ms to 3.54 ms against OSQP's 4.80 ms.
+
+The lesson generalises past this cell: the same change sped up every other case on this
+page, because the dense solve was on all of their hot paths too.

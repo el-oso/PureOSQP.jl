@@ -102,11 +102,12 @@ answer worse.
 
 ## Choosing a linear-system backend
 
-`linsys = :auto` (default) uses an `n×n` Cholesky of the reduced system, falling back to a
-Bunch-Kaufman factorization of the full `(n+m)×(n+m)` quasi-definite system if the Cholesky
-reports the matrix is not positive definite. `linsys = :kkt` forces the full
-factorization: slower, but more accurate at moderate conditioning and closer to what the
-reference implementation does, which makes it useful when a result is in question.
+`linsys = :auto` (default) takes an `n×n` Cholesky of the reduced system and inverts it in
+place, so each iteration's solve is one `symv`; it falls back to a Bunch-Kaufman
+factorization of the full `(n+m)×(n+m)` quasi-definite system if the Cholesky reports the
+matrix is not positive definite. `linsys = :kkt` forces the full factorization: slower, but
+more accurate at moderate conditioning and closer to what the reference implementation
+does, which makes it useful when a result is in question.
 
 ## Status values
 

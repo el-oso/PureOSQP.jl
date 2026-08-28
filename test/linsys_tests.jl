@@ -61,8 +61,11 @@ end
 
     # Both shipped backends satisfy it.
     for B in (
-            PureOSQP.ReducedCholesky{Float64, Cholesky{Float64, Matrix{Float64}}},
-            PureOSQP.FullKKT{Float64, BunchKaufman{Float64, Matrix{Float64}, Vector{Int}}},
+            PureOSQP.ReducedCholesky{Float64, Matrix{Float64}},
+            PureOSQP.FullKKT{
+                Float64, Matrix{Float64}, Vector{Float64},
+                BunchKaufman{Float64, Matrix{Float64}, Vector{Int}},
+            },
         )
         @test TypeContracts.satisfies(B, LS).satisfied
     end

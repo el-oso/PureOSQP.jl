@@ -35,6 +35,45 @@ dense even when `A` is sparse. With sparsity off the table that objection disapp
 measurement shows the reduced form is faster in every dense regime — from 1.45× when
 `m < n` up to 43× when `m ≫ n`.
 
+Fill-in is worth quantifying, because it also settles whether a sparse factorization would
+be worth adding. On random sparse `A`, the reduced matrix `R` is much sparser than `A`
+suggests it should be, but its Cholesky factor is not:
+
+| n | m | density(A) | density(R) | density of chol(R) | fill |
+|---|---|---|---|---|---|
+| 200 | 400 | 1% | 6.3% | 47.8% | 7.6× |
+| 200 | 400 | 5% | 78.9% | 100% | 1.3× |
+| 400 | 800 | 1% | 11.2% | 83.3% | 7.4× |
+| 400 | 800 | 5% | 95.4% | 100% | 1.1× |
+
+A uniformly random sparsity pattern is an expander: it has no small vertex separators, so
+elimination fills aggressively no matter how the matrix is ordered. By 5% density `R` is
+effectively dense. Structured problems — grids, chains, banded couplings — behave far
+better, but they are also the large problems where the dense path already wins.
+
+### Solving with the inverse
+
+Once `R` is factored it is inverted in place, and each iteration solves by one `symv`
+against the stored inverse rather than by a Cholesky `ldiv!`. Both do `2n²` flops. The
+difference is that a triangular solve computes its entries in sequence, one depending on
+the last, while a symmetric matrix-vector product has no such chain:
+
+| kernel | solve, n = 200 | relative error |
+|---|---|---|
+| `potrs` (two triangular solves) | 11.43 µs | 5.2e-16 |
+| `symv` against the inverse | 1.61 µs | 6.8e-16 |
+| two `trmv` against `L⁻¹` | 3.82 µs | 5.7e-16 |
+
+At these sizes the factor is a few hundred kilobytes and stays in cache, so the sequential
+dependency — not memory bandwidth — is what bounds the triangular solve. Inverting costs
+roughly two Cholesky factorizations (`potri` on top of `potrf`), paid once per `ρ` update
+and repaid over the hundreds of iterations between updates.
+
+Forming an explicit inverse is normally poor practice, and it is safe here for a specific
+reason: the reduced matrix carries the `σI` regularization, so its conditioning is bounded
+by construction rather than inherited from the data. That is what the error column above
+shows — the inverse is no less accurate than the triangular solve.
+
 The counter-pressure is conditioning: forming `AᵀρA` squares `cond(A)`. Measured relative
 error of the inner solve against an extended-precision reference, `n = 60`, `m = 200`,
 `P = 0`, on `A` built with geometrically spread singular values:
