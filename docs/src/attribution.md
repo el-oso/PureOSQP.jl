@@ -136,9 +136,16 @@ branch-and-bound for mixed-integer QPs are all outside this package's scope.
 These are changes from upstream, not omissions, and Apache-2.0 §4(b) asks that they be
 stated:
 
-- the inner KKT system is eliminated to an `n×n` positive definite system and factored with
-  a dense Cholesky, rather than factoring the `(n+m)×(n+m)` quasi-definite system with a
-  sparse LDLᵀ;
+- the inner KKT system is eliminated to an `n×n` positive definite system, rather than
+  factoring the `(n+m)×(n+m)` quasi-definite system as upstream does. The factorization
+  call is `LinearAlgebra`'s generic `cholesky!`, which dispatches on the argument; what
+  makes it dense is that the backend allocates its own dense buffers, since `AᵀA` fills in
+  regardless of how sparse `A` was. A sparse LDLᵀ of the full KKT — CHOLMOD's, reachable
+  through `SparseArrays` — was measured against this rather than assumed away: it wins the
+  per-iteration solve at 1% density and loses the factorization, and by 5% density loses
+  both. See [How the sparsest case was closed](@ref "How the sparsest case was closed");
+- the factored matrix is then inverted in place, so each iteration's solve is one `symv`
+  rather than two triangular solves;
 - equilibration is stored as factors and applied lazily, so the caller's `P` and `A` are
   never copied or modified;
 - `ρ` adapts on a fixed iteration interval rather than on a fraction of wall-clock setup
@@ -146,5 +153,7 @@ stated:
 - where libosqp 0.6.2 and later versions differ, the 0.6.2 behavior is implemented — the
   primal-infeasibility threshold `uᵀmax(δy,0) + lᵀmin(δy,0) < ε‖δy‖` and the
   dual-infeasibility threshold `qᵀδx < c·ε·‖δx‖`, both of which master tightened to `< 0`;
-- there is no sparse linear algebra, no code generation, no GPU backend, and no
-  duality-gap termination check.
+- there is no sparse *factorization* backend and no code generation or GPU backend. Sparse
+  `P` and `A` are accepted and are not densified: a `SparseArrays` extension walks their
+  stored entries during equilibration, and the per-iteration products go through their own
+  `mul!`. What is dense is the reduced matrix the backend forms and factors.

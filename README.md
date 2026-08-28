@@ -15,9 +15,11 @@ subject to  l ≤ Ax ≤ u
 `P` and `A` may be **any `AbstractMatrix`** and are never copied or modified. The numerics
 use `LinearAlgebra` alone; the only other dependency is
 [TypeContracts.jl](https://github.com/el-oso/TypeContracts.jl), which declares the
-linear-system backend interface and checks it at precompilation. There is no sparse linear
-algebra — a sparse `A` is factored densely — though a `SparseArrays` **weak** dependency
-lets equilibration walk the stored entries when you do pass one.
+linear-system backend interface and checks it at precompilation. Sparse `P` and `A` are
+accepted as they are: a `SparseArrays` **weak** dependency lets equilibration walk only
+their stored entries, and the per-iteration products use their own `mul!`. The matrix the
+solver *factors* is dense, because eliminating to the reduced system fills in whatever
+sparsity `A` had.
 
 The hot path is proven allocation-free and type-stable, and every public entry point
 compiles under `juliac --trim`. See [Guarantees](https://el-oso.github.io/PureOSQP.jl/dev/guarantees).
@@ -43,8 +45,12 @@ primal and dual infeasibility certificates, warm starting, and active-set soluti
 polishing — that is, the parts of OSQP that determine how it actually behaves, not just the
 ADMM recurrence.
 
-Not implemented: a MathOptInterface wrapper, a matrix-free/indirect inner solve, a sparse
-linear-algebra backend, and the duality-gap termination check added in libosqp 1.x.
+Duality-gap termination is implemented and on by default, following libosqp 1.x.
+
+Not implemented: a MathOptInterface wrapper, a matrix-free/indirect inner solve, solution
+derivatives, and a sparse *factorization* backend — sparse `P` and `A` are accepted and
+are not densified, but the reduced matrix the solver forms and factors is dense. See the
+[Roadmap](https://el-oso.github.io/PureOSQP.jl/dev/roadmap).
 
 ## How it differs from the reference implementation
 

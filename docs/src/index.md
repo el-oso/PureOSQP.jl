@@ -15,9 +15,12 @@ Rows with `l == u` are equality constraints.
 
 ## What makes this different
 
-`P` and `A` may be **any `AbstractMatrix`** and are never copied or modified. There is no
-sparse linear algebra — a sparse `A` is factored densely, though a `SparseArrays` weak
-dependency lets equilibration walk only the stored entries when you pass one. The numerics
+`P` and `A` may be **any `AbstractMatrix`** and are never copied or modified. Sparse
+matrices are accepted as they are: a `SparseArrays` weak dependency lets equilibration walk
+only their stored entries, and the per-iteration products use their own `mul!`. What the
+solver *factors* is dense, because eliminating to the reduced `n×n` system fills in
+whatever sparsity `A` had — a sparse factorization of the full KKT was measured against
+this and does not pay. The numerics
 use `LinearAlgebra` alone, and the only
 other dependency is TypeContracts.jl, which declares the linear-system backend interface
 and checks it at precompilation. The solver is
