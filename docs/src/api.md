@@ -6,6 +6,7 @@ PureOSQP.setup
 PureOSQP.solve!
 PureOSQP.update!
 PureOSQP.warm_start!
+PureOSQP.cold_start!
 PureOSQP.Settings
 PureOSQP.Solution
 PureOSQP.Workspace

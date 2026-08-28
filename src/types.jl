@@ -281,6 +281,19 @@ function warm_start!(ws::Workspace{T}; x = nothing, y = nothing) where {T}
     return ws
 end
 
+"""
+    cold_start!(ws) -> ws
+
+Zero the iterates `x`, `y` and `z`, discarding whatever warm-start state the workspace
+held. The equilibration factors, the factorization and the problem data are untouched, so
+the next [`solve!`](@ref) restarts the ADMM iteration without rebuilding anything.
+
+The solver already does this where it must: at the start of a solve when
+`warm_starting = false`, and after a run that ended without a meaningful primal-dual point,
+since those iterates lie on a diverging ray. Call it directly to discard a warm start you
+no longer want — after a large change in the data, say, when the previous solution is a
+worse starting point than the origin.
+"""
 function cold_start!(ws::Workspace{T}) where {T}
     fill!(ws.x, zero(T))
     fill!(ws.y, zero(T))

@@ -70,7 +70,6 @@ and `polished`, plus the infeasibility certificates. `OSQPInfo` also carries:
   `_polish`, …) which 1.x consolidated into one call. Note that changing `rho` or `sigma`
   requires a refactorization, so this is not merely a field assignment.
 - `osqp_update_rho` as a public entry point.
-- `cold_start!` exists but is not exported, while `warm_start!` is.
 - Introspection: `osqp_version`, `osqp_capabilities`, `osqp_error_message`,
   `osqp_get_dimensions`.
 
@@ -91,10 +90,9 @@ measurements. A `SparseArrays` extension does specialise equilibration's column 
 
 ## Suggested order
 
-The small items close real holes for little work: export `cold_start!`, add `time_limit`,
-separate `ρ` updates from refactorizations in the reported counts, and report
-`duality_gap` and a real polish status. Derivatives and a MathOptInterface wrapper are
-projects rather than fixes.
+The small items close real holes for little work: add `time_limit`, separate `ρ` updates
+from refactorizations in the reported counts, and report `duality_gap` and a real polish
+status. Derivatives and a MathOptInterface wrapper are projects rather than fixes.
 
 Note that anything printing or timing has to respect the `--trim` guarantee, which
 analyses code whether or not the branch that reaches it is ever taken. `verbose` is the

@@ -145,3 +145,40 @@ end
     @test occursin("polish:", polished)
     @test !occursin("polish:", loud)
 end
+
+@testitem "cold_start! discards the warm start without touching the problem" begin
+    using LinearAlgebra, SparseArrays, OSQP, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    P, q, A, l, u = random_qp(12, 30; seed = 33)
+    opts = (eps_abs = 1.0e-8, eps_rel = 1.0e-8, max_iter = 100_000)
+
+    ws = setup(P, q, A, l, u; opts...)
+    first = PureOSQP.solve!(ws)
+    @test first.status == SOLVED
+
+    warm = PureOSQP.solve!(ws)               # warm started from `first`
+    @test warm.iter < first.iter
+
+    # Only the iterates are discarded. `ρ`, the equilibration factors and the
+    # factorization survive, as they do upstream, so cold starting costs no refactorization.
+    refac = ws.refactor_count
+    rho = copy(ws.rho_vec)
+    @test cold_start!(ws) === ws
+    @test all(iszero, ws.x)
+    @test all(iszero, ws.y)
+    @test all(iszero, ws.z)
+    @test ws.refactor_count == refac
+    @test ws.rho_vec == rho
+
+    cold = PureOSQP.solve!(ws)
+    @test cold.status == SOLVED
+    # The warm start really was thrown away: restarting from the origin takes more
+    # iterations than continuing from the previous solution did.
+    @test cold.iter > warm.iter
+    # It converges to the same point regardless. Note the iteration count need not match
+    # the very first solve: `ρ` has been adapted since, and cold starting does not undo that.
+    @test cold.x ≈ first.x rtol = 1.0e-6
+    @test cold.obj_val ≈ first.obj_val rtol = 1.0e-8
+
+    @test :cold_start! in names(PureOSQP)
+end
