@@ -102,13 +102,16 @@ Note `BLAS.get_config()` cannot show this: OpenBLAS stays loaded and the forward
 top of it. `PureBLAS.is_active()` is the check, and the benchmark asserts it at every
 measurement — otherwise a rerouting that silently failed would look like a clean tie.
 
+Measured against PureBLAS at commit `ea79919`, which `bench/results/pureblas_backend.json`
+records alongside the timings.
+
 | n | m | OpenBLAS | PureBLAS | ratio | iterations | \|Δx\| |
 |---|---|---|---|---|---|---|
-| 25 | 50 | 0.318 ms | 0.286 ms | **1.11×** | 225 / 225 | 4.8e-15 |
-| 50 | 100 | 1.31 ms | 1.23 ms | **1.06×** | 350 / 350 | 4.0e-15 |
-| 100 | 200 | 12.2 ms | 11.5 ms | **1.06×** | 1500 / 1500 | 8.7e-15 |
-| 200 | 400 | 25.1 ms | 23.6 ms | **1.06×** | 650 / 650 | 1.1e-14 |
-| 100 | 50 | 1.33 ms | 1.30 ms | **1.02×** | 50 / 50 | 8.1e-15 |
+| 25 | 50 | 0.324 ms | 0.281 ms | **1.15×** | 225 / 225 | 4.8e-15 |
+| 50 | 100 | 1.31 ms | 1.22 ms | **1.08×** | 350 / 350 | 4.0e-15 |
+| 100 | 200 | 12.2 ms | 11.4 ms | **1.07×** | 1500 / 1500 | 8.7e-15 |
+| 200 | 400 | 25.2 ms | 22.9 ms | **1.10×** | 650 / 650 | 1.1e-14 |
+| 100 | 50 | 1.32 ms | 1.28 ms | **1.03×** | 50 / 50 | 8.1e-15 |
 
 **Correctness is exact** — identical iteration counts and solutions agreeing to `1e-14`, so
 PureBLAS is a faithful drop-in — **and it is faster than OpenBLAS on every case**. The
@@ -116,12 +119,12 @@ per-operation breakdown shows where that comes from:
 
 | operation (n=200, m=400) | OpenBLAS | PureBLAS | ratio | runs |
 |---|---|---|---|---|
-| `gemv A*x` | 3.32 µs | 3.14 µs | 1.06× | every iteration |
-| `gemv Aᵀy` (transposed) | 3.90 µs | 2.48 µs | **1.57×** | every iteration |
-| `gemv At*y` (materialized transpose) | 3.24 µs | 2.92 µs | 1.11× | — |
+| `gemv A*x` | 3.22 µs | 2.43 µs | **1.32×** | every iteration |
+| `gemv Aᵀy` (transposed) | 3.80 µs | 2.46 µs | **1.54×** | every iteration |
+| `gemv At*y` (materialized transpose) | 3.73 µs | 2.76 µs | 1.35× | — |
 | `syrk WᵀW` | 311 µs | 233 µs | **1.33×** | on a ρ update |
-| `potrf` | 115 µs | 57.6 µs | **2.00×** | on a ρ update |
-| `trsv F\b` | 11.5 µs | 12.3 µs | 0.93× | every iteration |
+| `potrf` | 116 µs | 57.2 µs | **2.02×** | on a ρ update |
+| `trsv F\b` | 11.7 µs | 12.1 µs | 0.97× | every iteration |
 
 PureOSQP's inner loop is Level-2-bound: it does a handful of `gemv` and one `trsv` per
 iteration and touches `syrk`/`potrf` only when ρ changes, which on these problems is a few
@@ -135,8 +138,8 @@ A previous version of this page reported PureBLAS at 0.49–0.96×, with transpo
 problem: PureBLAS's BLAS-2 SIMD path was unreachable *through `activate()`* specifically,
 so every measurement taken via the libblastrampoline reroute — which is how this benchmark
 runs — fell back to a scalar path. The same kernels called directly were fine. It is fixed
-upstream; transposed `gemv` went from 41.6 µs to 2.48 µs, a 17× improvement, and the
-whole-solve ratio from 0.50× to 1.06×.
+upstream; transposed `gemv` went from 41.6 µs to 2.46 µs, a 17× improvement, and the
+whole-solve ratio from 0.50× to 1.10×.
 
 The mistaken diagnosis is worth recording too. The obvious suspicion was per-machine
 tuning: PureBLAS autotunes, and two of its seven knobs (`gemvt_percol_window`, `gemvt_pf`)
