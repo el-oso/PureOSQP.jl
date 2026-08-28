@@ -1,0 +1,96 @@
+{
+  "blas_threads": 1,
+  "julia_version": "1.12.7",
+  "sparse": [
+    {
+      "density": 0.01,
+      "iter_osqp": 475,
+      "iter_pure": 475,
+      "m": 400,
+      "n": 200,
+      "ratio": 0.223573566954918,
+      "t_osqp": 0.004808225,
+      "t_pure": 0.021506232
+    },
+    {
+      "density": 0.05,
+      "iter_osqp": 875,
+      "iter_pure": 875,
+      "m": 400,
+      "n": 200,
+      "ratio": 0.7828241197752656,
+      "t_osqp": 0.024398778,
+      "t_pure": 0.031167637
+    },
+    {
+      "density": 0.2,
+      "iter_osqp": 875,
+      "iter_pure": 875,
+      "m": 400,
+      "n": 200,
+      "ratio": 1.202239448336421,
+      "t_osqp": 0.037459521,
+      "t_pure": 0.03115812
+    },
+    {
+      "density": 0.01,
+      "iter_osqp": 550,
+      "iter_pure": 550,
+      "m": 800,
+      "n": 400,
+      "ratio": 0.413965986854712,
+      "t_osqp": 0.038665497,
+      "t_pure": 0.093402594
+    },
+    {
+      "density": 0.05,
+      "iter_osqp": 900,
+      "iter_pure": 900,
+      "m": 800,
+      "n": 400,
+      "ratio": 0.8823170611721408,
+      "t_osqp": 0.109630008,
+      "t_pure": 0.124252395
+    },
+    {
+      "density": 0.2,
+      "iter_osqp": 2350,
+      "iter_pure": 2350,
+      "m": 800,
+      "n": 400,
+      "ratio": 1.4930378999641525,
+      "t_osqp": 0.382046975,
+      "t_pure": 0.255885651
+    }
+  ],
+  "structured": [
+    {
+      "iters": 4375,
+      "problem": "dense P",
+      "ratio": 0.9985921124129242,
+      "t_matrix": 0.066230101,
+      "t_structured": 0.066323477
+    },
+    {
+      "iters": 550,
+      "problem": "diagonal P",
+      "ratio": 1.0074583413494413,
+      "t_matrix": 0.013039221,
+      "t_structured": 0.01294269
+    },
+    {
+      "iters": 2550,
+      "problem": "tridiagonal P",
+      "ratio": 0.997309889859299,
+      "t_matrix": 0.041425222,
+      "t_structured": 0.041536961
+    },
+    {
+      "iters": 900,
+      "problem": "A as a view",
+      "ratio": 1.0032044683200028,
+      "t_matrix": 0.017887552,
+      "t_structured": 0.017830415
+    }
+  ]
+}

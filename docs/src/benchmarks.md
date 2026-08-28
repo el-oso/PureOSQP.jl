@@ -82,8 +82,8 @@ whose constraint classification changed.
 
 Two things worth reading off this. The saving from `update!` is bounded by how much of the
 run is setup: at `n = 200` the ADMM iterations dominate, so skipping 19 of 20
-factorizations is worth only 1.22×, while at `n = 25` — short solves, setup a large share —
-it is 2.16×. And the factorization count is not always 1: equilibration rescales the bounds,
+factorizations is worth only 1.28×, while at `n = 25` — short solves, setup a large share —
+it is 2.13×. And the factorization count is not always 1: equilibration rescales the bounds,
 so a row whose scaled gap `ũ - l̃` falls under `RHO_TOL` is reclassified as an equality and
 its `ρ` changes. That is upstream's rule applied to the scaled bounds exactly as upstream
 applies it, and it means `update!` is not unconditionally factorization-free.
@@ -173,3 +173,90 @@ PureBLAS is plain Julia, so it is bounded by `Threads.nthreads()` — 12 in thes
 which `BLAS.set_num_threads` does not affect. Giving OpenBLAS more threads does not change
 the picture at these sizes: at n=200, m=400 it took 25.4 ms on 1 thread, 25.8 ms on 4 and
 26.3 ms on 8.
+
+## Against other solvers
+
+Everything above compares PureOSQP with OSQP, which puts a sparse solver on dense data —
+its worst case. These are three other solvers on the same dense QPs, one per algorithm
+family, so the comparison is not rigged by storage format. Reproduce with
+`julia --project=bench bench/solvers.jl`.
+
+| n | m | PureOSQP | OSQP | DAQP | Clarabel |
+|---|---|---|---|---|---|
+| 10 | 20 | 0.140 ms | 0.155 ms | **0.003 ms** | 0.127 ms |
+| 25 | 50 | 0.327 ms | 0.535 ms | **0.035 ms** | 0.653 ms |
+| 50 | 100 | 1.33 ms | 2.15 ms | **0.206 ms** | 2.86 ms |
+| 100 | 200 | 12.1 ms | 34.1 ms | **1.86 ms** | 17.1 ms |
+| 200 | 400 | 25.2 ms | 75.8 ms | **16.0 ms** | 110 ms |
+| 100 | 50 | 1.33 ms | 1.14 ms | **0.361 ms** | 6.03 ms |
+
+DAQP is a dense active-set solver, and on these problems it is the right tool by a wide
+margin — 1.6× faster than PureOSQP at the largest case and 47× at the smallest. That is
+not a defect in this implementation; it is what the algorithms are. ADMM converges linearly
+and needs hundreds to thousands of cheap iterations; an active-set method walks a handful
+of expensive ones and terminates exactly. On small, moderately constrained dense QPs the
+active-set method wins, and the gap closes as the problem grows.
+
+What ADMM buys instead is the behaviour the rest of this page measures: iteration counts
+that do not depend on the active set, warm starts that actually help, cheap re-solves
+through [`update!`](@ref), and a factorization that is reused across hundreds of
+iterations. If you have one dense QP to solve and no sequence, reach for DAQP.
+
+Clarabel is an interior-point method and lands between the two, ahead at the smallest size
+and behind from `n = 50` up.
+
+Solutions agree to `1e-4` across all four, which is the expected spread at
+`eps_abs = eps_rel = 1e-6`: DAQP and Clarabel terminate on exact optimality conditions
+while ADMM stops at a residual tolerance.
+
+## Matrix types
+
+PureOSQP holds the caller's `P` and `A` and applies equilibration lazily, so every
+per-iteration product runs `mul!` on whatever was passed in. The question is what that is
+worth. Each row below is **one problem solved twice** — same numbers, once as a plain
+`Matrix` and once in a structured type — so the iteration counts match exactly and the
+difference is purely the cost of the product. Reproduce with
+`julia --project=bench bench/matrix_types.jl`.
+
+| problem | as `Matrix` | structured | speedup | iterations |
+|---|---|---|---|---|
+| dense `P` (vs `Symmetric`) | 66.2 ms | 66.3 ms | 1.00× | 4375 |
+| diagonal `P` (vs `Diagonal`) | 13.0 ms | 12.9 ms | 1.01× | 550 |
+| tridiagonal `P` (vs `Symmetric`) | 41.4 ms | 41.5 ms | 1.00× | 2550 |
+| `A` as a `SubArray` | 17.9 ms | 17.8 ms | 1.00× | 900 |
+
+**Structured storage buys nothing measurable here**, and that is worth stating plainly
+rather than leaving the reader to infer a benefit from the design. The mechanism works —
+a `Diagonal` `P` really does get an `O(n)` product instead of `O(n²)` — but on these
+shapes `P` is not where the time goes. Each iteration also does two products with `A`,
+which at `m = 2n` is four times the work of the dense `P` product, and `A` is dense in
+every row above. The structure would have to be in `A` to show up, and a structurally
+sparse `A` is the next section.
+
+So the honest claim is narrower than "structured matrices are faster": the caller's
+matrices are never copied or mutated, any `AbstractMatrix` works, and a cheaper `mul!` is
+used when one exists — but on a dense `A` that is not a speed feature.
+
+## Sparse A
+
+The case the rest of this page avoids. `A` and `P` genuinely sparse, so OSQP's sparse
+LDLᵀ is playing to its strength and PureOSQP has no answer but to treat them as dense.
+
+| n | m | density | PureOSQP | OSQP | vs | iterations |
+|---|---|---|---|---|---|---|
+| 200 | 400 | 1% | 21.5 ms | 4.81 ms | **0.22×** | 475 |
+| 200 | 400 | 5% | 31.2 ms | 24.4 ms | 0.78× | 875 |
+| 200 | 400 | 20% | 31.2 ms | 37.5 ms | **1.20×** | 875 |
+| 400 | 800 | 1% | 93.4 ms | 38.7 ms | **0.41×** | 550 |
+| 400 | 800 | 5% | 124 ms | 110 ms | 0.88× | 900 |
+| 400 | 800 | 20% | 256 ms | 382 ms | **1.49×** | 2350 |
+
+At 1% density OSQP is 2.4–4.5× faster and the answer is simply "use OSQP". The crossover
+sits near 10%: below it the sparse factorization wins, above it the dense one does. The
+iteration counts are identical at every density, which is the same agreement the dense
+tables show — the two solvers take the same path and only the linear algebra underneath
+differs.
+
+This is the boundary of what PureOSQP is for. It is a dense solver; if `A` is sparse and
+stays sparse, the reference implementation is the better tool and this package has no
+sparse backend to offer.
