@@ -95,12 +95,12 @@ and again on [PureBLAS](https://github.com/el-oso/PureBLAS.jl):
 
 | n | m | PureOSQP | + PureBLAS | OSQP | vs | vs (PureBLAS) | iterations |
 |---|---|---|---|---|---|---|---|
-| 25 | 50 | 0.744 ms | 0.636 ms | 1.38 ms | 1.86× | 2.18× | 675 |
-| 50 | 100 | 2.57 ms | 2.34 ms | 5.00 ms | 1.95× | 2.13× | 900 |
-| 200 | 400 | 37.6 ms | 33.7 ms | 126 ms | 3.35× | 3.74× | 1175 |
-| 400 | 800 | 96.6 ms | 101 ms | 600 ms | **6.21×** | 5.96× | 625 |
-| 200 | 2000 | 273 ms | 267 ms | 1288 ms | 4.72× | 4.82× | 3025 |
-| 100 | 50 | 1.33 ms | 1.29 ms | 1.15 ms | **0.87×** | 0.89× | 50 |
+| 25 | 50 | 0.713 ms | 0.587 ms | 1.39 ms | 1.94× | 2.36× | 675 |
+| 50 | 100 | 2.18 ms | 1.97 ms | 5.02 ms | 2.30× | 2.55× | 900 |
+| 200 | 400 | 29.2 ms | 25.5 ms | 126 ms | 4.31× | 4.93× | 1175 |
+| 400 | 800 | 62.3 ms | 66.8 ms | 604 ms | **9.70×** | 9.05× | 625 |
+| 200 | 2000 | 241 ms | 224 ms | 1302 ms | 5.41× | 5.80× | 3025 |
+| 100 | 50 | 0.453 ms | 0.412 ms | 1.15 ms | 2.53× | 2.79× | 50 |
 
 **Iteration counts are identical to OSQP in every case**, and objectives agree to about
 `1e-15`. The same holds against libosqp 1.x, checked separately through a subprocess
@@ -109,14 +109,18 @@ oracle since it has no Julia wrapper. Switching BLAS changes neither: PureBLAS g
 
 These are **dense** problems, which is the reference implementation's worst case: a sparse
 solver handed dense matrices, paying scalar sparse LDLᵀ where PureOSQP gets BLAS-3 dense
-Cholesky. Read it as a storage-format comparison, not a solver-quality one — on sparse
-problems the reference implementation is expected to win, and PureOSQP has no sparse
-backend. It already loses to 0.6.2 at `n = 100, m = 50`, where the reduced system is barely
-smaller than the full one.
+Cholesky. Read it as a storage-format comparison, not a solver-quality one. Two benchmarks
+give the other side of the picture:
 
-Full tables, the libosqp 1.x agreement check and the linear-system backend comparison:
-`bench/headtohead.jl`, `bench/headtohead_v1.jl` and `bench/kkt_backend.jl`, with every
-sample saved under `bench/results/`.
+- **sparse `A`** — OSQP is 1.5–2.7× faster below 5% density and PureOSQP leads above it;
+- **a dense QP solver** — [DAQP](https://github.com/darnstrom/daqp), active-set, is 44×
+  faster at `n = 10` and level by `n = 200, m = 400`. On one small dense QP, use DAQP.
+  ADMM earns its place on sequences, through warm starts and cheap re-solves.
+
+Full tables, plus structured-storage and matrix-type results and the libosqp 1.x agreement
+check: `bench/headtohead.jl`, `bench/solvers.jl`, `bench/matrix_types.jl`,
+`bench/headtohead_v1.jl` and `bench/kkt_backend.jl`, with every sample saved under
+`bench/results/`.
 
 ## Relationship to upstream OSQP
 

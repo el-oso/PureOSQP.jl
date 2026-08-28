@@ -27,24 +27,29 @@ function scale!(ws::Workspace{T}) where {T}
     end
     d = ws.tmp_n
     e = ws.tmp_m
+    P, A, D, E = ws.P, ws.A, ws.D, ws.E
     for _ in 1:ws.settings.scaling
+        # One pass over A, column by column. The row norms are accumulated here rather
+        # than gathered in a second loop over `A[i, j]` with `j` innermost: that walks a
+        # column-major matrix across its rows, and on a 400x200 problem the strided reads
+        # cost more than everything else in setup put together.
+        fill!(e, zero(T))
         for j in 1:n
             pj = zero(T)
             for i in 1:n
-                pj = max(pj, ws.D[i] * abs(T(ws.P[i, j])))
+                pj = max(pj, D[i] * abs(T(P[i, j])))
             end
+            dj = D[j]
             aj = zero(T)
             for i in 1:m
-                aj = max(aj, ws.E[i] * abs(T(ws.A[i, j])))
+                v = abs(T(A[i, j]))
+                aj = max(aj, E[i] * v)
+                e[i] = max(e[i], dj * v)
             end
-            d[j] = limit_scaling(max(ws.c * ws.D[j] * pj, ws.D[j] * aj))
+            d[j] = limit_scaling(max(ws.c * dj * pj, dj * aj))
         end
         for i in 1:m
-            ai = zero(T)
-            for j in 1:n
-                ai = max(ai, ws.D[j] * abs(T(ws.A[i, j])))
-            end
-            e[i] = limit_scaling(ws.E[i] * ai)
+            e[i] = limit_scaling(E[i] * e[i])
         end
         d .= inv.(sqrt.(d))
         e .= inv.(sqrt.(e))
@@ -56,9 +61,9 @@ function scale!(ws::Workspace{T}) where {T}
         for j in 1:n
             pj = zero(T)
             for i in 1:n
-                pj = max(pj, ws.D[i] * abs(T(ws.P[i, j])))
+                pj = max(pj, D[i] * abs(T(P[i, j])))
             end
-            acc += ws.c * ws.D[j] * pj
+            acc += ws.c * D[j] * pj
         end
         ct = max(acc / n, limit_scaling(maximum(abs, ws.q; init = zero(T))))
         ct = inv(limit_scaling(ct))
