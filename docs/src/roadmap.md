@@ -8,13 +8,6 @@ libosqp's public API — `osqp_api.c`, `osqp_api_types.h` and `osqp_api_constant
 Some entries are deliberate and will stay; those are marked as such and explained under
 [What is deliberately different](@ref). The rest are open.
 
-## Known defect
-
-**`verbose` is accepted but never read.** The setting is validated and stored, and nothing
-in the solver consults it, so `verbose = true` silently does nothing. A setting that looks
-supported and is not is worse than an absent one. Either implement progress reporting or
-reject the keyword.
-
 ## Missing capabilities
 
 **Solution derivatives.** Upstream computes derivatives of the solution with respect to
@@ -98,7 +91,12 @@ measurements. A `SparseArrays` extension does specialise equilibration's column 
 
 ## Suggested order
 
-The small items close real holes for little work: fix or reject `verbose`, export
-`cold_start!`, add `time_limit`, separate `ρ` updates from refactorizations in the reported
-counts, and report `duality_gap` and a real polish status. Derivatives and a
-MathOptInterface wrapper are projects rather than fixes.
+The small items close real holes for little work: export `cold_start!`, add `time_limit`,
+separate `ρ` updates from refactorizations in the reported counts, and report
+`duality_gap` and a real polish status. Derivatives and a MathOptInterface wrapper are
+projects rather than fixes.
+
+Note that anything printing or timing has to respect the `--trim` guarantee, which
+analyses code whether or not the branch that reaches it is ever taken. `verbose` is the
+worked example: Printf and bare `println` both fail there, so the output is written
+through `Core.stdout` by hand.

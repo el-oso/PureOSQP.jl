@@ -100,3 +100,48 @@ end
     @test warm.iter < cold.iter
     @test warm.x ≈ cold.x rtol = 1.0e-5
 end
+
+@testitem "verbose prints a progress report, and is silent when off" begin
+    using LinearAlgebra, SparseArrays, OSQP, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    P, q, A, l, u = random_qp(12, 30; seed = 21)
+
+    # `Core.stdout` writes to the file descriptor, so capture at that level rather than by
+    # rebinding `Base.stdout`.
+    function capture(f)
+        (path, io) = mktemp()
+        try
+            redirect_stdout(f, io)
+            close(io)
+            return read(path, String)
+        finally
+            rm(path; force = true)
+        end
+    end
+
+    loud = capture() do
+        PureOSQP.solve(P, q, A, l, u; verbose = true, check_termination = 25)
+    end
+    quiet = capture() do
+        PureOSQP.solve(P, q, A, l, u; verbose = false, check_termination = 25)
+    end
+
+    # The defect this guards against is a setting that is accepted and then ignored.
+    @test isempty(quiet)
+    @test !isempty(loud)
+    @test occursin("PureOSQP", loud)
+    @test occursin("iter", loud)
+    @test occursin("status:", loud)
+    @test occursin("solved", loud)
+    @test occursin("number of iterations:", loud)
+    # One row per termination check, plus the header and footer blocks.
+    sol = PureOSQP.solve(P, q, A, l, u; check_termination = 25)
+    @test count(==('\n'), loud) >= sol.iter ÷ 25
+
+    # Polishing reports its own outcome, and only when it was asked for.
+    polished = capture() do
+        PureOSQP.solve(P, q, A, l, u; verbose = true, polish = true)
+    end
+    @test occursin("polish:", polished)
+    @test !occursin("polish:", loud)
+end

@@ -109,6 +109,27 @@ matrix is not positive definite. `linsys = :kkt` forces the full factorization: 
 more accurate at moderate conditioning and closer to what the reference implementation
 does, which makes it useful when a result is in question.
 
+## Watching a solve
+
+`verbose = true` prints a progress report: a header with the problem size and the settings
+that matter, one row per termination check, and a footer with the status, iteration count
+and final residuals.
+
+```
+ iter      objective      prim res      dual res           rho
+   25        1.39217        0.0543       0.00297           0.1
+   50        1.45711       0.00245      0.000415           0.1
+  ...
+  125        1.46211      0.000374      0.000174         0.549
+```
+
+The `rho` column is the useful one: a change there is an adaptive-ρ update, which is also
+a refactorization. Rows appear at the `check_termination` interval, so setting that to `0`
+disables them along with the termination tests themselves.
+
+Output goes to `Core.stdout` rather than `Base.stdout`, because the abstractly typed
+global does not survive `--trim`. `redirect_stdout` still captures it.
+
 ## Status values
 
 | status | meaning |

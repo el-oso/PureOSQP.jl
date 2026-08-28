@@ -44,6 +44,94 @@ function admm_step!(ws::Workspace{T}) where {T}
     return ws
 end
 
+"Name of a status, for `verbose` output."
+function status_name(s::Status)
+    s === SOLVED && return "solved"
+    s === SOLVED_INACCURATE && return "solved inaccurate"
+    s === PRIMAL_INFEASIBLE && return "primal infeasible"
+    s === PRIMAL_INFEASIBLE_INACCURATE && return "primal infeasible inaccurate"
+    s === DUAL_INFEASIBLE && return "dual infeasible"
+    s === DUAL_INFEASIBLE_INACCURATE && return "dual infeasible inaccurate"
+    s === MAX_ITER_REACHED && return "maximum iterations reached"
+    s === NON_CONVEX && return "problem non convex"
+    return "unsolved"
+end
+
+# The `verbose` output.
+#
+# Everything here writes to `Core.stdout` and formats by hand. That is not a style choice:
+# `--trim` analyses this code whether or not `verbose` is ever set, and it rejects both
+# Printf (its format specifications carry type parameters that do not infer) and bare
+# `println(x)` (`Base.stdout` is an abstractly typed global). `Core.stdout` is a concrete
+# singleton, so calls through it resolve statically; `redirect_stdout` still captures it,
+# since that redirects the file descriptor.
+const VERBOSE_RULE = "------------------------------------------------------------------"
+
+"Right-align `s` in `width` columns."
+function print_padded(s::String, width::Int)
+    for _ in (ncodeunits(s) + 1):width
+        print(Core.stdout, " ")
+    end
+    print(Core.stdout, s)
+    return nothing
+end
+
+print_padded(v, width::Int, digits::Int) = print_padded(string(round(v; sigdigits = digits)), width)
+
+function print_header(ws::Workspace)
+    println(Core.stdout, VERBOSE_RULE)
+    println(Core.stdout, "            PureOSQP - operator splitting QP solver")
+    print(Core.stdout, "     n = ")
+    print(Core.stdout, ws.n)
+    print(Core.stdout, ", m = ")
+    print(Core.stdout, ws.m)
+    print(Core.stdout, ", backend = ")
+    println(Core.stdout, backend_name(ws.linsys) === :cholesky ? "cholesky" : "bunchkaufman")
+    print(Core.stdout, "     eps_abs = ")
+    print(Core.stdout, ws.settings.eps_abs)
+    print(Core.stdout, ", eps_rel = ")
+    print(Core.stdout, ws.settings.eps_rel)
+    print(Core.stdout, ", max_iter = ")
+    print(Core.stdout, ws.settings.max_iter)
+    print(Core.stdout, ", polish = ")
+    println(Core.stdout, ws.settings.polish ? "on" : "off")
+    println(Core.stdout, VERBOSE_RULE)
+    println(Core.stdout, " iter      objective      prim res      dual res           rho")
+    return nothing
+end
+
+function print_row(ws::Workspace)
+    print_padded(string(ws.iter), 5)
+    print_padded(ws.obj_val, 15, 6)
+    print_padded(ws.prim_res, 14, 3)
+    print_padded(ws.dual_res, 14, 3)
+    print_padded(ws.rho, 14, 3)
+    print(Core.stdout, "\n")
+    return nothing
+end
+
+function print_footer(ws::Workspace)
+    println(Core.stdout, VERBOSE_RULE)
+    print(Core.stdout, "status:               ")
+    println(Core.stdout, status_name(ws.status))
+    if ws.settings.polish
+        print(Core.stdout, "polish:               ")
+        println(Core.stdout, ws.polished ? "successful" : "unsuccessful")
+    end
+    print(Core.stdout, "number of iterations: ")
+    println(Core.stdout, ws.iter)
+    if has_solution(ws.status)
+        print(Core.stdout, "optimal objective:    ")
+        println(Core.stdout, round(ws.obj_val; sigdigits = 6))
+        print(Core.stdout, "primal residual:      ")
+        println(Core.stdout, round(ws.prim_res; sigdigits = 3))
+        print(Core.stdout, "dual residual:        ")
+        println(Core.stdout, round(ws.dual_res; sigdigits = 3))
+    end
+    println(Core.stdout, VERBOSE_RULE)
+    return nothing
+end
+
 """
     solve!(ws) -> Solution
 
@@ -60,6 +148,7 @@ function solve!(ws::Workspace{T}) where {T}
     ws.status = UNSOLVED
     ws.polished = false
     ws.iter = 0
+    s.verbose && print_header(ws)
     for iter in 1:s.max_iter
         ws.iter = iter
         admm_step!(ws)
@@ -68,6 +157,10 @@ function solve!(ws::Workspace{T}) where {T}
         checking = s.check_termination > 0 && iter % s.check_termination == 0
         (adapting || checking || iter == 1) || continue
         update_residuals!(ws)
+        # Only on a termination check: the residuals and objective a row reports are the
+        # ones that check just used, so a printed row always explains the decision made
+        # alongside it.
+        s.verbose && checking && print_row(ws)
         if checking
             st = check_termination(ws, false)
             if st != UNSOLVED
@@ -88,6 +181,7 @@ function solve!(ws::Workspace{T}) where {T}
     if (ws.status == SOLVED || ws.status == SOLVED_INACCURATE) && s.polish
         ws.polished = polish!(ws)
     end
+    s.verbose && print_footer(ws)
     sol = build_solution(ws)
     # An infeasible run leaves the iterates on a diverging ray; a later solve on this
     # workspace must not resume from there.
