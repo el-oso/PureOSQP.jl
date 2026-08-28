@@ -66,7 +66,35 @@ function update_residuals!(ws::Workspace{T}) where {T}
     else
         ws.scaled_dual_res
     end
-    ws.obj_val = (dot(ws.Px, ws.x) / 2 + dot(ws.q, ws.x)) / ws.c
+    # Objectives and the duality gap. `SC(y) = uᵀmax(y,0) + lᵀmin(y,0)`, taken after
+    # projecting `y` onto the polar of the recession cone of `[l, u]`: that projection is
+    # what stops a row with an infinite bound from contributing `Inf * 0`. Multipliers
+    # under the deadzone are dropped first, since a `1e-20` `y` against a large bound is
+    # noise that would otherwise dominate the sum.
+    #
+    # `tmp_m` is free here: it is `mul_At!`'s scratch, and the last call to it is above.
+    quad = dot(ws.Px, ws.x)
+    lin = dot(ws.q, ws.x)
+    sup = zero(T)
+    if m > 0
+        copyto!(ws.tmp_m, ws.y)
+        project_polar_reccone!(ws.tmp_m, ws.l, ws.u)
+        dead = ZERO_DEADZONE(T)
+        for i in 1:m
+            v = ws.tmp_m[i]
+            abs(v) < dead && continue
+            sup += (v > zero(T) ? ws.u[i] : ws.l[i]) * v
+        end
+    end
+    ws.xtPx = quad
+    ws.qtx = lin
+    ws.SCy = sup
+    ws.scaled_duality_gap = quad + lin + sup
+    cinv = inv(ws.c)
+    ws.obj_val = (quad / 2 + lin) * cinv
+    ws.dual_obj_val = (-quad / 2 - sup) * cinv
+    ws.duality_gap = ws.scaled_duality_gap * cinv
+    ws.rel_kkt_error = max(ws.prim_res, ws.dual_res, abs(ws.duality_gap))
     return ws
 end
 

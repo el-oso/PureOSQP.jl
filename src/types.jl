@@ -11,6 +11,21 @@
     NON_CONVEX
 end
 
+"""
+    PolishStatus
+
+Outcome of the polishing step, reported as `Solution.status_polish`. Polishing guesses the
+active set, so it can decline for reasons that are not failures: `NO_ACTIVE_SET_FOUND`
+means there was nothing to polish, not that the attempt went wrong.
+"""
+@enum PolishStatus begin
+    POLISH_LINSYS_ERROR = -2
+    POLISH_FAILED = -1
+    POLISH_NOT_PERFORMED = 0
+    POLISH_SUCCESS = 1
+    POLISH_NO_ACTIVE_SET_FOUND = 2
+end
+
 "Statuses that carry a meaningful primal-dual point."
 @inline has_solution(s::Status) =
     s === SOLVED || s === SOLVED_INACCURATE || s === MAX_ITER_REACHED ||
@@ -24,6 +39,9 @@ end
 @inline RHO_TOL(::Type{T}) where {T} = T(1.0e-4)
 @inline RHO_EQ_OVER_INEQ(::Type{T}) where {T} = T(1.0e3)
 @inline DIVISION_TOL(::Type{T}) where {T} = one(T) / INFTY(T)
+"Multipliers below this are treated as zero in the duality gap, where a 1e-20 `y` against a
+large bound would otherwise dominate the sum."
+@inline ZERO_DEADZONE(::Type{T}) where {T} = T(1.0e-10)
 
 """
     Settings{T}
@@ -94,16 +112,37 @@ end
 Result of a solve. `x` and `y` are in the caller's problem space. When the status is an
 infeasibility, the corresponding certificate is populated and `x`/`y` are filled with
 `NaN`; otherwise the certificates are empty.
+
+`duality_gap` is `xᵀPx + qᵀx + SC(y)`, where `SC` is the support function of `[l, u]`; it
+is zero at an exact solution and is reported unscaled. `rel_kkt_error` is the largest of
+the two residuals and the gap, so one number bounds how far the point is from optimal.
+`rho_updates` counts adaptive-`ρ` changes only, unlike `Workspace.refactor_count`, which
+also counts refactorizations forced by new data.
+
+Times are in seconds. `setup_time` belongs to the workspace and is reported by every solve
+that uses it, but `run_time` counts it only for the first solve — a re-solve did not pay
+it again, so adding it in would overstate the cost of the loop that `update!` exists to
+make cheap.
 """
 struct Solution{T <: AbstractFloat}
     x::Vector{T}
     y::Vector{T}
     status::Status
     obj_val::T
+    dual_obj_val::T
+    duality_gap::T
     prim_res::T
     dual_res::T
+    rel_kkt_error::T
     iter::Int
+    rho_estimate::T
+    rho_updates::Int
     polished::Bool
+    status_polish::PolishStatus
+    setup_time::Float64
+    solve_time::Float64
+    polish_time::Float64
+    run_time::Float64
     prim_inf_cert::Vector{T}
     dual_inf_cert::Vector{T}
 end
@@ -163,9 +202,24 @@ mutable struct Workspace{
     scaled_prim_res::T
     scaled_dual_res::T
     obj_val::T
+    dual_obj_val::T
+    duality_gap::T
+    scaled_duality_gap::T
+    # The three terms of the gap, kept for its termination tolerance.
+    xtPx::T
+    qtx::T
+    SCy::T
+    rel_kkt_error::T
+    rho_estimate::T
+    rho_updates::Int
     iter::Int
     status::Status
     polished::Bool
+    status_polish::PolishStatus
+    setup_time::Float64
+    first_run::Bool
+    solve_time::Float64
+    polish_time::Float64
     settings::Settings{T}
 end
 
@@ -210,6 +264,7 @@ function setup(
         ::Type{T}, P::AbstractMatrix, q::AbstractVector, A::AbstractMatrix,
         l::AbstractVector, u::AbstractVector; kwargs...
     ) where {T <: AbstractFloat}
+    t0 = time_ns()
     n, m = validate(P, q, A, l, u)
     settings = Settings{T}(; kwargs...)
     # OSQP requires P + σI to be positive definite, not merely P to be PSD, and reports a
@@ -242,7 +297,10 @@ function setup(
         buf(n, z), buf(m, z), buf(n, z), buf(m, z), buf(n, z), buf(m, z),
         settings.rho, buf(m, o), buf(m, o), ctype,
         ls, 0,
-        zero(T), zero(T), zero(T), zero(T), zero(T), 0, UNSOLVED, false,
+        zero(T), zero(T), zero(T), zero(T), zero(T),
+        zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), zero(T),
+        settings.rho, 0, 0, UNSOLVED, false, POLISH_NOT_PERFORMED,
+        0.0, true, 0.0, 0.0,
         settings,
     )
     if settings.linsys === :kkt
@@ -250,7 +308,7 @@ function setup(
         scale!(ws)
         set_rho_vec!(ws, settings.rho)
         refactor!(ws)
-        return ws
+        return finish_setup!(ws, t0)
     end
     # :auto prefers the reduced Cholesky and settles the choice here, once. The backend is
     # then part of the workspace's type, so the per-iteration solve dispatches statically.
@@ -259,13 +317,19 @@ function setup(
     set_rho_vec!(ws, settings.rho)
     if factorize!(ws.linsys, ws)
         ws.refactor_count += 1
-        return ws
+        return finish_setup!(ws, t0)
     end
     kkt = make(FullKKT(q0, n, m))
     scale!(kkt)
     set_rho_vec!(kkt, settings.rho)
     refactor!(kkt)
-    return kkt
+    return finish_setup!(kkt, t0)
+end
+
+"Record how long `setup` took. Called on each of its return paths."
+function finish_setup!(ws::Workspace, t0::UInt64)
+    ws.setup_time = (time_ns() - t0) / 1.0e9
+    return ws
 end
 
 """

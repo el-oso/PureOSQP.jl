@@ -156,7 +156,14 @@ function solve!(ws::Workspace{T}) where {T}
     s.warm_starting || cold_start!(ws)
     ws.status = UNSOLVED
     ws.polished = false
+    ws.status_polish = POLISH_NOT_PERFORMED
     ws.iter = 0
+    # Per-run counters, so a second `solve!` on this workspace reports its own numbers
+    # rather than the sum of both. `refactor_count` is deliberately not reset: it is a
+    # property of the workspace's whole life.
+    ws.rho_updates = 0
+    ws.solve_time = 0.0
+    ws.polish_time = 0.0
     s.verbose && print_header(ws)
     # `time_ns` is monotonic and costs tens of nanoseconds against a per-iteration cost of
     # microseconds, but the whole check is skipped when no limit is set, so the default
@@ -202,48 +209,70 @@ function solve!(ws::Workspace{T}) where {T}
         end
         ws.status = st == UNSOLVED ? MAX_ITER_REACHED : st
     end
+    ws.solve_time = (time_ns() - started) / 1.0e9
     if (ws.status == SOLVED || ws.status == SOLVED_INACCURATE) && s.polish
-        ws.polished = polish!(ws)
+        t_polish = time_ns()
+        ws.status_polish = polish!(ws)
+        ws.polished = ws.status_polish === POLISH_SUCCESS
+        ws.polish_time = (time_ns() - t_polish) / 1.0e9
     end
     s.verbose && print_footer(ws)
     sol = build_solution(ws)
+    ws.first_run = false
     # An infeasible run leaves the iterates on a diverging ray; a later solve on this
     # workspace must not resume from there.
     has_solution(ws.status) || cold_start!(ws)
     return sol
 end
 
+"""
+    solution_from(ws, x, y, obj, dual_obj, gap, prim_cert, dual_cert) -> Solution
+
+Assemble a [`Solution`](@ref), taking everything that does not depend on the outcome
+directly from the workspace. The objectives and the gap are passed in because a run
+without a meaningful point must not report them.
+"""
+function solution_from(
+        ws::Workspace{T}, x::Vector{T}, y::Vector{T}, obj::T, dual_obj::T, gap::T,
+        prim_cert::Vector{T}, dual_cert::Vector{T}
+    ) where {T}
+    return Solution{T}(
+        x, y, ws.status, obj, dual_obj, gap,
+        ws.prim_res, ws.dual_res, ws.rel_kkt_error, ws.iter,
+        ws.rho_estimate, ws.rho_updates, ws.polished, ws.status_polish,
+        ws.setup_time, ws.solve_time, ws.polish_time,
+        # Setup is charged to the first run only; a re-solve did not pay it again.
+        (ws.first_run ? ws.setup_time : 0.0) + ws.solve_time + ws.polish_time,
+        prim_cert, dual_cert,
+    )
+end
+
 function build_solution(ws::Workspace{T}) where {T}
     n, m = ws.n, ws.m
+    nan = T(NaN)
     if ws.status == PRIMAL_INFEASIBLE || ws.status == PRIMAL_INFEASIBLE_INACCURATE
         cert = ws.settings.scaling > 0 ? ws.E .* ws.delta_y : copy(ws.delta_y)
         nc = norm_inf(cert)
         nc > zero(T) && (cert ./= nc)
-        return Solution{T}(
-            fill(T(NaN), n), fill(T(NaN), m), ws.status, T(Inf),
-            ws.prim_res, ws.dual_res, ws.iter, false, cert, T[]
+        return solution_from(
+            ws, fill(nan, n), fill(nan, m), T(Inf), nan, nan, cert, T[]
         )
     elseif ws.status == DUAL_INFEASIBLE || ws.status == DUAL_INFEASIBLE_INACCURATE
         cert = ws.settings.scaling > 0 ? ws.D .* ws.delta_x : copy(ws.delta_x)
         nc = norm_inf(cert)
         nc > zero(T) && (cert ./= nc)
-        return Solution{T}(
-            fill(T(NaN), n), fill(T(NaN), m), ws.status, T(-Inf),
-            ws.prim_res, ws.dual_res, ws.iter, false, T[], cert
+        return solution_from(
+            ws, fill(nan, n), fill(nan, m), T(-Inf), nan, nan, T[], cert
         )
     elseif !has_solution(ws.status)
         # NON_CONVEX and anything else without a meaningful point: no number here would
         # mean anything, so do not hand back one that looks like a solution.
-        return Solution{T}(
-            fill(T(NaN), n), fill(T(NaN), m), ws.status, T(NaN),
-            ws.prim_res, ws.dual_res, ws.iter, false, T[], T[]
-        )
+        return solution_from(ws, fill(nan, n), fill(nan, m), nan, nan, nan, T[], T[])
     end
     x = ws.D .* ws.x
     y = (ws.E .* ws.y) ./ ws.c
-    return Solution{T}(
-        x, y, ws.status, ws.obj_val, ws.prim_res, ws.dual_res,
-        ws.iter, ws.polished, T[], T[]
+    return solution_from(
+        ws, x, y, ws.obj_val, ws.dual_obj_val, ws.duality_gap, T[], T[]
     )
 end
 

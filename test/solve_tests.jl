@@ -216,3 +216,105 @@ end
     @test_throws "time_limit must be positive" PureOSQP.solve(P, q, A, l, u; time_limit = 0)
     @test_throws "time_limit must be positive" PureOSQP.solve(P, q, A, l, u; time_limit = -1)
 end
+
+@testitem "the reported duality gap and objectives are consistent and real" begin
+    using LinearAlgebra, SparseArrays, OSQP, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    P, q, A, l, u = random_qp(20, 45; seed = 55)
+    opts = (eps_abs = 1.0e-10, eps_rel = 1.0e-10, max_iter = 100_000)
+    s = PureOSQP.solve(P, q, A, l, u; opts...)
+    @test s.status == SOLVED
+
+    # gap == primal - dual is an identity of the definitions, so it must hold tightly.
+    @test s.duality_gap ≈ s.obj_val - s.dual_obj_val atol = 1.0e-9
+
+    # The primal objective, recomputed from the original data rather than the workspace's
+    # scaled copies. This is what catches an unscaling error.
+    @test s.obj_val ≈ 0.5 * dot(s.x, P * s.x) + dot(q, s.x) rtol = 1.0e-6
+
+    # Strong duality at a converged point.
+    @test abs(s.duality_gap) < 1.0e-5
+    @test s.obj_val ≈ s.dual_obj_val atol = 1.0e-5
+
+    @test s.rel_kkt_error ≈ max(s.prim_res, s.dual_res, abs(s.duality_gap))
+
+    # And it is measuring something: stop far short of convergence and the gap is wide.
+    early = PureOSQP.solve(P, q, A, l, u; eps_abs = 1.0e-10, eps_rel = 1.0e-10, max_iter = 5)
+    @test early.status == MAX_ITER_REACHED
+    @test abs(early.duality_gap) > abs(s.duality_gap)
+    @test early.rel_kkt_error > s.rel_kkt_error
+end
+
+@testitem "polish reports which outcome it had, not just success" begin
+    using LinearAlgebra, SparseArrays, OSQP, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    P, q, A, l, u = random_qp(12, 30; seed = 15)
+
+    # Not asked for.
+    off = PureOSQP.solve(P, q, A, l, u; eps_abs = 1.0e-9, eps_rel = 1.0e-9)
+    @test off.status_polish == POLISH_NOT_PERFORMED
+    @test !off.polished
+
+    on = PureOSQP.solve(P, q, A, l, u; eps_abs = 1.0e-9, eps_rel = 1.0e-9, polish = true)
+    @test on.status_polish == POLISH_SUCCESS
+    @test on.polished
+
+    # An unconstrained problem has no active set, which is a decline rather than a failure.
+    n = 5
+    X = randn(MersenneTwister(3), n, n)
+    Pu = Matrix(X'X + I)
+    free = PureOSQP.solve(
+        Pu, randn(MersenneTwister(4), n), zeros(0, n), Float64[], Float64[];
+        polish = true, eps_abs = 1.0e-9, eps_rel = 1.0e-9
+    )
+    @test free.status == SOLVED
+    @test free.status_polish == POLISH_NO_ACTIVE_SET_FOUND
+    @test !free.polished
+    # `polished` stays the narrow question "were the iterates replaced".
+    @test free.polished == (free.status_polish == POLISH_SUCCESS)
+end
+
+@testitem "rho_updates counts adaptations, separately from refactorizations" begin
+    using LinearAlgebra, SparseArrays, OSQP, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    P, q, A, l, u = random_qp(25, 60; seed = 14)
+    opts = (eps_abs = 1.0e-8, eps_rel = 1.0e-8, max_iter = 100_000)
+
+    fixed = PureOSQP.solve(P, q, A, l, u; adaptive_rho = false, rho = 1.0e-4, opts...)
+    @test fixed.rho_updates == 0
+
+    adapt = PureOSQP.solve(P, q, A, l, u; adaptive_rho = true, rho = 1.0e-4, opts...)
+    @test adapt.rho_updates > 0
+    @test adapt.rho_estimate > 0
+
+    # The counter is per-run; the workspace's refactor_count is cumulative and also counts
+    # the factorization done at setup, so the two must not be confused.
+    ws = setup(P, q, A, l, u; adaptive_rho = true, rho = 1.0e-4, opts...)
+    first = PureOSQP.solve!(ws)
+    second = PureOSQP.solve!(ws)
+    @test second.rho_updates <= first.rho_updates
+    @test ws.refactor_count >= first.rho_updates + second.rho_updates
+end
+
+@testitem "timings are reported and add up" begin
+    using LinearAlgebra, SparseArrays, OSQP, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    P, q, A, l, u = random_qp(30, 70; seed = 66)
+    s = PureOSQP.solve(P, q, A, l, u; eps_abs = 1.0e-9, eps_rel = 1.0e-9, polish = true)
+    @test s.setup_time > 0
+    @test s.solve_time > 0
+    @test s.polish_time > 0
+    @test s.run_time ≈ s.setup_time + s.solve_time + s.polish_time
+
+    # `setup_time` belongs to the workspace, so every solve reports it, but only the first
+    # charges it to `run_time` -- a re-solve did not pay it again.
+    ws = setup(P, q, A, l, u; eps_abs = 1.0e-9, eps_rel = 1.0e-9)
+    first = PureOSQP.solve!(ws)
+    again = PureOSQP.solve!(ws)
+    @test first.setup_time > 0
+    @test again.setup_time == first.setup_time
+    @test first.run_time ≈ first.setup_time + first.solve_time + first.polish_time
+    @test again.run_time ≈ again.solve_time + again.polish_time
+    @test again.solve_time > 0
+    @test iszero(again.polish_time)    # polishing was not requested
+end

@@ -130,6 +130,24 @@ disables them along with the termination tests themselves.
 Output goes to `Core.stdout` rather than `Base.stdout`, because the abstractly typed
 global does not survive `--trim`. `redirect_stdout` still captures it.
 
+## What a solve reports
+
+Beyond `x`, `y` and `status`, [`Solution`](@ref) carries:
+
+| field | meaning |
+|---|---|
+| `obj_val`, `dual_obj_val` | primal and dual objectives; equal at an exact solution |
+| `duality_gap` | `xᵀPx + qᵀx + SC(y)`, zero at an exact solution, reported unscaled |
+| `prim_res`, `dual_res` | the two residuals, in problem space |
+| `rel_kkt_error` | the largest of the residuals and the gap — one number for "how far from optimal" |
+| `iter`, `rho_estimate`, `rho_updates` | iterations, the last `ρ` the residuals implied, and how many times `ρ` actually moved |
+| `status_polish` | which of the five polishing outcomes occurred; `polished` is the narrower `POLISH_SUCCESS` |
+| `setup_time`, `solve_time`, `polish_time`, `run_time` | seconds |
+
+`rho_updates` counts only adaptive-`ρ` changes, where `ws.refactor_count` also counts
+refactorizations forced by new data — read the former to understand a solve, the latter to
+understand a workspace's whole life.
+
 ## Status values
 
 | status | meaning |

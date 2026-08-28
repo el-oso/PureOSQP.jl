@@ -42,16 +42,14 @@ carries no such problem and is simply not built.
 
 ## Missing reported information
 
-[`Solution`](@ref) reports `x`, `y`, `status`, `obj_val`, `prim_res`, `dual_res`, `iter`
-and `polished`, plus the infeasibility certificates. `OSQPInfo` also carries:
+[`Solution`](@ref) now reports the objectives, the duality gap, `rel_kkt_error`,
+`rho_estimate`, `rho_updates`, `status_polish` and the timings. What remains from
+`OSQPInfo`:
 
 | field | note |
 |---|---|
-| `dual_obj_val`, `duality_gap` | the test referee computes the gap from problem data; the solver never reports it |
-| `rho_estimate`, `rho_updates` | `ws.refactor_count` conflates `ρ` updates with data-driven refactorizations, so neither can be recovered from it |
-| `setup_time`, `solve_time`, `update_time`, `polish_time`, `run_time` | `time_limit` times the loop internally, but no duration is reported |
-| `rel_kkt_error`, `primdual_int` | 1.x convergence diagnostics |
-| `status_polish` | upstream distinguishes five polish outcomes; `polished::Bool` cannot separate "no active set found, skipped" from "attempted and failed" |
+| `update_time` | `update!` is not timed; `setup_time`, `solve_time`, `polish_time` and `run_time` are |
+| `primdual_int` | the primal-dual integral, a 1.x convergence diagnostic requiring per-iteration profiling |
 
 ## Missing settings
 

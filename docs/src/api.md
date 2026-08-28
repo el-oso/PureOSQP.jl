@@ -31,6 +31,7 @@ PureOSQP.is_primal_infeasible
 PureOSQP.is_dual_infeasible
 PureOSQP.polish!
 PureOSQP.has_solution
+PureOSQP.PolishStatus
 ```
 
 ## Linear-system backends

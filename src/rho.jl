@@ -41,10 +41,14 @@ function adapt_rho!(ws::Workspace{T}) where {T}
     dr = ws.scaled_dual_res / (dnorm + tol)
     rho_new = clamp(ws.rho * sqrt(pr / dr), RHO_MIN(T), RHO_MAX(T))
     (isfinite(rho_new) && rho_new > zero(T)) || return false
+    # Reported whether or not it is adopted: the estimate is what the residuals imply, and
+    # seeing it sit just inside the band explains why `ρ` did not move.
+    ws.rho_estimate = rho_new
     band = ws.settings.adaptive_rho_tolerance
     if rho_new > ws.rho * band || rho_new < ws.rho / band
         set_rho_vec!(ws, rho_new)
         refactor!(ws)
+        ws.rho_updates += 1
         return true
     end
     return false

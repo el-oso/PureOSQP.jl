@@ -26,11 +26,16 @@ function residuals_at(
 end
 
 """
-    polish!(ws) -> Bool
+    polish!(ws) -> PolishStatus
 
 Guess the active set from the ADMM iterates, solve the resulting equality-constrained QP
-exactly, and adopt the result only if both residuals improve. Returns whether the polished
-point was accepted.
+exactly, and adopt the result only if both residuals improve.
+
+The returned [`PolishStatus`](@ref) separates the ways this can decline. An empty active
+set gives `POLISH_NO_ACTIVE_SET_FOUND`, which means there was nothing to polish rather
+than that anything went wrong; a singular reduced KKT gives `POLISH_LINSYS_ERROR`; and a
+point that was computed but is no improvement gives `POLISH_FAILED`. Only
+`POLISH_SUCCESS` replaces the iterates.
 
 The reduced KKT system is regularized by `δ` and corrected by `polish_refine_iter` steps
 of iterative refinement against the unregularized operator.
@@ -50,7 +55,7 @@ function polish!(ws::Workspace{T}) where {T}
         end
     end
     k = length(active)
-    iszero(k) && return false
+    iszero(k) && return POLISH_NO_ACTIVE_SET_FOUND
     Ared = Matrix{T}(undef, k, n)
     for j in 1:n
         dj = ws.D[j]
@@ -74,7 +79,7 @@ function polish!(ws::Workspace{T}) where {T}
         Kp[n + r, n + r] = -δ
     end
     F = bunchkaufman!(Symmetric(copy(Kp), :L); check = false)
-    issuccess(F) || return false
+    issuccess(F) || return POLISH_LINSYS_ERROR
     rhs = Vector{T}(undef, n + k)
     for j in 1:n
         rhs[j] = -ws.q[j]
@@ -115,12 +120,13 @@ function polish!(ws::Workspace{T}) where {T}
     ok = (pr < ws.prim_res && dr < ws.dual_res) ||
         (pr < ws.prim_res && ws.dual_res < tiny) ||
         (dr < ws.dual_res && ws.prim_res < tiny)
-    ok || return false
+    ok || return POLISH_FAILED
     copyto!(ws.x, xpol)
     copyto!(ws.y, ypol)
     copyto!(ws.z, zpol)
-    ws.prim_res = pr
-    ws.dual_res = dr
-    ws.obj_val = obj
-    return true
+    # Recompute rather than copy `pr`/`dr`/`obj` across: the residuals, the objectives and
+    # the duality gap must all describe the polished point, and this is the one place they
+    # are derived together.
+    update_residuals!(ws)
+    return POLISH_SUCCESS
 end
