@@ -135,35 +135,34 @@ answer turns over. On **dense** problems the direct solve wins everywhere measur
 inner solve costs about **23×** more per iteration at both `n = 50, m = 100` and
 `n = 200, m = 400`, and being inexact it can cost iterations too, for 15× and 49× total.
 
-On **sparse** problems it crosses. The direct backend's buffers are dense whatever the
-input, so its cost grows as `n(n + m)` regardless of sparsity, while the matrix-free cost
-follows `nnz`. Holding about five nonzeros per row of `A` and growing the problem
-(`bench/indirect_backend.jl`, `eps = 1e-6`, single-threaded):
+On **sparse** problems it crosses near `n = 1900`. The direct backend now forms the reduced
+matrix from the stored entries, so what remains irreducibly dense is the `n×n` matrix it
+factors and inverts, at `O(n³)` however sparse the input; the matrix-free backend pays
+`O(nnz)` per CG iteration and stores only vectors. Holding about five nonzeros per row of
+`A` and growing the problem (`bench/indirect_backend.jl`, `eps = 1e-6`, single-threaded):
 
 | n | m | density | direct | matrix-free | speedup | direct | matrix-free |
 |---|---|---|---|---|---|---|---|
-| 200 | 400 | 2.5% | 7.2 ms | 75.7 ms | 0.09× | 1.1 MiB | 0.19 MiB |
-| 500 | 1000 | 1% | 38.8 ms | 207 ms | 0.19× | 6.2 MiB | 0.49 MiB |
-| 1000 | 2000 | 0.5% | 167 ms | 326 ms | 0.51× | 23.8 MiB | 0.97 MiB |
-| 2000 | 4000 | 0.25% | 1246 ms | 631 ms | **1.98×** | 93.4 MiB | 1.96 MiB |
-| 3000 | 6000 | 0.17% | 4025 ms | 1318 ms | **3.05×** | 209 MiB | 2.98 MiB |
-| 4000 | 8000 | 0.125% | 8306 ms | 2302 ms | **3.61×** | 370 MiB | 3.86 MiB |
+| 200 | 400 | 2.5% | 6.59 ms | 76.8 ms | 0.09× | 0.5 MiB | 0.19 MiB |
+| 500 | 1000 | 1% | 31.0 ms | 209 ms | 0.15× | 2.4 MiB | 0.49 MiB |
+| 1000 | 2000 | 0.5% | 103 ms | 326 ms | 0.32× | 8.5 MiB | 0.97 MiB |
+| 2000 | 4000 | 0.25% | 702 ms | 640 ms | **1.10×** | 32.4 MiB | 1.96 MiB |
+| 3000 | 6000 | 0.17% | 2244 ms | 1336 ms | **1.68×** | 71.5 MiB | 2.98 MiB |
+| 4000 | 8000 | 0.125% | 4424 ms | 2328 ms | **1.90×** | 125.7 MiB | 3.86 MiB |
 
 The last two columns are the workspace, and they are the more durable point: it shrinks by
-6× at the top of the table and 96× at the bottom, because the direct backend stores an `m×n`
-copy of `A` and an `n×n` inverse while the matrix-free one stores vectors. Density decides
-it at fixed size just as clearly — at `n = 1000, m = 2000` the matrix-free backend is 1.97×
-ahead at 0.2% density and 0.10× at 2%, while the direct backend hardly moves (146 ms to
-233 ms) because it densifies either way.
+3× at the top of the table and 33× at the bottom, because the direct backend stores an `n×n`
+inverse where the matrix-free one stores vectors. Density decides it at fixed size — at
+`n = 1000, m = 2000` the matrix-free backend is 1.12× ahead at 0.2% density and 0.07× at 2%.
 
-So the honest rule is: dense or small, use the factorization; large and genuinely sparse,
-the matrix-free backend is faster and very much smaller; and when the matrix cannot be
-formed at all it is the only option. Objectives agree to about eight digits throughout,
-which is the inexactness showing up where it should.
+So the rule is: dense or small, use the factorization; large and genuinely sparse, the
+matrix-free backend is faster and much smaller; and when the matrix cannot be formed at all
+it is the only option. Objectives agree to about eight digits throughout, which is the
+inexactness showing up where it should.
 
-Note this measures the matrix-free backend against a direct backend that densifies. A
-sparse or structured direct backend, the open item at the top of this page, would move the
-crossover — probably a long way.
+Note these numbers have already moved once. Before the direct backend formed `R` sparsely
+the matrix-free backend measured 3.61× at `n = 4000` rather than 1.90×, and 96× smaller
+rather than 33×. A sparse *factorization* of `R` would move them again.
 
 Two properties survive the extension. The per-iteration solve allocates nothing, which
 needs `cg!`'s workspace preallocated *and* its lazily-allocated preconditioned vector filled

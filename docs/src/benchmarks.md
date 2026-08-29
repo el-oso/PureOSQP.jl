@@ -323,40 +323,42 @@ On dense QPs it is not close: the inner solve costs about 23× more per iteratio
 inexact it costs iterations too, for 15× total at `n = 50, m = 100` and 49× at
 `n = 200, m = 400`.
 
-On sparse QPs it crosses over, because the direct backend's buffers are dense whatever it
-was handed. Its cost grows as `n(n + m)` regardless of sparsity; the matrix-free cost
-follows `nnz`. Holding about five nonzeros per row of `A` and growing the problem
-(`bench/indirect_backend.jl`, `eps_abs = eps_rel = 1e-6`, single-threaded BLAS):
+On sparse QPs it crosses over. The direct backend now forms the reduced matrix from the
+stored entries, so what remains irreducibly dense is the `n×n` matrix it factors and
+inverts — `O(n³)`, however sparse the input was. The matrix-free backend pays `O(nnz)` per
+CG iteration and stores only vectors. Holding about five nonzeros per row of `A` and growing
+the problem (`bench/indirect_backend.jl`, `eps_abs = eps_rel = 1e-6`, single-threaded BLAS):
 
 | n | m | density | direct | matrix-free | speedup | direct memory | matrix-free memory |
 |---|---|---|---|---|---|---|---|
-| 200 | 400 | 2.5% | 7.17 ms | 75.7 ms | 0.09× | 1.1 MiB | 0.19 MiB |
-| 500 | 1000 | 1% | 38.8 ms | 207 ms | 0.19× | 6.2 MiB | 0.49 MiB |
-| 1000 | 2000 | 0.5% | 167 ms | 326 ms | 0.51× | 23.8 MiB | 0.97 MiB |
-| 2000 | 4000 | 0.25% | 1246 ms | 631 ms | **1.98×** | 93.4 MiB | 1.96 MiB |
-| 3000 | 6000 | 0.17% | 4025 ms | 1318 ms | **3.05×** | 209 MiB | 2.98 MiB |
-| 4000 | 8000 | 0.125% | 8306 ms | 2302 ms | **3.61×** | 370 MiB | 3.86 MiB |
+| 200 | 400 | 2.5% | 6.59 ms | 76.8 ms | 0.09× | 0.5 MiB | 0.19 MiB |
+| 500 | 1000 | 1% | 31.0 ms | 209 ms | 0.15× | 2.4 MiB | 0.49 MiB |
+| 1000 | 2000 | 0.5% | 103 ms | 326 ms | 0.32× | 8.5 MiB | 0.97 MiB |
+| 2000 | 4000 | 0.25% | 702 ms | 640 ms | **1.10×** | 32.4 MiB | 1.96 MiB |
+| 3000 | 6000 | 0.17% | 2244 ms | 1336 ms | **1.68×** | 71.5 MiB | 2.98 MiB |
+| 4000 | 8000 | 0.125% | 4424 ms | 2328 ms | **1.90×** | 125.7 MiB | 3.86 MiB |
 
-Memory is the more durable half of that: the workspace shrinks 6× at the top of the table
-and 96× at the bottom, because the direct backend stores an `m×n` copy of `A` and an `n×n`
-inverse where the matrix-free one stores vectors. That gap keeps widening with `n`, and it
-decides which problems fit in memory at all.
+The crossover sits near `n = 1900`, and memory is the more durable half: the workspace
+shrinks 3× at the top of the table and 33× at the bottom, because the direct backend holds
+an `n×n` inverse where the matrix-free one holds vectors. That gap keeps widening with `n`,
+and it decides which problems fit at all.
 
-Density decides it just as sharply at fixed size. At `n = 1000, m = 2000`:
+Density decides it at fixed size. At `n = 1000, m = 2000`:
 
 | density | direct | matrix-free | speedup |
 |---|---|---|---|
-| 0.2% | 146 ms | 74.4 ms | **1.97×** |
-| 0.5% | 169 ms | 326 ms | 0.52× |
-| 1% | 184 ms | 946 ms | 0.19× |
-| 2% | 233 ms | 2300 ms | 0.10× |
+| 0.2% | 82.1 ms | 73.5 ms | **1.12×** |
+| 0.5% | 104 ms | 330 ms | 0.31× |
+| 1% | 118 ms | 954 ms | 0.12× |
+| 2% | 172 ms | 2313 ms | 0.07× |
 
-The direct backend hardly moves across that column — 146 ms to 233 ms — which is the same
-fact from the other side: it densifies either way, so density costs it almost nothing and
-saves it nothing.
+Both costs follow `nnz` now, since the direct backend also accumulates over stored entries;
+the matrix-free one simply climbs far faster, because it pays per CG iteration where the
+direct backend pays per refactorization and there were two of those against 850 iterations.
 
 Two cautions on reading this. The iteration counts differ between backends because the
 inner solve is inexact, so these are end-to-end times rather than per-iteration ones; the
-benchmark asserts the two objectives agree, which they do to about eight digits. And the
-comparison is against a direct backend that densifies. A sparse direct backend — the
-largest open item in the [Roadmap](@ref) — would move this crossover, probably a long way.
+benchmark asserts the two objectives agree, which they do to about eight digits. And these
+numbers moved once already: before the direct backend formed `R` sparsely, matrix-free
+measured 3.61× at `n = 4000` rather than 1.90×, and 96× smaller rather than 33×. A sparse
+*factorization* of `R`, still open, would move them again.

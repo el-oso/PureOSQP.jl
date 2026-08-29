@@ -1,9 +1,11 @@
 # When the matrix-free backend is the right one.
 #
-# The direct backends form the reduced matrix `P̃ + σI + Ãᵀ diag(ρ) Ã` and factor it, which
-# is dense whatever `P` and `A` were: an `m×n` copy of `A` and an `n×n` inverse. The
-# matrix-free backend forms nothing and applies the same operator through the caller's own
-# products, so its cost per iteration follows `nnz` and its storage follows `n + m`.
+# The direct backends form the reduced matrix `P̃ + σI + Ãᵀ diag(ρ) Ã` and factor it. The
+# factored matrix is dense whatever the input, an `n×n` inverse, and for a dense or
+# dense-enough `A` an `m×n` copy is built to form it; for a sparse `A` it is accumulated
+# over the stored entries instead. The matrix-free backend forms nothing at all and applies
+# the same operator through the caller's own products, so its cost follows `nnz` per CG
+# iteration and its storage follows `n + m`.
 #
 # That makes the comparison a question about the problem, not about the solver. The two
 # sweeps below separate the two things that decide it: how large the problem is, and how
@@ -93,8 +95,8 @@ end
 # Sparsity held roughly constant in absolute terms -- about 5 nonzeros per row of `A` --
 # so what varies down this sweep is size alone.
 size_rows = report(
-    "Growing the problem at fixed sparsity per row. The direct backend's dense buffers grow\n" *
-        "as n(n+m) whatever the sparsity, so this sweep is where the two curves cross.",
+    "Growing the problem at fixed sparsity per row. The direct backend factors a dense n×n\n" *
+        "inverse however sparse the input, at O(n³), so this sweep is where the two cross.",
     (
         (200, 400, 0.025), (500, 1000, 0.01), (1000, 2000, 0.005), (2000, 4000, 0.0025),
         (3000, 6000, 0.0017), (4000, 8000, 0.00125),
@@ -103,8 +105,9 @@ size_rows = report(
 
 # Size held fixed, so what varies is how much work each product does.
 density_rows = report(
-    "Growing the density at fixed size. The direct backend barely notices -- it densifies\n" *
-        "either way -- while the matrix-free cost rises with every nonzero.",
+    "Growing the density at fixed size. Both costs now follow `nnz` -- the direct backend\n" *
+        "forms the reduced matrix sparsely too -- but the matrix-free one climbs far faster,\n" *
+        "because it pays per CG iteration where the direct backend pays per refactorization.",
     ((1000, 2000, 0.002), (1000, 2000, 0.005), (1000, 2000, 0.01), (1000, 2000, 0.02)),
 )
 

@@ -24,9 +24,10 @@ use `LinearAlgebra` alone; the only other dependency is
 [TypeContracts.jl](https://github.com/el-oso/TypeContracts.jl), which declares the
 linear-system backend interface and checks it at precompilation. Sparse `P` and `A` are
 accepted as they are: a `SparseArrays` **weak** dependency lets equilibration walk only
-their stored entries, and the per-iteration products use their own `mul!`. The matrix the
-solver *factors* is dense, because eliminating to the reduced system fills in whatever
-sparsity `A` had.
+their stored entries, the per-iteration products use their own `mul!`, and the reduced
+matrix is accumulated over the stored entries rather than through a dense copy of `A`. The
+matrix the solver *factors* is still dense, because eliminating to the reduced system fills
+in whatever sparsity `A` had.
 
 The hot path is proven allocation-free and type-stable, and every public entry point
 compiles under `juliac --trim`. See [Guarantees](https://el-oso.github.io/PureOSQP.jl/dev/guarantees).
@@ -64,16 +65,21 @@ solver directly, since the element type is `Real`.
 A matrix-free backend ships as a second extension, over
 [Krylov.jl](https://github.com/JuliaSmoothOptimizers/Krylov.jl): `linsys = :indirect` runs
 preconditioned conjugate gradients on the reduced system and never forms it, so a matrix
-that only supplies products is solvable. Which backend is faster depends on the problem and
-the answer turns over: on dense QPs the factorization wins by 15–49×, but on large sparse
-ones the matrix-free backend wins outright — 2.0× at `n = 2000, m = 4000` and 3.6× at
-`n = 4000, m = 8000`, on 48× and 96× less memory — because the direct backend's buffers are
-dense whatever it was handed.
+that only supplies products is solvable.
+Which backend is faster depends on the problem and the answer turns over: on dense QPs the
+factorization wins by 15–49×, and on sparse ones it depends on size — the matrix-free
+backend is 0.09× at `n = 200` and 1.90× at `n = 4000, m = 8000`, on 33× less memory, because
+the direct backend still factors a dense `n×n` inverse however sparse the input.
 
-Not implemented: a sparse or structured *factorization* backend, which is the largest open
-item. Sparse and structured `P` and `A` are accepted, are not densified, and keep their own
-products, but the reduced matrix the solver forms and factors is dense whatever they were.
-See the [Roadmap](https://el-oso.github.io/PureOSQP.jl/dev/roadmap).
+The backend is chosen by representation. A sparse `A` below 10% density gets one that
+accumulates the reduced matrix over the stored entries instead of writing `A` into an `m×n`
+buffer for a dense product, which at `n = 2000, m = 4000` and 0.25% density takes a
+refactorization from 400 ms to 148 ms, a whole solve from 1192 ms to 777 ms, and the
+workspace from 93 MiB to 32 MiB, on identical iterates.
+
+Still open, and the largest item: the matrix that gets *factored* is dense whatever was
+passed in, and structured `P` is read through generic traversals that walk its structural
+zeros. See the [Roadmap](https://el-oso.github.io/PureOSQP.jl/dev/roadmap).
 
 ## How it differs from the reference implementation
 
