@@ -533,8 +533,9 @@ end
     @test c.direct_solver
     @test c.update_matrices
     @test c.derivatives
-    # Claimed only where true: the matrix-free backend and C code generation are the
-    # roadmap items still open.
-    @test !c.indirect_solver
+    # The matrix-free backend lives in an extension, so this reports what is loaded now
+    # rather than a property of the package -- which is the whole point of the field.
+    @test c.indirect_solver == !isnothing(Base.get_extension(PureOSQP, :PureOSQPKrylovExt))
+    # Claimed only where true: C code generation is a roadmap item still open.
     @test !c.codegen
 end

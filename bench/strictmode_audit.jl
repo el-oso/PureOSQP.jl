@@ -10,7 +10,7 @@ using PureOSQP
 using Krylov                   # supplies the :indirect backend, a weak dependency
 using StrictMode
 using AllocCheck, JET          # the :full backends; StrictMode dispatches to them
-using LinearAlgebra, Random
+using LinearAlgebra, SparseArrays, Random
 
 # A disabled audit prints exactly like a clean one. Never report a pass without this.
 StrictMode.assert_enabled()
@@ -23,8 +23,25 @@ function example_workspace(backend::Symbol)
     q = randn(n)
     A = randn(m, n)
     b = A * randn(n)
-    ws = PureOSQP.setup(P, q, A, b .- rand(m), b .+ rand(m); linsys = backend)
+    l, u = b .- rand(m), b .+ rand(m)
+    if backend === :sparse
+        # The sparse backend is chosen by representation and density, not by a setting, so
+        # it is reached by handing `setup` sparse matrices sparse enough to clear the gate.
+        return example_sparse_workspace(n, m)
+    end
+    ws = PureOSQP.setup(P, q, A, l, u; linsys = backend)
     PureOSQP.solve!(ws)        # compile every specialization before analysing it
+    return ws
+end
+
+function example_sparse_workspace(n, m)
+    Random.seed!(2)
+    A = sprandn(m, n, 0.05)
+    S = sprandn(n, n, 0.05)
+    P = sparse(Symmetric(S'S)) + (n * 0.05 + 1) * I
+    b = A * randn(n)
+    ws = PureOSQP.setup(P, randn(n), A, b .- rand(m), b .+ rand(m))
+    PureOSQP.solve!(ws)
     return ws
 end
 
@@ -59,7 +76,7 @@ end
 
 failures = String[]
 
-for backend in (:auto, :kkt, :indirect)
+for backend in (:auto, :kkt, :sparse, :indirect)
     ws = example_workspace(backend)
     W = typeof(ws)
     LS = typeof(ws.linsys)

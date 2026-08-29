@@ -77,3 +77,80 @@ end
     @test length(TypeContracts.satisfies(IncompleteBackend, LS).missing_methods) == 2
     @test_throws TypeContracts.InterfaceError TypeContracts.check_contract(IncompleteBackend, LS)
 end
+
+@testitem "a sparse A forms the reduced matrix without a dense buffer" begin
+    using LinearAlgebra, SparseArrays, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    Random.seed!(4)
+    n, m = 60, 120
+    A = sprandn(m, n, 0.05)
+    S = sprandn(n, n, 0.05)
+    P = sparse(Symmetric(S'S)) + (n * 0.05 + 1) * I
+    b = A * randn(n)
+    q, l, u = randn(n), b .- rand(m), b .+ rand(m)
+    opts = (eps_abs = 1.0e-9, eps_rel = 1.0e-9, max_iter = 50_000)
+
+    ws = setup(P, q, A, l, u; opts...)
+    @test PureOSQP.backend_name(ws.linsys) == :sparse_cholesky
+    # The point of the backend: no m×n buffer exists to hold a densified A.
+    @test !hasproperty(ws.linsys, :W)
+
+    # It must form the same matrix the dense product forms, so the whole run must agree
+    # with the dense backend step for step -- not merely land on the same answer.
+    sp = PureOSQP.solve!(ws)
+    dn = solve(Matrix(P), q, Matrix(A), l, u; opts...)
+    @test sp.status == SOLVED
+    @test sp.iter == dn.iter
+    @test sp.x ≈ dn.x atol = 1.0e-10
+    @test sp.obj_val ≈ dn.obj_val atol = 1.0e-10
+    @test maximum(kkt_residuals(P, q, A, l, u, sp.x, sp.y)) < 1.0e-7
+end
+
+@testitem "a dense-enough sparse A keeps the dense product" begin
+    using LinearAlgebra, SparseArrays, Random
+    # Accumulating over stored entries loses to `syrk` once there are enough of them, so
+    # above the density threshold a SparseMatrixCSC is served by the dense-forming backend.
+    Random.seed!(5)
+    n, m = 40, 80
+    A = sprandn(m, n, 0.6)
+    P = sparse(1.0I, n, n)
+    b = A * randn(n)
+    q, l, u = randn(n), b .- rand(m), b .+ rand(m)
+    ws = setup(P, q, A, l, u)
+    @test PureOSQP.backend_name(ws.linsys) == :cholesky
+    @test solve!(ws).status == SOLVED
+end
+
+@testitem "the sparse backend survives a data update" begin
+    using LinearAlgebra, SparseArrays, Random
+    # The transpose the accumulation walks is rebuilt per factorization rather than cached,
+    # because `update!` may replace A with a different matrix entirely.
+    Random.seed!(6)
+    n, m = 30, 60
+    A = sprandn(m, n, 0.08)
+    P = sparse(2.0I, n, n)
+    b = A * randn(n)
+    q, l, u = randn(n), b .- rand(m), b .+ rand(m)
+    opts = (eps_abs = 1.0e-9, eps_rel = 1.0e-9, max_iter = 50_000)
+    A2 = sprandn(m, n, 0.08)
+    b2 = A2 * randn(n)
+    l2, u2 = b2 .- rand(m), b2 .+ rand(m)
+
+    # Both workspaces run the identical sequence, because `update!` keeps the iterate and a
+    # warm-started solve takes a different path from a cold one. Comparing against a fresh
+    # solve would compare warm against cold rather than sparse against dense.
+    sparse_ws = setup(P, q, A, l, u; opts...)
+    dense_ws = setup(Matrix(P), q, Matrix(A), l, u; opts...)
+    @test PureOSQP.backend_name(sparse_ws.linsys) == :sparse_cholesky
+    for w in (sparse_ws, dense_ws)
+        solve!(w)
+    end
+    update!(sparse_ws; A = A2, l = l2, u = u2)
+    update!(dense_ws; A = Matrix(A2), l = l2, u = u2)
+    s = solve!(sparse_ws)
+    ref = solve!(dense_ws)
+
+    @test s.status == SOLVED
+    @test s.iter == ref.iter
+    @test s.x ≈ ref.x atol = 1.0e-10
+end

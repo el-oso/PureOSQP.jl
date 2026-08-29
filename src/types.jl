@@ -349,9 +349,9 @@ function setup(
         refactor!(ws)
         return finish_setup!(ws, t0)
     end
-    # :auto prefers the reduced Cholesky and settles the choice here, once. The backend is
-    # then part of the workspace's type, so the per-iteration solve dispatches statically.
-    ws = make(ReducedCholesky(q0, n, m))
+    # `choose_backend` picks by representation; the choice is settled here, once. The backend
+    # is then part of the workspace's type, so the per-iteration solve dispatches statically.
+    ws = make(choose_backend(P, A, q0, n, m))
     scale!(ws)
     set_rho_vec!(ws, settings.rho)
     if factorize!(ws.linsys, ws)

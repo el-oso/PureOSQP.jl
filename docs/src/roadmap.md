@@ -19,36 +19,57 @@ product runs `mul!` on the matrix the caller passed, so a `Diagonal`, a `SubArra
 `SparseMatrixCSC` keeps its own product. Equilibration reaches their entries through four
 overridable column traversals, which the `SparseArrays` extension specialises.
 
-What does not: **every linear-system backend materialises dense buffers**, whatever was
-passed in.
+[`PureOSQP.choose_backend`](@ref) is the seam: it dispatches on `typeof(P)` and `typeof(A)`,
+runs once inside [`setup`](@ref), and fixes the backend in the workspace's type, so the
+per-iteration solve still dispatches statically. A representation that admits a cheaper way
+to form the reduced matrix is served by adding a method to it.
 
-| buffer | size | file |
-|---|---|---|
-| `ReducedCholesky.W` — a dense copy of `A` | `m×n` | `src/linsys.jl` |
-| `ReducedCholesky.Rinv` | `n×n` | `src/linsys.jl` |
-| `FullKKT.K` | `(n+m)×(n+m)` | `src/linsys.jl` |
-| `polish!`'s reduced KKT | `(n+k)×(n+k)` | `src/polish.jl` |
-| `active_kkt`'s `M` | `(n+k)×(n+k)` | `src/derivative.jl` |
+**Sparse `A`: done.** `SparseReducedCholesky` accumulates `Ãᵀ diag(ρ) Ã` over the stored
+entries — `Σᵢ nnzᵢ²` work, no buffer — where the dense backend wrote `A` into an `m×n` array
+so that one `syrk` could do `mn²` flops against mostly zeros. That product was 63% of a
+refactorization and that buffer 65% of the workspace. Measured at `n = 2000, m = 4000`,
+0.25% density: refactorization 400 ms to 148 ms, a whole solve 1192 ms to 777 ms, and the
+workspace 93 MiB to 32 MiB.
 
-Each is `similar(q0, ...)` off a dense vector, so each is dense by construction. `W` is the
-sharpest case: `factorize!` zeroes an `m×n` buffer and writes `A`'s scaled entries into it
-purely to hand `syrk` a dense argument, which is waste in proportion to how sparse `A` was.
+The choice is gated on density, because accumulation writes into `R` by scattered index
+where `syrk` streams, and that constant is worth about an order of magnitude: the two cross
+near 20% density, so above 10% a `SparseMatrixCSC` is served by the dense-forming backend
+anyway. Below it the gain runs 1.8–2.7×.
 
-[`LinearSystem`](@ref) is already the seam for fixing this — a declared, contract-checked
-interface whose implementation is chosen once at [`setup`](@ref) and then fixed in the
-workspace's type. Choosing it on `typeof(P)` and `typeof(A)` is what it is for. Three
-concrete directions:
+What remains dense whatever was passed in:
 
-- **Sparse `A`** — form `R = P̃ + σI + Ãᵀ diag(ρ) Ã` through sparse products rather than a
-  dense `W`. Note this is a different question from the one already measured: what was
-  tested and rejected was a sparse LDLᵀ of the *full* KKT against the dense reduced solve.
-  At 1% density `R` itself is only 6.3% dense, so forming it sparsely is untested and
-  plausible even though factoring it sparsely is not.
-- **Structured `P`** — a `Diagonal` or `Tridiagonal` is currently read entry by entry into a
-  dense `R`, which is why [Matrix types](@ref "Matrix types") measures 0.80× rather than a
-  speedup. The mechanism works; the backend throws the structure away.
-- **Matrix-free** — the case where nothing can be materialised at all. This one is built:
-  see [Capabilities against upstream](@ref). It is the fallback, not a fast path.
+| buffer | size | file | worth fixing? |
+|---|---|---|---|
+| `ReducedCholesky.W` — a dense copy of `A` | `m×n` | `src/linsys.jl` | gone for sparse `A` |
+| the reduced matrix and its inverse | `n×n` | `src/linsys.jl` | only if `R` is itself structured |
+| `FullKKT.K` | `(n+m)×(n+m)` | `src/linsys.jl` | no — it is the accuracy fallback, chosen rarely |
+| `polish!`'s reduced KKT | `(n+k)×(n+k)` | `src/polish.jl` | no — one-shot, and `k` is the active set |
+| `active_kkt`'s `M` | `(n+k)×(n+k)` | `src/derivative.jl` | no — same |
+
+The last two carry a consequence worth knowing rather than fixing: on a problem large and
+sparse enough that `linsys = :indirect` was chosen because nothing dense fits, `polish =
+true` or a derivative call will materialise a dense `(n+k)×(n+k)` anyway.
+
+Two directions are still open:
+
+- **Structured `P`** — a `Diagonal` or `Tridiagonal` is read entry by entry through the
+  generic column traversals, which walk every structural zero, and that is why
+  [Matrix types](@ref "Matrix types") measures 0.80× rather than a speedup. Specialising
+  those traversals for the `LinearAlgebra` band types is the fix, and it is separate from
+  needing a backend. A backend pays only where `R` *inherits* the structure — `Diagonal` `P`
+  with `Diagonal` `A` makes the whole solve `O(n)` — since `Ãᵀ diag(ρ) Ã` otherwise fills it
+  in whatever `P` looked like.
+- **A sparse factorization of `R`** — now that `R` is formed sparsely, factoring it sparsely
+  is the next question, and it is *not* the one already measured and rejected: that was a
+  sparse LDLᵀ of the *full* KKT. The decision should not be a density threshold either.
+  CHOLMOD's symbolic analysis is `O(nnz)` and reports `nnz(L)` exactly before any numeric
+  work, so the honest gate is to run it once at setup and keep the sparse factorization only
+  when `nnz(L)` is small enough to beat a `symv` against a dense inverse — which, given that
+  `symv` beats an equal-flop triangular solve by about 7×, means an order of magnitude
+  smaller. On random sparsity it will refuse, matching what was measured; on banded or
+  separator-structured problems it should accept. Settling that needs a structured corpus,
+  since random sparse patterns are the worst case for any sparse factorization and cannot
+  answer the question.
 
 ## Capabilities against upstream
 
@@ -230,23 +251,25 @@ of `MOI.Test` passes with no excluded test names. Note it needs tighter toleranc
 solver defaults to: `MOI.Test` checks to `1e-4` and the defaults are `1e-3`.
 
 
-**No sparse linear-algebra backend.** Deliberate, and measured: forming the reduced matrix
-densifies, and a sparse factorization of it does not pay. See
-[How the sparsest case was closed](@ref "How the sparsest case was closed") for the fill-in
-measurements. A `SparseArrays` extension does specialise equilibration's column traversals.
-
+**Sparse linear algebra: the reduced matrix is now *formed* sparsely** for a sparse `A`
+below 10% density, which removed the dense `m×n` copy and the `syrk` against it. What is
+still dense is the *factorization*: `R` is built into a dense `n×n` array and factored
+there. Whether a sparse factorization of `R` pays is open and is discussed at the top of
+this page — note it is a different question from the one already measured and rejected,
+which was a sparse LDLᵀ of the full KKT. See
+[How the sparsest case was closed](@ref "How the sparsest case was closed") for those
+fill-in measurements.
 ## Suggested order
 
-One project remains, and it is the one at the top of this page: a linear-system backend
-that keeps the representation it was given. Sparse and structured `P` and `A` reach the
-solver intact and keep their own products, but every backend then materialises a dense
-reduced matrix, so the fast product buys less than it should.
+One project remains, and it is the one at the top of this page: a backend that keeps the
+representation it was given, all the way through. Half of it is done — a sparse `A` no
+longer densifies to form the reduced matrix — and what is left is structured `P` and the
+question of factoring `R` sparsely rather than merely building it sparsely.
 
-The matrix-free backend is built, and it shows how much is on the table rather than
-substituting for this: on large sparse problems it beats the densifying direct backend
-outright — 3.6× faster and 96× smaller at `n = 4000, m = 8000` — purely by not forming
-anything. A direct backend that kept the sparsity should beat both, since it would pay
-neither the dense buffers nor the inexact inner solve.
+The matrix-free backend measures how much the remaining half is worth. It beats the direct
+backend on large sparse problems purely by not forming anything, and a direct backend that
+kept the sparsity should beat both, paying neither the dense buffers nor an inexact inner
+solve.
 
 What is left otherwise is `update_time`, the primal-dual integral, and the settings that
 select a linear-algebra library or a GPU, none of which have a counterpart here.

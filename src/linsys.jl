@@ -24,7 +24,19 @@ function solve_system! end
 end
 
 """
-    ReducedCholesky{T,M} <: LinearSystem
+    ReducedInverse <: LinearSystem
+
+Backends that eliminate `ν` and solve the reduced `n×n` system by multiplying against its
+stored inverse.
+
+They differ only in how the reduced matrix is *formed*, which is where the representation
+of `A` matters; once formed, the factorization, the inversion and the per-iteration `symv`
+are the same work regardless. `solve_system!` is therefore written once, here.
+"""
+abstract type ReducedInverse <: LinearSystem end
+
+"""
+    ReducedCholesky{T,M} <: ReducedInverse
 
 Eliminates `ν` and solves the `n×n` symmetric positive definite reduced system
 
@@ -41,7 +53,7 @@ the two forms agree to within a small factor.
 This is the default: the reduced matrix is smaller than the full system for every `m`, and
 measurement puts it faster in every dense regime.
 """
-struct ReducedCholesky{T <: Real, M <: AbstractMatrix{T}} <: LinearSystem
+struct ReducedCholesky{T <: Real, M <: AbstractMatrix{T}} <: ReducedInverse
     W::M
     Rinv::M
 end
@@ -84,6 +96,21 @@ function FullKKT(proto::AbstractVector{T}, n::Integer, m::Integer) where {T <: R
     fact = bunchkaufman!(Symmetric(fill(one(T), 1, 1)))
     return FullKKT{T, typeof(K), typeof(rhs), typeof(fact)}(K, rhs, fact)
 end
+
+"""
+    choose_backend(P, A, proto, n, m) -> LinearSystem
+
+The backend `linsys = :auto` builds for these matrices.
+
+Dispatching on `typeof(P)` and `typeof(A)` is the point: a representation that admits a
+cheaper way to form the reduced matrix is served by adding a method here rather than by
+branching inside `factorize!`. The choice is made once, and the backend then becomes part
+of the workspace's type, so the per-iteration solve still dispatches statically.
+
+The default forms the reduced matrix densely, which suits a dense or unrecognized `A`.
+"""
+choose_backend(P, A, proto::AbstractVector, n::Integer, m::Integer) =
+    ReducedCholesky(proto, n, m)
 
 "Name of the backend, for reporting."
 backend_name(::ReducedCholesky) = :cholesky
@@ -160,7 +187,7 @@ end
 
 Solve the subproblem, writing `x̃` into `ws.xtilde` and `z̃` into `ws.ztilde`.
 """
-function solve_system!(ls::ReducedCholesky, ws, rhs_x, rhs_z)::Nothing
+function solve_system!(ls::ReducedInverse, ws, rhs_x, rhs_z)::Nothing
     m = ws.m
     # The right-hand side is assembled in `work_n`: `symv` may not alias its two vectors.
     if m > 0
