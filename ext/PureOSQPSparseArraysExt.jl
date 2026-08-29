@@ -317,9 +317,8 @@ follow, so both loops start one past `colptr[j]` and the diagonal is applied sep
 Written out rather than left to `ldiv!(UnitLowerTriangular(L), x)`, which is the exception
 rather than the rule here. Measured on this backend's own factor, resetting the vector every
 sample because these solves are in place, `solve_system!` costs 9.06 µs through `ldiv!` and
-5.78 µs this way. [`SparseCholmod`](@ref) keeps the library call, where it measures equal or
-better. What distinguishes the two cases is not established; the numbers are, and they are
-what this is here for.
+5.78 µs this way. [`SparseCholmod`](@ref) does the same for its `L Lᵀ` factor, and
+[`llt_forward!`](@ref) records where the two paths cross over.
 """
 function ldl_forward!(x::AbstractVector, L::SparseMatrixCSC, N::Integer)
     colptr, rows, vals = L.colptr, rowvals(L), nonzeros(L)
@@ -490,18 +489,62 @@ function PureOSQP.factorize!(ls::SparseCholmod{T}, ws)::Bool where {T}
     return true
 end
 
+"""
+    llt_forward!(x, L, N)
+    llt_backward!(x, L, N)
+
+Substitution against the lower factor of an `L Lᵀ`, in place.
+
+CHOLMOD stores each column's diagonal entry first, so both loops take `L[j,j]` from
+`nonzeros(L)[colptr[j]]` and run the off-diagonal entries from one past it.
+
+Written out rather than left to `ldiv!(LowerTriangular(L), x)` for the same reason as
+[`ldl_forward!`](@ref), and the reason is the factor's shape rather than the wrapper.
+Measured on the OSQP suite's own factors, resetting the vector every sample because these
+solves are in place: at 2.2 nonzeros per column (Lasso) the pair costs 5.00 µs through
+`ldiv!` and 2.91 µs here, and at 2.9 (Huber) 11.59 µs against 9.21 µs. On a factor with 9
+nonzeros per column the ordering reverses and `ldiv!` is the faster of the two — at that
+density the arithmetic dominates, where here the per-column bookkeeping does, and the generic
+path carries more of it.
+"""
+function llt_forward!(x::AbstractVector, L::SparseMatrixCSC, N::Integer)
+    colptr, rows, vals = L.colptr, rowvals(L), nonzeros(L)
+    for j in 1:N
+        top = colptr[j]
+        xj = x[j] / vals[top]
+        x[j] = xj
+        for p in (top + 1):(colptr[j + 1] - 1)
+            x[rows[p]] -= vals[p] * xj
+        end
+    end
+    return x
+end
+
+function llt_backward!(x::AbstractVector, L::SparseMatrixCSC, N::Integer)
+    colptr, rows, vals = L.colptr, rowvals(L), nonzeros(L)
+    for j in N:-1:1
+        top = colptr[j]
+        s = x[j]
+        for p in (top + 1):(colptr[j + 1] - 1)
+            s -= vals[p] * x[rows[p]]
+        end
+        x[j] = s / vals[top]
+    end
+    return x
+end
+
 function PureOSQP.solve_system!(ls::SparseCholmod{T}, ws, rhs_x, rhs_z)::Nothing where {T}
     rhs = PureOSQP.reduced_rhs!(ws, rhs_x, rhs_z)
-    perm, work = ls.perm, ls.permuted
+    perm, work, n = ls.perm, ls.permuted, ws.n
     # R[perm, perm] = L Lᵀ, so the solve is a permutation, two triangular solves, and the
     # inverse permutation -- all over buffers this backend owns.
-    for i in eachindex(perm)
+    for i in 1:n
         work[i] = rhs[perm[i]]
     end
-    ldiv!(LowerTriangular(ls.L), work)
-    ldiv!(UpperTriangular(transpose(ls.L)), work)
+    llt_forward!(work, ls.L, n)
+    llt_backward!(work, ls.L, n)
     x = ws.xtilde
-    for i in eachindex(perm)
+    for i in 1:n
         x[perm[i]] = work[i]
     end
     ws.m > 0 && PureOSQP.mul_A!(ws.ztilde, ws, x)
@@ -566,15 +609,38 @@ end
 @verify SparseKKT
 
 
+"Whether every stored entry of `P` lies on the diagonal, in one pass over its columns."
+function is_diagonal(P::SparseMatrixCSC)
+    rows = rowvals(P)
+    for j in axes(P, 2)
+        for k in nzrange(P, j)
+            rows[k] == j || return false
+        end
+    end
+    return true
+end
+
 """
     is_convex(T, P::SparseMatrixCSC, sigma) -> Bool
 
 The convexity test without densifying `P`. `cholesky` on a sparse matrix is CHOLMOD, which
 costs `O(nnz(L))` where the generic dense test costs `O(n³)` — 0.24 ms against 22.6 ms on a
-tridiagonal `P` at `n = 2000`, which was half of `setup` on a banded problem.
+tridiagonal `P` at `n = 2000`, which was half of `setup` on a banded problem. A diagonal `P`
+skips the factorization entirely.
 """
 function PureOSQP.is_convex(::Type{T}, P::SparseMatrixCSC, sigma) where {T}
     isempty(P) && return true
+    # A diagonal `P` needs no factorization: `P + σI` is diagonal, so it is positive definite
+    # exactly when every entry clears `-σ`. This is not a corner case — an epigraph
+    # reformulation leaves the objective diagonal, which is what four of the OSQP suite's
+    # seven classes look like.
+    if is_diagonal(P)
+        vals = nonzeros(P)
+        for k in eachindex(vals)
+            T(vals[k]) + sigma > zero(T) || return false
+        end
+        return true
+    end
     return issuccess(cholesky(Symmetric(SparseMatrixCSC{T, Int}(P) + sigma * I); check = false))
 end
 
