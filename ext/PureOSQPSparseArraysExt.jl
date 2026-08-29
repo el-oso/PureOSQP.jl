@@ -440,9 +440,9 @@ and `σ` supply the rest. Which slot of `nonzeros(R)` a contribution lands in de
 where `P` and `A` store entries — never on what they store, nor on `ρ`, `D`, `E`, `c` or `σ`
 — so the slots are found once and [`refill!`](@ref) is a pass over them.
 
-That matters because a refactorization happens every time `ρ` moves. Rebuilding through
-[`reduced_sparse`](@ref) allocates four intermediate matrices: on the OSQP suite's Huber
-problem, 2.19 MB and 120 µs against 16.6 µs and nothing here.
+That matters because a refactorization happens every time `ρ` moves. Rebuilding the matrix
+through chained sparse products instead allocates four intermediate matrices: on the OSQP
+suite's Huber problem, 2.19 MB and 120 µs against 16.6 µs and nothing here.
 
 `aperm` and `pperm` index into `nonzeros(A)` and `nonzeros(P)` rather than holding copies of
 them, so a refill always reads the values the workspace currently holds. The patterns are
@@ -502,30 +502,6 @@ end
 
 PureOSQP.backend_name(::SparseCholmod) = :cholmod
 
-"""
-    reduced_sparse(T, P, A, rho, E, D, c, sigma) -> SparseMatrixCSC
-
-The reduced matrix `P̃ + σI + Ãᵀ diag(ρ) Ã`, built and kept sparse.
-
-Equilibration comes out of the products: with `Ã = diag(E) A diag(D)` and
-`P̃ = c diag(D) P diag(D)`, the matrix is `diag(D) (Aᵀ diag(ρE²) A + cP) diag(D) + σI`, so
-the sandwich is applied once at the end rather than inside the sparse product.
-
-The pattern this produces depends only on the patterns of `P` and `A`, never on the values
-of `ρ`, `E`, `D`, `c` or `σ`, which are positive. That is what lets every refactorization
-reuse the symbolic factorization, and what [`ReducedGram`](@ref) records so that it can be
-rebuilt without these products.
-
-Four chained products, each allocating a matrix. This establishes the pattern once;
-[`refill!`](@ref) rebuilds the values without allocating.
-"""
-function reduced_sparse(::Type{T}, P, A, rho, E, D, c, sigma) where {T}
-    w = rho .* E .^ 2
-    inner = transpose(A) * (Diagonal(w) * A) + c * P
-    Dg = Diagonal(D)
-    return SparseMatrixCSC{T, Int}(Dg * inner * Dg + sigma * I)
-end
-
 
 """
     csr_order(A) -> (rowptr, colind, aperm)
@@ -567,6 +543,57 @@ function csr_order(A::SparseMatrixCSC)
 end
 
 """
+    reduced_nnz(P, A, n) -> Int
+
+How many entries the upper triangle of the reduced matrix stores, counted from the patterns
+of `P` and `A` without building it.
+
+This is what the fill gate needs, and forming the matrix to ask is the expensive way round:
+on the OSQP suite this counts in 10–92 µs where forming it through sparse products took
+42–247, and on Huber it is 21.7 µs against 128.2.
+
+Column `j` of `AᵀA` holds a row for every column any row of `A` shares with `j`, so one pass
+over `A`'s columns and the rows behind them enumerates the column, and `mark` deduplicates it
+in `O(1)` per candidate. `P`'s upper triangle and the diagonal `σ` lands on complete it.
+
+Structural, so it agrees with [`reduced_gram`](@ref) exactly. Counting the formed matrix
+instead would undercount: a sparse product drops an entry that cancels to zero, and whether
+one cancels depends on `ρ`.
+"""
+function reduced_nnz(P::SparseMatrixCSC, A::SparseMatrixCSC, n::Integer)
+    rowptr, colind, _ = csr_order(A)
+    arows, prows = rowvals(A), rowvals(P)
+    mark = zeros(Int, n)
+    total = 0
+    for j in 1:n
+        for p in nzrange(A, j)
+            k = arows[p]
+            for t in rowptr[k]:(rowptr[k + 1] - 1)
+                i = colind[t]
+                i <= j || continue
+                if mark[i] != j
+                    mark[i] = j
+                    total += 1
+                end
+            end
+        end
+        for t in nzrange(P, j)
+            i = prows[t]
+            i <= j || continue
+            if mark[i] != j
+                mark[i] = j
+                total += 1
+            end
+        end
+        if mark[j] != j
+            mark[j] = j
+            total += 1
+        end
+    end
+    return total
+end
+
+"""
 Build the reduced matrix's pattern and the slot map that refills it.
 
 Every array is sized before it is filled: the number of contributions is
@@ -574,10 +601,7 @@ Every array is sized before it is filled: the number of contributions is
 entries `σ` lands on. Growing them instead would dominate, because for a problem this
 backend goes on to refuse there can be an entry per pair of columns sharing a row.
 """
-function reduced_gram(
-        ::Type{T}, P::SparseMatrixCSC, A::SparseMatrixCSC, n::Integer,
-        known::Union{Nothing, SparseMatrixCSC{T, Int}} = nothing
-    ) where {T}
+function reduced_gram(::Type{T}, P::SparseMatrixCSC, A::SparseMatrixCSC, n::Integer) where {T}
     rowptr, colind, aperm = csr_order(A)
     m = length(rowptr) - 1
     npair = 0
@@ -915,18 +939,11 @@ function cholmod_backend(
     (issparse(P) && n > 0) || return nothing
     # A lower bound on `nnz(R)`, computed in one pass over `A`'s stored entries.
     densest_row(A)^2 < DENSE_FACTOR_FILL * n^2 || return nothing
-    # `nnz(R)` settles it, and the products are the cheaper way to learn it for a problem
-    # this backend refuses: their cost follows `nnz(R)`, where the map's follows the number
-    # of contributions, and the two part company exactly where `R` fills in. Nothing cheaper
-    # separates the cases — a bound from the contribution count alone puts a 320-variable
-    # Control problem and a 2000-variable banded one within 12% of each other, on opposite
-    # sides of the decision.
-    formed = reduced_sparse(T, P, A, rho_vec, E, D, c, sigma)
-    nnz(formed) < 2 * DENSE_FACTOR_FILL * n^2 || return nothing
-    # The gate has already built the pattern, so the map is located in it rather than derived
-    # a second time. Only the upper triangle is kept, which is the half the factorization
-    # reads and the half `refill!` writes.
-    gram = reduced_gram(T, P, A, n, SparseMatrixCSC(UpperTriangular(formed)))
+    # Counted rather than formed: the gate wants `nnz(R)` and nothing else, and that comes
+    # from the patterns. `reduced_nnz` reports one triangle where the limit is stated for the
+    # whole matrix.
+    2 * reduced_nnz(P, A, n) < 2 * DENSE_FACTOR_FILL * n^2 || return nothing
+    gram = reduced_gram(T, P, A, n)
     R = refill!(gram, P, A, rho_vec, E, D, c, sigma)
     # A pure-Julia LDLᵀ, if one is loaded, factors this faster than CHOLMOD does and hands
     # back `L` and `D` as plain arrays, so nothing has to be extracted from a foreign factor.
