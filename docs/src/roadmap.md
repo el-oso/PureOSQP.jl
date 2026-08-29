@@ -109,12 +109,40 @@ a problem that can only supply matrix-vector products is solvable. `cg_max_iter`
 residuals rather than running to a fixed tolerance; the preconditioner is the reduced
 diagonal, assembled column by column without the matrix.
 
-Use it only when the matrix cannot be formed. Measured against the direct backend at
-`eps = 1e-6`, single-threaded, on dense random QPs: the inner solve costs about **23×** more
-per iteration at both `n = 50, m = 100` and `n = 200, m = 400`, and because it is inexact it
-can cost iterations as well — the count is identical to the direct backend at `n = 50` and
-2.7× higher at `n = 200`, for **15×** and **49×** total. Objectives agree to about eight
-digits, which is the inexactness showing up where it should.
+Which backend is faster is a question about the problem, not about the solver, and the
+answer turns over. On **dense** problems the direct solve wins everywhere measured: the
+inner solve costs about **23×** more per iteration at both `n = 50, m = 100` and
+`n = 200, m = 400`, and being inexact it can cost iterations too, for 15× and 49× total.
+
+On **sparse** problems it crosses. The direct backend's buffers are dense whatever the
+input, so its cost grows as `n(n + m)` regardless of sparsity, while the matrix-free cost
+follows `nnz`. Holding about five nonzeros per row of `A` and growing the problem
+(`bench/indirect_backend.jl`, `eps = 1e-6`, single-threaded):
+
+| n | m | density | direct | matrix-free | speedup | direct | matrix-free |
+|---|---|---|---|---|---|---|---|
+| 200 | 400 | 2.5% | 7.2 ms | 75.7 ms | 0.09× | 1.1 MiB | 0.19 MiB |
+| 500 | 1000 | 1% | 38.8 ms | 207 ms | 0.19× | 6.2 MiB | 0.49 MiB |
+| 1000 | 2000 | 0.5% | 167 ms | 326 ms | 0.51× | 23.8 MiB | 0.97 MiB |
+| 2000 | 4000 | 0.25% | 1246 ms | 631 ms | **1.98×** | 93.4 MiB | 1.96 MiB |
+| 3000 | 6000 | 0.17% | 4025 ms | 1318 ms | **3.05×** | 209 MiB | 2.98 MiB |
+| 4000 | 8000 | 0.125% | 8306 ms | 2302 ms | **3.61×** | 370 MiB | 3.86 MiB |
+
+The last two columns are the workspace, and they are the more durable point: it shrinks by
+6× at the top of the table and 96× at the bottom, because the direct backend stores an `m×n`
+copy of `A` and an `n×n` inverse while the matrix-free one stores vectors. Density decides
+it at fixed size just as clearly — at `n = 1000, m = 2000` the matrix-free backend is 1.97×
+ahead at 0.2% density and 0.10× at 2%, while the direct backend hardly moves (146 ms to
+233 ms) because it densifies either way.
+
+So the honest rule is: dense or small, use the factorization; large and genuinely sparse,
+the matrix-free backend is faster and very much smaller; and when the matrix cannot be
+formed at all it is the only option. Objectives agree to about eight digits throughout,
+which is the inexactness showing up where it should.
+
+Note this measures the matrix-free backend against a direct backend that densifies. A
+sparse or structured direct backend, the open item at the top of this page, would move the
+crossover — probably a long way.
 
 Two properties survive the extension. The per-iteration solve allocates nothing, which
 needs `cg!`'s workspace preallocated *and* its lazily-allocated preconditioned vector filled
@@ -212,9 +240,13 @@ measurements. A `SparseArrays` extension does specialise equilibration's column 
 One project remains, and it is the one at the top of this page: a linear-system backend
 that keeps the representation it was given. Sparse and structured `P` and `A` reach the
 solver intact and keep their own products, but every backend then materialises a dense
-reduced matrix, so the fast product buys less than it should. The matrix-free backend is
-built and is the honest fallback for a matrix that cannot be formed at all, not a
-substitute for this — it is 23× slower per solve than a factorization.
+reduced matrix, so the fast product buys less than it should.
+
+The matrix-free backend is built, and it shows how much is on the table rather than
+substituting for this: on large sparse problems it beats the densifying direct backend
+outright — 3.6× faster and 96× smaller at `n = 4000, m = 8000` — purely by not forming
+anything. A direct backend that kept the sparsity should beat both, since it would pay
+neither the dense buffers nor the inexact inner solve.
 
 What is left otherwise is `update_time`, the primal-dual integral, and the settings that
 select a linear-algebra library or a GPU, none of which have a counterpart here.

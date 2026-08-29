@@ -64,13 +64,16 @@ solver directly, since the element type is `Real`.
 A matrix-free backend ships as a second extension, over
 [Krylov.jl](https://github.com/JuliaSmoothOptimizers/Krylov.jl): `linsys = :indirect` runs
 preconditioned conjugate gradients on the reduced system and never forms it, so a matrix
-that only supplies products is solvable. It is a fallback, not a fast path — about 23×
-slower per solve than the factorization, and inexact, so it can cost iterations too.
+that only supplies products is solvable. Which backend is faster depends on the problem and
+the answer turns over: on dense QPs the factorization wins by 15–49×, but on large sparse
+ones the matrix-free backend wins outright — 2.0× at `n = 2000, m = 4000` and 3.6× at
+`n = 4000, m = 8000`, on 48× and 96× less memory — because the direct backend's buffers are
+dense whatever it was handed.
 
-Not implemented: a sparse or structured *factorization* backend. Sparse and structured `P`
-and `A` are accepted, are not densified, and keep their own products, but the reduced
-matrix the solver forms and factors is dense whatever they were. See the
-[Roadmap](https://el-oso.github.io/PureOSQP.jl/dev/roadmap).
+Not implemented: a sparse or structured *factorization* backend, which is the largest open
+item. Sparse and structured `P` and `A` are accepted, are not densified, and keep their own
+products, but the reduced matrix the solver forms and factors is dense whatever they were.
+See the [Roadmap](https://el-oso.github.io/PureOSQP.jl/dev/roadmap).
 
 ## How it differs from the reference implementation
 
@@ -164,8 +167,8 @@ the others:
 
 Full tables, plus structured-storage and matrix-type results and the libosqp 1.x agreement
 check: `bench/headtohead.jl`, `bench/solvers.jl`, `bench/matrix_types.jl`,
-`bench/headtohead_v1.jl` and `bench/kkt_backend.jl`, with every sample saved under
-`bench/results/`.
+`bench/headtohead_v1.jl`, `bench/kkt_backend.jl` and `bench/indirect_backend.jl`, with
+every sample saved under `bench/results/`.
 
 ## Relationship to upstream OSQP
 
