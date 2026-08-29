@@ -27,9 +27,8 @@ Equilibration reaches the entries through four overridable column traversals, an
 
 One matrix inside the solver is dense whatever you pass: the `n×n` reduced system it forms
 and factors, because eliminating `ν` fills in whatever sparsity `A` had. That is a property
-of the reduction, not a restriction on the input, and whether a sparse factorization of the
-full KKT avoids it was measured rather than assumed — see
-[How the sparsest case was closed](@ref "How the sparsest case was closed").
+of the reduction, not a restriction on the input, and it is why a dense row in `A` routes to
+a sparse factorization of the full KKT instead, which does not square that row.
 
 The numerics use `LinearAlgebra` alone; the only other dependency is TypeContracts.jl,
 which declares the linear-system backend interface and checks it at precompilation.

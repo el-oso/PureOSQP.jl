@@ -253,3 +253,64 @@ end
     @test s.iter == ref.iter
     @test s.x ≈ ref.x atol = 1.0e-9
 end
+
+@testitem "a dense row in A routes to the full KKT" begin
+    using LinearAlgebra, SparseArrays, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    # Eliminating to the reduced system squares A, so one dense row makes the reduced matrix
+    # dense however sparse the rest of it is. The full KKT keeps that row as one sparse row.
+    # This is the OSQP suite's Portfolio shape: a budget constraint over every variable.
+    Random.seed!(12)
+    n, k = 150, 3
+    F = sprandn(n, k, 0.5)
+    P = blockdiag(spdiagm(0 => rand(n) .+ 1), sparse(2.0I, k, k))
+    q = vcat(randn(n), zeros(k))
+    A = vcat(
+        hcat(sparse(ones(1, n)), spzeros(1, k)),
+        hcat(sparse(F'), sparse(-1.0I, k, k)),
+        hcat(sparse(1.0I, n, n), spzeros(n, k)),
+    )
+    l = vcat(1.0, zeros(k), zeros(n))
+    u = vcat(1.0, zeros(k), ones(n))
+    opts = (eps_abs = 1.0e-8, eps_rel = 1.0e-8, max_iter = 50_000)
+
+    ws = setup(P, q, A, l, u; opts...)
+    @test PureOSQP.backend_name(ws.linsys) == :sparse_kkt
+    s = PureOSQP.solve!(ws)
+    @test s.status == SOLVED
+    @test maximum(kkt_residuals(P, q, A, l, u, s.x, s.y)) < 1.0e-6
+
+    # A different factorization of the same system, so it must agree with the dense one.
+    ref = solve(P, q, A, l, u; opts..., linsys = :dense)
+    @test ref.status == SOLVED
+    @test s.obj_val ≈ ref.obj_val rtol = 1.0e-7
+    @test s.x ≈ ref.x atol = 1.0e-6
+end
+
+@testitem "the full-KKT backend survives a pattern change" begin
+    using LinearAlgebra, SparseArrays, Random
+    # Refactorization reuses the symbolic analysis, which holds only while the pattern does.
+    # `n` is large enough that the full KKT is the better form: below about n = 100 a dense
+    # `symv` on the reduced system beats a sparse triangular solve on one of size n + m,
+    # and the fill gate says so rather than taking the sparse route regardless.
+    Random.seed!(13)
+    n = 250
+    P = spdiagm(0 => rand(n) .+ 1)
+    q = randn(n)
+    dense_row = sparse(ones(1, n))
+    A = vcat(dense_row, sparse(1.0I, n, n))
+    l = vcat(1.0, zeros(n))
+    u = vcat(1.0, ones(n))
+    opts = (eps_abs = 1.0e-8, eps_rel = 1.0e-8, max_iter = 50_000)
+
+    ws = setup(P, q, A, l, u; opts...)
+    @test PureOSQP.backend_name(ws.linsys) == :sparse_kkt
+    @test solve!(ws).status == SOLVED
+
+    A2 = vcat(dense_row, sparse(2.0I, n, n))
+    update!(ws; A = A2)
+    s = solve!(ws)
+    @test s.status == SOLVED
+    ref = solve(P, q, A2, l, u; opts..., linsys = :dense)
+    @test s.obj_val ≈ ref.obj_val rtol = 1.0e-7
+end

@@ -20,8 +20,9 @@ module PureOSQPSparseArraysExt
 
 using PureOSQP: PureOSQP
 using TypeContracts: TypeContracts, @verify
-using LinearAlgebra: Symmetric, Diagonal, LowerTriangular, UpperTriangular, I,
-    cholesky, cholesky!, issuccess, ldiv!, transpose
+using LinearAlgebra: Symmetric, Diagonal, LowerTriangular, UpperTriangular,
+    UnitLowerTriangular, UnitUpperTriangular, I, diag,
+    cholesky, cholesky!, ldlt, ldlt!, issuccess, ldiv!, transpose
 using SparseArrays: SparseMatrixCSC, issparse, nnz, nzrange, rowvals, nonzeros, sparse
 
 @inline function PureOSQP.weighted_colmax(
@@ -113,6 +114,8 @@ function PureOSQP.choose_backend(
     end
     # Factoring sparsely beats inverting densely only when the factor stays sparse, which
     # is a property of the pattern and so is measured here rather than assumed.
+    kkt = sparse_kkt_backend(P, A, proto, n, m)
+    isnothing(kkt) || return kkt
     ldl = cholmod_backend(P, A, proto, n, m)
     isnothing(ldl) || return ldl
     Rinv = similar(proto, T, n, n)
@@ -221,6 +224,140 @@ function PureOSQP.factorize!(ls::SparseFormedInverse{T}, ws)::Bool where {T}
     issuccess(F) || return false
     PureOSQP.invert_spd!(R, F)
     return true
+end
+
+
+"""
+    SparseKKT{T,V,F} <: PureOSQP.LinearSystem
+
+Factors the full `(n+m)×(n+m)` quasi-definite system sparsely, with CHOLMOD's `ldlt`.
+
+The reduced form squares `A`, so one dense row makes `R` dense however sparse the rest of it
+is. The full system does not: a dense row of `A` stays one sparse row of
+
+    K = ⎡P̃ + σI    Ãᵀ  ⎤
+        ⎣Ã      −diag(ρ⁻¹)⎦
+
+On the OSQP suite's Portfolio class — 0.9% dense `A`, one row touching every column — `R`
+comes out 99% dense while `K`'s factor is 0.3% dense, and factoring `K` is 7.5× faster than
+factoring `R`.
+
+`K` is quasi-definite: `P̃ + σI` is positive definite and `−diag(ρ⁻¹)` negative definite. A
+quasi-definite matrix has an `LDLᵀ` factorization under *any* symmetric permutation, which
+is why a fill-reducing ordering chosen once can be reused without pivoting for stability —
+the property upstream's own solver rests on.
+
+`L`, `D⁻¹` and the permutation are extracted rather than solved through, because CHOLMOD's
+`ldiv!` allocates on every call and the hot path may not. See
+[`PureOSQP.reduced_rhs!`](@ref) for the reduced backends' equivalent.
+"""
+mutable struct SparseKKT{T <: Real, V <: AbstractVector{T}, F} <: PureOSQP.LinearSystem
+    K::SparseMatrixCSC{T, Int}
+    fact::F
+    L::SparseMatrixCSC{T, Int}
+    dinv::Vector{T}
+    perm::Vector{Int}
+    rhs::V
+    work::V
+end
+
+PureOSQP.backend_name(::SparseKKT) = :sparse_kkt
+
+"""
+    kkt_sparse(T, P, A, rho_inv, E, D, c, sigma) -> SparseMatrixCSC
+
+The scaled quasi-definite KKT matrix, kept sparse.
+
+Equilibration comes out of the blocks the same way it does for the reduced matrix:
+`P̃ = c·diag(D) P diag(D)` and `Ã = diag(E) A diag(D)`, so nothing is formed scaled.
+"""
+function kkt_sparse(::Type{T}, P, A, rho_inv, E, D, c, sigma) where {T}
+    Dg = Diagonal(D)
+    Pt = SparseMatrixCSC{T, Int}(c * (Dg * sparse(Symmetric(P)) * Dg) + sigma * I)
+    At = SparseMatrixCSC{T, Int}(Diagonal(E) * A * Dg)
+    m = size(A, 1)
+    return SparseMatrixCSC{T, Int}(
+        Symmetric([Pt transpose(At); At sparse(-Diagonal(rho_inv))], :L)
+    )
+end
+
+function PureOSQP.factorize!(ls::SparseKKT{T}, ws)::Bool where {T}
+    K = kkt_sparse(
+        T, ws.P, ws.A, ws.rho_inv_vec, ws.E, ws.D, ws.c, ws.settings.sigma
+    )
+    if K.colptr == ls.K.colptr && K.rowval == ls.K.rowval
+        # The pattern does not depend on ρ or the equilibration factors, so every
+        # refactorization after the first reuses the ordering and the symbolic phase.
+        ldlt!(ls.fact, K; check = false)
+    else
+        ls.fact = ldlt(K; check = false)
+    end
+    issuccess(ls.fact) || return false
+    ls.K = K
+    LD = sparse(ls.fact.LD)::SparseMatrixCSC{T, Int}
+    d = diag(LD)
+    any(iszero, d) && return false
+    ls.dinv = inv.(d)
+    # `LD` packs `D` on the diagonal of a unit-triangular `L`; the solve below uses
+    # `UnitLowerTriangular`, which ignores the stored diagonal.
+    ls.L = LD
+    ls.perm = ls.fact.p::Vector{Int}
+    return true
+end
+
+function PureOSQP.solve_system!(ls::SparseKKT{T}, ws, rhs_x, rhs_z)::Nothing where {T}
+    n, m = ws.n, ws.m
+    for i in 1:n
+        ls.rhs[i] = rhs_x[i]
+    end
+    for i in 1:m
+        ls.rhs[n + i] = rhs_z[i]
+    end
+    perm, work = ls.perm, ls.work
+    # K[perm, perm] = L D Lᵀ.
+    for i in eachindex(perm)
+        work[i] = ls.rhs[perm[i]]
+    end
+    ldiv!(UnitLowerTriangular(ls.L), work)
+    work .*= ls.dinv
+    ldiv!(UnitUpperTriangular(transpose(ls.L)), work)
+    for i in eachindex(perm)
+        ls.rhs[perm[i]] = work[i]
+    end
+    for i in 1:n
+        ws.xtilde[i] = ls.rhs[i]
+    end
+    # The eliminated multiplier gives `z̃` without another product with `A`.
+    for i in 1:m
+        ws.ztilde[i] = rhs_z[i] + ws.rho_inv_vec[i] * ls.rhs[n + i]
+    end
+    return nothing
+end
+
+"""
+    sparse_kkt_backend(P, A, proto, n, m) -> SparseKKT or nothing
+
+Build the full-KKT backend when the reduced form would densify and this one would not.
+
+Both conditions are measured. The reduced matrix is rejected on the bound in
+[`densest_row`](@ref); the KKT matrix is accepted on the fill CHOLMOD reports for its
+pattern, against the `n²` a dense reduced factorization would cost.
+"""
+function sparse_kkt_backend(P, A, proto::AbstractVector{T}, n::Integer, m::Integer) where {T <: Real}
+    (issparse(P) && n > 0 && m > 0) || return nothing
+    # Only worth considering where the reduced form loses, which is what the dense row means.
+    densest_row(A)^2 < DENSE_FACTOR_FILL * n^2 && return nothing
+    ones_n = fill(one(T), n)
+    K = kkt_sparse(T, P, A, fill(one(T), m), fill(one(T), m), ones_n, one(T), one(T))
+    F = ldlt(K; check = false)
+    issuccess(F) || return nothing
+    LD = sparse(F.LD)::SparseMatrixCSC{T, Int}
+    # Against the dense reduced factorization this replaces, whose cost is `n²`.
+    nnz(LD) < DENSE_FACTOR_FILL * n^2 || return nothing
+    v = similar(proto, T, n + m)
+    return SparseKKT{T, typeof(v), typeof(F)}(
+        K, F, LD, inv.(diag(LD)), F.p::Vector{Int}, v, similar(v)
+    )
 end
 
 @verify SparseFormedInverse trim_compat = true
@@ -333,19 +470,41 @@ function PureOSQP.solve_system!(ls::SparseCholmod{T}, ws, rhs_x, rhs_z)::Nothing
 end
 
 """
+    densest_row(A) -> Int
+
+The most nonzeros any row of `A` holds.
+
+`Ãᵀ diag(ρ) Ã` gives each row of `A` an outer product with itself, so the densest row alone
+contributes a dense `nnzᵢ × nnzᵢ` block to the reduced matrix and `nnzᵢ²` is a lower bound
+on `nnz(R)`. That is enough to reject a problem before forming `R` at all, which matters
+because forming it is a sparse product over the whole matrix: on the OSQP suite's Portfolio
+class, whose budget row `1ᵀx = 1` touches every column, that product was 27% of `setup` and
+its only outcome was a rejection.
+"""
+function densest_row(A::SparseMatrixCSC)
+    counts = zeros(Int, size(A, 1))
+    for i in rowvals(A)
+        counts[i] += 1
+    end
+    return isempty(counts) ? 0 : maximum(counts)
+end
+
+"""
     cholmod_backend(P, A, proto, n, m) -> SparseCholmod or nothing
 
-Build the sparse-factorization backend if it is the right one for these matrices, and
-return `nothing` if it is not.
+Build the reduced sparse-factorization backend if it suits these matrices, and return
+`nothing` if it does not.
 
-The decision is measured rather than guessed at: CHOLMOD is asked to factor the reduced
-matrix's pattern, and the fill it reports settles it. That costs one factorization, which is
-not wasted when the answer is yes — it *is* the first factorization, whose symbolic part
-every later one reuses. When the answer is no the cost is bounded by a pre-screen on
-`nnz(R)`, since `L` is at least as dense as `R`'s triangle.
+The decision is measured rather than guessed: CHOLMOD is asked to factor the reduced
+matrix's pattern and the fill it reports settles it. That costs one factorization, which is
+not wasted when the answer is yes — its symbolic part is what every later refactorization
+reuses. When the answer is no, [`densest_row`](@ref) usually says so before `R` is formed at
+all, and `nnz(R)` catches the rest.
 """
 function cholmod_backend(P, A, proto::AbstractVector{T}, n::Integer, m::Integer) where {T <: Real}
     (issparse(P) && n > 0) || return nothing
+    # A lower bound on `nnz(R)`, computed in one pass over `A`'s stored entries.
+    densest_row(A)^2 < DENSE_FACTOR_FILL * n^2 || return nothing
     ones_m = fill(one(T), m)
     ones_n = fill(one(T), n)
     R = reduced_sparse(T, P, A, ones_m, ones_m, ones_n, one(T), one(T))
@@ -365,6 +524,7 @@ end
 # No `trim_compat` claim: the solve reaches CHOLMOD through `ccall`, and the trim entry
 # points cover the dense path.
 @verify SparseCholmod
+@verify SparseKKT
 
 
 """

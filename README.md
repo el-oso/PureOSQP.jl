@@ -26,9 +26,10 @@ linear-system backend interface and checks it at precompilation. Sparse `P` and 
 accepted as they are: a `SparseArrays` **weak** dependency lets equilibration walk only
 their stored entries, the per-iteration products use their own `mul!`, the reduced matrix is
 accumulated over the stored entries rather than through a dense copy of `A`, and it is
-factored by CHOLMOD when its factor stays sparse. Eliminating to the reduced system does fill
-in whatever sparsity `A` had, so on a pattern that fills in the dense factorization is still
-the faster one, and is still what gets chosen.
+factored by CHOLMOD when its factor stays sparse. Eliminating to the reduced system squares
+`A`, so a pattern that fills in is routed elsewhere: to a sparse factorization of the full
+quasi-definite system when one dense row is the cause, and to the dense factorization
+otherwise.
 
 The hot path is proven allocation-free and type-stable, and every public entry point
 compiles under `juliac --trim`. See [Guarantees](https://el-oso.github.io/PureOSQP.jl/dev/guarantees).
@@ -90,14 +91,15 @@ See the [Roadmap](https://el-oso.github.io/PureOSQP.jl/dev/roadmap) for what rem
 
 ## How it differs from the reference implementation
 
-The inner KKT system is eliminated to an `n×n` symmetric positive definite system, rather
-than factoring the `(n+m)×(n+m)` quasi-definite system as upstream does. Upstream avoids
-the reduction because `AᵀA` destroys sparsity, and that is true here too — the reduced
-matrix is dense whatever `A` looked like. The question is whether a sparse factorization of
-the full KKT would still win, and it was measured rather than assumed: it does win the
-per-iteration solve at 1% density, loses the factorization, and by 5% density loses both.
-Pass `linsys = :kkt` to force the full quasi-definite factorization, which is slower but
-more accurate at moderate conditioning; the whole test corpus runs through both backends.
+The inner KKT system is eliminated to an `n×n` symmetric positive definite system by
+default, rather than factoring the `(n+m)×(n+m)` quasi-definite system as upstream does.
+Upstream avoids the reduction because `AᵀA` destroys sparsity, and that is a real cost: the
+reduced matrix is dense for a dense `A`, and one dense row of a sparse `A` is enough to make
+it dense too. So the form is chosen from the matrices rather than fixed — a dense row routes
+to a sparse factorization of the full system, which is upstream's formulation. Pass
+`linsys = :kkt` to force the dense quasi-definite factorization, which is slower but more
+accurate at moderate conditioning, or `linsys = :dense` to force the reduced one; the whole
+test corpus runs through the backends.
 
 That reduced matrix is then inverted, once per factorization, and each iteration solves by
 a single `symv` instead of a Cholesky `ldiv!`. Both are `2n²` flops, but a triangular solve
@@ -198,23 +200,25 @@ the reduced matrix from stored entries then factoring it densely wins by 2.8–4
 
 Both families above are synthetic. `bench/osqp_suite.jl` runs the seven problem classes
 OSQP's own benchmark suite uses, which carry the structure real problems have, and the
-answer there is worse — **PureOSQP loses four of the seven**, on identical iteration counts:
+answer there is harder — **PureOSQP loses three of the seven**, on identical iteration counts:
 
 | class | PureOSQP | OSQP | vs OSQP |
 |---|---|---|---|
 | Random QP | 3.62 ms | 6.57 ms | **1.82×** |
 | Eq QP | 4.33 ms | 3.32 ms | 0.77× |
-| Portfolio | 16.2 ms | 2.98 ms | **0.18×** |
+| Portfolio | 5.47 ms | 3.05 ms | 0.56× |
 | Lasso | 1.67 ms | 1.19 ms | 0.72× |
 | SVM | 3.86 ms | 4.01 ms | 1.04× |
 | Huber | 3.94 ms | 2.73 ms | 0.69× |
 | Control | 4.72 ms | 5.43 ms | **1.15×** |
 
-Portfolio is not a tuning problem. Eliminating to the reduced system squares `A`, so a
-single dense row makes the result dense: its `A` is 0.9% dense and the matrix the solver
-factors is 99% dense. Upstream's full-KKT form does not square that row. This is the
-clearest open item in the [Roadmap](https://el-oso.github.io/PureOSQP.jl/dev/roadmap), and
-it is a limitation of the formulation rather than of any backend.
+Portfolio is what a dense row costs. Eliminating to the reduced system squares `A`, so one
+dense row makes the result dense: its `A` is 0.9% dense and the reduced matrix would be 99%
+dense. A sparse factorization of the full quasi-definite system keeps that row as one sparse
+row, which is what `sparse_kkt` does and what took the class from 16.2 ms to 5.47 ms.
+
+Eq QP is a storage choice rather than a solver result: its `P` is 99% dense and handed over
+sparse, and densifying it takes the class from 0.76× to 3.1×.
 
 
 Two more benchmarks cover the rest:

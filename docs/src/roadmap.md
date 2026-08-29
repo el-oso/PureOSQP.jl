@@ -40,12 +40,6 @@ dense, `R` is 99% dense, and PureOSQP runs at 0.18× of libosqp there. Upstream 
 the problem, because a sparse LDLᵀ of the full `(n+m)×(n+m)` system keeps that row as one
 sparse row.
 
-Note this is the thing
-[How the sparsest case was closed](@ref "How the sparsest case was closed") measured and
-rejected. That rejection stands for the family it was measured on, where `A` has no dense
-row. It does not generalise, and the suite is what showed it — which is the argument for
-keeping a structured corpus rather than a synthetic one.
-
 **A structured backend.** `Ãᵀ diag(ρ) Ã` fills in whatever `P` looked like, so structure in
 `P` alone does not survive into the reduced matrix. It pays only where both are structured —
 `Diagonal` `P` with `Diagonal` `A` makes the whole solve `O(n)` — and no such problem has
