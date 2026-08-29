@@ -7,6 +7,7 @@
         "c_suite_tests.jl" => 9,
         "corpus_tests.jl" => 4,
         "derivative_tests.jl" => 5,
+        "gpu_tests.jl" => 3,
         "indirect_tests.jl" => 3,
         "linsys_tests.jl" => 12,
         "meta_tests.jl" => 1,

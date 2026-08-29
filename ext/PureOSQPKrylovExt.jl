@@ -46,18 +46,13 @@ function LinearAlgebra.mul!(y::AbstractVector, op::ReducedOperator, x::AbstractV
     # intermediate here rather than aliasing theirs.
     if ws.m > 0
         mul_A!(ws.work_m, ws, x)
-        for i in eachindex(ws.work_m, ws.rho_vec)
-            ws.work_m[i] *= ws.rho_vec[i]
-        end
+        PureOSQP.multiply!(ws.work_m, ws.work_m, ws.rho_vec)
         mul_At!(y, ws, ws.work_m)
     else
         fill!(y, zero(eltype(y)))
     end
     mul_P!(ws.work_n, ws, x)
-    σ = ws.settings.sigma
-    for i in eachindex(y, x, ws.work_n)
-        y[i] += ws.work_n[i] + σ * x[i]
-    end
+    PureOSQP.add_scaled!(y, ws.work_n, ws.settings.sigma, x)
     return y
 end
 
@@ -101,17 +96,9 @@ Always succeeds: there is nothing here that can be singular, since `σ > 0` keep
 diagonal entry positive.
 """
 function PureOSQP.factorize!(ls::IndirectCG{T}, ws)::Bool where {T}
-    n, m = ws.n, ws.m
-    σ, c = ws.settings.sigma, ws.c
-    for j in 1:n
-        dj = ws.D[j]
-        d = c * dj * T(ws.P[j, j]) * dj + σ
-        for i in 1:m
-            a = ws.E[i] * T(ws.A[i, j]) * dj
-            d += ws.rho_vec[i] * a * a
-        end
-        ls.prec[j] = inv(max(d, sqrt(eps(T))))
-    end
+    PureOSQP.reduced_diagonal!(
+        ls.prec, T, ws.P, ws.A, ws.rho_vec, ws.E, ws.D, ws.settings.sigma, ws.c
+    )
     return true
 end
 
@@ -129,13 +116,9 @@ the direct backends in the last digits even though both converge to the same sol
 function PureOSQP.solve_system!(ls::IndirectCG{T}, ws, rhs_x, rhs_z)::Nothing where {T}
     m = ws.m
     if m > 0
-        for i in eachindex(ws.work_m, ws.rho_vec, rhs_z)
-            ws.work_m[i] = ws.rho_vec[i] * rhs_z[i]
-        end
+        PureOSQP.multiply!(ws.work_m, ws.rho_vec, rhs_z)
         mul_At!(ls.rhs, ws, ws.work_m)
-        for i in eachindex(ls.rhs, rhs_x)
-            ls.rhs[i] += rhs_x[i]
-        end
+        PureOSQP.increment!(ls.rhs, rhs_x)
     else
         copyto!(ls.rhs, rhs_x)
     end

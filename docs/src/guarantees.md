@@ -84,3 +84,38 @@ and is unreachable from any entry point, so the trimmer removes it.
 
 Requires Julia ≥ 1.12, which is also this package's `[compat]` floor — `--trim` does not
 exist before it.
+
+## What the guarantees cover on GPU arrays
+
+GPU support is **matrix-free only**. `linsys = :indirect` is the one backend whose inner
+solve has a GPU counterpart — Krylov.jl's `cg!` is GPU-native, `bunchkaufman!` has no GPU
+implementation, CHOLMOD is CPU by construction, and `potri!` reaches LAPACK. Any other
+backend is refused at [`setup`](@ref) with a message naming the remedy, rather than left to
+fail inside `factorize!`. `polish` and the derivatives stay on the host for the same reason.
+
+Two of the three guarantees above carry over unchanged, and one does not:
+
+- **Type stability** holds and is checked.
+- **`--trim`** is unaffected. Its entry points are concrete `Matrix{Float64}`/
+  `Vector{Float64}` calls, so GPU code — reachable only through extension methods on GPU
+  types — never enters the binary, the same scoping that keeps CHOLMOD's `ccall`s out.
+- **Allocation-free does not extend to GPU workspaces**, and is not claimed for them. Every
+  kernel launch allocates, and the broadcast and `mapreduce` schedules the GPU path uses
+  allocate host-side besides. The claim is about `Vector`-backed workspaces, which is what
+  `bench/strictmode_audit.jl` checks.
+
+The elementwise work is written once as scalar functions with two schedules — an indexed
+loop for `Vector`, a broadcast or reduction for everything else (`src/elementwise.jl`). The
+loops are not a style preference: AllocCheck reports a broadcast as allocating even when its
+destination is distinct from its sources, because `Base.Broadcast` keeps an `unaliascopy`
+branch it cannot rule out, and it reports a multi-argument `mapreduce` the same way. Keeping
+both schedules is what lets the CPU path stay provably allocation-free while the GPU path
+avoids indexing.
+
+**JLArrays is the correctness gate, and it is not a claim about CUDA.** `test/gpu_tests.jl`
+runs the solver under `JLArrays.allowscalar(false)`, which enforces exactly the discipline
+CUDA.jl enforces, so a green run certifies that nothing on the solve path indexes an array
+elementwise. It certifies nothing else: `JLArray <: StridedArray` is true and `cholesky!` on
+one *succeeds* through CPU LAPACK, so a JLArrays test of a direct backend would pass while
+the same dispatch died inside `unsafe_convert` on a CuArray. CuArray is designed for and
+untested; the refusal above is what keeps that gap from being discovered as a wrong answer.

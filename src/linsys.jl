@@ -210,13 +210,9 @@ not alias their input and output — `symv` in particular.
 """
 function reduced_rhs!(ws, rhs_x, rhs_z)
     if ws.m > 0
-        for i in eachindex(ws.work_m, ws.rho_vec, rhs_z)
-            ws.work_m[i] = ws.rho_vec[i] * rhs_z[i]
-        end
+        multiply!(ws.work_m, ws.rho_vec, rhs_z)
         mul_At!(ws.work_n, ws, ws.work_m)
-        for i in eachindex(ws.work_n, rhs_x)
-            ws.work_n[i] += rhs_x[i]
-        end
+        increment!(ws.work_n, rhs_x)
     else
         copyto!(ws.work_n, rhs_x)
     end

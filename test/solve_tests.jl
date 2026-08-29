@@ -186,9 +186,10 @@ end
 @testitem "time_limit stops the loop and reports it" begin
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
-    # Tight tolerances on a problem that needs many iterations, so the limit binds well
-    # before convergence rather than racing it.
-    P, q, A, l, u = random_qp(60, 150; seed = 44)
+    # Tight tolerances on a problem whose unconstrained run takes about 265 ms, so a 10 ms
+    # budget binds by a factor of 26 rather than racing convergence. A smaller problem here
+    # left only a 14% margin, which any quiet machine or faster iteration would erase.
+    P, q, A, l, u = random_qp(150, 400; seed = 44)
     opts = (eps_abs = 1.0e-12, eps_rel = 1.0e-12, max_iter = 200_000)
 
     unlimited = PureOSQP.solve(P, q, A, l, u; opts...)

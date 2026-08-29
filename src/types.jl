@@ -256,6 +256,26 @@ mutable struct Workspace{
     settings::Settings{T}
 end
 
+"""
+    check_bounds(l, u)
+
+Throw unless `l ≤ u` elementwise, naming the first index that violates it.
+"""
+function check_bounds(l::Vector, u::Vector)
+    for i in eachindex(l)
+        l[i] <= u[i] || throw(ArgumentError("l must be elementwise ≤ u, violated at index $i: $(l[i]) > $(u[i])"))
+    end
+    return nothing
+end
+
+function check_bounds(l, u)
+    # A whole-array reduction rather than an indexed loop, so an array that forbids scalar
+    # indexing still validates. Naming the offending row needs indexing, so that runs on a
+    # host copy and is paid only when the throw is happening anyway.
+    all(l .<= u) && return nothing
+    return check_bounds(Array(l), Array(u))
+end
+
 function validate(P, q, A, l, u)
     n = size(P, 1)
     size(P, 2) == n || throw(ArgumentError("P must be square, got size $(size(P))"))
@@ -268,11 +288,9 @@ function validate(P, q, A, l, u)
     all(isfinite, q) || throw(ArgumentError("q must be finite, found NaN or Inf"))
     any(isnan, l) && throw(ArgumentError("l contains NaN"))
     any(isnan, u) && throw(ArgumentError("u contains NaN"))
-    any(i -> l[i] == Inf, eachindex(l)) && throw(ArgumentError("l may not be +Inf"))
-    any(i -> u[i] == -Inf, eachindex(u)) && throw(ArgumentError("u may not be -Inf"))
-    for i in eachindex(l, u)
-        l[i] <= u[i] || throw(ArgumentError("l must be elementwise ≤ u, violated at index $i: $(l[i]) > $(u[i])"))
-    end
+    any(==(Inf), l) && throw(ArgumentError("l may not be +Inf"))
+    any(==(-Inf), u) && throw(ArgumentError("u may not be -Inf"))
+    check_bounds(l, u)
     return (n, m)
 end
 

@@ -28,6 +28,7 @@ export SOLVED_INACCURATE, PRIMAL_INFEASIBLE_INACCURATE, DUAL_INFEASIBLE_INACCURA
 
 include("linsys.jl")
 include("types.jl")
+include("elementwise.jl")
 include("scaling.jl")
 include("rho.jl")
 include("termination.jl")

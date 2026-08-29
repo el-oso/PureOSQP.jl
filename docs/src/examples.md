@@ -1,14 +1,16 @@
 # Examples
 
-These are the applications from the [OSQP documentation](https://osqp.org/docs/examples/),
-written against PureOSQP. Each one is executed when these docs are built, so the numbers
-below are what the code actually produced.
+The first seven sections are the applications from the
+[OSQP documentation](https://osqp.org/docs/examples/), written against PureOSQP; the rest
+work through the solver's own interface. Every block is executed when these docs are built,
+so the numbers below are what the code actually produced.
 
-Two differences from the upstream versions are worth knowing before you read them. PureOSQP
-takes the **full symmetric** `P`, not an upper triangle. And it is a dense solver, so every
-matrix here is built dense — these particular problems are highly structured and sparse,
+Two differences from the upstream versions are worth knowing before you read the
+applications. PureOSQP takes the **full symmetric** `P`, not an upper triangle. And every
+matrix in them is built dense — these particular problems are highly structured and sparse,
 which is where the reference implementation is strongest, so treat them as a guide to
 *formulating* problems rather than as a claim about which solver to use on them.
+[Matrix representations](@ref) below covers the other storage formats.
 
 ## Basic usage
 
@@ -360,3 +362,333 @@ end
 Fifteen closed-loop solves, **one factorization**. That is the whole reason to reach for
 `update!` rather than rebuilding the workspace: the initial-state bounds move every step,
 but no row changes constraint class, so `ρ` is untouched and the factorization stays valid.
+
+## Matrix representations
+
+The applications above build every matrix dense. The solver does not require that: `P` and
+`A` are held by reference and reached through `mul!` and four column traversals, so any
+`AbstractMatrix` will do. The problems below are all the same QP, written five ways.
+
+```@example storage
+using PureOSQP, LinearAlgebra, SparseArrays
+
+n = 6
+Pdiag = Diagonal(2.0 .+ (1:n) ./ n)
+Aband = Bidiagonal(fill(1.0, n), fill(-1.0, n - 1), :U)
+q = collect(range(-1.0, 1.0; length = n))
+l = fill(-0.5, n)
+u = fill(0.5, n)
+
+Pd, Ad = Matrix(Pdiag), Matrix(Aband)
+reps = [
+    "Matrix"                      => (Pd, Ad),
+    "Diagonal, Bidiagonal"        => (Pdiag, Aband),
+    "SymTridiagonal, Tridiagonal" => (SymTridiagonal(diag(Pd), zeros(n - 1)), Tridiagonal(Ad)),
+    "Symmetric, SubArray"         => (Symmetric(Pd), view(Ad, :, :)),
+    "SparseMatrixCSC"             => (sparse(Pd), sparse(Ad)),
+]
+
+P_before, A_before = copy(Pd), copy(Ad)
+reference = solve(Pd, q, Ad, l, u; eps_abs = 1e-9, eps_rel = 1e-9)
+for (name, (Pr, Ar)) in reps
+    ws = setup(Pr, q, Ar, l, u; eps_abs = 1e-9, eps_rel = 1e-9)
+    @assert ws.P === Pr && ws.A === Ar          # held by reference, not copied
+    sol = solve!(ws)
+    @assert sol.x == reference.x && sol.y == reference.y && sol.iter == reference.iter
+    println(rpad(name, 30), "iter = ", sol.iter, ",  backend = ", PureOSQP.backend_name(ws.linsys))
+end
+@assert Pd == P_before && Ad == A_before        # the caller's arrays are never written to
+```
+
+The assertions are exact equality, not agreement to tolerance. A representation changes how
+the entries are reached, not which entries there are, so every one of these feeds the same
+numbers into the same arithmetic: storage buys speed and memory and nothing else.
+
+`P` has to be symmetric *as stored* — a lower triangle with the upper one left at zero is
+rejected rather than mirrored, since that matrix is a different, non-symmetric problem. Wrap
+it in `Symmetric` to say which triangle is the real one.
+
+### Which backend a sparse matrix gets
+
+Eliminating `ν` from the ADMM subproblem gives an `n×n` reduced matrix, and whether that
+matrix is worth keeping sparse depends on its pattern rather than on the input's density.
+`linsys = :auto` decides by asking CHOLMOD to factor the pattern and measuring the fill.
+
+```@example storage
+band = 200
+banded = setup(
+    sparse(SymTridiagonal(fill(2.0, band), fill(0.3, band - 1))),
+    collect(range(-1.0, 1.0; length = band)),
+    sparse(Bidiagonal(fill(1.0, band), fill(-1.0, band - 1), :U)),
+    fill(-1.0, band), fill(1.0, band),
+)
+PureOSQP.backend_name(banded.linsys)
+```
+
+A banded `A` gives a banded reduced matrix, so it is formed and factored sparsely. A
+scattered pattern fills in, and then the sparse factor is no cheaper than the dense inverse;
+that case still forms the reduced matrix over the stored entries, but factors it densely.
+
+```@example storage
+using Random
+Random.seed!(1)
+ns, ms = 80, 160
+scattered = setup(
+    sparse(1.0I, ns, ns), collect(range(-1.0, 1.0; length = ns)),
+    sprandn(ms, ns, 0.05), fill(-1.0, ms), fill(1.0, ms),
+)
+PureOSQP.backend_name(scattered.linsys)
+```
+
+Both are reported by `PureOSQP.backend_name(ws.linsys)`, which names whichever backend the
+workspace ended up with. The dense default is `:cholesky`, and the full quasi-definite
+factorization is `:bunchkaufman`.
+
+## Building a workspace once
+
+`solve` builds a workspace, solves, and throws the workspace away. [`setup`](@ref) hands it
+back instead, so the equilibration factors, the buffers and the factorization survive to the
+next [`solve!`](@ref) — and so do the iterates, which is what makes the second solve short.
+
+```@example workspace
+using PureOSQP, LinearAlgebra
+
+P = [4.0 1.0; 1.0 2.0]
+q = [1.0, 1.0]
+A = [1.0 1.0; 1.0 0.0; 0.0 1.0]
+l = [1.0, 0.0, 0.0]
+u = [1.0, 0.7, 0.7]
+
+ws = setup(P, q, A, l, u; eps_abs = 1e-9, eps_rel = 1e-9)
+first_solve = solve!(ws)
+warm_solve = solve!(ws)
+(dimensions(ws), first_solve.iter, warm_solve.iter)
+```
+
+[`cold_start!`](@ref) throws the iterates away without touching anything else, and
+[`warm_start!`](@ref) seeds them from a point you already have. Both leave the factorization
+alone, so neither costs a refactorization.
+
+```@example workspace
+cold_start!(ws)
+cold = solve!(ws)
+
+cold_start!(ws)
+warm_start!(ws; x = first_solve.x, y = first_solve.y)
+seeded = solve!(ws)
+
+(cold.iter, seeded.iter)
+```
+
+The Lasso section updates `q` and the MPC section updates `l` and `u`; `P` and `A` are the
+two that always refactorize.
+
+```@example workspace
+before = ws.refactor_count
+update!(ws; P = [6.0 1.0; 1.0 3.0], A = [1.0 1.0; 1.0 0.0; 0.0 2.0])
+after = ws.refactor_count
+resolved = solve!(ws)
+(refactorizations = after - before, x = resolved.x)
+```
+
+Settings can be replaced afterwards. `rho`, `sigma` and `rho_is_vec` are built into the
+factorization, so changing one of those refactorizes and the rest are free.
+
+```@example workspace
+update_settings!(ws; eps_abs = 1e-6, polish = true)
+update_rho!(ws, 1.0)
+(ws.settings.eps_abs, ws.settings.polish, live_rho = ws.rho, setting_rho = ws.settings.rho)
+```
+
+`update_rho!` sets the value the solver is running with; `ws.settings.rho` keeps the one
+`setup` was given. Two keywords are refused rather than honored, because the workspace
+cannot act on them:
+
+```@example workspace
+try
+    update_settings!(ws; linsys = :kkt)
+catch err
+    println(sprint(showerror, err))
+end
+```
+
+[`capabilities`](@ref) reports what this build supports, for the packages currently loaded:
+
+```@example workspace
+capabilities()
+```
+
+## What a solve reports
+
+The default tolerances leave a residual around `1e-3`. Polishing guesses the active set at
+the ADMM solution and solves the resulting equality-constrained QP exactly, which usually
+takes the KKT error to machine precision for the price of one factorization.
+
+```@example report
+using PureOSQP
+
+P = [4.0 1.0; 1.0 2.0]
+q = [1.0, 1.0]
+A = [1.0 1.0; 1.0 0.0; 0.0 1.0]
+l = [1.0, 0.0, 0.0]
+u = [1.0, 0.7, 0.7]
+
+plain = solve(P, q, A, l, u)
+polished = solve(P, q, A, l, u; polish = true)
+(plain.rel_kkt_error, plain.status_polish, polished.rel_kkt_error, polished.status_polish)
+```
+
+`status_polish` distinguishes the five outcomes; `polished` is the narrower question of
+whether it was `POLISH_SUCCESS`. Polishing is accepted only when it improves both residuals,
+so `POLISH_FAILED` means the answer is the unpolished one, not that anything went wrong.
+
+Everything else a [`Solution`](@ref) carries:
+
+```@example report
+(status = polished.status, iter = polished.iter,
+ obj_val = polished.obj_val, dual_obj_val = polished.dual_obj_val,
+ duality_gap = polished.duality_gap, rel_kkt_error = polished.rel_kkt_error,
+ rho_estimate = polished.rho_estimate, rho_updates = polished.rho_updates)
+```
+
+The timings are in seconds, on whichever machine built these docs. `run_time` charges
+`setup_time` to the first solve only, so a re-solve reports what that re-solve actually
+cost:
+
+```@example report
+map(t -> round(t; digits = 6),
+    (; polished.setup_time, polished.solve_time, polished.polish_time, polished.run_time))
+```
+
+## Choosing the linear system
+
+`linsys = :auto` picks a backend from the representation of `P` and `A`, as above.
+`linsys = :kkt` overrides that and factors the full `(n+m)×(n+m)` quasi-definite system with
+Bunch-Kaufman, which is what the reference implementation does: slower, but it does not
+square the conditioning of `A`, so it is the one to reach for when a result is in question.
+
+```@example report
+kkt = setup(P, q, A, l, u; linsys = :kkt, eps_abs = 1e-9, eps_rel = 1e-9)
+auto = setup(P, q, A, l, u; eps_abs = 1e-9, eps_rel = 1e-9)
+(PureOSQP.backend_name(kkt.linsys), PureOSQP.backend_name(auto.linsys),
+ solve!(kkt).x, solve!(auto).x)
+```
+
+`linsys = :indirect` is the third: preconditioned conjugate gradients on the reduced system,
+which is never formed. It is for a matrix that can only supply products, or one large and
+sparse enough that forming an `n×n` inverse is the dominant cost. It lives in a package
+extension over Krylov.jl, so it exists only once Krylov is loaded — without it, `setup` says
+so rather than falling back.
+
+```julia
+using PureOSQP, Krylov          # Krylov.jl is a weak dependency; add it yourself
+
+capabilities().indirect_solver  # true only with Krylov loaded
+ws = setup(P, q, A, l, u; linsys = :indirect, cg_max_iter = 20)
+solve!(ws)
+```
+
+The inner solve is inexact — its tolerance follows the ADMM residuals — so the iterates
+differ from the direct backends in the last digits even though both converge to the same
+point.
+
+## Solution derivatives
+
+[`adjoint_derivative`](@ref) differentiates the KKT conditions at the solution the workspace
+holds, so it gives the gradients of a scalar loss with respect to all five pieces of problem
+data from one factorization. Given `∂L/∂x` and `∂L/∂y`, it returns `∂L/∂P`, `∂L/∂q`,
+`∂L/∂A`, `∂L/∂l` and `∂L/∂u`.
+
+Here `L = x₁`, with the budget row `x₁ + x₂ = 1` the only active constraint:
+
+```@example deriv
+using PureOSQP
+
+P = [4.0 1.0; 1.0 2.0]
+q = [1.0, 1.0]
+A = [1.0 1.0; 1.0 0.0; 0.0 1.0]
+l = [1.0, 0.0, 0.0]
+u = [1.0, 1.0, 1.0]
+
+ws = setup(P, q, A, l, u; eps_abs = 1e-10, eps_rel = 1e-10, polish = true)
+sol = solve!(ws)
+grad = adjoint_derivative(ws, [1.0, 0.0], zeros(3))
+(sol.x, grad.dq, grad.dl)
+```
+
+Against central differences on `q`:
+
+```@example deriv
+h = 1e-6
+loss(qq) = solve(P, qq, A, l, u; eps_abs = 1e-10, eps_rel = 1e-10, polish = true).x[1]
+fd = [(loss(q .+ h .* e) - loss(q .- h .* e)) / 2h for e in ([1.0, 0.0], [0.0, 1.0])]
+(grad.dq, fd)
+```
+
+[`forward_derivative`](@ref) goes the other way, giving the derivative of the solution along
+a perturbation of the data. Widening the budget from `1` to `1 + t` moves both variables,
+and the two moves sum to the extra budget:
+
+```@example deriv
+dx, dy = forward_derivative(ws; dl = [1.0, 0.0, 0.0], du = [1.0, 0.0, 0.0])
+(dx, sum(dx))
+```
+
+The derivative exists only where the active set is stable. A row resting on its bound with a
+multiplier of zero, or an active-set KKT matrix that is singular or nearly so, makes the
+solution map non-differentiable, and both throw rather than return a regularized number that
+would look like an answer.
+
+## Infeasible problems
+
+A problem with no feasible point stops with `PRIMAL_INFEASIBLE` and a certificate `v`
+satisfying `Aᵀv = 0` with a negative support value, which proves it. Here the two rows ask
+for `x ≥ 1` and `x ≤ 0`:
+
+```@example infeasible
+using PureOSQP, LinearAlgebra
+
+A = [1.0; 1.0;;]
+sol = solve([1.0;;], [0.0], A, [1.0, -Inf], [Inf, 0.0])
+(sol.status, sol.prim_inf_cert, residual = norm(A' * sol.prim_inf_cert, Inf), sol.x)
+```
+
+An unbounded problem stops with `DUAL_INFEASIBLE` and a certificate `d` — a direction along
+which the objective falls without limit. Minimizing `-x` over the whole line:
+
+```@example infeasible
+unbounded = solve(zeros(1, 1), [-1.0], [1.0;;], [-Inf], [Inf])
+(unbounded.status, unbounded.dual_inf_cert, unbounded.obj_val, unbounded.x)
+```
+
+Neither carries a primal-dual point, so `x` and `y` come back as `NaN` rather than as the
+last iterate, which is on a diverging ray. `obj_val` is `Inf` for a primal infeasibility and
+`-Inf` for a dual one. The certificate that does not apply is an empty vector:
+
+```@example infeasible
+(length(sol.dual_inf_cert), length(unbounded.prim_inf_cert))
+```
+
+## JuMP and MathOptInterface
+
+The MathOptInterface wrapper is a package extension, loaded when MathOptInterface is. Every
+field of [`Settings`](@ref) is a raw optimizer attribute of the same name. This block is not
+run here, since these docs do not depend on JuMP:
+
+```julia
+using JuMP, PureOSQP
+
+model = Model(PureOSQP.Optimizer)
+set_optimizer_attribute(model, "polish", true)
+set_optimizer_attribute(model, "eps_abs", 1e-9)
+
+@variable(model, 0 <= x[1:2] <= 0.7)
+@constraint(model, sum(x) == 1)
+@objective(model, Min, 2x[1]^2 + x[1] * x[2] + x[2]^2 + x[1] + x[2])
+
+optimize!(model)
+value.(x)        # [0.3, 0.7]
+```
+
+`PureOSQP.Optimizer` is the only name the core package owns; the wrapper itself lives in the
+extension, so a caller who does not use MathOptInterface pays nothing for it.

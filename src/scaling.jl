@@ -83,6 +83,45 @@ end
 end
 
 """
+    column_norms!(d, e, T, P, A, D, E, c)
+
+One Ruiz sweep's column measurements: `d[j]` becomes
+`max(c·D[j]·‖D ⊙ P[:,j]‖∞, D[j]·‖E ⊙ A[:,j]‖∞)` and `e` accumulates the row norms of the
+scaled `A` in the same pass.
+
+The row norms are accumulated here rather than gathered in a second loop over `A[i, j]`
+with `j` innermost: that walks a column-major matrix across its rows, and on a 400×200
+problem the strided reads cost more than everything else in setup put together.
+
+A representation that cannot be indexed answers this with whole-matrix reductions instead —
+see `ext/PureOSQPGPUArraysCoreExt.jl`.
+"""
+function column_norms!(d, e, ::Type{T}, P, A, D, E, c) where {T}
+    fill!(e, zero(T))
+    for j in eachindex(d)
+        pj = weighted_colmax(T, P, j, D)
+        dj = D[j]
+        aj = weighted_colmax_rowmax!(T, e, A, j, E, dj)
+        d[j] = limit_scaling(max(c * dj * pj, dj * aj))
+    end
+    return d
+end
+
+"""
+    mean_column_norm(T, P, D, c, n)
+
+The average column ∞-norm of the scaled `P`, which is what the cost normalization compares
+against `‖q̃‖∞`.
+"""
+function mean_column_norm(::Type{T}, P, D, c, n) where {T}
+    acc = zero(T)
+    for j in 1:n
+        acc += c * D[j] * weighted_colmax(T, P, j, D)
+    end
+    return acc / n
+end
+
+"""
     scale!(ws)
 
 Modified Ruiz equilibration of the KKT matrix `[P Aᵀ; A 0]`, storing the result as the
@@ -109,31 +148,18 @@ function scale!(ws::Workspace{T}) where {T}
     e = ws.tmp_m
     P, A, D, E = ws.P, ws.A, ws.D, ws.E
     for _ in 1:ws.settings.scaling
-        # One pass over A, column by column. The row norms are accumulated here rather
-        # than gathered in a second loop over `A[i, j]` with `j` innermost: that walks a
-        # column-major matrix across its rows, and on a 400x200 problem the strided reads
-        # cost more than everything else in setup put together.
-        fill!(e, zero(T))
-        for j in 1:n
-            pj = weighted_colmax(T, P, j, D)
-            dj = D[j]
-            aj = weighted_colmax_rowmax!(T, e, A, j, E, dj)
-            d[j] = limit_scaling(max(ws.c * dj * pj, dj * aj))
-        end
-        for i in 1:m
-            e[i] = limit_scaling(E[i] * e[i])
-        end
+        column_norms!(d, e, T, P, A, D, E, ws.c)
+        e .= limit_scaling.(E .* e)
         d .= inv.(sqrt.(d))
         e .= inv.(sqrt.(e))
         ws.D .*= d
         ws.E .*= e
         ws.q .*= d
         # Cost normalization: average column ∞-norm of the scaled P, against ‖q̃‖∞.
-        acc = zero(T)
-        for j in 1:n
-            acc += ws.c * D[j] * weighted_colmax(T, P, j, D)
-        end
-        ct = max(acc / n, limit_scaling(maximum(abs, ws.q; init = zero(T))))
+        ct = max(
+            mean_column_norm(T, P, D, ws.c, n),
+            limit_scaling(maximum(abs, ws.q; init = zero(T))),
+        )
         ct = inv(limit_scaling(ct))
         ws.q .*= ct
         ws.c *= ct
@@ -151,16 +177,12 @@ end
 `out` must not alias `ws.tmp_n`, which is used as scratch.
 """
 function mul_A!(out::AbstractVector{T}, ws::Workspace{T}, x::AbstractVector{T}) where {T}
-    for i in eachindex(ws.tmp_n, ws.D, x)
-        ws.tmp_n[i] = ws.D[i] * x[i]
-    end
+    multiply!(ws.tmp_n, ws.D, x)
     mul!(out, ws.A, ws.tmp_n)
-    # Written as a loop, not `out .*= ws.E`: an in-place broadcast has `out` on both sides,
-    # which leaves an `unaliascopy` branch that AllocCheck reports as a possible allocation
-    # even though it never fires. The loop makes the no-allocation property provable.
-    for i in eachindex(out, ws.E)
-        out[i] *= ws.E[i]
-    end
+    # `scale_by!` rather than `out .*= ws.E`: an in-place broadcast has `out` on both
+    # sides, which leaves an `unaliascopy` branch that AllocCheck reports as a possible
+    # allocation even though it never fires. See src/elementwise.jl.
+    scale_by!(out, ws.E)
     return out
 end
 
@@ -172,13 +194,9 @@ end
 `out` must not alias `ws.tmp_m`, which is used as scratch.
 """
 function mul_At!(out::AbstractVector{T}, ws::Workspace{T}, y::AbstractVector{T}) where {T}
-    for i in eachindex(ws.tmp_m, ws.E, y)
-        ws.tmp_m[i] = ws.E[i] * y[i]
-    end
+    multiply!(ws.tmp_m, ws.E, y)
     mul!(out, ws.A', ws.tmp_m)
-    for i in eachindex(out, ws.D)
-        out[i] *= ws.D[i]
-    end
+    scale_by!(out, ws.D)
     return out
 end
 
@@ -190,12 +208,30 @@ end
 `out` must not alias `ws.tmp_n`, which is used as scratch.
 """
 function mul_P!(out::AbstractVector{T}, ws::Workspace{T}, x::AbstractVector{T}) where {T}
-    for i in eachindex(ws.tmp_n, ws.D, x)
-        ws.tmp_n[i] = ws.D[i] * x[i]
-    end
+    multiply!(ws.tmp_n, ws.D, x)
     mul!(out, ws.P, ws.tmp_n)
-    for i in eachindex(out, ws.D)
-        out[i] *= ws.D[i] * ws.c
-    end
+    scale_by!(out, ws.D, ws.c)
     return out
+end
+
+"""
+    reduced_diagonal!(dest, T, P, A, rho, E, D, sigma, c)
+
+The diagonal of the reduced matrix, `c·D[j]²·P[j,j] + σ + Σᵢ ρᵢ(E[i]·A[i,j]·D[j])²`.
+
+The matrix-free backend preconditions with this, and it is the one thing that backend needs
+from `P` and `A` other than their products. A representation that cannot be indexed
+overrides it with whole-matrix reductions.
+"""
+function reduced_diagonal!(dest, ::Type{T}, P, A, rho, E, D, sigma, c) where {T}
+    for j in eachindex(dest)
+        dj = D[j]
+        d = c * dj * T(P[j, j]) * dj + sigma
+        for i in eachindex(rho, E)
+            a = E[i] * T(A[i, j]) * dj
+            d += rho[i] * a * a
+        end
+        dest[j] = inv(max(d, sqrt(eps(T))))
+    end
+    return dest
 end

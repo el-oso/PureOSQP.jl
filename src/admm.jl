@@ -11,36 +11,16 @@ One ADMM iteration:
 `x_prev` and `z_prev` are swapped rather than copied.
 """
 function admm_step!(ws::Workspace{T}) where {T}
-    a = ws.settings.alpha
     ws.x, ws.x_prev = ws.x_prev, ws.x
     ws.z, ws.z_prev = ws.z_prev, ws.z
-    σ = ws.settings.sigma
-    for i in eachindex(ws.rhs_x)
-        ws.rhs_x[i] = σ * ws.x_prev[i] - ws.q[i]
-    end
-    for i in eachindex(ws.rhs_z)
-        ws.rhs_z[i] = ws.z_prev[i] - ws.rho_inv_vec[i] * ws.y[i]
-    end
+    scale_subtract!(ws.rhs_x, ws.settings.sigma, ws.x_prev, ws.q)
+    subtract_scaled!(ws.rhs_z, ws.z_prev, ws.rho_inv_vec, ws.y)
     solve_system!(ws.linsys, ws, ws.rhs_x, ws.rhs_z)
-    for i in eachindex(ws.x)
-        xi = a * ws.xtilde[i] + (one(T) - a) * ws.x_prev[i]
-        ws.x[i] = xi
-        ws.delta_x[i] = xi - ws.x_prev[i]
-    end
-    if ws.m > 0
-        # One pass, written as a loop rather than in-place broadcasts: `z .= clamp.(z, …)`
-        # and `y .+= δy` put the destination on both sides, which leaves an `unaliascopy`
-        # branch that AllocCheck reports as a possible allocation. The loop is provably
-        # allocation-free and also avoids re-reading `ztilde` and `z_prev` three times.
-        for i in eachindex(ws.z)
-            relaxed = a * ws.ztilde[i] + (one(T) - a) * ws.z_prev[i]
-            zi = clamp(relaxed + ws.rho_inv_vec[i] * ws.y[i], ws.l[i], ws.u[i])
-            ws.z[i] = zi
-            dy = ws.rho_vec[i] * (relaxed - zi)
-            ws.delta_y[i] = dy
-            ws.y[i] += dy
-        end
-    end
+    update_x!(ws.x, ws.delta_x, ws.xtilde, ws.x_prev, ws.settings.alpha)
+    ws.m > 0 && update_zy!(
+        ws.z, ws.y, ws.delta_y, ws.ztilde, ws.z_prev,
+        ws.rho_vec, ws.rho_inv_vec, ws.l, ws.u, ws.settings.alpha
+    )
     return ws
 end
 
@@ -257,17 +237,19 @@ directly from the workspace. The objectives and the gap are passed in because a 
 without a meaningful point must not report them.
 """
 function solution_from(
-        ws::Workspace{T}, x::Vector{T}, y::Vector{T}, obj::T, dual_obj::T, gap::T,
-        prim_cert::Vector{T}, dual_cert::Vector{T}
+        ws::Workspace{T}, x, y, obj::T, dual_obj::T, gap::T, prim_cert, dual_cert
     ) where {T}
+    # `Solution` holds plain `Vector`s whatever the workspace was built from: it is the
+    # result a caller reads, not a buffer the solver iterates on, and leaving a GPU array
+    # here would make every field access a device transfer.
     return Solution{T}(
-        x, y, ws.status, obj, dual_obj, gap,
+        Vector{T}(x), Vector{T}(y), ws.status, obj, dual_obj, gap,
         ws.prim_res, ws.dual_res, ws.rel_kkt_error, ws.iter,
         ws.rho_estimate, ws.rho_updates, ws.polished, ws.status_polish,
         ws.setup_time, ws.solve_time, ws.polish_time,
         # Setup is charged to the first run only; a re-solve did not pay it again.
         (ws.first_run ? ws.setup_time : 0.0) + ws.solve_time + ws.polish_time,
-        prim_cert, dual_cert,
+        Vector{T}(prim_cert), Vector{T}(dual_cert),
     )
 end
 
