@@ -32,6 +32,15 @@ exactly, not approximately. The objective agrees to about `1e-15`, and switching
 changes neither — PureBLAS gives bit-comparable answers (`|Δx| ≈ 1e-14`) on the same
 iteration counts.
 
+
+**On `check_dualgap = false`.** PureOSQP defaults the duality-gap termination test *on*,
+following libosqp 1.x; 0.6.2 has no such test, and a solver stopping on three criteria
+cannot be expected to match one stopping on two. Pinning it off is what makes the comparison
+a comparison. It is not a formality: across a sweep of badly scaled objectives the test
+changed the iteration count in 114 of 600 comparable runs. Everything here that compares
+counts against 0.6.2 pins it — the oracle tests, the ported C-suite cases and every
+benchmark script.
+
 The same agreement holds against **libosqp 1.x**, which has no Julia wrapper and so is
 checked separately by `bench/headtohead_v1.jl` through a subprocess oracle: identical
 iteration counts on all seven of its cases, objectives to `1e-13`. It is left out of the
