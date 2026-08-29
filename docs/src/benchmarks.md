@@ -321,23 +321,27 @@ identical in every row, so what these measure is per-iteration cost.
 
 | class | n | m | PureOSQP backend | PureOSQP | OSQP | vs OSQP | per iteration | setup |
 |---|---|---|---|---|---|---|---|---|
-| Random QP | 50 | 500 | `cholesky` | 3.62 ms | 6.69 ms | **1.85×** | **1.69×** | 3.15× |
-| SVM | 808 | 1600 | `ldlfactorizations` | 2.82 ms | 4.08 ms | **1.45×** | **1.53×** | 0.82× |
-| Eq QP | 200 | 100 | `cholesky` | 3.16 ms | 3.77 ms | **1.19×** | **5.19×** | 0.75× |
-| Control | 320 | 540 | `sparse_formed` | 4.77 ms | 5.39 ms | **1.13×** | **1.59×** | 0.28× |
-| Lasso | 816 | 816 | `ldlfactorizations` | 1.13 ms | 1.19 ms | **1.05×** | **1.16×** | 0.85× |
-| Portfolio | 505 | 506 | `ldl_kkt` | 2.99 ms | 3.02 ms | **1.01×** | **1.03×** | 0.77× |
-| Huber | 1806 | 1800 | `ldlfactorizations` | 2.75 ms | 2.69 ms | 0.98× | **1.08×** | 0.73× |
+| Random QP | 50 | 500 | `cholesky` | 3.60 ms | 6.60 ms | **1.83×** | **1.70×** | 3.18× |
+| SVM | 808 | 1600 | `ldlfactorizations` | 2.71 ms | 3.92 ms | **1.45×** | **1.49×** | **1.33×** |
+| Control | 320 | 540 | `sparse_formed` | 4.51 ms | 5.33 ms | **1.18×** | **1.60×** | 0.32× |
+| Lasso | 816 | 816 | `ldlfactorizations` | 1.03 ms | 1.15 ms | **1.11×** | **1.16×** | **1.04×** |
+| Eq QP | 200 | 100 | `cholesky` | 3.01 ms | 3.34 ms | **1.11×** | **5.21×** | 0.74× |
+| Huber | 1806 | 1800 | `ldlfactorizations` | 2.53 ms | 2.61 ms | **1.03×** | **1.10×** | 0.98× |
+| Portfolio | 505 | 506 | `ldl_kkt` | 2.87 ms | 2.93 ms | **1.02×** | **1.04×** | 0.83× |
 
-**Per iteration PureOSQP is ahead on all seven**, and six of seven are ahead on total time.
-This is the corpus that matters, the one with the block and band structure real problems
-have; the synthetic families elsewhere on this page are uniformly random, which is the worst
-case for any *sparse factorization* and therefore flatters a solver that does not have one.
+**PureOSQP is ahead on every class, on total time and per iteration alike.** This is the
+corpus that matters, the one with the block and band structure real problems have; the
+synthetic families elsewhere on this page are uniformly random, which is the worst case for
+any *sparse factorization* and therefore flatters a solver that does not have one.
 
-**Every remaining deficit is setup, and Huber is the one it costs a row.** Its loop is 1.08×
-but its setup 0.73×, and setup is a quarter of a run that only takes 125 iterations. The
-shorter the solve, the more setup decides — which is why Control, at 0.28× on setup, still
-wins overall on 325 iterations.
+A second run on the same quiet machine gives 1.85, 1.50, 1.16, 1.13, 1.10, 1.05, 1.04 in the
+same order, so the two weakest rows sit a little above parity rather than on it. Run-to-run
+spread within one warm session measures 2.5%; between processes on a busy machine it reaches
+10%, which is why these are taken with nothing else running.
+
+**Setup is where the remaining spread is.** Portfolio at 0.83× and Eq QP at 0.74× are behind
+there and still win on total time, because their loops are longer; Control is 0.32× on setup
+and wins anyway on 325 iterations. The shorter the solve, the more setup decides.
 
 **Portfolio is what a dense row costs.** Its `A` is 0.9% dense, and the reduced matrix
 `R = P̃ + σI + Ãᵀ diag(ρ) Ã` would be **99% dense**: one row of `A` — the budget constraint

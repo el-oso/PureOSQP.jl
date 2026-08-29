@@ -17,7 +17,7 @@ them, [Algorithm](@ref) for how the solver works.
 | `primdual_int` | the primal-dual integral, a 1.x convergence diagnostic requiring per-iteration profiling |
 | a structured backend | a `Diagonal` or band type is read efficiently, but the reduced matrix it forms is dense unless `A` is structured too |
 | `polish` and derivatives on GPU | both build a dense `(n+k)×(n+k)` matrix and factor it with `bunchkaufman!`, so both stay on the host |
-| Huber setup | the one benchmark class still short of libosqp, at 0.97×; its loop is 1.07× and its setup 0.71× |
+| a pure-Julia factorization by default | the `LDLᵀ` backends need LDLFactorizations.jl loaded; without it the sparse path is CHOLMOD, which is C and GPL |
 
 **CUDA in practice.** GPU arrays solve through `linsys = :indirect`, and only through it —
 see [Guarantees](@ref) for the scope and why the other backends are refused at
@@ -32,6 +32,20 @@ synchronizations in `check_termination` cost.
 Note also what a GPU is worth here. The OSQP authors' own CUDA port, cuOSQP, targets
 `nnz ≥ 1e4` and reaches its peak speedup only near `nnz ≈ 1e8`. Below that a single CPU core
 wins, which is why the direct backends were not ported rather than why they could not be.
+
+**A pure-Julia factorization by default.** The solver's own code is pure Julia and its core
+dependencies are LinearAlgebra and TypeContracts, but a sparse problem is factored by CHOLMOD
+unless LDLFactorizations.jl happens to be loaded, and CHOLMOD is C and GPL. The `LDLᵀ`
+backends are the faster path as well as the cleaner one — 2.3–3.1× on the numeric
+factorization, allocating nothing — so the gap is which one a caller gets without asking, not
+which one exists.
+
+Closing it means a sparse `LDLᵀ` this package can depend on outright. LDLFactorizations is
+LGPL-3, which is why it enters as a weak dependency rather than a core one. PureSparse.jl was
+measured as the alternative and does not fit this shape of problem: it is supernodal, built
+for dense panels, where these factors hold two to three nonzeros per column — its `solve!` was
+4–13× slower than the substitutions here and its factorization 1.5–2.7× slower than
+LDLFactorizations'. A simplicial path there would change that.
 
 **A structured backend.** `Ãᵀ diag(ρ) Ã` fills in whatever `P` looked like, so structure in
 `P` alone does not survive into the reduced matrix. It pays only where both are structured —
