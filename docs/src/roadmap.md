@@ -84,15 +84,16 @@ The last two carry a consequence worth knowing rather than fixing: on a problem 
 sparse enough that `linsys = :indirect` was chosen because nothing dense fits, `polish =
 true` or a derivative call will materialise a dense `(n+k)×(n+k)` anyway.
 
-One direction is still open:
+The opening item is now closed on both axes:
 
-- **Structured `P`** — a `Diagonal` or `Tridiagonal` is read entry by entry through the
-  generic column traversals, which walk every structural zero, and that is why
-  [Matrix types](@ref "Matrix types") measures 0.80× rather than a speedup. Specialising
-  those traversals for the `LinearAlgebra` band types is the fix, and it is separate from
-  needing a backend. A backend pays only where `R` *inherits* the structure — `Diagonal` `P`
-  with `Diagonal` `A` makes the whole solve `O(n)` — since `Ãᵀ diag(ρ) Ã` otherwise fills it
-  in whatever `P` looked like.
+- **Structured `P`: done.** `structural_rows` gives the column traversals the rows a band
+  type can hold a nonzero in, so a `Diagonal` costs `O(1)` per column rather than `O(n)`.
+  Equilibration measures 2.3× faster on a `Diagonal` `P` and 2.2× on a `SymTridiagonal`,
+  which is 1.06× and 1.02× end to end — bounded by equilibration's share of a run, but no
+  longer the 0.80× that made structured storage a pessimisation. A *backend* would pay only
+  where `R` inherits the structure, which needs `A` structured too, since `Ãᵀ diag(ρ) Ã`
+  otherwise fills it in whatever `P` looked like.
+
 
 A note on the corpus, since it decides what any of this measures. Random sparse patterns are
 the worst case for a sparse factorization: no separators, near-maximal fill. They are what

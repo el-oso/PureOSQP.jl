@@ -123,3 +123,45 @@ end
     @test sym_sparse.D ≈ plain_sparse.D
     @test sym_sparse.E ≈ plain_sparse.E
 end
+
+@testitem "a band type never changes the scaling factors" begin
+    using LinearAlgebra, SparseArrays, OSQP, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    # The column traversals visit only the rows a band type can hold a nonzero in, which is
+    # sound only because the callers' functions map zero to zero and the running maxima
+    # start at zero. If either stopped holding, the structured and dense forms of the same
+    # matrix would equilibrate differently and take different paths from there.
+    Random.seed!(41)
+    n, m = 50, 100
+    A = randn(m, n)
+    q = randn(n)
+    b = A * randn(n)
+    l, u = b .- rand(m), b .+ rand(m)
+    opts = (eps_abs = 1.0e-9, eps_rel = 1.0e-9, max_iter = 100_000)
+
+    d = abs.(randn(n)) .+ 2
+    e = randn(n - 1) ./ 4
+    for Ps in (
+            Diagonal(d),
+            SymTridiagonal(d, e),
+            Tridiagonal(e, d, e),
+            Bidiagonal(d, e, :U),
+            Bidiagonal(d, e, :L),
+        )
+        # `Bidiagonal` is not symmetric, so it is only admissible as `P` through the
+        # symmetric part the solver actually reads; compare against exactly that.
+        Pd = Matrix(Ps)
+        issymmetric(Pd) || continue
+        structured = setup(Ps, q, A, l, u; opts...)
+        dense = setup(Pd, q, A, l, u; opts...)
+        @test structured.D == dense.D
+        @test structured.E == dense.E
+        @test structured.c == dense.c
+
+        ss = PureOSQP.solve!(structured)
+        sd = PureOSQP.solve!(dense)
+        @test ss.status == SOLVED
+        @test ss.iter == sd.iter
+        @test ss.x == sd.x
+    end
+end

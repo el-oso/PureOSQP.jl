@@ -13,7 +13,7 @@
         "moi_tests.jl" => 2,
         "oracle_tests.jl" => 4,
         "polish_tests.jl" => 3,
-        "scaling_tests.jl" => 6,
+        "scaling_tests.jl" => 7,
         "setup_tests.jl" => 10,
         "solve_tests.jl" => 21,
         "trim_tests.jl" => 1,

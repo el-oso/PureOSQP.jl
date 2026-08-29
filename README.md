@@ -82,5 +82,8 @@ Cholesky factor stays sparse enough to pay: on banded problems that is worth 20�
 Both gates are measured rather than guessed — the second asks CHOLMOD what the fill actually
 is — and both choices happen once, at `setup`.
 
-Still open: structured `P` is read through generic traversals that walk its structural
-zeros. See the [Roadmap](https://el-oso.github.io/PureOSQP.jl/dev/roadmap).
+A structured `P` is read through traversals that visit only the rows a band type can hold a
+nonzero in, so a `Diagonal` or `SymTridiagonal` equilibrates about 2.2× faster than the same
+matrix stored densely rather than, as before, slower.
+
+See the [Roadmap](https://el-oso.github.io/PureOSQP.jl/dev/roadmap) for what remains.

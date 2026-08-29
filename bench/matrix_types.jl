@@ -41,14 +41,17 @@ function structured_families(n, m; seed = 1)
     X = randn(n, n)
     dense = Matrix(X'X / n + I)
     diagonal = Matrix(Diagonal(diag(dense)))
-    band = Matrix(Tridiagonal(diag(dense, -1), diag(dense) .+ 2, diag(dense, 1)))
+    band = Matrix(SymTridiagonal(diag(dense) .+ 2, diag(dense, 1)))
     A = randn(m, n)
     Abig = randn(m + 20, n + 10)
     Abig[1:m, 1:n] .= A
     return [
         ("dense P", dense, Symmetric(dense), A, A),
         ("diagonal P", diagonal, Diagonal(diag(diagonal)), A, A),
-        ("tridiagonal P", band, Symmetric(band), A, A),
+        # The structured type itself, not a `Symmetric` wrapper around a dense array: the
+        # column traversals shorten for a band type and cannot for a dense one, so wrapping
+        # measures the wrapper's indexing overhead rather than the structure.
+        ("tridiagonal P", band, SymTridiagonal(diag(band), diag(band, 1)), A, A),
         ("A as a view", dense, dense, A, view(Abig, 1:m, 1:n)),
     ]
 end

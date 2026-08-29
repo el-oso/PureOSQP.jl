@@ -220,22 +220,31 @@ product. Reproduce with `julia --project=bench bench/matrix_types.jl`.
 
 | problem | as `Matrix` | structured | speedup | iterations |
 |---|---|---|---|---|
-| dense `P` (vs `Symmetric`) | 35.4 ms | 36.7 ms | 0.96× | 4375 |
-| diagonal `P` (vs `Diagonal`) | 5.25 ms | 6.57 ms | 0.80× | 550 |
-| tridiagonal `P` (vs `Symmetric`) | 21.4 ms | 22.8 ms | 0.94× | 2550 |
-| `A` as a `SubArray` | 7.99 ms | 9.43 ms | 0.85× | 900 |
+| dense `P` (vs `Symmetric`) | 35.2 ms | 36.6 ms | 0.96× | 4375 |
+| diagonal `P` (vs `Diagonal`) | 5.25 ms | 4.95 ms | 1.06× | 550 |
+| tridiagonal `P` (vs `SymTridiagonal`) | 21.4 ms | 20.9 ms | 1.02× | 2550 |
+| `A` as a `SubArray` | 8.04 ms | 9.49 ms | 0.85× | 900 |
 
-**Structured storage does not help here — it costs a little.** The mechanism works: a
-`Diagonal` `P` really does get an `O(n)` product instead of `O(n²)`. But `P` is not where
-the time goes. Each iteration also does two products with `A`, which at `m = 2n` is four
-times the work of the dense `P` product, and `A` is dense in every row above. Meanwhile
-equilibration reads `P[i, j]` over the whole matrix, and on a `Diagonal` each off-diagonal
-read is a branch returning zero where the dense array is a straight load — which is where
-the 0.80× comes from.
+**Structured storage helps, but only a little, and it is worth being precise about why.**
+The column traversals visit only the rows a band type can hold a nonzero in, which makes
+equilibration 2.3× faster on a `Diagonal` `P` (453 µs to 200 µs at `n = 150`) and 2.2× on a
+`SymTridiagonal`. End to end that is 1.06× and 1.02×, because equilibration is a modest share
+of a run: each iteration also does two products with `A`, which at `m = 2n` is four times the
+work of the `P` product, and `A` is dense in every row above.
 
-So the honest claim is narrow: the caller's matrices are never copied or mutated, any
-`AbstractMatrix` works, and a cheaper `mul!` is used when one exists. On a dense `A` that
-is not a speed feature.
+Two earlier readings of this table were wrong and are worth recording. The diagonal row read
+0.80× — a genuine pessimisation — because the traversals walked every structural zero and
+each read was a branch returning zero where a dense array does a straight load. And the
+tridiagonal row measured `Symmetric` wrapped around a *dense* array, which is not a band type
+at all: it measured the wrapper's indexing overhead rather than the structure. It now uses
+`SymTridiagonal`.
+
+The `SubArray` row is unrelated to any of that: a view's indexing is simply dearer than its
+parent's, and nothing in the traversals changes that.
+
+So the honest claim stays narrow: the caller's matrices are never copied or mutated, any
+`AbstractMatrix` works, a cheaper `mul!` is used when one exists, and a band type is no
+longer read as though it were dense. On a dense `A` none of this is a speed feature.
 
 ## Sparse A
 

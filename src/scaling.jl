@@ -3,16 +3,41 @@
 end
 
 # ── column traversals ───────────────────────────────────────────────────────────────────
-# Equilibration and the factorization both walk the caller's matrices one column at a time.
-# These three functions are the only places that do, so a matrix type that can enumerate a
-# column faster than by index needs to override just them. `ext/PureOSQPSparseArraysExt.jl`
-# does exactly that for `SparseMatrixCSC`, where indexing `M[i, j]` is a binary search and
-# the generic loop visits every structural zero.
+# Equilibration and the dense formation both walk the caller's matrices one column at a
+# time. These four functions are the only places that do, so a matrix type that can
+# enumerate a column faster than by index needs to override just them, or just
+# `structural_rows`. `ext/PureOSQPSparseArraysExt.jl` overrides all four for
+# `SparseMatrixCSC`, where indexing `M[i, j]` is a binary search and the generic loop visits
+# every structural zero.
+#
+# All four skip entries the matrix cannot have, which assumes `f(0, i) == 0` for the
+# functions passed to `scaled_col!` and `add_scaled_col!`, and that the running maxima start
+# at zero. Both hold for every caller here, and the sparse overrides already depend on it.
+
+"""
+    structural_rows(M, j) -> AbstractUnitRange
+
+The rows in which column `j` of `M` can hold a nonzero.
+
+Every row, in general. A banded matrix has a much shorter answer, and taking the generic one
+is what makes a `Diagonal` `P` cost `O(n)` per column rather than `O(1)` — the reason
+structured storage measured slower than dense before these methods existed.
+"""
+@inline structural_rows(M::AbstractMatrix, j::Integer) = axes(M, 1)
+@inline structural_rows(M::Diagonal, j::Integer) = j:j
+@inline function structural_rows(M::Bidiagonal, j::Integer)
+    lo, hi = firstindex(M, 1), lastindex(M, 1)
+    return M.uplo == 'U' ? (max(lo, j - 1):min(hi, j)) : (max(lo, j):min(hi, j + 1))
+end
+@inline function structural_rows(M::Union{Tridiagonal, SymTridiagonal}, j::Integer)
+    lo, hi = firstindex(M, 1), lastindex(M, 1)
+    return max(lo, j - 1):min(hi, j + 1)
+end
 
 "`max(w[i] * |M[i, j]|)` over the column."
 @inline function weighted_colmax(::Type{T}, M::AbstractMatrix, j::Integer, w::AbstractVector) where {T}
     r = zero(T)
-    for i in axes(M, 1)
+    for i in structural_rows(M, j)
         r = max(r, w[i] * abs(T(M[i, j])))
     end
     return r
@@ -29,7 +54,7 @@ accumulated in the same pass rather than gathered by a second traversal.
         w::AbstractVector, s
     ) where {T}
     r = zero(T)
-    for i in axes(M, 1)
+    for i in structural_rows(M, j)
         v = abs(T(M[i, j]))
         r = max(r, w[i] * v)
         e[i] = max(e[i], s * v)
@@ -41,7 +66,7 @@ end
 @inline function scaled_col!(
         ::Type{T}, dest::AbstractMatrix, M::AbstractMatrix, j::Integer, f::F
     ) where {T, F}
-    for i in axes(M, 1)
+    for i in structural_rows(M, j)
         dest[i, j] = f(T(M[i, j]), i)
     end
     return dest
@@ -51,7 +76,7 @@ end
 @inline function add_scaled_col!(
         ::Type{T}, dest::AbstractMatrix, M::AbstractMatrix, j::Integer, f::F
     ) where {T, F}
-    for i in axes(M, 1)
+    for i in structural_rows(M, j)
         dest[i, j] += f(T(M[i, j]), i)
     end
     return dest
