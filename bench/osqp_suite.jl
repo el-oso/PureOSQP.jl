@@ -191,6 +191,31 @@ function control(nx; seed = 1, horizon = 10)
 end
 
 """
+    interleaved(fp, fo; reps) -> (t_pure, t_osqp)
+
+Time two solvers by alternating them inside one loop, reporting the minimum of each.
+
+Timing them in separate blocks lets a drift in machine load fall on one side and not the
+other, which biases the ratio these tables exist to report. Alternating makes contention hit
+both equally, and the minimum then takes the least disturbed sample of each.
+"""
+function interleaved(fp, fo; reps = 15)
+    fp()
+    fo()
+    tp, to = Inf, Inf
+    for _ in 1:reps
+        t0 = time_ns()
+        fp()
+        t1 = time_ns()
+        fo()
+        t2 = time_ns()
+        tp = min(tp, (t1 - t0) / 1.0e9)
+        to = min(to, (t2 - t1) / 1.0e9)
+    end
+    return (tp, to)
+end
+
+"""
     compare(name, prob) -> NamedTuple
 
 Time both solvers on one problem and record which backend PureOSQP chose.
@@ -207,8 +232,7 @@ function compare(name, prob)
     gap = abs(sp.obj_val - so.info.obj_val) / max(1, abs(so.info.obj_val))
     gap < 1.0e-4 || error("$name: objectives disagree by $gap")
     ws = PureOSQP.setup(P, q, A, l, u; OPTS..., PURE_ONLY...)
-    tp = minimum(@benchmark(solve_pure($P, $q, $A, $l, $u), samples = 3, evals = 1, seconds = 90)).time / 1.0e9
-    to = minimum(@benchmark(solve_osqp($P, $q, $A, $l, $u), samples = 3, evals = 1, seconds = 90)).time / 1.0e9
+    tp, to = interleaved(() -> solve_pure(P, q, A, l, u), () -> solve_osqp(P, q, A, l, u))
     return (;
         name, n = size(A, 2), m = size(A, 1), nnz_A = nnz(sparse(A)), nnz_P = nnz(sparse(P)),
         backend = PureOSQP.backend_name(ws.linsys), t_pure = tp, t_osqp = to, ratio = to / tp,
