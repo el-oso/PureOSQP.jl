@@ -24,17 +24,51 @@ runs once inside [`setup`](@ref), and fixes the backend in the workspace's type,
 per-iteration solve still dispatches statically. A representation that admits a cheaper way
 to form the reduced matrix is served by adding a method to it.
 
-**Sparse `A`: done.** `SparseReducedCholesky` accumulates `Ãᵀ diag(ρ) Ã` over the stored
-entries — `Σᵢ nnzᵢ²` work, no buffer — where the dense backend wrote `A` into an `m×n` array
-so that one `syrk` could do `mn²` flops against mostly zeros. That product was 63% of a
-refactorization and that buffer 65% of the workspace. Measured at `n = 2000, m = 4000`,
-0.25% density: refactorization 400 ms to 148 ms, a whole solve 1192 ms to 777 ms, and the
-workspace 93 MiB to 32 MiB.
+**Sparse `A`: done, in two backends.** Three things can happen to a sparse `A`, and which
+one does is decided at [`setup`](@ref) from the matrices themselves.
 
-The choice is gated on density, because accumulation writes into `R` by scattered index
-where `syrk` streams, and that constant is worth about an order of magnitude: the two cross
-near 20% density, so above 10% a `SparseMatrixCSC` is served by the dense-forming backend
-anyway. Below it the gain runs 1.8–2.7×.
+`SparseFormedInverse` accumulates `Ãᵀ diag(ρ) Ã` over the stored entries — `Σᵢ nnzᵢ²` work,
+no buffer — where the dense backend wrote `A` into an `m×n` array so that one `syrk` could do
+`mn²` flops against mostly zeros. That product was 63% of a refactorization and that buffer
+65% of the workspace. Measured at `n = 2000, m = 4000`, 0.25% density: refactorization 400 ms
+to 148 ms, a whole solve 1192 ms to 777 ms, and the workspace 93 MiB to 32 MiB. It still
+factors densely and stores `R⁻¹`, so the per-iteration solve is the same `symv`.
+
+`SparseCholmod` also factors sparsely, through SparseArrays — `cholesky(Symmetric(R))` is
+CHOLMOD, and `cholesky!(F, R)` reuses its symbolic analysis so later refactorizations pay
+only the numeric phase. It cannot be a `ReducedInverse`, because the inverse of a sparse
+matrix is dense: it keeps the factor and solves with a pair of sparse triangular solves
+instead. On banded problems — MPC, and what OSQP's own sparse LDLᵀ is built for — that is
+worth 20× at `n = 1000, m = 2000` and 37× at `n = 2000, m = 4000` against the dense
+factorization, on identical iterates and a workspace of 2 MiB.
+
+The two gates are measured, not assumed:
+
+- **density**, for whether to form sparsely. Accumulation writes into `R` by scattered index
+  where `syrk` streams contiguous memory, worth about an order of magnitude in constant
+  factor, so the two cross near 20% density. Above 10% a `SparseMatrixCSC` is served by the
+  dense-forming backend anyway; below it the gain runs 1.8–2.7×.
+- **fill**, for whether to factor sparsely. CHOLMOD is asked to factor the reduced matrix's
+  pattern and the `nnz(L)` it reports settles it — a decision made from the problem rather
+  than from a density heuristic, which matters because fill is what actually drives the cost
+  and density only correlates with it. Against the dense inverse's `symv`, the sparse
+  triangular solves measure 12.6× faster at a fill of `nnz(L)/n² = 0.0025`, 1.53× at 0.044
+  and slower at 0.086; the limit is 0.05, below the crossing, so the accepted region wins on
+  the factorization *and* the solve. Random sparsity fills in to about 0.42 and is refused,
+  which is the right answer and matches what was measured of sparse factorizations here
+  before.
+
+The probe factorization is not wasted when it is accepted: it *is* the first factorization,
+whose symbolic part every later one reuses. When it is refused, a pre-screen on `nnz(R)`
+bounds the cost, since `L` is at least as dense as `R`'s triangle.
+
+One guarantee is narrower for `SparseCholmod` and `bench/strictmode_audit.jl` says so rather
+than passing quietly. Its `factorize!` builds the reduced matrix through SparseArrays' sparse
+products, whose constructors validate dimensions and format the message through code static
+analysis cannot see past, so neither it nor `solve!` carries a type-stability claim. The hot
+path is unaffected and fully checked: `admm_step!`, `update_residuals!` and `solve_system!`
+are type-stable and allocation-free, which needed the solve to apply the permutation and the
+two triangular solves itself — CHOLMOD's own `ldiv!` allocates 64 KB per call at `n = 2000`.
 
 What remains dense whatever was passed in:
 
@@ -50,7 +84,7 @@ The last two carry a consequence worth knowing rather than fixing: on a problem 
 sparse enough that `linsys = :indirect` was chosen because nothing dense fits, `polish =
 true` or a derivative call will materialise a dense `(n+k)×(n+k)` anyway.
 
-Two directions are still open:
+One direction is still open:
 
 - **Structured `P`** — a `Diagonal` or `Tridiagonal` is read entry by entry through the
   generic column traversals, which walk every structural zero, and that is why
@@ -59,18 +93,12 @@ Two directions are still open:
   needing a backend. A backend pays only where `R` *inherits* the structure — `Diagonal` `P`
   with `Diagonal` `A` makes the whole solve `O(n)` — since `Ãᵀ diag(ρ) Ã` otherwise fills it
   in whatever `P` looked like.
-- **A sparse factorization of `R`** — now that `R` is formed sparsely, factoring it sparsely
-  is the next question, and it is *not* the one already measured and rejected: that was a
-  sparse LDLᵀ of the *full* KKT. The decision should not be a density threshold either.
-  CHOLMOD's symbolic analysis is `O(nnz)` and reports `nnz(L)` exactly before any numeric
-  work, so the honest gate is to run it once at setup and keep the sparse factorization only
-  when `nnz(L)` is small enough to beat a `symv` against a dense inverse — which, given that
-  `symv` beats an equal-flop triangular solve by about 7×, means an order of magnitude
-  smaller. On random sparsity it will refuse, matching what was measured; on banded or
-  separator-structured problems it should accept. Settling that needs a structured corpus,
-  since random sparse patterns are the worst case for any sparse factorization and cannot
-  answer the question.
 
+A note on the corpus, since it decides what any of this measures. Random sparse patterns are
+the worst case for a sparse factorization: no separators, near-maximal fill. They are what
+the benchmarks here generate, and it is why the fill gate refuses them — correctly. A
+structured corpus (OSQP's own benchmark suite, or Maros–Mészáros) would say more about where
+the CHOLMOD backend is selected on real problems than the banded family used to test it.
 ## Capabilities against upstream
 
 **Solution derivatives: implemented.** [`adjoint_derivative`](@ref) and
@@ -250,25 +278,26 @@ of `MOI.Test` passes with no excluded test names. Note it needs tighter toleranc
 solver defaults to: `MOI.Test` checks to `1e-4` and the defaults are `1e-3`.
 
 
-**Sparse linear algebra: the reduced matrix is now *formed* sparsely** for a sparse `A`
-below 10% density, which removed the dense `m×n` copy and the `syrk` against it. What is
-still dense is the *factorization*: `R` is built into a dense `n×n` array and factored
-there. Whether a sparse factorization of `R` pays is open and is discussed at the top of
-this page — note it is a different question from the one already measured and rejected,
-which was a sparse LDLᵀ of the full KKT. See
-[How the sparsest case was closed](@ref "How the sparsest case was closed") for those
+**Sparse linear algebra: implemented, on both axes.** The reduced matrix is *formed* from
+the stored entries for a sparse `A` below 10% density, and *factored* by CHOLMOD through
+SparseArrays whenever its Cholesky factor stays sparse enough to beat a dense inverse —
+worth 37× on a banded problem at `n = 2000`. Both gates are measured, and the top of this
+page gives the numbers.
+
+Note the earlier verdict this does not contradict: what was measured and rejected was a
+sparse LDLᵀ of the *full* KKT against the dense reduced solve, which is a different matrix.
+See [How the sparsest case was closed](@ref "How the sparsest case was closed") for those
 fill-in measurements.
+
 ## Suggested order
 
-One project remains, and it is the one at the top of this page: a backend that keeps the
-representation it was given, all the way through. Half of it is done — a sparse `A` no
-longer densifies to form the reduced matrix — and what is left is structured `P` and the
-question of factoring `R` sparsely rather than merely building it sparsely.
+What is left of the page's opening item is structured `P`: a `Diagonal` or `Tridiagonal` is
+still read through generic column traversals that walk its structural zeros. A sparse `A` is
+now carried all the way — formed from its stored entries and, when the factor stays sparse,
+factored by CHOLMOD rather than densified.
 
-The matrix-free backend measures how much the remaining half is worth. It beats the direct
-backend on large sparse problems purely by not forming anything, and a direct backend that
-kept the sparsity should beat both, paying neither the dense buffers nor an inexact inner
-solve.
+The matrix-free backend remains the fallback for a matrix that cannot be formed at all, and
+its measured margin has now narrowed twice as the direct path improved.
 
 What is left otherwise is `update_time`, the primal-dual integral, and the settings that
 select a linear-algebra library or a GPU, none of which have a counterpart here.

@@ -28,9 +28,29 @@ function example_workspace(backend::Symbol)
         # The sparse backend is chosen by representation and density, not by a setting, so
         # it is reached by handing `setup` sparse matrices sparse enough to clear the gate.
         return example_sparse_workspace(n, m)
+    elseif backend === :cholmod
+        # Banded, so the reduced matrix's factor stays sparse enough to be worth keeping.
+        return example_banded_workspace(200, 400)
     end
     ws = PureOSQP.setup(P, q, A, l, u; linsys = backend)
     PureOSQP.solve!(ws)        # compile every specialization before analysing it
+    return ws
+end
+
+function example_banded_workspace(n, m)
+    Random.seed!(3)
+    rows, cols, vals = Int[], Int[], Float64[]
+    for i in 1:m, j in max(1, div(i * n, m) - 2):min(n, div(i * n, m) + 2)
+        push!(rows, i)
+        push!(cols, j)
+        push!(vals, randn())
+    end
+    A = sparse(rows, cols, vals, m, n)
+    S = spdiagm(-1 => randn(n - 1), 0 => randn(n), 1 => randn(n - 1))
+    P = sparse(Symmetric(S'S)) + 3.0I
+    b = A * randn(n)
+    ws = PureOSQP.setup(P, randn(n), A, b .- rand(m), b .+ rand(m))
+    PureOSQP.solve!(ws)
     return ws
 end
 
@@ -56,6 +76,14 @@ const GUARANTEES = Dict(
     # out, so the claim is split instead: what this package owns is proved statically, and
     # what Krylov owns is measured. See `measured_noalloc` and the `ReducedOperator` check.
     :hot_measured => (:typestable,),
+    # `SparseCholmod` builds the reduced matrix through SparseArrays' own sparse products,
+    # whose constructors validate dimensions and format the message through code a static
+    # analyzer cannot see past -- the same never-taken error path that costs any caller of
+    # those constructors its inferrability. That reaches `factorize!` and, through it,
+    # `solve!`. It does not reach the hot path, which keeps every guarantee: `admm_step!`,
+    # `update_residuals!` and `solve_system!` are checked here exactly as for every other
+    # backend. Stated rather than hidden, because the claim really is narrower here.
+    :warm_sparse => (),
 )
 
 """
@@ -76,12 +104,14 @@ end
 
 failures = String[]
 
-for backend in (:auto, :kkt, :sparse, :indirect)
+for backend in (:auto, :kkt, :sparse, :cholmod, :indirect)
     ws = example_workspace(backend)
     W = typeof(ws)
     LS = typeof(ws.linsys)
     V = Vector{Float64}
     tier = backend === :indirect ? :hot_measured : :hot
+    # See `:warm_sparse`: only the factorization side is affected, never the hot path.
+    warm = backend === :cholmod ? :warm_sparse : :warm
     solve_sys() = @allocated PureOSQP.solve_system!(ws.linsys, ws, ws.rhs_x, ws.rhs_z)
     step() = @allocated PureOSQP.admm_step!(ws)
     checks = Any[
@@ -89,8 +119,8 @@ for backend in (:auto, :kkt, :sparse, :indirect)
         (PureOSQP.update_residuals!, (W,), :hot, nothing),
         (PureOSQP.solve_system!, (LS, W, V, V), tier, solve_sys),
         (PureOSQP.check_termination, (W, Bool), :warm, nothing),
-        (PureOSQP.factorize!, (LS, W), :warm, nothing),
-        (PureOSQP.solve!, (W,), :warm, nothing),
+        (PureOSQP.factorize!, (LS, W), warm, nothing),
+        (PureOSQP.solve!, (W,), warm, nothing),
     ]
     if backend === :indirect
         # The operator is this package's own code and gets the full static guarantee, with
@@ -107,7 +137,8 @@ for backend in (:auto, :kkt, :sparse, :indirect)
                 measured_noalloc(measure)
                 extra = ", noalloc (measured: 0 bytes)"
             end
-            println("  ✓ ", label, "  ", join(GUARANTEES[tier], ", "), extra)
+            claims = isempty(GUARANTEES[tier]) ? "no static claim (sparse arithmetic)" : join(GUARANTEES[tier], ", ")
+            println("  ✓ ", label, "  ", claims, extra)
         catch e
             push!(failures, label)
             println("  ✗ ", label)

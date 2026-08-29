@@ -183,14 +183,15 @@ function factorize!(ls::FullKKT{T}, ws)::Bool where {T}
 end
 
 """
-    solve_system!(ls, ws, rhs_x, rhs_z) -> Nothing
+    reduced_rhs!(ws, rhs_x, rhs_z) -> ws.work_n
 
-Solve the subproblem, writing `x̃` into `ws.xtilde` and `z̃` into `ws.ztilde`.
+Assemble `rhs_x + Ãᵀ(ρ ⊙ rhs_z)`, the right-hand side of the reduced system.
+
+Written into `work_n` rather than over an argument because the solves that consume it may
+not alias their input and output — `symv` in particular.
 """
-function solve_system!(ls::ReducedInverse, ws, rhs_x, rhs_z)::Nothing
-    m = ws.m
-    # The right-hand side is assembled in `work_n`: `symv` may not alias its two vectors.
-    if m > 0
+function reduced_rhs!(ws, rhs_x, rhs_z)
+    if ws.m > 0
         for i in eachindex(ws.work_m, ws.rho_vec, rhs_z)
             ws.work_m[i] = ws.rho_vec[i] * rhs_z[i]
         end
@@ -201,8 +202,18 @@ function solve_system!(ls::ReducedInverse, ws, rhs_x, rhs_z)::Nothing
     else
         copyto!(ws.work_n, rhs_x)
     end
+    return ws.work_n
+end
+
+"""
+    solve_system!(ls, ws, rhs_x, rhs_z) -> Nothing
+
+Solve the subproblem, writing `x̃` into `ws.xtilde` and `z̃` into `ws.ztilde`.
+"""
+function solve_system!(ls::ReducedInverse, ws, rhs_x, rhs_z)::Nothing
+    reduced_rhs!(ws, rhs_x, rhs_z)
     mul!(ws.xtilde, Symmetric(ls.Rinv, :U), ws.work_n)
-    m > 0 && mul_A!(ws.ztilde, ws, ws.xtilde)
+    ws.m > 0 && mul_A!(ws.ztilde, ws, ws.xtilde)
     return nothing
 end
 

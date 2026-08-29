@@ -73,3 +73,25 @@ function random_qp(n, m; seed = 0, colscale = 0)
     Ax = A * x0
     return (P, q, A, Ax .- rand(m), Ax .+ rand(m))
 end
+
+"""
+    banded_qp(n, m; band = 3, seed = 0) -> (P, q, A, l, u)
+
+A convex QP whose matrices are banded, as in model-predictive control: each constraint row
+couples a contiguous run of variables. The reduced matrix inherits the structure, which is
+what a sparse factorization needs in order to pay.
+"""
+function banded_qp(n, m; band = 3, seed = 0)
+    Random.seed!(n + m + band + seed)
+    rows, cols, vals = Int[], Int[], Float64[]
+    for i in 1:m, j in max(1, div(i * n, m) - band):min(n, div(i * n, m) + band)
+        push!(rows, i)
+        push!(cols, j)
+        push!(vals, randn())
+    end
+    A = sparse(rows, cols, vals, m, n)
+    S = spdiagm(-1 => randn(n - 1), 0 => randn(n), 1 => randn(n - 1))
+    P = sparse(Symmetric(S'S)) + 3.0I
+    b = A * randn(n)
+    return (P, randn(n), A, b .- rand(m), b .+ rand(m))
+end

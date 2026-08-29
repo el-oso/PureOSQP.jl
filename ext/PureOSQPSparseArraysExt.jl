@@ -11,16 +11,19 @@ reaches each one through `M[i, j]`, which on CSC is a binary search within the c
 do, and it made equilibration ten times slower on a sparse matrix than on a dense one.
 
 The four column traversals below walk `nzrange` instead. The extension also supplies a
-reduced backend that forms `Ãᵀ diag(ρ) Ã` from the stored entries rather than through a
-dense `m×n` product -- see [`SparseReducedCholesky`](@ref). Nothing else in
+two reduced backends: [`SparseFormedInverse`](@ref), which forms `Ãᵀ diag(ρ) Ã` from the
+stored entries rather than through a
+dense `m×n` product but still factors densely, and [`SparseCholmod`](@ref), which also
+factors sparsely when the factor stays sparse enough to pay. Nothing else in
 the solver needs to know the storage.
 """
 module PureOSQPSparseArraysExt
 
 using PureOSQP: PureOSQP
 using TypeContracts: TypeContracts, @verify
-using LinearAlgebra: Symmetric, cholesky!, issuccess
-using SparseArrays: SparseMatrixCSC, nnz, nzrange, rowvals, nonzeros
+using LinearAlgebra: Symmetric, Diagonal, LowerTriangular, UpperTriangular, I,
+    cholesky, cholesky!, issuccess, ldiv!, transpose
+using SparseArrays: SparseMatrixCSC, issparse, nnz, nzrange, rowvals, nonzeros, sparse
 
 @inline function PureOSQP.weighted_colmax(
         ::Type{T}, M::SparseMatrixCSC, j::Integer, w::AbstractVector
@@ -72,7 +75,7 @@ end
 
 
 """
-    SparseReducedCholesky{T,M} <: PureOSQP.ReducedInverse
+    SparseFormedInverse{T,M} <: PureOSQP.ReducedInverse
 
 The reduced backend for a sparse `A`, which forms `Ãᵀ diag(ρ) Ã` from the stored entries
 instead of through a dense product.
@@ -87,7 +90,7 @@ inverse.
 The reduced matrix itself is still dense, and everything after it is forming — the
 Cholesky, the inversion, the per-iteration `symv` — is exactly what the dense backend does.
 """
-struct SparseReducedCholesky{T <: Real, M <: AbstractMatrix{T}} <: PureOSQP.ReducedInverse
+struct SparseFormedInverse{T <: Real, M <: AbstractMatrix{T}} <: PureOSQP.ReducedInverse
     Rinv::M
 end
 
@@ -109,11 +112,15 @@ function PureOSQP.choose_backend(
     if n > 0 && m > 0 && nnz(A) > DENSE_FORM_DENSITY * m * n
         return PureOSQP.ReducedCholesky(proto, n, m)
     end
+    # Factoring sparsely beats inverting densely only when the factor stays sparse, which
+    # is a property of the pattern and so is measured here rather than assumed.
+    ldl = cholmod_backend(P, A, proto, n, m)
+    isnothing(ldl) || return ldl
     Rinv = similar(proto, T, n, n)
-    return SparseReducedCholesky{T, typeof(Rinv)}(Rinv)
+    return SparseFormedInverse{T, typeof(Rinv)}(Rinv)
 end
 
-PureOSQP.backend_name(::SparseReducedCholesky) = :sparse_cholesky
+PureOSQP.backend_name(::SparseFormedInverse) = :sparse_formed
 
 """
     csr_rows(A) -> (rowptr, colind, nzval)
@@ -192,7 +199,7 @@ function gram_upper!(
     return R
 end
 
-function PureOSQP.factorize!(ls::SparseReducedCholesky{T}, ws)::Bool where {T}
+function PureOSQP.factorize!(ls::SparseFormedInverse{T}, ws)::Bool where {T}
     n, m = ws.n, ws.m
     R = ls.Rinv
     fill!(R, zero(T))
@@ -217,6 +224,147 @@ function PureOSQP.factorize!(ls::SparseReducedCholesky{T}, ws)::Bool where {T}
     return true
 end
 
-@verify SparseReducedCholesky trim_compat = true
+@verify SparseFormedInverse trim_compat = true
+
+
+"""
+Fill fraction `nnz(L)/n²` above which a sparse factorization stops paying, so a sparse `R`
+is factored densely anyway.
+
+Measured at `n = 2000` over a bandwidth sweep: against the dense inverse's `symv`, the pair
+of sparse triangular solves is 12.6× faster at a fill of 0.0025, 1.53× at 0.044, and loses
+at 0.086 — crossing near 0.06. The limit sits below that crossing so the accepted region
+wins on *both* the factorization and the per-iteration solve, which keeps the choice from
+depending on how a particular run divides its time between the two. The factorization alone
+favors sparse much further out, to 5.2× at a fill of 0.28.
+"""
+const DENSE_FACTOR_FILL = 0.05
+
+"""
+    SparseCholmod{T,V,F} <: PureOSQP.LinearSystem
+
+Forms the reduced matrix sparsely *and* factors it sparsely, through SparseArrays.
+
+`cholesky(Symmetric(R))` on a `SparseMatrixCSC` is CHOLMOD, and `cholesky!(F, R)` reuses the
+symbolic analysis it already did, so every refactorization after the first pays only for the
+numeric phase. The factorization is `L Lᵀ`, not `L D Lᵀ`; the solve below depends on that and
+[`cholmod_backend`](@ref) checks it before selecting this backend.
+
+This cannot be a [`PureOSQP.ReducedInverse`](@ref): that stores `R⁻¹` and solves with one
+`symv`, and the inverse of a sparse matrix is dense. The Cholesky factor is kept instead and
+each solve is a pair of sparse triangular solves. On a banded `R` that is the better trade by
+a wide margin — at `n = 4000` a refactorization goes from 1063 ms to 0.66 ms and a solve from
+1430 µs to 71 µs — and on a filled-in `R` it is worse, which [`DENSE_FACTOR_FILL`](@ref)
+decides.
+
+`L` and `perm` are extracted from the factorization rather than solved through it, because
+CHOLMOD's `ldiv!` allocates a result and workspace on every call — 64 KB per solve at
+`n = 2000`, which the hot path may not do. Applying the permutation and the two triangular
+solves over preallocated buffers allocates nothing and measures slightly faster besides.
+"""
+mutable struct SparseCholmod{T <: Real, V <: AbstractVector{T}, F} <: PureOSQP.LinearSystem
+    R::SparseMatrixCSC{T, Int}
+    fact::F
+    L::SparseMatrixCSC{T, Int}
+    perm::Vector{Int}
+    permuted::V
+end
+
+PureOSQP.backend_name(::SparseCholmod) = :cholmod
+
+"""
+    reduced_sparse(T, P, A, rho, E, D, c, sigma) -> SparseMatrixCSC
+
+The reduced matrix `P̃ + σI + Ãᵀ diag(ρ) Ã`, built and kept sparse.
+
+Equilibration comes out of the products: with `Ã = diag(E) A diag(D)` and
+`P̃ = c diag(D) P diag(D)`, the matrix is `diag(D) (Aᵀ diag(ρE²) A + cP) diag(D) + σI`, so
+the sandwich is applied once at the end rather than inside the sparse product.
+
+The pattern this produces depends only on the patterns of `P` and `A`, never on the values
+of `ρ`, `E`, `D`, `c` or `σ`, which are positive. That is what lets the backend be chosen at
+setup, before equilibration has run, and what lets every later refactorization reuse the
+symbolic factorization.
+"""
+function reduced_sparse(::Type{T}, P, A, rho, E, D, c, sigma) where {T}
+    w = rho .* E .^ 2
+    inner = transpose(A) * (Diagonal(w) * A) + c * P
+    Dg = Diagonal(D)
+    return SparseMatrixCSC{T, Int}(Dg * inner * Dg + sigma * I)
+end
+
+function PureOSQP.factorize!(ls::SparseCholmod{T}, ws)::Bool where {T}
+    R = reduced_sparse(T, ws.P, ws.A, ws.rho_vec, ws.E, ws.D, ws.c, ws.settings.sigma)
+    if R.colptr == ls.R.colptr && R.rowval == ls.R.rowval
+        # Same pattern, so the symbolic factorization still describes it and only the
+        # numeric values need redoing. This is the case every time `ρ` moves.
+        cholesky!(ls.fact, Symmetric(R); check = false)
+    else
+        # `update!` replaced P or A with a differently shaped matrix.
+        ls.fact = cholesky(Symmetric(R); check = false)
+    end
+    issuccess(ls.fact) || return false
+    ls.R = R
+    # `F.L` is defined only for an LLᵀ factorization. `choose_backend` selects this backend
+    # only after checking that CHOLMOD produces one for this pattern, and the pattern is
+    # what decides it, so this holds for the workspace's life.
+    # Asserted, not assumed: `getproperty` on a CHOLMOD factor branches on the symbol and
+    # is not inferrable, and an unannotated result costs `factorize!` type stability.
+    ls.L = sparse(ls.fact.L)::SparseMatrixCSC{T, Int}
+    ls.perm = ls.fact.p::Vector{Int}
+    return true
+end
+
+function PureOSQP.solve_system!(ls::SparseCholmod{T}, ws, rhs_x, rhs_z)::Nothing where {T}
+    rhs = PureOSQP.reduced_rhs!(ws, rhs_x, rhs_z)
+    perm, work = ls.perm, ls.permuted
+    # R[perm, perm] = L Lᵀ, so the solve is a permutation, two triangular solves, and the
+    # inverse permutation -- all over buffers this backend owns.
+    for i in eachindex(perm)
+        work[i] = rhs[perm[i]]
+    end
+    ldiv!(LowerTriangular(ls.L), work)
+    ldiv!(UpperTriangular(transpose(ls.L)), work)
+    x = ws.xtilde
+    for i in eachindex(perm)
+        x[perm[i]] = work[i]
+    end
+    ws.m > 0 && PureOSQP.mul_A!(ws.ztilde, ws, x)
+    return nothing
+end
+
+"""
+    cholmod_backend(P, A, proto, n, m) -> SparseCholmod or nothing
+
+Build the sparse-factorization backend if it is the right one for these matrices, and
+return `nothing` if it is not.
+
+The decision is measured rather than guessed at: CHOLMOD is asked to factor the reduced
+matrix's pattern, and the fill it reports settles it. That costs one factorization, which is
+not wasted when the answer is yes — it *is* the first factorization, whose symbolic part
+every later one reuses. When the answer is no the cost is bounded by a pre-screen on
+`nnz(R)`, since `L` is at least as dense as `R`'s triangle.
+"""
+function cholmod_backend(P, A, proto::AbstractVector{T}, n::Integer, m::Integer) where {T <: Real}
+    (issparse(P) && n > 0) || return nothing
+    ones_m = fill(one(T), m)
+    ones_n = fill(one(T), n)
+    R = reduced_sparse(T, P, A, ones_m, ones_m, ones_n, one(T), one(T))
+    nnz(R) < 2 * DENSE_FACTOR_FILL * n^2 || return nothing
+    F = cholesky(Symmetric(R); check = false)
+    issuccess(F) || return nothing
+    # An LDLᵀ factorization has no `F.L`, and this backend's solve assumes `L Lᵀ`.
+    L = try
+        sparse(F.L)
+    catch
+        return nothing
+    end
+    nnz(L) < DENSE_FACTOR_FILL * n^2 || return nothing
+    return SparseCholmod{T, typeof(proto), typeof(F)}(R, F, L, F.p, similar(proto, T, n))
+end
+
+# No `trim_compat` claim: the solve reaches CHOLMOD through `ccall`, and the trim entry
+# points cover the dense path.
+@verify SparseCholmod
 
 end # module PureOSQPSparseArraysExt

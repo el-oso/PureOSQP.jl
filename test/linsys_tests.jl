@@ -91,7 +91,7 @@ end
     opts = (eps_abs = 1.0e-9, eps_rel = 1.0e-9, max_iter = 50_000)
 
     ws = setup(P, q, A, l, u; opts...)
-    @test PureOSQP.backend_name(ws.linsys) == :sparse_cholesky
+    @test PureOSQP.backend_name(ws.linsys) == :sparse_formed
     # The point of the backend: no m×n buffer exists to hold a densified A.
     @test !hasproperty(ws.linsys, :W)
 
@@ -141,7 +141,86 @@ end
     # solve would compare warm against cold rather than sparse against dense.
     sparse_ws = setup(P, q, A, l, u; opts...)
     dense_ws = setup(Matrix(P), q, Matrix(A), l, u; opts...)
-    @test PureOSQP.backend_name(sparse_ws.linsys) == :sparse_cholesky
+    @test PureOSQP.backend_name(sparse_ws.linsys) == :sparse_formed
+    for w in (sparse_ws, dense_ws)
+        solve!(w)
+    end
+    update!(sparse_ws; A = A2, l = l2, u = u2)
+    update!(dense_ws; A = Matrix(A2), l = l2, u = u2)
+    s = solve!(sparse_ws)
+    ref = solve!(dense_ws)
+
+    @test s.status == SOLVED
+    @test s.iter == ref.iter
+    @test s.x ≈ ref.x atol = 1.0e-10
+end
+
+@testitem "a banded problem is factored sparsely" begin
+    using LinearAlgebra, SparseArrays, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    # Banded is what MPC and other structured QPs look like, and is where a sparse
+    # factorization earns its place: the reduced matrix stays banded, so its Cholesky
+    # factor does too. The dense backend would invert an n×n matrix instead.
+    P, q, A, l, u = banded_qp(200, 400; band = 3)
+    opts = (eps_abs = 1.0e-9, eps_rel = 1.0e-9, max_iter = 50_000)
+
+    ws = setup(P, q, A, l, u; opts...)
+    @test PureOSQP.backend_name(ws.linsys) == :cholmod
+
+    sp = PureOSQP.solve!(ws)
+    dn = solve(Matrix(P), q, Matrix(A), l, u; opts...)
+    @test sp.status == SOLVED
+    # A different factorization of the same matrix, so the path must be identical, not
+    # merely the answer.
+    @test sp.iter == dn.iter
+    @test sp.x ≈ dn.x atol = 1.0e-10
+    @test sp.obj_val ≈ dn.obj_val atol = 1.0e-10
+    @test maximum(kkt_residuals(P, q, A, l, u, sp.x, sp.y)) < 1.0e-7
+end
+
+@testitem "the sparse factorization solve allocates nothing" begin
+    using LinearAlgebra, SparseArrays, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    # CHOLMOD's own `ldiv!` allocates a result and workspace on every call, which the hot
+    # path may not do, so the backend applies the permutation and the two triangular solves
+    # itself over buffers it owns.
+    P, q, A, l, u = banded_qp(200, 400; band = 2)
+    ws = setup(P, q, A, l, u; eps_abs = 1.0e-9, eps_rel = 1.0e-9)
+    @test PureOSQP.backend_name(ws.linsys) == :cholmod
+    PureOSQP.solve!(ws)
+    PureOSQP.solve_system!(ws.linsys, ws, ws.rhs_x, ws.rhs_z)      # warm up
+    allocs = [(@allocated PureOSQP.solve_system!(ws.linsys, ws, ws.rhs_x, ws.rhs_z)) for _ in 1:4]
+    @test all(iszero, allocs)
+end
+
+@testitem "a factor that fills in is left to the dense backend" begin
+    using LinearAlgebra, SparseArrays, Random
+    # Random sparsity has no separators, so the Cholesky factor fills in almost completely
+    # and the dense inverse wins the per-iteration solve. The backend is chosen by asking
+    # CHOLMOD what the fill actually is, so this is decided rather than assumed.
+    Random.seed!(11)
+    n, m = 150, 300
+    A = sprandn(m, n, 0.05)
+    S = sprandn(n, n, 0.05)
+    P = sparse(Symmetric(S'S)) + (n * 0.05 + 1) * I
+    b = A * randn(n)
+    ws = setup(P, randn(n), A, b .- rand(m), b .+ rand(m))
+    @test PureOSQP.backend_name(ws.linsys) == :sparse_formed
+    @test solve!(ws).status == SOLVED
+end
+
+@testitem "the sparse factorization survives a change of sparsity pattern" begin
+    using LinearAlgebra, SparseArrays, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    # Refactorization reuses the symbolic analysis, which is only valid while the pattern
+    # holds. `update!` may replace A with one shaped differently, and then it must not.
+    P, q, A, l, u = banded_qp(200, 400; band = 2)
+    P2, _, A2, l2, u2 = banded_qp(200, 400; band = 3, seed = 99)
+    opts = (eps_abs = 1.0e-9, eps_rel = 1.0e-9, max_iter = 50_000)
+
+    sparse_ws = setup(P, q, A, l, u; opts...)
+    dense_ws = setup(Matrix(P), q, Matrix(A), l, u; opts...)
+    @test PureOSQP.backend_name(sparse_ws.linsys) == :cholmod
     for w in (sparse_ws, dense_ws)
         solve!(w)
     end
