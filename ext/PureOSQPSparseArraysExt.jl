@@ -10,12 +10,11 @@ reaches each one through `M[i, j]`, which on CSC is a binary search within the c
 400×200 matrix at 1% density that is 80 000 searches per sweep where 800 direct reads would
 do, and it made equilibration ten times slower on a sparse matrix than on a dense one.
 
-The four column traversals below walk `nzrange` instead. The extension also supplies a
-two reduced backends: [`SparseFormedInverse`](@ref), which forms `Ãᵀ diag(ρ) Ã` from the
-stored entries rather than through a
-dense `m×n` product but still factors densely, and [`SparseCholmod`](@ref), which also
-factors sparsely when the factor stays sparse enough to pay. Nothing else in
-the solver needs to know the storage.
+The four column traversals below walk `nzrange` instead. The extension also supplies two
+reduced backends — [`SparseFormedInverse`](@ref), which forms `Ãᵀ diag(ρ) Ã` from the stored
+entries but still factors densely, and [`SparseCholmod`](@ref), which also factors sparsely
+when the factor stays sparse enough to pay — and a convexity test that does not densify `P`.
+Nothing else in the solver needs to know the storage.
 """
 module PureOSQPSparseArraysExt
 
@@ -366,5 +365,18 @@ end
 # No `trim_compat` claim: the solve reaches CHOLMOD through `ccall`, and the trim entry
 # points cover the dense path.
 @verify SparseCholmod
+
+
+"""
+    is_convex(T, P::SparseMatrixCSC, sigma) -> Bool
+
+The convexity test without densifying `P`. `cholesky` on a sparse matrix is CHOLMOD, which
+costs `O(nnz(L))` where the generic dense test costs `O(n³)` — 0.24 ms against 22.6 ms on a
+tridiagonal `P` at `n = 2000`, which was half of `setup` on a banded problem.
+"""
+function PureOSQP.is_convex(::Type{T}, P::SparseMatrixCSC, sigma) where {T}
+    isempty(P) && return true
+    return issuccess(cholesky(Symmetric(SparseMatrixCSC{T, Int}(P) + sigma * I); check = false))
+end
 
 end # module PureOSQPSparseArraysExt

@@ -274,6 +274,49 @@ densify: sparse `mul!` loses to dense BLAS-2 once there is enough work per row, 
 the sparse path is about 1.4× *slower* than the dense one. The solver does not choose for
 you, because the right choice depends on a density it would have to compute.
 
+
+## Sparse against libosqp, both sides sparse
+
+`bench/sparse_headtohead.jl`. Both solvers are handed `SparseMatrixCSC`; neither gets a
+dense copy of anything. Iteration counts are identical in every row, and the benchmark
+refuses to report a row whose objectives disagree by more than `1e-6`.
+
+Two families, because they give opposite answers and reporting one would be choosing the
+answer.
+
+**Banded**, as in a model-predictive control horizon. The reduced matrix keeps the band, so
+PureOSQP factors it with CHOLMOD — the regime libosqp's own sparse LDLᵀ is built for:
+
+| n | m | nnz(A) | PureOSQP backend | PureOSQP | OSQP | vs OSQP | iterations |
+|---|---|---|---|---|---|---|---|
+| 200 | 400 | 2775 | `cholmod` | 9.70 ms | 11.0 ms | 1.13× | 1400 |
+| 500 | 1000 | 6975 | `cholmod` | 19.4 ms | 22.6 ms | 1.17× | 1125 |
+| 1000 | 2000 | 13975 | `cholmod` | 73.7 ms | 87.2 ms | 1.18× | 2200 |
+| 2000 | 4000 | 27975 | `cholmod` | 58.0 ms | 69.4 ms | 1.20× | 825 |
+
+**Uniformly random**, with no structure for a sparse factorization to exploit. The reduced
+matrix fills in, so PureOSQP forms it sparsely and factors it densely:
+
+| n | m | nnz(A) | PureOSQP backend | PureOSQP | OSQP | vs OSQP | iterations |
+|---|---|---|---|---|---|---|---|
+| 200 | 400 | 753 | `sparse_formed` | 2.19 ms | 2.31 ms | 1.06× | 225 |
+| 200 | 400 | 4014 | `sparse_formed` | 10.6 ms | 30.1 ms | 2.84× | 1100 |
+| 500 | 1000 | 4994 | `sparse_formed` | 31.5 ms | 128 ms | 4.06× | 1100 |
+| 1000 | 2000 | 9926 | `sparse_formed` | 112 ms | 412 ms | 3.69× | 850 |
+| 2000 | 4000 | 20104 | `sparse_formed` | 698 ms | 2416 ms | 3.46× | 800 |
+
+The margin is narrow on the banded family and wide on the random one, and that ordering is
+the honest one: banded is what libosqp's sparse LDLᵀ of the full KKT is designed for, and it
+is a good design there. Where PureOSQP pulls ahead is the case that suits neither a sparse
+factorization nor a dense one, where forming the reduced matrix from stored entries and
+factoring it densely turns out to beat factoring a KKT matrix that fills in.
+
+The banded family also found a real defect rather than confirming a belief. At
+`n = 2000, m = 4000` PureOSQP first measured **0.61×** — libosqp 1.6× ahead. The cause was
+not the iteration: `setup` was 49.7% of the run, because the convexity test densified `P`
+into an `n×n` array for a dense Cholesky, `O(n³)` on a tridiagonal matrix. Testing it with
+CHOLMOD instead is 93× faster on that matrix and took `setup` from 56.1 ms to 3.06 ms.
+
 ### The SparseArrays extension
 
 PureOSQP's per-iteration products go through `mul!`, which sparse matrices already handle

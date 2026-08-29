@@ -33,7 +33,7 @@ function update!(
     if !isnothing(P)
         size(P) == (n, n) || throw(ArgumentError("P must stay $(n)×$(n), got $(size(P))"))
         issymmetric(P) || throw(ArgumentError("P must be symmetric"))
-        issuccess(cholesky!(Symmetric(Matrix{T}(P) + ws.settings.sigma * I); check = false)) ||
+        is_convex(T, P, ws.settings.sigma) ||
             throw(ArgumentError("P + sigma*I is not positive definite: P is indefinite, so the problem is not convex."))
         ws.P = P
         refactor_needed = true

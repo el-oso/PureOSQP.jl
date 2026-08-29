@@ -300,11 +300,7 @@ function setup(
     t0 = time_ns()
     n, m = validate(P, q, A, l, u)
     settings = Settings{T}(; kwargs...)
-    # OSQP requires P + σI to be positive definite, not merely P to be PSD, and reports a
-    # setup error otherwise. A positive semidefinite P always passes; only an indefinite
-    # one fails. Without this the reduced matrix P + σI + AᵀρA can still factor, and an
-    # indefinite P would be accepted silently.
-    if !isempty(P) && !issuccess(cholesky!(Symmetric(Matrix{T}(P) + settings.sigma * I); check = false))
+    if !is_convex(T, P, settings.sigma)
         throw(ArgumentError("P + sigma*I is not positive definite: P is indefinite, so the problem is not convex. Increase sigma if P + sigma*I can be made positive definite."))
     end
     inf = INFTY(T)

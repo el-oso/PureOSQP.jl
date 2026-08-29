@@ -98,6 +98,24 @@ function FullKKT(proto::AbstractVector{T}, n::Integer, m::Integer) where {T <: R
 end
 
 """
+    is_convex(T, P, sigma) -> Bool
+
+Whether `P + σI` is positive definite, which is what OSQP requires of `P` — not merely that
+it be positive semidefinite. A positive semidefinite `P` always passes; only an indefinite
+one fails. Without the check the reduced matrix `P + σI + Ãᵀ diag(ρ) Ã` can still factor and
+an indefinite `P` would be accepted silently.
+
+The generic method densifies, because a factorization it can rely on for an arbitrary
+`AbstractMatrix` is the dense one. That is `O(n³)` and `O(n²)` in memory whatever `P` was,
+so a representation with a cheaper test overrides this — `ext/PureOSQPSparseArraysExt.jl`
+does, where the dense test measures 93× slower at `n = 2000`.
+"""
+function is_convex(::Type{T}, P::AbstractMatrix, sigma) where {T}
+    isempty(P) && return true
+    return issuccess(cholesky!(Symmetric(Matrix{T}(P) + sigma * I); check = false))
+end
+
+"""
     choose_backend(P, A, proto, n, m) -> LinearSystem
 
 The backend `linsys = :auto` builds for these matrices.
