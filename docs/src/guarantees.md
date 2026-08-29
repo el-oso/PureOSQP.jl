@@ -91,7 +91,9 @@ GPU support is **matrix-free only**. `linsys = :indirect` is the one backend who
 solve has a GPU counterpart — Krylov.jl's `cg!` is GPU-native, `bunchkaufman!` has no GPU
 implementation, CHOLMOD is CPU by construction, and `potri!` reaches LAPACK. Any other
 backend is refused at [`setup`](@ref) with a message naming the remedy, rather than left to
-fail inside `factorize!`. `polish` and the derivatives stay on the host for the same reason.
+fail inside `factorize!`. `polish` and the derivatives stay on the host for the same
+reason, and say so: both refuse a GPU workspace by name rather than surfacing a
+scalar-indexing error from inside `bunchkaufman!`.
 
 Two of the three guarantees above carry over unchanged, and one does not:
 

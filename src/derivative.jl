@@ -27,6 +27,7 @@ Throws rather than returning anything when the derivative does not exist. See
 [`adjoint_derivative`](@ref) for why there is no fallback.
 """
 function active_kkt(ws::Workspace{T}) where {T}
+    require_host(ws.x, "differentiating the solution")
     n, m = ws.n, ws.m
     x = ws.D .* ws.x
     y = (ws.E .* ws.y) ./ ws.c

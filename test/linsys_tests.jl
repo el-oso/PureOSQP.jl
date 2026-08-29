@@ -49,7 +49,7 @@ end
 end
 
 @testitem "linsys rejects an unknown backend" begin
-    @test_throws "linsys must be :auto, :kkt or :indirect" setup([1.0;;], [0.0], [1.0;;], [0.0], [1.0]; linsys = :magic)
+    @test_throws "linsys must be :auto, :dense, :kkt or :indirect" setup([1.0;;], [0.0], [1.0;;], [0.0], [1.0]; linsys = :magic)
 end
 
 @testitem "the LinearSystem contract is enforced, not decorative" begin
@@ -232,4 +232,24 @@ end
     @test s.status == SOLVED
     @test s.iter == ref.iter
     @test s.x ≈ ref.x atol = 1.0e-10
+end
+
+@testitem "linsys = :dense overrules the representation gates" begin
+    using LinearAlgebra, SparseArrays, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    # Both gates for a sparse A are measured thresholds, so there has to be a way to
+    # overrule one that misjudges a problem. `:dense` goes past `choose_backend` entirely.
+    P, q, A, l, u = banded_qp(200, 400; band = 3)
+    opts = (eps_abs = 1.0e-9, eps_rel = 1.0e-9, max_iter = 50_000)
+
+    @test PureOSQP.backend_name(setup(P, q, A, l, u; opts...).linsys) == :cholmod
+    forced = setup(P, q, A, l, u; opts..., linsys = :dense)
+    @test PureOSQP.backend_name(forced.linsys) == :cholesky
+
+    # Overruling the choice must change only the route, not the answer.
+    s = solve!(forced)
+    ref = solve(P, q, A, l, u; opts...)
+    @test s.status == SOLVED
+    @test s.iter == ref.iter
+    @test s.x ≈ ref.x atol = 1.0e-9
 end

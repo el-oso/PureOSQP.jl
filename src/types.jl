@@ -104,8 +104,8 @@ function Settings{T}(;
     0 < adaptive_rho_fraction <= 1 || throw(
         ArgumentError("adaptive_rho_fraction must lie in (0, 1], got $adaptive_rho_fraction")
     )
-    linsys in (:auto, :kkt, :indirect) || throw(
-        ArgumentError("linsys must be :auto, :kkt or :indirect, got :$linsys")
+    linsys in (:auto, :dense, :kkt, :indirect) || throw(
+        ArgumentError("linsys must be :auto, :dense, :kkt or :indirect, got :$linsys")
     )
     cg_max_iter > 0 || throw(ArgumentError("cg_max_iter must be positive, got $cg_max_iter"))
     0 < cg_tol_fraction <= 1 || throw(
@@ -352,6 +352,14 @@ function setup(
     )
     if settings.linsys === :kkt
         ws = make(FullKKT(q0, n, m))
+        scale!(ws)
+        set_rho_vec!(ws, settings.rho)
+        refactor!(ws)
+        return finish_setup!(ws, t0)
+    elseif settings.linsys === :dense
+        # Past `choose_backend` entirely. Its two gates for a sparse `A` are measured
+        # thresholds, and this is the way to overrule one that misjudges a problem.
+        ws = make(ReducedCholesky(q0, n, m))
         scale!(ws)
         set_rho_vec!(ws, settings.rho)
         refactor!(ws)

@@ -291,3 +291,25 @@ function indirect_backend(proto::AbstractVector, n::Integer, m::Integer)
         )
     )
 end
+
+"""
+    require_host(v, what)
+
+Throw unless `v` is host memory, naming what needs it.
+
+`polish!` and the derivatives build a dense `(n+k)×(n+k)` matrix and factor it with
+`bunchkaufman!`, which has no GPU implementation. Without this the caller gets
+`GPUArraysCore`'s scalar-indexing error from somewhere inside the factorization, which says
+nothing about what to do.
+"""
+function require_host(v::AbstractVector, what::String)
+    v isa Vector || throw(
+        ArgumentError(
+            "$what runs on the host and this workspace holds $(typeof(v)): it factors a " *
+                "dense matrix with `bunchkaufman!`, which has no GPU counterpart. Move the " *
+                "problem to the host with `Array`, or leave `polish = false` and take the " *
+                "ADMM iterate."
+        )
+    )
+    return nothing
+end

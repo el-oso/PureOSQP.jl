@@ -41,6 +41,7 @@ The reduced KKT system is regularized by `δ` and corrected by `polish_refine_it
 of iterative refinement against the unregularized operator.
 """
 function polish!(ws::Workspace{T}) where {T}
+    require_host(ws.x, "polishing")
     n, m = ws.n, ws.m
     δ = ws.settings.delta
     active = Int[]

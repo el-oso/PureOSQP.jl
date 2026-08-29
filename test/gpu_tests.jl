@@ -72,3 +72,27 @@ end
     cold_start!(ws)
     @test solve!(ws).status == SOLVED
 end
+
+@testitem "polishing and derivatives refuse a GPU workspace by name" begin
+    using LinearAlgebra, Random, Krylov, JLArrays, GPUArraysCore
+    # Both build a dense (n+k)×(n+k) matrix and factor it with `bunchkaufman!`, which has no
+    # GPU counterpart. Without an explicit refusal the caller gets GPUArraysCore's
+    # scalar-indexing error from inside the factorization, which says nothing about why.
+    JLArrays.allowscalar(false)
+    Random.seed!(7)
+    n, m = 12, 24
+    X = randn(n, n)
+    P = Matrix(X'X / n + I)
+    A = randn(m, n)
+    b = A * randn(n)
+    q, l, u = randn(n), b .- rand(m), b .+ rand(m)
+    opts = (eps_abs = 1.0e-8, eps_rel = 1.0e-8, linsys = :indirect)
+    device = (jl(P), jl(q), jl(A), jl(l), jl(u))
+
+    @test_throws "polishing runs on the host" PureOSQP.solve(device...; opts..., polish = true)
+
+    ws = setup(device...; opts...)
+    solve!(ws)
+    @test_throws "differentiating the solution runs on the host" PureOSQP.adjoint_derivative(ws, jl(q), jl(l))
+    @test_throws "differentiating the solution runs on the host" PureOSQP.forward_derivative(ws; dq = jl(q))
+end
