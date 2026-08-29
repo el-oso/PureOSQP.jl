@@ -369,7 +369,7 @@ Four changes, in the order they were found, each measured against the class it w
 by a row read out of the factor, which no compiler can prove is in range, where QDLDL's
 identical C loop checks nothing. On factors holding two to three nonzeros per column that
 check is a large fraction of the work: removing it is worth 1.18× to 1.32× on the pair.
-[`check_factor`](@ref) establishes the property once per factorization instead, so the loops
+`check_factor` establishes the property once per factorization instead, so the loops
 run unchecked behind a guard rather than an assumption. This was the largest single item and
 took Portfolio from 0.88× to 1.00×.
 
@@ -378,7 +378,7 @@ run before the backend is chosen, so the factorization that measures a candidate
 the one the solver keeps. Setup fell 24–29% on the four sparse classes.
 
 **Refactorization rebuilt the reduced matrix through four allocating sparse products.** It is
-now a single pass over a stored slot map — see [`ReducedGram`](@ref) — which allocates
+now a single pass over a stored slot map — see `ReducedGram` — which allocates
 nothing. A refactorization runs every time `ρ` is retuned, inside the solve loop, so this is
 not a setup-only saving.
 
