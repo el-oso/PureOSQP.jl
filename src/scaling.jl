@@ -83,56 +83,51 @@ end
 end
 
 """
-    column_norms!(d, e, T, P, A, D, E, c)
+    column_norms!(d, e, T, pcol, A, D, E, c)
 
 One Ruiz sweep's column measurements: `d[j]` becomes
-`max(c·D[j]·‖D ⊙ P[:,j]‖∞, D[j]·‖E ⊙ A[:,j]‖∞)` and `e` accumulates the row norms of the
-scaled `A` in the same pass.
+`max(c·D[j]·pcol[j], D[j]·‖E ⊙ A[:,j]‖∞)` and `e` accumulates the row norms of the scaled
+`A` in the same pass.
 
-The row norms are accumulated here rather than gathered in a second loop over `A[i, j]`
-with `j` innermost: that walks a column-major matrix across its rows, and on a 400×200
-problem the strided reads cost more than everything else in setup put together.
+`pcol` holds `‖D ⊙ P[:,j]‖∞` for the current `D`, computed by [`cost_norms!`](@ref) at the
+end of the previous sweep. `D` does not change between the two, so recomputing it here would
+be a second full pass over `P` for the same numbers.
 
-A representation that cannot be indexed answers this with whole-matrix reductions instead —
-see `ext/PureOSQPGPUArraysCoreExt.jl`.
+The row norms are accumulated here rather than gathered in a second loop over `A[i, j]` with
+`j` innermost: that walks a column-major matrix across its rows, and on a 400×200 problem
+the strided reads cost more than everything else in setup put together.
 """
-function column_norms!(d, e, ::Type{T}, P, A, D, E, c) where {T}
+function column_norms!(d, e, ::Type{T}, pcol, A, D, E, c) where {T}
     fill!(e, zero(T))
     for j in eachindex(d)
-        pj = weighted_colmax(T, P, j, D)
         dj = D[j]
         aj = weighted_colmax_rowmax!(T, e, A, j, E, dj)
-        d[j] = limit_scaling(max(c * dj * pj, dj * aj))
+        d[j] = limit_scaling(max(c * dj * pcol[j], dj * aj))
     end
     return d
 end
 
 """
-    mean_column_norm(T, P, D, c, n)
+    cost_norms!(pcol, T, P, D, c, n) -> mean column norm
 
-The average column ∞-norm of the scaled `P`, which is what the cost normalization compares
-against `‖q̃‖∞`.
+Fill `pcol[j]` with `‖D ⊙ P[:,j]‖∞` and return their `c`-weighted mean, which is what the
+cost normalization compares against `‖q̃‖∞`.
+
+One pass serves two purposes: the mean, and the column norms the next sweep needs.
+
+A representation that cannot be indexed overrides this with whole-matrix reductions — see
+`ext/PureOSQPGPUArraysCoreExt.jl`.
 """
-function mean_column_norm(::Type{T}, P, D, c, n) where {T}
+function cost_norms!(pcol, ::Type{T}, P, D, c, n) where {T}
     acc = zero(T)
     for j in 1:n
-        acc += c * D[j] * weighted_colmax(T, P, j, D)
+        pj = weighted_colmax(T, P, j, D)
+        pcol[j] = pj
+        acc += c * D[j] * pj
     end
     return acc / n
 end
 
-"""
-    scale!(ws)
-
-Modified Ruiz equilibration of the KKT matrix `[P Aᵀ; A 0]`, storing the result as the
-factors `D`, `E` and the cost scaling `c` rather than modifying `P` and `A`. The scaled
-problem is
-
-    P̃ = c D P D,   Ã = E A D,   q̃ = c D q,   l̃ = E l,   ũ = E u
-
-Column and row norms of the scaled blocks are evaluated from the original entries and the
-running factors, so no scaled matrix is ever formed.
-"""
 function scale!(ws::Workspace{T}) where {T}
     n, m = ws.n, ws.m
     fill!(ws.D, one(T))
@@ -146,9 +141,13 @@ function scale!(ws::Workspace{T}) where {T}
     end
     d = ws.tmp_n
     e = ws.tmp_m
+    pcol = ws.work_n
     P, A, D, E = ws.P, ws.A, ws.D, ws.E
+    # Seeds `pcol` for the first sweep; every later one gets it from the cost normalization
+    # at the end of the sweep before, which reads `P` with the same `D`.
+    cost_norms!(pcol, T, P, D, ws.c, n)
     for _ in 1:ws.settings.scaling
-        column_norms!(d, e, T, P, A, D, E, ws.c)
+        column_norms!(d, e, T, pcol, A, D, E, ws.c)
         e .= limit_scaling.(E .* e)
         d .= inv.(sqrt.(d))
         e .= inv.(sqrt.(e))
@@ -157,7 +156,7 @@ function scale!(ws::Workspace{T}) where {T}
         ws.q .*= d
         # Cost normalization: average column ∞-norm of the scaled P, against ‖q̃‖∞.
         ct = max(
-            mean_column_norm(T, P, D, ws.c, n),
+            cost_norms!(pcol, T, P, D, ws.c, n),
             limit_scaling(maximum(abs, ws.q; init = zero(T))),
         )
         ct = inv(limit_scaling(ct))

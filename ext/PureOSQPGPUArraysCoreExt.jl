@@ -62,23 +62,23 @@ onehot(M::AbstractGPUMatrix) = (1:size(M, 1)) .== permutedims(1:size(M, 2))
 
 function PureOSQP.column_norms!(
         d::AbstractGPUVector, e::AbstractGPUVector, ::Type{T},
-        P::AbstractGPUMatrix, A::AbstractGPUMatrix, D, E, c
+        pcol::AbstractGPUVector, A::AbstractGPUMatrix, D, E, c
     ) where {T}
-    # `D` multiplies down each column and `E` down each row, matching what the per-column
+    # `E` multiplies down each row and `D` across each column, matching what the per-column
     # traversals apply through their weight vectors.
-    scaled_p = abs.(D .* P)
     scaled_a = abs.(E .* A)
     e .= vec(maximum(scaled_a .* permutedims(D); dims = 2))
     d .= PureOSQP.limit_scaling.(
-        max.(c .* D .* vec(maximum(scaled_p; dims = 1)), D .* vec(maximum(scaled_a; dims = 1)))
+        max.(c .* D .* pcol, D .* vec(maximum(scaled_a; dims = 1)))
     )
     return d
 end
 
-function PureOSQP.mean_column_norm(
-        ::Type{T}, P::AbstractGPUMatrix, D::AbstractGPUVector, c, n
+function PureOSQP.cost_norms!(
+        pcol::AbstractGPUVector, ::Type{T}, P::AbstractGPUMatrix, D::AbstractGPUVector, c, n
     ) where {T}
-    return sum(c .* D .* vec(maximum(abs.(D .* P); dims = 1))) / n
+    pcol .= vec(maximum(abs.(D .* P); dims = 1))
+    return sum(c .* D .* pcol) / n
 end
 
 function PureOSQP.reduced_diagonal!(

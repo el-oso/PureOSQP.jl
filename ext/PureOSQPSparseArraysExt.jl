@@ -305,31 +305,70 @@ function PureOSQP.factorize!(ls::SparseKKT{T}, ws)::Bool where {T}
     return true
 end
 
+"""
+    ldl_forward!(x, L, N)
+    ldl_backward!(x, L, N)
+
+Substitution against the unit-lower factor of an `LDLᵀ`, in place.
+
+`L` is CHOLMOD's packed `LD`: column `j` begins with `D[j]` and its subdiagonal entries
+follow, so both loops start one past `colptr[j]` and the diagonal is applied separately.
+
+Written out rather than left to `ldiv!(UnitLowerTriangular(L), x)`, which is the exception
+rather than the rule here. Measured on this backend's own factor, resetting the vector every
+sample because these solves are in place, `solve_system!` costs 9.06 µs through `ldiv!` and
+5.78 µs this way. [`SparseCholmod`](@ref) keeps the library call, where it measures equal or
+better. What distinguishes the two cases is not established; the numbers are, and they are
+what this is here for.
+"""
+function ldl_forward!(x::AbstractVector, L::SparseMatrixCSC, N::Integer)
+    colptr, rows, vals = L.colptr, rowvals(L), nonzeros(L)
+    for j in 1:N
+        xj = x[j]
+        for p in (colptr[j] + 1):(colptr[j + 1] - 1)
+            x[rows[p]] -= vals[p] * xj
+        end
+    end
+    return x
+end
+
+function ldl_backward!(x::AbstractVector, L::SparseMatrixCSC, N::Integer)
+    colptr, rows, vals = L.colptr, rowvals(L), nonzeros(L)
+    for j in N:-1:1
+        s = x[j]
+        for p in (colptr[j] + 1):(colptr[j + 1] - 1)
+            s -= vals[p] * x[rows[p]]
+        end
+        x[j] = s
+    end
+    return x
+end
+
 function PureOSQP.solve_system!(ls::SparseKKT{T}, ws, rhs_x, rhs_z)::Nothing where {T}
     n, m = ws.n, ws.m
-    for i in 1:n
-        ls.rhs[i] = rhs_x[i]
-    end
-    for i in 1:m
-        ls.rhs[n + i] = rhs_z[i]
-    end
+    N = n + m
     perm, work = ls.perm, ls.work
-    # K[perm, perm] = L D Lᵀ.
-    for i in eachindex(perm)
-        work[i] = ls.rhs[perm[i]]
+    # Permute straight out of the two right-hand sides: `K[perm, perm] = L D Lᵀ`, and the
+    # assembled vector is never needed in its own order.
+    for i in 1:N
+        p = perm[i]
+        work[i] = p <= n ? rhs_x[p] : rhs_z[p - n]
     end
-    ldiv!(UnitLowerTriangular(ls.L), work)
+    ldl_forward!(work, ls.L, N)
     work .*= ls.dinv
-    ldiv!(UnitUpperTriangular(transpose(ls.L)), work)
-    for i in eachindex(perm)
-        ls.rhs[perm[i]] = work[i]
+    ldl_backward!(work, ls.L, N)
+    # And scatter straight into the outputs. The eliminated multiplier gives `z̃` without
+    # another product with `A`.
+    for i in 1:N
+        p = perm[i]
+        if p <= n
+            ws.xtilde[p] = work[i]
+        else
+            ws.ztilde[p - n] = work[i]
+        end
     end
-    for i in 1:n
-        ws.xtilde[i] = ls.rhs[i]
-    end
-    # The eliminated multiplier gives `z̃` without another product with `A`.
     for i in 1:m
-        ws.ztilde[i] = rhs_z[i] + ws.rho_inv_vec[i] * ls.rhs[n + i]
+        ws.ztilde[i] = rhs_z[i] + ws.rho_inv_vec[i] * ws.ztilde[i]
     end
     return nothing
 end

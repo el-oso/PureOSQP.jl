@@ -321,13 +321,13 @@ identical in every row, so what these measure is per-iteration cost.
 
 | class | n | m | nnz(A) | PureOSQP backend | PureOSQP | OSQP | vs OSQP | iterations |
 |---|---|---|---|---|---|---|---|---|
-| Random QP | 50 | 500 | 3782 | `cholesky` | 3.67 ms | 6.75 ms | **1.84×** | 925 |
-| Eq QP | 200 | 100 | 2881 | `cholesky` | 4.31 ms | 3.28 ms | 0.76× | 50 |
-| Portfolio | 505 | 506 | 2294 | `sparse_kkt` | 5.47 ms | 3.05 ms | 0.56× | 450 |
-| Lasso | 816 | 816 | 1786 | `cholmod` | 1.68 ms | 1.23 ms | 0.73× | 100 |
-| SVM | 808 | 1600 | 2549 | `cholmod` | 3.99 ms | 3.98 ms | 1.00× | 300 |
-| Huber | 1806 | 1800 | 3526 | `cholmod` | 3.94 ms | 2.70 ms | 0.69× | 125 |
-| Control | 320 | 540 | 6540 | `sparse_formed` | 4.76 ms | 5.43 ms | **1.14×** | 325 |
+| Random QP | 50 | 500 | 3782 | `cholesky` | 3.74 ms | 6.69 ms | **1.79×** | 925 |
+| Eq QP | 200 | 100 | 2881 | `cholesky` | 3.37 ms | 4.03 ms | **1.19×** | 50 |
+| Portfolio | 505 | 506 | 2294 | `sparse_kkt` | 4.28 ms | 3.48 ms | 0.81× | 450 |
+| Lasso | 816 | 816 | 1786 | `cholmod` | 1.79 ms | 1.30 ms | 0.72× | 100 |
+| SVM | 808 | 1600 | 2549 | `cholmod` | 4.13 ms | 4.37 ms | **1.06×** | 300 |
+| Huber | 1806 | 1800 | 3526 | `cholmod` | 4.20 ms | 2.90 ms | 0.69× | 125 |
+| Control | 320 | 540 | 6540 | `sparse_formed` | 5.16 ms | 5.68 ms | **1.10×** | 325 |
 
 **PureOSQP loses three of the seven**, and this is the corpus that matters: it is the one
 with the block and band structure real problems have. The synthetic families elsewhere on
@@ -347,20 +347,23 @@ keeps that row as one sparse row, and takes the class from 16.2 ms to 5.47 ms.
 | Huber | 0.001 | 0.003 | 0.004 | `cholmod` |
 | Control | 0.038 | 0.209 | 0.097 | `sparse_formed` |
 
-**Eq QP is a storage choice, not a solver result.** Its `P` has `nnz(P)/n² = 0.99` — a
-matrix that is 99% dense, handed over as a `SparseMatrixCSC`. Equilibration then walks it
-through gathers where it could stream: `scale!` takes 2.98 ms on the sparse form and 0.304
-ms on the same matrix as a `Matrix`, and the whole solve goes from 4.31 ms to 1.10 ms, from
-0.76× of libosqp to 3.1×. This is the rule under
-[Sparse A](@ref "Sparse A") — densify above about 10% density — costing an order of
-magnitude when ignored. The benchmark hands both solvers the sparse form deliberately, since
-that is what "both sides sparse" means.
+**Eq QP was a storage cost, and equilibration now absorbs most of it.** Its `P` has
+`nnz(P)/n² = 0.99` — a matrix that is 99% dense, handed over as a `SparseMatrixCSC` — so the
+column traversals gather where they could stream. Two things follow. Handing the same matrix
+over as a `Matrix` still takes `scale!` from 2.98 ms to 0.304 ms, which is the rule under
+[Sparse A](@ref "Sparse A") costing an order of magnitude when ignored. And half the passes
+over `P` were redundant: the cost normalization at the end of a sweep computes the column
+norms the next sweep needs, with the same `D`, so `cost_norms!` now returns both and the
+class went from 0.77× to 1.19×.
 
-Lasso and Huber, at 0.73× and 0.69×, are neither. `cholmod` is selected and its fill gate is
-behaving — 0.003 and 0.002 against a limit of 0.05 — so the reduced matrix is genuinely
-sparse and genuinely factored sparsely, and the per-iteration step is already competitive:
-19.9 µs on Huber against upstream's 21.6 µs. The gap is setup, which is 28% of that run, and
-it has not been decomposed further.
+Lasso and Huber, at 0.72× and 0.69×, are the two that remain. `cholmod` is selected and its
+fill gate is behaving — 0.003 and 0.002 against a limit of 0.05 — so the reduced matrix is
+genuinely sparse and genuinely factored sparsely. Two costs are left, neither yet addressed.
+The reduced form needs a product with `Aᵀ` to build its right-hand side and one with `A` to
+recover `z̃`, every iteration, where the full-KKT form gets both from the factorization. And
+`choose_backend` factors the reduced matrix once to measure its fill, which is a numeric
+factorization whose values are then discarded — only the ordering is reused, because the
+backend has to be chosen before equilibration has run.
 
 ### The SparseArrays extension
 

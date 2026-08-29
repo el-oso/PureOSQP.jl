@@ -200,25 +200,26 @@ the reduced matrix from stored entries then factoring it densely wins by 2.8–4
 
 Both families above are synthetic. `bench/osqp_suite.jl` runs the seven problem classes
 OSQP's own benchmark suite uses, which carry the structure real problems have, and the
-answer there is harder — **PureOSQP loses three of the seven**, on identical iteration counts:
+answer there is harder — **PureOSQP leads four of the seven**, on identical iteration counts:
 
 | class | PureOSQP | OSQP | vs OSQP |
 |---|---|---|---|
-| Random QP | 3.62 ms | 6.57 ms | **1.82×** |
-| Eq QP | 4.33 ms | 3.32 ms | 0.77× |
-| Portfolio | 5.47 ms | 3.05 ms | 0.56× |
-| Lasso | 1.67 ms | 1.19 ms | 0.72× |
-| SVM | 3.86 ms | 4.01 ms | 1.04× |
-| Huber | 3.94 ms | 2.73 ms | 0.69× |
-| Control | 4.72 ms | 5.43 ms | **1.15×** |
+| Random QP | 3.74 ms | 6.69 ms | **1.79×** |
+| Eq QP | 3.37 ms | 4.03 ms | **1.19×** |
+| Portfolio | 4.28 ms | 3.48 ms | 0.81× |
+| Lasso | 1.79 ms | 1.30 ms | 0.72× |
+| SVM | 4.13 ms | 4.37 ms | **1.06×** |
+| Huber | 4.20 ms | 2.90 ms | 0.69× |
+| Control | 5.16 ms | 5.68 ms | **1.10×** |
 
 Portfolio is what a dense row costs. Eliminating to the reduced system squares `A`, so one
 dense row makes the result dense: its `A` is 0.9% dense and the reduced matrix would be 99%
 dense. A sparse factorization of the full quasi-definite system keeps that row as one sparse
-row, which is what `sparse_kkt` does and what took the class from 16.2 ms to 5.47 ms.
+row, which is what `sparse_kkt` does and what took the class from 16.2 ms to 4.28 ms.
 
-Eq QP is a storage choice rather than a solver result: its `P` is 99% dense and handed over
-sparse, and densifying it takes the class from 0.76× to 3.1×.
+Lasso and Huber are the two still behind. Both pick the right backend on a genuinely sparse
+reduced matrix; what is left is that the reduced form needs a product with `A` and one with
+`Aᵀ` every iteration where the full-KKT form gets both from the factorization.
 
 
 Two more benchmarks cover the rest:
