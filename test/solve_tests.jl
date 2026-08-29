@@ -532,8 +532,9 @@ end
     c = capabilities()
     @test c.direct_solver
     @test c.update_matrices
-    # Claimed only where true: these are the roadmap's open items.
+    @test c.derivatives
+    # Claimed only where true: the matrix-free backend and C code generation are the
+    # roadmap items still open.
     @test !c.indirect_solver
     @test !c.codegen
-    @test !c.derivatives
 end

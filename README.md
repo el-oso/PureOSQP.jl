@@ -50,8 +50,11 @@ Duality-gap termination is implemented and on by default, following libosqp 1.x.
 A MathOptInterface wrapper ships as a package extension: `Model(PureOSQP.Optimizer)` works
 from JuMP, and the whole of `MOI.Test` passes.
 
-Not implemented: a matrix-free/indirect inner solve, solution
-derivatives, and a sparse *factorization* backend — sparse `P` and `A` are accepted and
+Solution derivatives ship too, by implicit differentiation of the KKT conditions rather
+than through the ADMM loop.
+
+Not implemented: a matrix-free/indirect inner solve, and
+a sparse *factorization* backend — sparse `P` and `A` are accepted and
 are not densified, but the reduced matrix the solver forms and factors is dense. See the
 [Roadmap](https://el-oso.github.io/PureOSQP.jl/dev/roadmap).
 

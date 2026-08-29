@@ -92,5 +92,5 @@ capabilities() = (
     indirect_solver = false,
     codegen = false,
     update_matrices = true,
-    derivatives = false,
+    derivatives = true,
 )

@@ -12,6 +12,8 @@ PureOSQP.update_rho!
 PureOSQP.dimensions
 PureOSQP.capabilities
 PureOSQP.Optimizer
+PureOSQP.adjoint_derivative
+PureOSQP.forward_derivative
 PureOSQP.Settings
 PureOSQP.Solution
 PureOSQP.Workspace

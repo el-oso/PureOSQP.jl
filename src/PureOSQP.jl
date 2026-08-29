@@ -18,6 +18,7 @@ using TypeContracts: TypeContracts, @contract, @verify
 
 export setup, solve, solve!, update!, update_settings!, update_rho!, warm_start!, cold_start!
 export dimensions, capabilities, Optimizer, Settings, Solution, Status
+export adjoint_derivative, forward_derivative
 export LinearSystem, ReducedCholesky, FullKKT
 export SOLVED, PRIMAL_INFEASIBLE, DUAL_INFEASIBLE, MAX_ITER_REACHED, NON_CONVEX, UNSOLVED
 export TIME_LIMIT_REACHED, INTERRUPTED
@@ -32,6 +33,7 @@ include("rho.jl")
 include("termination.jl")
 include("admm.jl")
 include("polish.jl")
+include("derivative.jl")
 include("update.jl")
 include("api.jl")
 

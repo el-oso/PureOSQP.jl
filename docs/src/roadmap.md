@@ -8,12 +8,21 @@ libosqp's public API — `osqp_api.c`, `osqp_api_types.h` and `osqp_api_constant
 Some entries are deliberate and will stay; those are marked as such and explained under
 [What is deliberately different](@ref). The rest are open.
 
-## Missing capabilities
+## Capabilities against upstream
 
-**Solution derivatives.** Upstream computes derivatives of the solution with respect to
-`P`, `q`, `A`, `l` and `u` (`osqp_adjoint_derivative_compute`, `..._get_mat`,
-`..._get_vec`), which is what lets a QP sit inside a differentiable program as a layer.
-Nothing here corresponds to it. This is the largest capability gap.
+**Solution derivatives: implemented.** [`adjoint_derivative`](@ref) and
+[`forward_derivative`](@ref) differentiate the KKT conditions at the solution rather than
+the ADMM loop, so one solve with the active-set KKT matrix gives the derivative whatever
+the iteration did to get there. Both are checked against central differences through whole
+solves, in all five parameters.
+
+A derivative that does not exist is refused rather than approximated: a weakly active row,
+more active rows than variables, a singular active-set matrix, or one ill-conditioned
+enough that the solve fails a relative-residual gate. `polish!` is allowed a regularized
+guess because it tests whether the guess helped; a gradient consumer cannot, and a
+least-squares answer would carry the right shape and units while being a different
+quantity.
+
 
 **Code generation** — a documented difference rather than work to be done.
 
@@ -130,8 +139,10 @@ measurements. A `SparseArrays` extension does specialise equilibration's column 
 
 ## Suggested order
 
-Two projects remain: solution derivatives, and the matrix-free backend. The backend comes
-last, because every problem the dense backends handle well is one it would handle worse.
+One project remains: the matrix-free backend, and it is last for a reason — every problem
+the dense backends handle well is one it would handle worse. What is left otherwise is
+`update_time`, the primal-dual integral, and the settings that select a linear-algebra
+library or a GPU, none of which have a counterpart here.
 
 Two notes for whoever picks these up, both learned the hard way:
 
@@ -141,8 +152,21 @@ Printf, bare `println` and `lpad` all fail there, so its output is written throu
 `Core.stdout` by hand — see `print_padded` in `src/admm.jl`.
 
 Relaxing the element type from `AbstractFloat` to `Real` would let dual numbers run the
-solver, which gives Jacobians and Hessians through AD and, more usefully, a step-size-free
-oracle for checking a derivative implementation. The blocker is small and specific:
-`INFTY` calls `prevfloat(typemax(T))`, which dual numbers have no method for. `Real` rather
-than `Number` because the solver orders `l ≤ Ax ≤ u` and compares residuals derived from
-the iterates, so the element type needs `<` wherever it appears.
+solver, giving Jacobians and Hessians through AD and — more useful here — a step-size-free
+oracle for [`adjoint_derivative`](@ref), which is currently checked against central
+differences. `Real` rather than `Number`, because the solver orders `l ≤ Ax ≤ u` and
+compares residuals derived from the iterates, so the element type needs `<` everywhere it
+appears; `Complex` cannot satisfy that.
+
+`INFTY` is *not* the blocker: ForwardDiff defines `typemax` and `prevfloat` for `Dual`, and
+`min(D(1e30), prevfloat(typemax(D)))` gives the `Float64` value with a zero partial, which
+is what is wanted. The blocker is `bunchkaufman!`, which LAPACK provides only for
+`Float32`, `Float64` and their complex counterparts, with no generic fallback in
+`LinearAlgebra`. It is reached from `polish!`, from the `FullKKT` backend, and from
+[`adjoint_derivative`](@ref) itself. With the bound relaxed and `polish = false`,
+`ForwardDiff` through `solve` already works on the reduced backend.
+
+An AD integration would be a `ChainRulesCore` extension supplying `rrule` and `frule` over
+[`adjoint_derivative`](@ref) and [`forward_derivative`](@ref). That reaches Zygote, which
+consumes ChainRules; it does *not* reach Mooncake, which requires an explicit
+`Mooncake.@from_rrule` and does not pick up ChainRules rules on its own.
