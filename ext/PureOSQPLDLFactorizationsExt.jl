@@ -27,7 +27,7 @@ module PureOSQPLDLFactorizationsExt
 
 using PureOSQP: PureOSQP
 using TypeContracts: TypeContracts, @verify
-using LinearAlgebra: Symmetric, UpperTriangular
+using LinearAlgebra: Symmetric
 using SparseArrays: SparseMatrixCSC, nnz, nzrange, rowvals, nonzeros
 using LDLFactorizations: LDLFactorizations, ldl_analyze, ldl_factorize!
 
@@ -202,8 +202,8 @@ pivoting for stability. `D` carries the signs.
 Unlike [`SparseLDL`](@ref) this recovers `z̃` from the eliminated multiplier, so the solve
 needs no product against `A`.
 """
-mutable struct LDLKKT{T <: Real, V <: AbstractVector{T}, F} <: PureOSQP.LinearSystem
-    K::SparseMatrixCSC{T, Int}
+mutable struct LDLKKT{T <: Real, V <: AbstractVector{T}, G, F} <: PureOSQP.LinearSystem
+    gram::G
     fact::F
     L::SparseMatrixCSC{T, Int}
     perm::Vector{Int}
@@ -213,13 +213,10 @@ end
 
 PureOSQP.backend_name(::LDLKKT) = :ldl_kkt
 
-"The upper triangle of `K`, which is the half LDLFactorizations reads."
-kkt_upper(K::SparseMatrixCSC{T}) where {T} = SparseMatrixCSC(UpperTriangular(K))
-
 function PureOSQP.ldl_kkt_backend(
-        K::SparseMatrixCSC{T}, proto::AbstractVector{T}, n::Integer, m::Integer, fill_limit::Real
+        gram, proto::AbstractVector{T}, n::Integer, m::Integer, fill_limit::Real
     ) where {T <: Real}
-    M = Symmetric(kkt_upper(K), :U)
+    M = Symmetric(gram.K, :U)
     fact = try
         ldl_analyze(M)
     catch
@@ -231,26 +228,26 @@ function PureOSQP.ldl_kkt_backend(
     nnz(fact.L) < fill_limit * n^2 || return nothing
     Base.get_extension(PureOSQP, :PureOSQPSparseArraysExt).check_factor(fact.L, n + m)
     v = similar(proto, T, n + m)
-    return LDLKKT{T, typeof(v), typeof(fact)}(
-        K, fact, fact_L(fact), fact_perm(fact), inv.(fact.d), v
+    return LDLKKT{T, typeof(v), typeof(gram), typeof(fact)}(
+        gram, fact, fact_L(fact), fact_perm(fact), inv.(fact.d), v
     )
 end
 
 function PureOSQP.factorize!(ls::LDLKKT{T}, ws)::Bool where {T}
     Ext = Base.get_extension(PureOSQP, :PureOSQPSparseArraysExt)
-    K = Ext.kkt_sparse(
-        T, ws.P, ws.A, ws.rho_inv_vec, ws.E, ws.D, ws.c, ws.settings.sigma
-    )
-    M = Symmetric(kkt_upper(K), :U)
-    if K.colptr != ls.K.colptr || K.rowval != ls.K.rowval
-        # `update!` replaced P or A with one storing entries elsewhere, so the analysis built
-        # on the old pattern no longer describes this matrix.
-        ls.fact = ldl_analyze(M)
+    P, A = ws.P, ws.A
+    if !Ext.describes(ls.gram, P, A)
+        # `update!` replaced P or A with one storing entries elsewhere, so the slot map and
+        # the analysis built on its pattern are both stale.
+        ls.gram = Ext.kkt_gram(T, P, A, ws.n, ws.m)
+        K = Ext.refill_kkt!(ls.gram, P, A, ws.rho_inv_vec, ws.E, ws.D, ws.c, ws.settings.sigma)
+        ls.fact = ldl_analyze(Symmetric(K, :U))
+    else
+        Ext.refill_kkt!(ls.gram, P, A, ws.rho_inv_vec, ws.E, ws.D, ws.c, ws.settings.sigma)
     end
-    ldl_factorize!(M, ls.fact)
+    ldl_factorize!(Symmetric(ls.gram.K, :U), ls.fact)
     d = ls.fact.d
     any(iszero, d) && return false
-    ls.K = K
     ls.L = fact_L(ls.fact)
     ls.perm = fact_perm(ls.fact)
     Base.get_extension(PureOSQP, :PureOSQPSparseArraysExt).check_factor(ls.L, ws.n + ws.m)

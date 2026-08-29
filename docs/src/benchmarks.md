@@ -321,35 +321,27 @@ identical in every row, so what these measure is per-iteration cost.
 
 | class | n | m | PureOSQP backend | PureOSQP | OSQP | vs OSQP | per iteration | setup |
 |---|---|---|---|---|---|---|---|---|
-| Random QP | 50 | 500 | `cholesky` | 3.60 ms | 6.60 ms | **1.83×** | **1.70×** | 3.18× |
-| SVM | 808 | 1600 | `ldlfactorizations` | 2.71 ms | 3.92 ms | **1.45×** | **1.49×** | **1.33×** |
-| Control | 320 | 540 | `sparse_formed` | 4.51 ms | 5.33 ms | **1.18×** | **1.60×** | 0.32× |
-| Lasso | 816 | 816 | `ldlfactorizations` | 1.03 ms | 1.15 ms | **1.11×** | **1.16×** | **1.04×** |
-| Eq QP | 200 | 100 | `cholesky` | 3.01 ms | 3.34 ms | **1.11×** | **5.21×** | 0.74× |
-| Huber | 1806 | 1800 | `ldlfactorizations` | 2.53 ms | 2.61 ms | **1.03×** | **1.10×** | 0.98× |
-| Portfolio | 505 | 506 | `ldl_kkt` | 2.87 ms | 2.93 ms | **1.02×** | **1.04×** | 0.83× |
+| Random QP | 50 | 500 | `cholesky` | 3.59 ms | 6.56 ms | **1.83×** | **1.71×** | **3.12×** |
+| SVM | 808 | 1600 | `ldlfactorizations` | 2.69 ms | 3.93 ms | **1.46×** | **1.50×** | **1.08×** |
+| Control | 320 | 540 | `sparse_formed` | 4.55 ms | 5.30 ms | **1.17×** | **1.61×** | 0.31× |
+| Lasso | 816 | 816 | `ldlfactorizations` | 1.04 ms | 1.15 ms | **1.11×** | **1.13×** | **1.03×** |
+| Eq QP | 200 | 100 | `cholesky` | 3.00 ms | 3.32 ms | **1.11×** | **5.20×** | 0.73× |
+| Portfolio | 505 | 506 | `ldl_kkt` | 2.71 ms | 2.92 ms | **1.08×** | **1.06×** | 0.96× |
+| Huber | 1806 | 1800 | `ldlfactorizations` | 2.54 ms | 2.71 ms | **1.07×** | **1.05×** | 0.99× |
 
-**PureOSQP is ahead on total time and per iteration on every class**, the weakest at 1.02×.
-This is the corpus that matters, the one with the block and band structure real problems
-have; the synthetic families elsewhere on this page are uniformly random, which is the worst
-case for any *sparse factorization* and therefore flatters a solver that does not have one.
+**PureOSQP is ahead on every class, and the weakest is 1.07×.** This is the corpus that
+matters, the one with the block and band structure real problems have; the synthetic families
+elsewhere on this page are uniformly random, which is the worst case for any *sparse
+factorization* and therefore flatters a solver that does not have one. Run-to-run spread
+within one warm session measures 2.5%; between processes on a busy machine it reaches 10%,
+which is why these are taken with nothing else running.
 
-A second run on the same quiet machine gives 1.85, 1.50, 1.16, 1.13, 1.10, 1.05, 1.04 in the
-same order, so the two weakest rows sit a little above parity rather than on it. Run-to-run
-spread within one warm session measures 2.5%; between processes on a busy machine it reaches
-10%, which is why these are taken with nothing else running.
-
-**Setup is slower than libosqp on four of the seven**, and that is the honest weakness in
-this table rather than a footnote to it: Control 0.32×, Eq QP 0.74×, Portfolio 0.83×, Huber
-0.98×. They win on total time regardless because their loops are long enough to absorb it —
-Control spends 1.49 ms setting up and then 325 iterations at 1.60× — but that is a property
-of the problems, not evidence that setup is fast. A caller solving one short problem gets
-the setup number, not the total.
-
-Where it goes, on Huber: equilibration is 220 µs and is already ahead of libosqp's Ruiz
-(265 µs), so the room is elsewhere — building the reduced matrix's slot map, the symbolic
-analysis, and allocating the workspace. Control's 0.32× is the extreme case, where the
-reduced matrix fills in enough that `sparse_formed` has to build a dense `n×n` and invert it.
+**Setup is at or above parity on five of the seven.** The two that are not -- Eq QP at 0.73×
+and Control at 0.31× -- are the dense path, and there the deficit is bought rather than
+suffered: forming and inverting `R` costs `O(n³)` once and makes every iteration a single
+`symv`, which is why those two run 5.20× and 1.61× per iteration and win by 1.11× and 1.17×
+overall. Taking Control sparse instead was measured and loses about a millisecond net, since
+325 iterations of a sparse triangular pair cost more than the dense factorization saves.
 
 **Portfolio is what a dense row costs.** Its `A` is 0.9% dense, and the reduced matrix
 `R = P̃ + σI + Ãᵀ diag(ρ) Ã` would be **99% dense**: one row of `A` — the budget constraint

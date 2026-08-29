@@ -230,6 +230,41 @@ end
 
 
 """
+    KKTGram{T}
+
+The upper triangle of the quasi-definite KKT matrix, with the map that refills its values.
+
+    K = ⎡P̃ + σI    Ãᵀ  ⎤
+        ⎣Ã      −diag(ρ⁻¹)⎦
+
+Every stored entry comes from one place: an entry of `P`'s upper triangle, an entry of `A`
+transposed into the `(1,2)` block, the `σ` on a leading diagonal entry, or a `−ρ⁻¹` on a
+trailing one. None of that moves when `ρ`, `D`, `E`, `c` or `σ` do, so the slots are found
+once and [`refill_kkt!`](@ref) is a pass over them.
+
+[`kkt_sparse`](@ref) builds the same matrix through five sparse products and as many
+intermediate matrices. That is how the pattern is established; it is not how it should be
+rebuilt, and a refactorization rebuilds it every time `ρ` is retuned.
+"""
+struct KKTGram{T}
+    K::SparseMatrixCSC{T, Int}
+    acolptr::Vector{Int}
+    arowval::Vector{Int}
+    pcolptr::Vector{Int}
+    prowval::Vector{Int}
+    arow::Vector{Int}
+    acol::Vector{Int}
+    aperm::Vector{Int}
+    aslot::Vector{Int}
+    prow::Vector{Int}
+    pcol::Vector{Int}
+    pperm::Vector{Int}
+    pslot::Vector{Int}
+    sslot::Vector{Int}
+    rslot::Vector{Int}
+end
+
+"""
     SparseKKT{T,V,F} <: PureOSQP.LinearSystem
 
 Factors the full `(n+m)×(n+m)` quasi-definite system sparsely, with CHOLMOD's `ldlt`.
@@ -254,7 +289,7 @@ the property upstream's own solver rests on.
 [`PureOSQP.reduced_rhs!`](@ref) for the reduced backends' equivalent.
 """
 mutable struct SparseKKT{T <: Real, V <: AbstractVector{T}, F} <: PureOSQP.LinearSystem
-    K::SparseMatrixCSC{T, Int}
+    gram::KKTGram{T}
     fact::F
     L::SparseMatrixCSC{T, Int}
     dinv::Vector{T}
@@ -283,19 +318,109 @@ function kkt_sparse(::Type{T}, P, A, rho_inv, E, D, c, sigma) where {T}
     )
 end
 
-function PureOSQP.factorize!(ls::SparseKKT{T}, ws)::Bool where {T}
-    K = kkt_sparse(
-        T, ws.P, ws.A, ws.rho_inv_vec, ws.E, ws.D, ws.c, ws.settings.sigma
+
+"Build the KKT matrix's pattern and the slot map that refills it."
+function kkt_gram(::Type{T}, P::SparseMatrixCSC, A::SparseMatrixCSC, n::Integer, m::Integer) where {T}
+    N = n + m
+    prows, arows = rowvals(P), rowvals(A)
+    nup = 0
+    for j in 1:n, k in nzrange(P, j)
+        nup += prows[k] <= j
+    end
+    na = nnz(A)
+    total = nup + na + n + m
+    crow = Vector{Int}(undef, total)
+    ccol = Vector{Int}(undef, total)
+    prow = Vector{Int}(undef, nup)
+    pcol = Vector{Int}(undef, nup)
+    pperm = Vector{Int}(undef, nup)
+    t = 0
+    s = 0
+    for j in 1:n, k in nzrange(P, j)
+        i = prows[k]
+        i <= j || continue
+        s += 1
+        prow[s] = i; pcol[s] = j; pperm[s] = k
+        t += 1
+        crow[t] = i; ccol[t] = j
+    end
+    # `Ã` sits in the (1,2) block: entry (i, j) of `A` is entry (j, n + i) of `K`, which is
+    # above the diagonal because `j <= n < n + i`.
+    arow = Vector{Int}(undef, na)
+    acol = Vector{Int}(undef, na)
+    aperm = Vector{Int}(undef, na)
+    s = 0
+    for j in 1:n, k in nzrange(A, j)
+        i = arows[k]
+        s += 1
+        arow[s] = i; acol[s] = j; aperm[s] = k
+        t += 1
+        crow[t] = j; ccol[t] = n + i
+    end
+    for j in 1:n
+        t += 1
+        crow[t] = j; ccol[t] = j
+    end
+    for i in 1:m
+        t += 1
+        crow[t] = n + i; ccol[t] = n + i
+    end
+    K, slot = pattern_from(T, crow, ccol, N)
+    return KKTGram{T}(
+        K, copy(A.colptr), copy(arows), copy(P.colptr), copy(prows),
+        arow, acol, aperm, slot[(nup + 1):(nup + na)],
+        prow, pcol, pperm, slot[1:nup],
+        slot[(nup + na + 1):(nup + na + n)], slot[(nup + na + n + 1):total],
     )
-    if K.colptr == ls.K.colptr && K.rowval == ls.K.rowval
+end
+
+"Whether `g`'s slots still describe these matrices, which they do unless a pattern changed."
+function describes(g::KKTGram, P::SparseMatrixCSC, A::SparseMatrixCSC)
+    return g.acolptr == A.colptr && g.arowval == rowvals(A) &&
+        g.pcolptr == P.colptr && g.prowval == rowvals(P)
+end
+
+"""
+    refill_kkt!(g, P, A, rho_inv, E, D, c, sigma) -> SparseMatrixCSC
+
+Rebuild `g.K` for the current data, in one pass over the recorded slots, without allocating.
+"""
+function refill_kkt!(
+        g::KKTGram{T}, P::SparseMatrixCSC, A::SparseMatrixCSC, rho_inv, E, D, c, sigma
+    ) where {T}
+    nz = nonzeros(g.K)
+    fill!(nz, zero(T))
+    pvals, avals = nonzeros(P), nonzeros(A)
+    for k in eachindex(g.pslot)
+        nz[g.pslot[k]] += c * D[g.prow[k]] * T(pvals[g.pperm[k]]) * D[g.pcol[k]]
+    end
+    for k in eachindex(g.aslot)
+        nz[g.aslot[k]] += E[g.arow[k]] * T(avals[g.aperm[k]]) * D[g.acol[k]]
+    end
+    for j in eachindex(g.sslot)
+        nz[g.sslot[j]] += sigma
+    end
+    for i in eachindex(g.rslot)
+        nz[g.rslot[i]] -= rho_inv[i]
+    end
+    return g.K
+end
+
+function PureOSQP.factorize!(ls::SparseKKT{T}, ws)::Bool where {T}
+    P, A = ws.P, ws.A
+    if !describes(ls.gram, P, A)
+        # `update!` replaced P or A with one storing entries elsewhere, so the slot map and
+        # the analysis built on its pattern are both stale.
+        ls.gram = kkt_gram(T, P, A, ws.n, ws.m)
+        K = refill_kkt!(ls.gram, P, A, ws.rho_inv_vec, ws.E, ws.D, ws.c, ws.settings.sigma)
+        ls.fact = ldlt(Symmetric(K, :U); check = false)
+    else
         # The pattern does not depend on ρ or the equilibration factors, so every
         # refactorization after the first reuses the ordering and the symbolic phase.
-        ldlt!(ls.fact, K; check = false)
-    else
-        ls.fact = ldlt(K; check = false)
+        K = refill_kkt!(ls.gram, P, A, ws.rho_inv_vec, ws.E, ws.D, ws.c, ws.settings.sigma)
+        ldlt!(ls.fact, Symmetric(K, :U); check = false)
     end
     issuccess(ls.fact) || return false
-    ls.K = K
     LD = sparse(ls.fact.LD)::SparseMatrixCSC{T, Int}
     d = diag(LD)
     any(iszero, d) && return false
@@ -394,12 +519,13 @@ function sparse_kkt_backend(
     (issparse(P) && n > 0 && m > 0) || return nothing
     # Only worth considering where the reduced form loses, which is what the dense row means.
     densest_row(A)^2 < DENSE_FACTOR_FILL * n^2 && return nothing
-    K = kkt_sparse(T, P, A, inv.(rho_vec), E, D, c, sigma)
+    gram = kkt_gram(T, P, A, n, m)
+    K = refill_kkt!(gram, P, A, inv.(rho_vec), E, D, c, sigma)
     # As for the reduced matrix: a pure-Julia LDLᵀ, where one is loaded, factors this faster
     # and needs nothing extracted from a foreign factor afterwards.
-    alt = PureOSQP.ldl_kkt_backend(K, proto, n, m, DENSE_FACTOR_FILL)
+    alt = PureOSQP.ldl_kkt_backend(gram, proto, n, m, DENSE_FACTOR_FILL)
     isnothing(alt) || return alt
-    F = ldlt(K; check = false)
+    F = ldlt(Symmetric(K, :U); check = false)
     issuccess(F) || return nothing
     LD = sparse(F.LD)::SparseMatrixCSC{T, Int}
     d = diag(LD)
@@ -409,7 +535,7 @@ function sparse_kkt_backend(
     check_factor(LD, n + m)
     v = similar(proto, T, n + m)
     return SparseKKT{T, typeof(v), typeof(F)}(
-        K, F, LD, inv.(d), F.p::Vector{Int}, v, similar(v)
+        gram, F, LD, inv.(d), F.p::Vector{Int}, v, similar(v)
     )
 end
 

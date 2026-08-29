@@ -328,7 +328,7 @@ Separate from [`ldl_backend`](@ref) because the solve differs, not the factoriza
 full system yields `z̃` from the eliminated multiplier where the reduced one recovers it with
 a product against `A`.
 """
-ldl_kkt_backend(K, proto::AbstractVector, n::Integer, m::Integer, fill_limit::Real) = nothing
+ldl_kkt_backend(gram, proto::AbstractVector, n::Integer, m::Integer, fill_limit::Real) = nothing
 
 """
     require_host(v, what)
