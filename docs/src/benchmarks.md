@@ -41,12 +41,13 @@ PureOSQP is ahead of OSQP on every case in this table.
 
 ## How to read this
 
-**The timings are not a claim that this solver is better than OSQP.** These are dense
+**The timings are not a claim that this solver is better than OSQP.** This table is dense
 problems, which is the reference implementation's worst case: it is a *sparse* solver being
 handed dense matrices, so it pays sparse-format overhead and scalar sparse LDLᵀ where
-PureOSQP gets BLAS-3 dense Cholesky. The right reading is a *storage-format* comparison,
-not a solver-quality one. [Sparse A](@ref "Sparse A") shows the other side, and
-[Against other solvers](@ref) shows what a solver built for dense QPs does.
+PureOSQP gets BLAS-3 dense Cholesky. The right reading is a *storage-format* comparison on
+one format, not a solver-quality one — and not a statement about which format this solver
+is for, since it aims to serve all of them. [Sparse A](@ref "Sparse A") and
+[Matrix types](@ref "Matrix types") are the same solver on the others.
 
 **What the matching iteration counts do and do not show.** They mean the algorithm's
 control logic tracks the reference. But the count is *quantized*: with
@@ -180,8 +181,8 @@ the picture at these sizes: at n=200, m=400 it took 25.4 ms on 1 thread, 25.8 ms
 
 ## Against other solvers
 
-Everything above compares PureOSQP with OSQP, which puts a sparse solver on dense data —
-its worst case. These are three other solvers on the same dense QPs, one per algorithm
+The tables above compare PureOSQP with OSQP. These are three other solvers on the same
+dense QPs, one per algorithm
 family. Reproduce with `julia --project=bench bench/solvers.jl`.
 
 | n | m | PureOSQP | OSQP | DAQP | Clarabel |

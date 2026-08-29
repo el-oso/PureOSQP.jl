@@ -15,17 +15,24 @@ Rows with `l == u` are equality constraints.
 
 ## What makes this different
 
-`P` and `A` may be **any `AbstractMatrix`** and are never copied or modified. Sparse
-matrices are accepted as they are: a `SparseArrays` weak dependency lets equilibration walk
-only their stored entries, and the per-iteration products use their own `mul!`. What the
-solver *factors* is dense, because eliminating to the reduced `n×n` system fills in
-whatever sparsity `A` had — a sparse factorization of the full KKT was measured against
-this and does not pay. The numerics
-use `LinearAlgebra` alone, and the only
-other dependency is TypeContracts.jl, which declares the linear-system backend interface
-and checks it at precompilation. The solver is
-built for dense and structured data, where the reference implementation's sparse machinery
-is a liability rather than a help.
+**The goal is to support every matrix representation** — dense, sparse, structured, lazy,
+and anything else satisfying the `AbstractMatrix` interface — over any `Real` element type.
+That is the design aim, not a caveat attached to one favoured format.
+
+`P` and `A` are held by reference and never copied or modified. Every per-iteration product
+runs `mul!` on the matrix you passed, so a `Diagonal`, a `Tridiagonal`, a `SubArray` or a
+`SparseMatrixCSC` keeps its own product instead of being flattened into a dense copy.
+Equilibration reaches the entries through four overridable column traversals, and a
+`SparseArrays` weak dependency specialises them to walk only the stored entries.
+
+One matrix inside the solver is dense whatever you pass: the `n×n` reduced system it forms
+and factors, because eliminating `ν` fills in whatever sparsity `A` had. That is a property
+of the reduction, not a restriction on the input, and whether a sparse factorization of the
+full KKT avoids it was measured rather than assumed — see
+[How the sparsest case was closed](@ref "How the sparsest case was closed").
+
+The numerics use `LinearAlgebra` alone; the only other dependency is TypeContracts.jl,
+which declares the linear-system backend interface and checks it at precompilation.
 
 ## Quick start
 

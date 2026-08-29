@@ -47,9 +47,11 @@ large bound would otherwise dominate the sum."
 """
     Settings{T}
 
-Algorithm parameters. Defaults follow libosqp 0.6.2 except `adaptive_rho_interval`, which
-is a fixed iteration count rather than a wall-clock fraction of the setup time, so that
-iteration counts are reproducible across machines.
+Algorithm parameters. Defaults follow libosqp 0.6.2 with two exceptions.
+`adaptive_rho_interval` is a fixed iteration count rather than a wall-clock fraction of
+the setup time, so iteration counts are reproducible across machines. And `check_dualgap`
+defaults on, following libosqp 1.x, so a run stops on the duality gap as well as on the
+two residuals.
 """
 struct Settings{T <: Real}
     rho::T

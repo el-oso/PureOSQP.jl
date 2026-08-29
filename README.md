@@ -12,8 +12,14 @@ minimize    ½ xᵀPx + qᵀx
 subject to  l ≤ Ax ≤ u
 ```
 
-`P` and `A` may be **any `AbstractMatrix`**, over any `Real` element type, and are never
-copied or modified. The numerics
+**The goal is to support every matrix representation** — dense, sparse, structured, lazy,
+and anything else satisfying the `AbstractMatrix` interface — over any `Real` element type.
+That is the design aim, not a caveat attached to one favoured format. `P` and `A` are held
+by reference and never copied or modified, and every per-iteration product runs `mul!` on
+the matrix you passed, so a `Diagonal`, a `SubArray` or a `SparseMatrixCSC` keeps its own
+product rather than being flattened into a dense copy.
+
+The numerics
 use `LinearAlgebra` alone; the only other dependency is
 [TypeContracts.jl](https://github.com/el-oso/TypeContracts.jl), which declares the
 linear-system backend interface and checks it at precompilation. Sparse `P` and `A` are
@@ -137,10 +143,11 @@ oracle since it has no Julia wrapper. Switching BLAS changes neither: PureBLAS g
 
 PureBLAS is the faster of the two on every case in this table.
 
-These are **dense** problems, which is the reference implementation's worst case: a sparse
-solver handed dense matrices, paying scalar sparse LDLᵀ where PureOSQP gets BLAS-3 dense
-Cholesky. Read it as a storage-format comparison, not a solver-quality one. Two benchmarks
-give the other side of the picture:
+This table is **dense** problems, which is the reference implementation's worst case: a
+sparse solver handed dense matrices, paying scalar sparse LDLᵀ where PureOSQP gets BLAS-3
+dense Cholesky. Read it as a storage-format comparison on one format, not a solver-quality
+one, and not a statement about which format this solver is for. Two more benchmarks cover
+the others:
 
 - **sparse `A`** — PureOSQP leads at every density measured, by 1.36× at `n = 200, m = 400`
   and 1% density up to 2.88× at 5%. Hand it the sparse matrices rather than dense copies

@@ -8,6 +8,47 @@ libosqp's public API — `osqp_api.c`, `osqp_api_types.h` and `osqp_api_constant
 Some entries are deliberate and will stay; those are marked as such and explained under
 [What is deliberately different](@ref). The rest are open.
 
+## A backend per matrix representation
+
+**The aim is to support every matrix representation well, not merely to accept it.** The
+gap between those two is the largest open item here, and it is larger than the section
+below.
+
+What works today: `P` and `A` are held by reference, never copied, and every per-iteration
+product runs `mul!` on the matrix the caller passed, so a `Diagonal`, a `SubArray` or a
+`SparseMatrixCSC` keeps its own product. Equilibration reaches their entries through four
+overridable column traversals, which the `SparseArrays` extension specialises.
+
+What does not: **every linear-system backend materialises dense buffers**, whatever was
+passed in.
+
+| buffer | size | file |
+|---|---|---|
+| `ReducedCholesky.W` — a dense copy of `A` | `m×n` | `src/linsys.jl` |
+| `ReducedCholesky.Rinv` | `n×n` | `src/linsys.jl` |
+| `FullKKT.K` | `(n+m)×(n+m)` | `src/linsys.jl` |
+| `polish!`'s reduced KKT | `(n+k)×(n+k)` | `src/polish.jl` |
+| `active_kkt`'s `M` | `(n+k)×(n+k)` | `src/derivative.jl` |
+
+Each is `similar(q0, ...)` off a dense vector, so each is dense by construction. `W` is the
+sharpest case: `factorize!` zeroes an `m×n` buffer and writes `A`'s scaled entries into it
+purely to hand `syrk` a dense argument, which is waste in proportion to how sparse `A` was.
+
+[`LinearSystem`](@ref) is already the seam for fixing this — a declared, contract-checked
+interface whose implementation is chosen once at [`setup`](@ref) and then fixed in the
+workspace's type. Choosing it on `typeof(P)` and `typeof(A)` is what it is for. Three
+concrete directions:
+
+- **Sparse `A`** — form `R = P̃ + σI + Ãᵀ diag(ρ) Ã` through sparse products rather than a
+  dense `W`. Note this is a different question from the one already measured: what was
+  tested and rejected was a sparse LDLᵀ of the *full* KKT against the dense reduced solve.
+  At 1% density `R` itself is only 6.3% dense, so forming it sparsely is untested and
+  plausible even though factoring it sparsely is not.
+- **Structured `P`** — a `Diagonal` or `Tridiagonal` is currently read entry by entry into a
+  dense `R`, which is why [Matrix types](@ref "Matrix types") measures 0.80× rather than a
+  speedup. The mechanism works; the backend throws the structure away.
+- **Matrix-free** — the case where nothing can be materialised at all, covered below.
+
 ## Capabilities against upstream
 
 **Solution derivatives: implemented.** [`adjoint_derivative`](@ref) and

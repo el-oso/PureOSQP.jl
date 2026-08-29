@@ -1,4 +1,10 @@
-@testitem "the adjoint derivative matches finite differences in every parameter" begin
+@testitem "the adjoint derivative matches finite differences on a polished solution" begin
+    # Central differencing is the weaker oracle -- it carries step-size error and compares
+    # one directional projection per parameter, where the dual-number item below compares
+    # whole Jacobians exactly. It is kept for one thing the dual check cannot reach:
+    # `polish = true`. `polish!` overwrites `ws.x`, `ws.y` and `ws.z`, and `active_kkt`
+    # reads all three, so a polished workspace is a genuinely different input to the
+    # derivative. `ForwardDiff` cannot get there, because `polish!` calls `bunchkaufman!`.
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     Random.seed!(11)
@@ -155,4 +161,58 @@ end
     gx, gy = randn(n), randn(m)
     d = adjoint_derivative(ws, gx, gy)
     @test d.dq ≈ Jx' * gx + Jy' * gy atol = 1.0e-9
+end
+
+@testitem "an equality row's gradient goes to the bound its multiplier pushes against" begin
+    using LinearAlgebra, SparseArrays, OSQP, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    # The other derivative tests use strictly `l < u` rows, which is how an equality-row
+    # bug survived them. An equality is always active, but which of `l`/`u` the derivative
+    # belongs to still depends on the sign of `y`: widening the bound the row pushes
+    # against moves the solution, widening the other one does not.
+    #
+    # Only one-sided differences are available here. Perturbing an equality's `l` upward,
+    # or its `u` downward, makes `l > u`, which `setup` rejects outright.
+    opts = (eps_abs = 1.0e-12, eps_rel = 1.0e-12, max_iter = 200_000, polish = true)
+    positive = Ref(0)
+    negative = Ref(0)
+
+    for seed in 1:25
+        Random.seed!(seed)
+        n, m = 3, 4
+        X = randn(n, n)
+        P = Matrix(X'X + I)
+        q = randn(n)
+        A = randn(m, n)
+        b = A * randn(n)
+        l, u = copy(b), copy(b)                    # row 1 is an equality
+        l[2:end] .= b[2:end] .- rand(m - 1)
+        u[2:end] .= b[2:end] .+ rand(m - 1)
+
+        ws = setup(P, q, A, l, u; opts...)
+        s = PureOSQP.solve!(ws)
+        s.status == SOLVED || continue
+
+        gx, gy = randn(n), randn(m)
+        d = adjoint_derivative(ws, gx, gy)
+        Lf(ll, uu) = (w = PureOSQP.solve(P, q, A, ll, uu; opts...); dot(gx, w.x) + dot(gy, w.y))
+        h = 1.0e-6
+        e1 = zeros(m)
+        e1[1] = 1.0
+        L0 = Lf(l, u)
+        @test d.dl[1] ≈ (Lf(l - h * e1, u) - L0) / -h atol = 1.0e-4
+        @test d.du[1] ≈ (Lf(l, u + h * e1) - L0) / h atol = 1.0e-4
+
+        # Exactly one bound carries it, and it is the one the multiplier selects.
+        s.y[1] > 0 ? (positive[] += 1) : (negative[] += 1)
+        if s.y[1] > 0
+            @test iszero(d.dl[1])
+        else
+            @test iszero(d.du[1])
+        end
+    end
+
+    # Both signs must occur, or the test proves only half of what it claims.
+    @test positive[] > 0
+    @test negative[] > 0
 end

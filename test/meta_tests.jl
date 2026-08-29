@@ -6,7 +6,7 @@
     expected = Dict(
         "c_suite_tests.jl" => 9,
         "corpus_tests.jl" => 4,
-        "derivative_tests.jl" => 4,
+        "derivative_tests.jl" => 5,
         "linsys_tests.jl" => 5,
         "meta_tests.jl" => 1,
         "moi_tests.jl" => 2,

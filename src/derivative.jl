@@ -38,8 +38,12 @@ function active_kkt(ws::Workspace{T}) where {T}
     for i in 1:m
         li, ui = ws.l0[i], ws.u0[i]
         if li == ui
+            # An equality row is always active, but which bound the derivative belongs to
+            # is still decided by the sign of the multiplier, exactly as for an inequality.
+            # Widening the bound the row pushes against moves the solution; widening the
+            # other one does not, since the row is not resting on it.
             push!(act, i)
-            push!(lower, true)
+            push!(lower, y[i] < zero(T))
         elseif abs(y[i]) > τ
             push!(act, i)
             push!(lower, y[i] < zero(T))

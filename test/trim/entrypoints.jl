@@ -24,6 +24,27 @@ solve_interruptible(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u
 # `time_limit` puts `time_ns` and the UInt64 budget arithmetic on the solve path.
 solve_time_limited(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u; time_limit = 10.0)
 
+# The rest of the exported surface. `update_settings!` in particular compares settings
+# field by field rather than looping over a tuple of symbols, because `getfield` with a
+# symbol the compiler cannot see is a dynamic call -- this is what checks that reasoning.
+function settings_and_rho(P::M, q::V, A::M, l::V, u::V)
+    ws = PureOSQP.setup(P, q, A, l, u)
+    PureOSQP.update_settings!(ws; eps_abs = 1.0e-9, rho = 0.5)
+    PureOSQP.update_rho!(ws, 0.25)
+    PureOSQP.cold_start!(ws)
+    n, m = PureOSQP.dimensions(ws)
+    c = PureOSQP.capabilities()
+    return n + m + (c.direct_solver ? 1 : 0)
+end
+
+function derivatives(P::M, q::V, A::M, l::V, u::V)
+    ws = PureOSQP.setup(P, q, A, l, u)
+    PureOSQP.solve!(ws)
+    d = PureOSQP.adjoint_derivative(ws, q, l)
+    fx, fy = PureOSQP.forward_derivative(ws; dq = q)
+    return d.dq[1] + fx[1] + fy[1]
+end
+
 function setup_solve_update(P::M, q::V, A::M, l::V, u::V)
     ws = PureOSQP.setup(P, q, A, l, u)
     PureOSQP.solve!(ws)
