@@ -114,3 +114,45 @@ end
     @test_throws "cannot be independent" adjoint_derivative(ws3, randn(n), randn(5))
     @test_throws "cannot be independent" forward_derivative(ws3; dq = randn(n))
 end
+
+@testitem "dual numbers give an exact oracle for the derivative" begin
+    using LinearAlgebra, SparseArrays, OSQP, Random, ForwardDiff
+    include(joinpath(@__DIR__, "helpers.jl"))
+    # A far stronger check than the finite-difference one: no step-size error, and it
+    # compares the *whole* Jacobian rather than one directional projection, so a bug
+    # confined to a subspace cannot hide in it.
+    #
+    # `polish = false` because polishing calls `bunchkaufman!`, which LAPACK provides only
+    # for BLAS floats and `LinearAlgebra` has no generic fallback for. That is the one
+    # thing standing between this package and running end to end on dual numbers.
+    Random.seed!(11)
+    n, m = 4, 6
+    X = randn(n, n)
+    P = Matrix(X'X + I)
+    q = randn(n)
+    A = randn(m, n)
+    b = A * randn(n)
+    l, u = b .- rand(m), b .+ rand(m)
+    opts = (eps_abs = 1.0e-12, eps_rel = 1.0e-12, max_iter = 200_000, polish = false)
+
+    ws = setup(P, q, A, l, u; opts...)
+    @test PureOSQP.solve!(ws).status == SOLVED
+
+    # Exact Jacobians of the solution with respect to `q`, taken through the solver.
+    Jx = ForwardDiff.jacobian(qq -> PureOSQP.solve(P, qq, A, l, u; opts...).x, q)
+    Jy = ForwardDiff.jacobian(qq -> PureOSQP.solve(P, qq, A, l, u; opts...).y, q)
+    @test size(Jx) == (n, n)
+    @test size(Jy) == (m, n)
+
+    # Forward mode is the Jacobian applied to a direction.
+    dq = randn(n)
+    fx, fy = forward_derivative(ws; dq)
+    @test fx ≈ Jx * dq atol = 1.0e-10
+    @test fy ≈ Jy * dq atol = 1.0e-9
+
+    # The adjoint is its transpose applied to the loss gradient, and this compares the
+    # full gradient vector rather than a projection of it.
+    gx, gy = randn(n), randn(m)
+    d = adjoint_derivative(ws, gx, gy)
+    @test d.dq ≈ Jx' * gx + Jy' * gy atol = 1.0e-9
+end

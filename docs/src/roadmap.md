@@ -151,20 +151,21 @@ whether or not the branch reaching it is ever taken. `verbose` is the worked exa
 Printf, bare `println` and `lpad` all fail there, so its output is written through
 `Core.stdout` by hand — see `print_padded` in `src/admm.jl`.
 
-Relaxing the element type from `AbstractFloat` to `Real` would let dual numbers run the
-solver, giving Jacobians and Hessians through AD and — more useful here — a step-size-free
-oracle for [`adjoint_derivative`](@ref), which is currently checked against central
-differences. `Real` rather than `Number`, because the solver orders `l ≤ Ax ≤ u` and
-compares residuals derived from the iterates, so the element type needs `<` everywhere it
-appears; `Complex` cannot satisfy that.
+The element type is `Real`, not `AbstractFloat`, so dual numbers run the solver and AD can
+differentiate straight through it. `Real` rather than `Number`, because the solver orders
+`l ≤ Ax ≤ u` and compares residuals derived from the iterates, so the element type needs
+`<` everywhere it appears; `Complex` cannot satisfy that.
 
-`INFTY` is *not* the blocker: ForwardDiff defines `typemax` and `prevfloat` for `Dual`, and
-`min(D(1e30), prevfloat(typemax(D)))` gives the `Float64` value with a zero partial, which
-is what is wanted. The blocker is `bunchkaufman!`, which LAPACK provides only for
-`Float32`, `Float64` and their complex counterparts, with no generic fallback in
-`LinearAlgebra`. It is reached from `polish!`, from the `FullKKT` backend, and from
-[`adjoint_derivative`](@ref) itself. With the bound relaxed and `polish = false`,
-`ForwardDiff` through `solve` already works on the reduced backend.
+What that buys is the derivative's oracle. `ForwardDiff.jacobian` through `solve` gives the
+exact Jacobian, with no step-size error and no restriction to one direction, and
+[`forward_derivative`](@ref) matches it to `1e-13` — against the `1e-5` that central
+differencing on a single direction can support.
+
+One limit remains: `bunchkaufman!` is LAPACK-only for BLAS floats, with no generic fallback
+in `LinearAlgebra`, and it is reached from `polish!`, from the `FullKKT` backend and from
+[`adjoint_derivative`](@ref). So dual numbers work on the reduced backend with
+`polish = false`. Note `INFTY` is not a blocker, despite calling `prevfloat(typemax(T))`:
+ForwardDiff defines both for `Dual`.
 
 An AD integration would be a `ChainRulesCore` extension supplying `rrule` and `frule` over
 [`adjoint_derivative`](@ref) and [`forward_derivative`](@ref). That reaches Zygote, which

@@ -41,7 +41,7 @@ the two forms agree to within a small factor.
 This is the default: the reduced matrix is smaller than the full system for every `m`, and
 measurement puts it faster in every dense regime.
 """
-struct ReducedCholesky{T <: AbstractFloat, M <: AbstractMatrix{T}} <: LinearSystem
+struct ReducedCholesky{T <: Real, M <: AbstractMatrix{T}} <: LinearSystem
     W::M
     Rinv::M
 end
@@ -53,7 +53,7 @@ Build the backend's storage as `similar(proto, ...)`, so it follows the array ty
 data it was given rather than always being a `Matrix`. `proto` is a dense vector, not one
 of the problem matrices: both buffers are dense even when `P` and `A` are not.
 """
-function ReducedCholesky(proto::AbstractVector{T}, n::Integer, m::Integer) where {T <: AbstractFloat}
+function ReducedCholesky(proto::AbstractVector{T}, n::Integer, m::Integer) where {T <: Real}
     W = similar(proto, T, m, n)
     return ReducedCholesky{T, typeof(W)}(W, similar(proto, T, n, n))
 end
@@ -66,7 +66,7 @@ the reference implementation does. Slower than [`ReducedCholesky`](@ref), but it
 square the conditioning of `Ã`, so it is the more accurate factorization at moderate
 conditioning and the better choice when a result is in question.
 """
-mutable struct FullKKT{T <: AbstractFloat, M <: AbstractMatrix{T}, V <: AbstractVector{T}, F} <: LinearSystem
+mutable struct FullKKT{T <: Real, M <: AbstractMatrix{T}, V <: AbstractVector{T}, F} <: LinearSystem
     K::M
     rhs::V
     fact::F
@@ -78,7 +78,7 @@ end
 Build the backend's storage as `similar(proto, ...)`, following the array type of the data
 it was given. See [`ReducedCholesky`](@ref) on why `proto` is a vector.
 """
-function FullKKT(proto::AbstractVector{T}, n::Integer, m::Integer) where {T <: AbstractFloat}
+function FullKKT(proto::AbstractVector{T}, n::Integer, m::Integer) where {T <: Real}
     K = similar(proto, T, n + m, n + m)
     rhs = similar(proto, T, n + m)
     fact = bunchkaufman!(Symmetric(fill(one(T), 1, 1)))

@@ -12,7 +12,8 @@ minimize    ½ xᵀPx + qᵀx
 subject to  l ≤ Ax ≤ u
 ```
 
-`P` and `A` may be **any `AbstractMatrix`** and are never copied or modified. The numerics
+`P` and `A` may be **any `AbstractMatrix`**, over any `Real` element type, and are never
+copied or modified. The numerics
 use `LinearAlgebra` alone; the only other dependency is
 [TypeContracts.jl](https://github.com/el-oso/TypeContracts.jl), which declares the
 linear-system backend interface and checks it at precompilation. Sparse `P` and `A` are
@@ -51,7 +52,9 @@ A MathOptInterface wrapper ships as a package extension: `Model(PureOSQP.Optimiz
 from JuMP, and the whole of `MOI.Test` passes.
 
 Solution derivatives ship too, by implicit differentiation of the KKT conditions rather
-than through the ADMM loop.
+than through the ADMM loop, checked against `ForwardDiff` to `1e-13`. Dual numbers run the
+solver directly, since the element type is `Real`.
+
 
 Not implemented: a matrix-free/indirect inner solve, and
 a sparse *factorization* backend — sparse `P` and `A` are accepted and

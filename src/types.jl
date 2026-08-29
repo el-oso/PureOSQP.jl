@@ -51,7 +51,7 @@ Algorithm parameters. Defaults follow libosqp 0.6.2 except `adaptive_rho_interva
 is a fixed iteration count rather than a wall-clock fraction of the setup time, so that
 iteration counts are reproducible across machines.
 """
-struct Settings{T <: AbstractFloat}
+struct Settings{T <: Real}
     rho::T
     sigma::T
     alpha::T
@@ -86,7 +86,7 @@ function Settings{T}(;
         check_dualgap = true, scaled_termination = false, rho_is_vec = true,
         polish = false, polish_refine_iter = 3, delta = 1.0e-6,
         warm_starting = true, verbose = false, linsys = :auto,
-    ) where {T <: AbstractFloat}
+    ) where {T <: Real}
     # `adaptive_rho` names a mode. A `Bool` is also accepted: `true` is `:iterations`.
     rho_mode = adaptive_rho isa Bool ? (adaptive_rho ? :iterations : :disabled) :
         Symbol(adaptive_rho)
@@ -142,7 +142,7 @@ that uses it, but `run_time` counts it only for the first solve — a re-solve d
 it again, so adding it in would overstate the cost of the loop that `update!` exists to
 make cheap.
 """
-struct Solution{T <: AbstractFloat}
+struct Solution{T <: Real}
     x::Vector{T}
     y::Vector{T}
     status::Status
@@ -175,7 +175,7 @@ The buffers are `similar` to the `q` that built the workspace, so they follow th
 type of the caller's data rather than always being `Vector`.
 """
 mutable struct Workspace{
-        T <: AbstractFloat, MP <: AbstractMatrix, MA <: AbstractMatrix,
+        T <: Real, MP <: AbstractMatrix, MA <: AbstractMatrix,
         V <: AbstractVector{T}, VI <: AbstractVector{Int8}, LS <: LinearSystem,
     }
     P::MP
@@ -282,7 +282,7 @@ end
 function setup(
         ::Type{T}, P::AbstractMatrix, q::AbstractVector, A::AbstractMatrix,
         l::AbstractVector, u::AbstractVector; kwargs...
-    ) where {T <: AbstractFloat}
+    ) where {T <: Real}
     t0 = time_ns()
     n, m = validate(P, q, A, l, u)
     settings = Settings{T}(; kwargs...)
