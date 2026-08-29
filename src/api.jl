@@ -81,7 +81,9 @@ dimensions(ws::Workspace) = (ws.n, ws.m)
 """
     capabilities() -> NamedTuple
 
-What this build of the solver supports. The names mirror libosqp's `osqp_capabilities`
+What this build of the solver supports, reported for the packages currently loaded rather
+than for the package alone: `indirect_solver` is true once Krylov.jl is loaded and the
+matrix-free extension exists. The names mirror libosqp's `osqp_capabilities`
 bit-flags, so a caller porting from the C API can check the same things.
 
 There is no `error_message` counterpart: this package throws exceptions carrying their own
@@ -89,7 +91,7 @@ messages rather than returning codes to be looked up.
 """
 capabilities() = (
     direct_solver = true,
-    indirect_solver = false,
+    indirect_solver = !isnothing(Base.get_extension(@__MODULE__, :PureOSQPKrylovExt)),
     codegen = false,
     update_matrices = true,
     derivatives = true,

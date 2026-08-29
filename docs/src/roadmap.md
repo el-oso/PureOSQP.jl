@@ -47,7 +47,8 @@ concrete directions:
 - **Structured `P`** — a `Diagonal` or `Tridiagonal` is currently read entry by entry into a
   dense `R`, which is why [Matrix types](@ref "Matrix types") measures 0.80× rather than a
   speedup. The mechanism works; the backend throws the structure away.
-- **Matrix-free** — the case where nothing can be materialised at all, covered below.
+- **Matrix-free** — the case where nothing can be materialised at all. This one is built:
+  see [Capabilities against upstream](@ref). It is the fallback, not a fast path.
 
 ## Capabilities against upstream
 
@@ -99,10 +100,36 @@ would be a second implementation of the solver, and for the dense case what it e
 would be a pair of loops and a Cholesky — not what anyone reaching for a generated solver
 wants. If matching it ever became the goal, the honest form is a separate C library.
 
-**Indirect (matrix-free) solve.** The whole conjugate-gradient path is absent:
-`cg_max_iter`, `cg_tol_reduction`, `cg_tol_fraction` and the diagonal preconditioner.
-Every backend here factors an explicit matrix, so a problem that can only supply
-matrix-vector products cannot be solved.
+**Indirect (matrix-free) solve: implemented**, as a package extension over
+[Krylov.jl](https://github.com/JuliaSmoothOptimizers/Krylov.jl), so it costs nothing to a
+caller who does not load Krylov. `linsys = :indirect` applies the reduced matrix through
+the same `mul_A!`, `mul_At!` and `mul_P!` the iteration already uses and never forms it, so
+a problem that can only supply matrix-vector products is solvable. `cg_max_iter`,
+`cg_tol_fraction` and `cg_tol_reduction` control the inner solve, which follows the ADMM
+residuals rather than running to a fixed tolerance; the preconditioner is the reduced
+diagonal, assembled column by column without the matrix.
+
+Use it only when the matrix cannot be formed. Measured against the direct backend at
+`eps = 1e-6`, single-threaded, on dense random QPs: the inner solve costs about **23×** more
+per iteration at both `n = 50, m = 100` and `n = 200, m = 400`, and because it is inexact it
+can cost iterations as well — the count is identical to the direct backend at `n = 50` and
+2.7× higher at `n = 200`, for **15×** and **49×** total. Objectives agree to about eight
+digits, which is the inexactness showing up where it should.
+
+Two properties survive the extension. The per-iteration solve allocates nothing, which
+needs `cg!`'s workspace preallocated *and* its lazily-allocated preconditioned vector filled
+in at construction, since `cg!` otherwise allocates that one on first use. And the whole
+path stays `--trim` compatible, which is not automatic: Krylov formats its verbose output
+with `Printf`, and that is only acceptable to the trimmer because it writes to a concretely
+typed `Core.CoreSTDOUT` rather than to `Base.stdout`.
+
+One guarantee is checked differently here. `bench/strictmode_audit.jl` cannot ask AllocCheck
+to clear `cg!`: it times itself through an opaque `ccall` to `jl_hrtime`, and its
+verbose-reporting and residual-history branches are guarded by runtime values, so their
+`Printf` and `resize!` calls are live code to a static analyzer even though no solve takes
+them. Rather than whitelist those findings, the audit proves what this package owns and
+measures what it does not — `ReducedOperator`'s `mul!` carries the full static `noalloc`
+guarantee with no exemption, and `solve_system!` is measured at zero bytes.
 
 **`ρ` adaptation.** Upstream offers four modes: disabled, fixed iteration
 interval, wall-clock fraction, and relative KKT-error decrease. This package implements
@@ -128,7 +155,8 @@ the whole run, since it times every phase against it.
 
 ## Missing settings
 
-`check_dualgap`, `scaled_termination` and `rho_is_vec` are implemented.
+`check_dualgap`, `scaled_termination`, `rho_is_vec` and the three `cg_*` settings are
+implemented.
 
 `check_dualgap` defaults on, matching libosqp 1.x. It binds rarely on well-scaled problems,
 where the residuals already imply a small gap, but it does bind: across a sweep of badly
@@ -139,7 +167,8 @@ comparing iteration counts against libosqp 0.6.2 pins it off, since 0.6.2 has no
 What remains:
 
 - `linsys_solver` selection across QDLDL, MKL Pardiso and CUDA backends. The equivalent
-  choice here is `linsys = :auto | :kkt`, which selects a formulation rather than a library.
+  choice here is `linsys = :auto | :kkt | :indirect`, which selects a formulation rather
+  than a library.
 - `device`, `profiler_level`, `allocate_solution` — embedded and GPU concerns with no
   counterpart.
 
@@ -180,10 +209,15 @@ measurements. A `SparseArrays` extension does specialise equilibration's column 
 
 ## Suggested order
 
-One project remains: the matrix-free backend, and it is last for a reason — every problem
-the dense backends handle well is one it would handle worse. What is left otherwise is
-`update_time`, the primal-dual integral, and the settings that select a linear-algebra
-library or a GPU, none of which have a counterpart here.
+One project remains, and it is the one at the top of this page: a linear-system backend
+that keeps the representation it was given. Sparse and structured `P` and `A` reach the
+solver intact and keep their own products, but every backend then materialises a dense
+reduced matrix, so the fast product buys less than it should. The matrix-free backend is
+built and is the honest fallback for a matrix that cannot be formed at all, not a
+substitute for this — it is 23× slower per solve than a factorization.
+
+What is left otherwise is `update_time`, the primal-dual integral, and the settings that
+select a linear-algebra library or a GPU, none of which have a counterpart here.
 
 Two notes for whoever picks these up, both learned the hard way:
 

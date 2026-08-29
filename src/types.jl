@@ -69,6 +69,9 @@ struct Settings{T <: Real}
     adaptive_rho_fraction::T
     adaptive_rho_tolerance::T
     check_termination::Int
+    cg_max_iter::Int
+    cg_tol_fraction::T
+    cg_tol_reduction::Int
     check_dualgap::Bool
     scaled_termination::Bool
     rho_is_vec::Bool
@@ -85,6 +88,7 @@ function Settings{T}(;
         eps_abs = 1.0e-3, eps_rel = 1.0e-3, eps_prim_inf = 1.0e-4, eps_dual_inf = 1.0e-4,
         scaling = 10, adaptive_rho = true, adaptive_rho_interval = 50,
         adaptive_rho_fraction = 0.4, adaptive_rho_tolerance = 5.0, check_termination = 25,
+        cg_max_iter = 20, cg_tol_fraction = 0.15, cg_tol_reduction = 10,
         check_dualgap = true, scaled_termination = false, rho_is_vec = true,
         polish = false, polish_refine_iter = 3, delta = 1.0e-6,
         warm_starting = true, verbose = false, linsys = :auto,
@@ -100,7 +104,14 @@ function Settings{T}(;
     0 < adaptive_rho_fraction <= 1 || throw(
         ArgumentError("adaptive_rho_fraction must lie in (0, 1], got $adaptive_rho_fraction")
     )
-    linsys in (:auto, :kkt) || throw(ArgumentError("linsys must be :auto or :kkt, got :$linsys"))
+    linsys in (:auto, :kkt, :indirect) || throw(
+        ArgumentError("linsys must be :auto, :kkt or :indirect, got :$linsys")
+    )
+    cg_max_iter > 0 || throw(ArgumentError("cg_max_iter must be positive, got $cg_max_iter"))
+    0 < cg_tol_fraction <= 1 || throw(
+        ArgumentError("cg_tol_fraction must lie in (0, 1], got $cg_tol_fraction")
+    )
+    cg_tol_reduction > 0 || throw(ArgumentError("cg_tol_reduction must be positive"))
     sigma > 0 || throw(ArgumentError("sigma must be positive, got $sigma"))
     rho > 0 || throw(ArgumentError("rho must be positive, got $rho"))
     0 < alpha < 2 || throw(ArgumentError("alpha must lie in (0, 2), got $alpha"))
@@ -120,6 +131,7 @@ function Settings{T}(;
         T(eps_abs), T(eps_rel), T(eps_prim_inf), T(eps_dual_inf),
         Int(scaling), rho_mode, Int(adaptive_rho_interval), T(adaptive_rho_fraction),
         T(adaptive_rho_tolerance), Int(check_termination),
+        Int(cg_max_iter), T(cg_tol_fraction), Int(cg_tol_reduction),
         Bool(check_dualgap), Bool(scaled_termination), Bool(rho_is_vec),
         Bool(polish), Int(polish_refine_iter), T(delta),
         Bool(warm_starting), Bool(verbose), Symbol(linsys),
@@ -326,6 +338,12 @@ function setup(
     )
     if settings.linsys === :kkt
         ws = make(FullKKT(q0, n, m))
+        scale!(ws)
+        set_rho_vec!(ws, settings.rho)
+        refactor!(ws)
+        return finish_setup!(ws, t0)
+    elseif settings.linsys === :indirect
+        ws = make(indirect_backend(q0, n, m))
         scale!(ws)
         set_rho_vec!(ws, settings.rho)
         refactor!(ws)

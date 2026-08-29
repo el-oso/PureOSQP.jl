@@ -61,10 +61,15 @@ Solution derivatives ship too, by implicit differentiation of the KKT conditions
 than through the ADMM loop, checked against `ForwardDiff` to `1e-13`. Dual numbers run the
 solver directly, since the element type is `Real`.
 
+A matrix-free backend ships as a second extension, over
+[Krylov.jl](https://github.com/JuliaSmoothOptimizers/Krylov.jl): `linsys = :indirect` runs
+preconditioned conjugate gradients on the reduced system and never forms it, so a matrix
+that only supplies products is solvable. It is a fallback, not a fast path — about 23×
+slower per solve than the factorization, and inexact, so it can cost iterations too.
 
-Not implemented: a matrix-free/indirect inner solve, and
-a sparse *factorization* backend — sparse `P` and `A` are accepted and
-are not densified, but the reduced matrix the solver forms and factors is dense. See the
+Not implemented: a sparse or structured *factorization* backend. Sparse and structured `P`
+and `A` are accepted, are not densified, and keep their own products, but the reduced
+matrix the solver forms and factors is dense whatever they were. See the
 [Roadmap](https://el-oso.github.io/PureOSQP.jl/dev/roadmap).
 
 ## How it differs from the reference implementation

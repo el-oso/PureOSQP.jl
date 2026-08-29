@@ -7,6 +7,7 @@
 # reports `admm_step!` and `update_residuals!` as allocating when AllocCheck proves they
 # do not, so the cheap tier cannot be the gate for this package.
 using PureOSQP
+using Krylov                   # supplies the :indirect backend, a weak dependency
 using StrictMode
 using AllocCheck, JET          # the :full backends; StrictMode dispatches to them
 using LinearAlgebra, Random
@@ -30,28 +31,66 @@ end
 const GUARANTEES = Dict(
     :hot => (:typestable, :noalloc),
     :warm => (:typestable,),
+    # The matrix-free backend calls Krylov's `cg!`, which AllocCheck cannot clear: it times
+    # itself through an opaque `ccall` to `jl_hrtime`, and its verbose-reporting and
+    # residual-history branches are guarded by runtime values, so their `Printf` and
+    # `resize!` calls are live code as far as static analysis is concerned even though no
+    # solve here takes them. Whitelisting those findings one by one would hollow the gate
+    # out, so the claim is split instead: what this package owns is proved statically, and
+    # what Krylov owns is measured. See `measured_noalloc` and the `ReducedOperator` check.
+    :hot_measured => (:typestable,),
 )
+
+"""
+    measured_noalloc(measure)
+
+Assert a hot-path call allocates nothing, by measurement rather than by static analysis.
+
+This is weaker evidence than AllocCheck and is used only where AllocCheck cannot be
+applied. It is paired with a static `:noalloc` check on `ReducedOperator`'s `mul!`, which
+is the part of the matrix-free path this package actually writes.
+"""
+function measured_noalloc(measure)
+    measure()   # discard the first, which pays for any lingering compilation
+    bytes = measure()
+    iszero(bytes) || error("measured $bytes bytes at run time")
+    return nothing
+end
 
 failures = String[]
 
-for backend in (:auto, :kkt)
+for backend in (:auto, :kkt, :indirect)
     ws = example_workspace(backend)
     W = typeof(ws)
     LS = typeof(ws.linsys)
     V = Vector{Float64}
-    checks = [
-        (PureOSQP.admm_step!, (W,), :hot),
-        (PureOSQP.update_residuals!, (W,), :hot),
-        (PureOSQP.solve_system!, (LS, W, V, V), :hot),
-        (PureOSQP.check_termination, (W, Bool), :warm),
-        (PureOSQP.factorize!, (LS, W), :warm),
-        (PureOSQP.solve!, (W,), :warm),
+    tier = backend === :indirect ? :hot_measured : :hot
+    solve_sys() = @allocated PureOSQP.solve_system!(ws.linsys, ws, ws.rhs_x, ws.rhs_z)
+    step() = @allocated PureOSQP.admm_step!(ws)
+    checks = Any[
+        (PureOSQP.admm_step!, (W,), tier, step),
+        (PureOSQP.update_residuals!, (W,), :hot, nothing),
+        (PureOSQP.solve_system!, (LS, W, V, V), tier, solve_sys),
+        (PureOSQP.check_termination, (W, Bool), :warm, nothing),
+        (PureOSQP.factorize!, (LS, W), :warm, nothing),
+        (PureOSQP.solve!, (W,), :warm, nothing),
     ]
-    for (f, types, tier) in checks
+    if backend === :indirect
+        # The operator is this package's own code and gets the full static guarantee, with
+        # no exemption: it is where a matrix-free product would allocate if one did.
+        op = Base.get_extension(PureOSQP, :PureOSQPKrylovExt).ReducedOperator(ws)
+        push!(checks, (LinearAlgebra.mul!, (V, typeof(op), V), :hot, nothing))
+    end
+    for (f, types, tier, measure) in checks
         label = "$(nameof(f))($(join(types, ", "))) [linsys=$backend]"
         try
             StrictMode.check(f, types; guarantees = GUARANTEES[tier], mode = :full)
-            println("  ✓ ", label, "  ", join(GUARANTEES[tier], ", "))
+            extra = ""
+            if tier === :hot_measured
+                measured_noalloc(measure)
+                extra = ", noalloc (measured: 0 bytes)"
+            end
+            println("  ✓ ", label, "  ", join(GUARANTEES[tier], ", "), extra)
         catch e
             push!(failures, label)
             println("  ✗ ", label)
@@ -59,7 +98,6 @@ for backend in (:auto, :kkt)
         end
     end
 end
-
 if isempty(failures)
     println(
         "\nStrictMode: all guarantees hold (checks_enabled=", StrictMode.checks_enabled(),

@@ -223,3 +223,19 @@ function refactor!(ws)
     ws.refactor_count += 1
     return ws
 end
+
+"""
+    indirect_backend(proto, n, m) -> LinearSystem
+
+Build the matrix-free backend selected by `linsys = :indirect`. Supplied by the Krylov
+extension; without Krylov loaded there is no such backend and this says so.
+"""
+function indirect_backend(proto::AbstractVector, n::Integer, m::Integer)
+    throw(
+        ArgumentError(
+            "linsys = :indirect needs Krylov.jl, which is a weak dependency: run " *
+                "`using Krylov` before `setup`. It is not a core dependency because the " *
+                "backend is only worth reaching for when the reduced matrix cannot be formed."
+        )
+    )
+end

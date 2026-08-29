@@ -4,6 +4,7 @@
 module TrimEntry
 
 using PureOSQP
+using Krylov
 
 const M = Matrix{Float64}
 const V = Vector{Float64}
@@ -12,6 +13,10 @@ solve_default(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u)
 solve_polish(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u; polish = true)
 solve_kkt(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u; linsys = :kkt)
 solve_unscaled(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u; scaling = 0)
+
+# The matrix-free backend exists only once Krylov is loaded, so this entry point is what
+# checks that a weak dependency on the solve path does not cost the trim guarantee.
+solve_indirect(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u; linsys = :indirect)
 
 # `verbose` prints through hand-written formatting precisely because `--trim` rejects
 # Printf and `Base.stdout`. Pinned as its own entry point so that stays checked.

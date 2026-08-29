@@ -49,7 +49,7 @@ end
 end
 
 @testitem "linsys rejects an unknown backend" begin
-    @test_throws "linsys must be :auto or :kkt" setup([1.0;;], [0.0], [1.0;;], [0.0], [1.0]; linsys = :magic)
+    @test_throws "linsys must be :auto, :kkt or :indirect" setup([1.0;;], [0.0], [1.0;;], [0.0], [1.0]; linsys = :magic)
 end
 
 @testitem "the LinearSystem contract is enforced, not decorative" begin

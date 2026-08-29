@@ -8,7 +8,7 @@
     # discriminating, and its verdict on the real entry points would mean nothing.
     entry = joinpath(@__DIR__, "trim", "entrypoints.jl")
     names = [
-        :solve_default, :solve_polish, :solve_kkt, :solve_unscaled, :solve_verbose,
+        :solve_default, :solve_polish, :solve_kkt, :solve_unscaled, :solve_verbose, :solve_indirect,
         :settings_and_rho, :derivatives,
         :solve_interruptible,
         :solve_time_limited,
