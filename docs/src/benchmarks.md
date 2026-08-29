@@ -324,7 +324,7 @@ identical in every row, so what these measure is per-iteration cost.
 | Eq QP | 200 | 100 | `cholesky` | 1.65 ms | 3.71 ms | **2.25×** | **5.04×** | **1.49×** |
 | Random QP | 50 | 500 | `cholesky` | 3.62 ms | 6.74 ms | **1.86×** | **1.67×** | **3.45×** |
 | SVM | 808 | 1600 | `ldlfactorizations` | 2.74 ms | 4.06 ms | **1.48×** | **1.51×** | **1.14×** |
-| Control | 320 | 540 | `sparse_formed` | 4.76 ms | 5.41 ms | **1.14×** | **1.63×** | 0.31× |
+| Control | 320 | 540 | `sparse_formed` | 4.76 ms | 5.41 ms | **1.14×** | **1.63×** | 0.32× |
 | Lasso | 816 | 816 | `ldlfactorizations` | 1.05 ms | 1.17 ms | **1.11×** | **1.15×** | **1.03×** |
 | Portfolio | 505 | 506 | `ldl_kkt` | 2.80 ms | 3.01 ms | **1.08×** | **1.09×** | 0.98× |
 | Huber | 1806 | 1800 | `ldlfactorizations` | 2.56 ms | 2.72 ms | **1.06×** | **1.07×** | 0.96× |
@@ -336,17 +336,19 @@ factorization* and therefore flatters a solver that does not have one. Run-to-ru
 within one warm session measures 2.5%; between processes on a busy machine it reaches 10%,
 which is why these are taken with nothing else running.
 
-**Setup is above parity on five of the seven.** Control's 0.31× is the dense path, where the
+**Setup is above parity on five of the seven.** Control's 0.32× is the dense path, where the
 deficit is bought rather than suffered: forming and inverting `R` costs `O(n³)` once and makes
 every iteration a single `symv`, worth 1.63× per iteration over 325 of them. Taking it sparse
 instead was measured and loses about a millisecond net.
 
-**The setup column is the noisiest here, and its figures are medians of eight.** Setup is a
-sub-millisecond quantity on which the two solvers sit within a few percent of each other, so
-the ratio divides two nearly-equal small numbers that each vary about 10% between processes.
-Eight repeats of Huber in one session span 0.90 to 0.99 with no code changing. The total-time
-column holds to 2.5% by comparison, because it divides larger numbers that differ by more.
-A single setup sample is worth ±10%; the other columns are not like this.
+**Two of the setup figures are medians of eight, because they are not equally measurable.**
+A setup dominated by one large compute-bound operation times reliably: Control's is a dense
+Cholesky and inverse on `n = 320`, and eight repeats span 0.314 to 0.322 — its 3.1× deficit is
+real and reproducible, not an artifact. A setup made of many small operations and workspace
+allocation does not: Huber's eight repeats span 0.90 to 0.99 with nothing changing, because
+the ratio divides two sub-millisecond numbers that sit within a few percent of each other and
+each vary about 10% between processes. Read Huber's and Portfolio's setup figures as ±10%,
+and the rest of the table as ±2.5%.
 
 **Portfolio is what a dense row costs.** Its `A` is 0.9% dense, and the reduced matrix
 `R = P̃ + σI + Ãᵀ diag(ρ) Ã` would be **99% dense**: one row of `A` — the budget constraint
