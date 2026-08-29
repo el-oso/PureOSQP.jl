@@ -22,7 +22,7 @@ PureOSQP.Workspace
 ## Internals
 
 ```@docs
-PureOSQP.scale!
+PureOSQP.equilibrate!
 PureOSQP.mul_A!
 PureOSQP.mul_At!
 PureOSQP.mul_P!

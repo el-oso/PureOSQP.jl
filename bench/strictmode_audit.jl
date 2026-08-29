@@ -8,6 +8,7 @@
 # do not, so the cheap tier cannot be the gate for this package.
 using PureOSQP
 using Krylov                   # supplies the :indirect backend, a weak dependency
+using LDLFactorizations        # supplies the LDLᵀ backends, likewise
 using StrictMode
 using AllocCheck, JET          # the :full backends; StrictMode dispatches to them
 using LinearAlgebra, SparseArrays, Random
@@ -31,6 +32,8 @@ function example_workspace(backend::Symbol)
     elseif backend === :cholmod
         # Banded, so the reduced matrix's factor stays sparse enough to be worth keeping.
         return example_banded_workspace(200, 400)
+    elseif backend === :sparse_kkt
+        return example_kkt_workspace(200, 100)
     end
     ws = PureOSQP.setup(P, q, A, l, u; linsys = backend)
     PureOSQP.solve!(ws)        # compile every specialization before analysing it
@@ -48,6 +51,21 @@ function example_banded_workspace(n, m)
     A = sparse(rows, cols, vals, m, n)
     S = spdiagm(-1 => randn(n - 1), 0 => randn(n), 1 => randn(n - 1))
     P = sparse(Symmetric(S'S)) + 3.0I
+    b = A * randn(n)
+    ws = PureOSQP.setup(P, randn(n), A, b .- rand(m), b .+ rand(m))
+    PureOSQP.solve!(ws)
+    return ws
+end
+
+"""
+A problem the full quasi-definite KKT backend is chosen for: a budget row touching every
+column, which squares into a dense reduced matrix while leaving `K` sparse. This is what the
+OSQP suite's Portfolio class looks like.
+"""
+function example_kkt_workspace(n, m)
+    Random.seed!(8)
+    A = vcat(sprandn(m - 1, n, 0.02), sparse(ones(1, n)))
+    P = sparse(1.0I, n, n)
     b = A * randn(n)
     ws = PureOSQP.setup(P, randn(n), A, b .- rand(m), b .+ rand(m))
     PureOSQP.solve!(ws)
@@ -111,6 +129,8 @@ for backend in (:auto, :kkt, :sparse, :cholmod, :indirect)
     V = Vector{Float64}
     tier = backend === :indirect ? :hot_measured : :hot
     # See `:warm_sparse`: only the factorization side is affected, never the hot path.
+    # `:cholmod` reaches sparse arithmetic whichever engine factors it -- the reduced matrix
+    # is assembled the same way before either sees it.
     warm = backend === :cholmod ? :warm_sparse : :warm
     solve_sys() = @allocated PureOSQP.solve_system!(ws.linsys, ws, ws.rhs_x, ws.rhs_z)
     step() = @allocated PureOSQP.admm_step!(ws)
@@ -127,6 +147,19 @@ for backend in (:auto, :kkt, :sparse, :cholmod, :indirect)
         # no exemption: it is where a matrix-free product would allocate if one did.
         op = Base.get_extension(PureOSQP, :PureOSQPKrylovExt).ReducedOperator(ws)
         push!(checks, (LinearAlgebra.mul!, (V, typeof(op), V), :hot, nothing))
+    end
+    if backend === :cholmod
+        # `factorize!` gets no static claim because it reaches CHOLMOD, but the part this
+        # package owns -- rebuilding the reduced matrix -- is plain loops over vectors and
+        # carries the full guarantee. A refactorization runs every time `ρ` moves, so an
+        # allocation here would land inside the solve loop, not just at setup.
+        Ext = Base.get_extension(PureOSQP, :PureOSQPSparseArraysExt)
+        G = typeof(ws.linsys.gram)
+        M = typeof(ws.P)
+        push!(
+            checks,
+            (Ext.refill!, (G, M, M, V, V, V, Float64, Float64), :hot, nothing)
+        )
     end
     for (f, types, tier, measure) in checks
         label = "$(nameof(f))($(join(types, ", "))) [linsys=$backend]"

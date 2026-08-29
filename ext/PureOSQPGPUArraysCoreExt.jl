@@ -41,12 +41,15 @@ function unsupported_backend()
     )
 end
 
-PureOSQP.choose_backend(P, A::AbstractGPUMatrix, proto::AbstractVector, n::Integer, m::Integer) =
-    unsupported_backend()
-PureOSQP.choose_backend(P::AbstractGPUMatrix, A, proto::AbstractVector, n::Integer, m::Integer) =
-    unsupported_backend()
 PureOSQP.choose_backend(
-    P::AbstractGPUMatrix, A::AbstractGPUMatrix, proto::AbstractVector, n::Integer, m::Integer
+    P, A::AbstractGPUMatrix, proto::AbstractVector, n::Integer, m::Integer, D, E, c, rho_vec, sigma
+) = unsupported_backend()
+PureOSQP.choose_backend(
+    P::AbstractGPUMatrix, A, proto::AbstractVector, n::Integer, m::Integer, D, E, c, rho_vec, sigma
+) = unsupported_backend()
+PureOSQP.choose_backend(
+    P::AbstractGPUMatrix, A::AbstractGPUMatrix, proto::AbstractVector, n::Integer, m::Integer,
+    D, E, c, rho_vec, sigma
 ) = unsupported_backend()
 
 "`M`'s diagonal as a vector, without indexing it."

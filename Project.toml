@@ -10,18 +10,21 @@ TypeContracts = "c7a3f1e2-84b5-4d69-9e0a-1f2b3c4d5e6f"
 [weakdeps]
 GPUArraysCore = "46192b85-c4d5-4398-a991-12ede77f4527"
 Krylov = "ba0b0d4f-ebba-5204-a429-3ac8c609bfb7"
+LDLFactorizations = "40e66cde-538c-5869-a4ad-c39174c6795b"
 MathOptInterface = "b8f27783-ece8-5eb3-8dc8-9495eed66fee"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 
 [extensions]
 PureOSQPGPUArraysCoreExt = "GPUArraysCore"
 PureOSQPKrylovExt = "Krylov"
+PureOSQPLDLFactorizationsExt = ["LDLFactorizations", "SparseArrays"]
 PureOSQPMathOptInterfaceExt = ["MathOptInterface", "SparseArrays"]
 PureOSQPSparseArraysExt = "SparseArrays"
 
 [compat]
 GPUArraysCore = "0.1, 0.2"
 Krylov = "0.10"
+LDLFactorizations = "0.10"
 LinearAlgebra = "1"
 MathOptInterface = "1"
 SparseArrays = "1"

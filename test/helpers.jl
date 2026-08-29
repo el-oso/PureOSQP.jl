@@ -1,6 +1,20 @@
 using LinearAlgebra, SparseArrays, OSQP
 
 """
+Backends that form the reduced matrix sparsely *and* factor it sparsely.
+
+Which one `setup` picks depends on what is loaded: LDLFactorizations supplies the faster
+factorization when it is available, and SparseArrays' CHOLMOD serves otherwise. A test that
+cares the reduced matrix was factored sparsely means either, so it asks for membership here
+rather than naming one; the answer itself is checked against the dense backend, which pins
+whichever engine actually ran.
+"""
+const SPARSE_FACTOR_BACKENDS = (:cholmod, :ldlfactorizations)
+
+"The same pair for the full quasi-definite KKT system, which has its own two engines."
+const SPARSE_KKT_BACKENDS = (:sparse_kkt, :ldl_kkt)
+
+"""
     kkt_residuals(P, q, A, l, u, x, y) -> (r_prim, r_dual, r_opt)
 
 Optimality residuals of a candidate point, computed from the original problem data alone.

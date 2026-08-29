@@ -319,20 +319,25 @@ CHOLMOD instead is 93× faster on that matrix and took `setup` from 56.1 ms to 3
 from its problem definitions. Both solvers hold `SparseMatrixCSC`; iteration counts are
 identical in every row, so what these measure is per-iteration cost.
 
-| class | n | m | nnz(A) | PureOSQP backend | PureOSQP | OSQP | vs OSQP | iterations |
+| class | n | m | PureOSQP backend | PureOSQP | OSQP | vs OSQP | per iteration | setup |
 |---|---|---|---|---|---|---|---|---|
-| Random QP | 50 | 500 | 3782 | `cholesky` | 3.74 ms | 6.69 ms | **1.79×** | 925 |
-| Eq QP | 200 | 100 | 2881 | `cholesky` | 3.37 ms | 4.03 ms | **1.19×** | 50 |
-| Portfolio | 505 | 506 | 2294 | `sparse_kkt` | 4.28 ms | 3.48 ms | 0.81× | 450 |
-| Lasso | 816 | 816 | 1786 | `cholmod` | 1.79 ms | 1.30 ms | 0.72× | 100 |
-| SVM | 808 | 1600 | 2549 | `cholmod` | 4.13 ms | 4.37 ms | **1.06×** | 300 |
-| Huber | 1806 | 1800 | 3526 | `cholmod` | 4.20 ms | 2.90 ms | 0.69× | 125 |
-| Control | 320 | 540 | 6540 | `sparse_formed` | 5.16 ms | 5.68 ms | **1.10×** | 325 |
+| Random QP | 50 | 500 | `cholesky` | 3.62 ms | 6.69 ms | **1.85×** | **1.69×** | 3.15× |
+| SVM | 808 | 1600 | `ldlfactorizations` | 2.82 ms | 4.08 ms | **1.45×** | **1.53×** | 0.82× |
+| Eq QP | 200 | 100 | `cholesky` | 3.16 ms | 3.77 ms | **1.19×** | **5.19×** | 0.75× |
+| Control | 320 | 540 | `sparse_formed` | 4.77 ms | 5.39 ms | **1.13×** | **1.59×** | 0.28× |
+| Lasso | 816 | 816 | `ldlfactorizations` | 1.13 ms | 1.19 ms | **1.05×** | **1.16×** | 0.85× |
+| Portfolio | 505 | 506 | `ldl_kkt` | 2.99 ms | 3.02 ms | **1.01×** | **1.03×** | 0.77× |
+| Huber | 1806 | 1800 | `ldlfactorizations` | 2.75 ms | 2.69 ms | 0.98× | **1.08×** | 0.73× |
 
-**PureOSQP loses three of the seven**, and this is the corpus that matters: it is the one
-with the block and band structure real problems have. The synthetic families elsewhere on
-this page are uniformly random, which is the worst case for any *sparse factorization* and
-therefore flatters a solver that does not have one.
+**Per iteration PureOSQP is ahead on all seven**, and six of seven are ahead on total time.
+This is the corpus that matters, the one with the block and band structure real problems
+have; the synthetic families elsewhere on this page are uniformly random, which is the worst
+case for any *sparse factorization* and therefore flatters a solver that does not have one.
+
+**Every remaining deficit is setup, and Huber is the one it costs a row.** Its loop is 1.08×
+but its setup 0.73×, and setup is a quarter of a run that only takes 125 iterations. The
+shorter the solve, the more setup decides — which is why Control, at 0.28× on setup, still
+wins overall on 325 iterations.
 
 **Portfolio is what a dense row costs.** Its `A` is 0.9% dense, and the reduced matrix
 `R = P̃ + σI + Ãᵀ diag(ρ) Ã` would be **99% dense**: one row of `A` — the budget constraint
@@ -342,9 +347,9 @@ keeps that row as one sparse row, and takes the class from 16.2 ms to 5.47 ms.
 
 | class | nnz(A)/mn | nnz(R)/n² | densest row of A | backend |
 |---|---|---|---|---|
-| Portfolio | 0.009 | **0.990** | **0.990** | `sparse_kkt` |
-| Lasso | 0.003 | 0.004 | 0.007 | `cholmod` |
-| Huber | 0.001 | 0.003 | 0.004 | `cholmod` |
+| Portfolio | 0.009 | **0.990** | **0.990** | `ldl_kkt` |
+| Lasso | 0.003 | 0.004 | 0.007 | `ldlfactorizations` |
+| Huber | 0.001 | 0.003 | 0.004 | `ldlfactorizations` |
 | Control | 0.038 | 0.209 | 0.097 | `sparse_formed` |
 
 **Eq QP was a storage cost, and equilibration now absorbs most of it.** Its `P` has
@@ -356,14 +361,36 @@ over `P` were redundant: the cost normalization at the end of a sweep computes t
 norms the next sweep needs, with the same `D`, so `cost_norms!` now returns both and the
 class went from 0.77× to 1.19×.
 
-Lasso and Huber, at 0.72× and 0.69×, are the two that remain. `cholmod` is selected and its
-fill gate is behaving — 0.003 and 0.002 against a limit of 0.05 — so the reduced matrix is
-genuinely sparse and genuinely factored sparsely. Two costs are left, neither yet addressed.
-The reduced form needs a product with `Aᵀ` to build its right-hand side and one with `A` to
-recover `z̃`, every iteration, where the full-KKT form gets both from the factorization. And
-`choose_backend` factors the reduced matrix once to measure its fill, which is a numeric
-factorization whose values are then discarded — only the ordering is reused, because the
-backend has to be chosen before equilibration has run.
+### What closed the gap
+
+Four changes, in the order they were found, each measured against the class it was aimed at.
+
+**The substitutions paid a bounds check per nonzero.** `x[rows[p]] -= vals[p] * xj` indexes
+by a row read out of the factor, which no compiler can prove is in range, where QDLDL's
+identical C loop checks nothing. On factors holding two to three nonzeros per column that
+check is a large fraction of the work: removing it is worth 1.18× to 1.32× on the pair.
+[`check_factor`](@ref) establishes the property once per factorization instead, so the loops
+run unchecked behind a guard rather than an assumption. This was the largest single item and
+took Portfolio from 0.88× to 1.00×.
+
+**Selection and the setup factorization were separate.** Equilibration and the `ρ` split now
+run before the backend is chosen, so the factorization that measures a candidate's fill is
+the one the solver keeps. Setup fell 24–29% on the four sparse classes.
+
+**Refactorization rebuilt the reduced matrix through four allocating sparse products.** It is
+now a single pass over a stored slot map — see [`ReducedGram`](@ref) — which allocates
+nothing. A refactorization runs every time `ρ` is retuned, inside the solve loop, so this is
+not a setup-only saving.
+
+**Back-substitution gathered where it could scatter.** Storing the factor transposed lets it
+scatter down a column like the forward solve rather than accumulating into a scalar.
+
+One thing deliberately *not* done: `cholmod_backend` still forms the reduced matrix through
+sparse products to measure its fill, and then builds the slot map separately rather than
+reusing that pattern. Reusing it looks like free work and is not sound — a sparse product
+drops an entry that cancels to exactly zero, whether one cancels depends on `ρ`, and a map
+built from the cancelled pattern would silently lose that term the moment `ρ` moved. The
+duplication is the price of a pattern that stays valid.
 
 ### The SparseArrays extension
 

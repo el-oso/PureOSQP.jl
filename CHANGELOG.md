@@ -7,6 +7,19 @@ what is true now; this file is where the history lives.
 
 ### Added
 
+- **`SparseLDL` and `LDLKKT`**, the reduced and full-KKT backends factored by
+  LDLFactorizations.jl, a pure-Julia `LDLᵀ`. A weak dependency: loading it changes which
+  engine factors, nothing a caller can observe but speed, and without it the CHOLMOD
+  backends serve. Its numeric factorization is 2.3–3.1× faster than CHOLMOD's on these
+  problems, allocates nothing, produces identical fill, and hands back `L` and `D` as Julia
+  arrays so nothing has to be extracted from a foreign factor on every refactorization.
+  Only the factorization is delegated; the substitutions and the diagonal scaling stay here,
+  being as fast or faster than the library's own.
+- **`check_factor`**, which establishes once per factorization that every index the
+  substitutions will use is in range, so those loops can run unchecked.
+- **`ReducedGram`**, a stored map from each contribution to its slot in the reduced matrix,
+  so a refactorization refills values in one allocation-free pass instead of rebuilding
+  through four sparse products.
 - **`SparseKKT`**, a sparse `LDLᵀ` factorization of the full `(n+m)×(n+m)` quasi-definite
   system, selected when a dense row in `A` would densify the reduced matrix.
 - **`SparseCholmod`** and **`SparseFormedInverse`**, the reduced backends for a sparse `A`:
@@ -21,6 +34,23 @@ what is true now; this file is where the history lives.
 - **`bench/osqp_suite.jl`**, the OSQP benchmark suite's seven problem classes.
 
 ### Measurements worth keeping
+
+**The substitutions were paying a bounds check per nonzero.** `x[rows[p]] -= vals[p] * xj`
+indexes by a row index read out of the factor, which no compiler can prove is in range;
+QDLDL's identical C loop checks nothing. On factors holding two to three nonzeros per column
+that check is a large share of the per-entry work — removing it measured 1.18× (Lasso),
+1.23× (Huber) and 1.32× (Portfolio) on the substitution pair, bit-identical results. This
+was the single largest item in closing the suite: Portfolio went 0.88× to 1.00×. The
+property is now a checked precondition rather than an assumption, which is what makes the
+unchecked loops defensible.
+
+**Deriving the slot map from the formed matrix is unsound, and the guard caught it.** It
+looked like free work — `cholmod_backend` forms the reduced matrix through sparse products
+to measure its fill, so the pattern already exists when the map is wanted. But a sparse
+product drops an entry that cancels to exactly zero, and whether one cancels depends on `ρ`:
+Lasso's `[I 0 −I; I 0 I]` blocks give `−w_k + w_k` at one entry. A map built from that
+pattern would have no slot for it, and the moment `adapt_rho!` moved `ρ` the term would be
+silently dropped. The duplication that remains is the price of a pattern that does not move.
 
 **The Portfolio class exposed a limit of the reduced form.** Eliminating to the reduced
 system squares `A`, so a single dense row makes the result dense however sparse the rest of

@@ -334,15 +334,29 @@ function setup(
     z = zero(T)
     o = one(T)
     ctype = fill!(similar(q0, Int8, m), zero(Int8))
+    # Equilibration and the ρ split run before the backend exists, because choosing a backend
+    # well means building the reduced matrix and factoring it, and doing that with the values
+    # the solver will actually use makes that factorization the setup factorization. The
+    # buffers they fill are the ones the workspace then adopts.
+    q, l, u = copy(q0), copy(l0), copy(u0)
+    D, E = buf(n, o), buf(m, o)
+    tmp_n, tmp_m, work_n = buf(n, z), buf(m, z), buf(n, z)
+    c = equilibrate!(T, P, A, q0, l0, u0, q, l, u, D, E, tmp_n, tmp_m, work_n, n, settings.scaling)
+    rho = clamp(settings.rho, RHO_MIN(T), RHO_MAX(T))
+    rho_vec, rho_inv_vec = buf(m, o), buf(m, o)
+    classify_rho!(
+        ctype, rho_vec, rho_inv_vec, l, u, rho,
+        INFTY(T) * MIN_SCALING(T), settings.rho_is_vec
+    )
     make(ls) = Workspace{T, typeof(P), typeof(A), typeof(q0), typeof(ctype), typeof(ls)}(
         P, A, n, m,
         q0, l0, u0,
-        copy(q0), copy(l0), copy(u0),
-        buf(n, o), buf(m, o), o,
+        q, l, u,
+        D, E, c,
         buf(n, z), buf(m, z), buf(m, z), buf(n, z), buf(m, z), buf(n, z), buf(m, z), buf(n, z), buf(m, z),
         buf(m, z), buf(n, z), buf(n, z),
-        buf(n, z), buf(m, z), buf(n, z), buf(m, z), buf(n, z), buf(m, z),
-        settings.rho, buf(m, o), buf(m, o), ctype,
+        buf(n, z), buf(m, z), tmp_n, tmp_m, work_n, buf(m, z),
+        rho, rho_vec, rho_inv_vec, ctype,
         ls, 0,
         zero(T), zero(T), zero(T), zero(T), zero(T),
         zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), INFTY(T),
@@ -352,37 +366,28 @@ function setup(
     )
     if settings.linsys === :kkt
         ws = make(FullKKT(q0, n, m))
-        scale!(ws)
-        set_rho_vec!(ws, settings.rho)
         refactor!(ws)
         return finish_setup!(ws, t0)
     elseif settings.linsys === :dense
         # Past `choose_backend` entirely. Its two gates for a sparse `A` are measured
         # thresholds, and this is the way to overrule one that misjudges a problem.
         ws = make(ReducedCholesky(q0, n, m))
-        scale!(ws)
-        set_rho_vec!(ws, settings.rho)
         refactor!(ws)
         return finish_setup!(ws, t0)
     elseif settings.linsys === :indirect
         ws = make(indirect_backend(q0, n, m))
-        scale!(ws)
-        set_rho_vec!(ws, settings.rho)
         refactor!(ws)
         return finish_setup!(ws, t0)
     end
     # `choose_backend` picks by representation; the choice is settled here, once. The backend
     # is then part of the workspace's type, so the per-iteration solve dispatches statically.
-    ws = make(choose_backend(P, A, q0, n, m))
-    scale!(ws)
-    set_rho_vec!(ws, settings.rho)
-    if factorize!(ws.linsys, ws)
+    ls, factored = choose_backend(P, A, q0, n, m, D, E, c, rho_vec, settings.sigma)
+    ws = make(ls)
+    if factored || factorize!(ws.linsys, ws)
         ws.refactor_count += 1
         return finish_setup!(ws, t0)
     end
     kkt = make(FullKKT(q0, n, m))
-    scale!(kkt)
-    set_rho_vec!(kkt, settings.rho)
     refactor!(kkt)
     return finish_setup!(kkt, t0)
 end

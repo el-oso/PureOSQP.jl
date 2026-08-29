@@ -165,7 +165,7 @@ end
     opts = (eps_abs = 1.0e-9, eps_rel = 1.0e-9, max_iter = 50_000)
 
     ws = setup(P, q, A, l, u; opts...)
-    @test PureOSQP.backend_name(ws.linsys) == :cholmod
+    @test PureOSQP.backend_name(ws.linsys) in SPARSE_FACTOR_BACKENDS
 
     sp = PureOSQP.solve!(ws)
     dn = solve(Matrix(P), q, Matrix(A), l, u; opts...)
@@ -186,7 +186,7 @@ end
     # itself over buffers it owns.
     P, q, A, l, u = banded_qp(200, 400; band = 2)
     ws = setup(P, q, A, l, u; eps_abs = 1.0e-9, eps_rel = 1.0e-9)
-    @test PureOSQP.backend_name(ws.linsys) == :cholmod
+    @test PureOSQP.backend_name(ws.linsys) in SPARSE_FACTOR_BACKENDS
     PureOSQP.solve!(ws)
     PureOSQP.solve_system!(ws.linsys, ws, ws.rhs_x, ws.rhs_z)      # warm up
     allocs = [(@allocated PureOSQP.solve_system!(ws.linsys, ws, ws.rhs_x, ws.rhs_z)) for _ in 1:4]
@@ -220,7 +220,7 @@ end
 
     sparse_ws = setup(P, q, A, l, u; opts...)
     dense_ws = setup(Matrix(P), q, Matrix(A), l, u; opts...)
-    @test PureOSQP.backend_name(sparse_ws.linsys) == :cholmod
+    @test PureOSQP.backend_name(sparse_ws.linsys) in SPARSE_FACTOR_BACKENDS
     for w in (sparse_ws, dense_ws)
         solve!(w)
     end
@@ -242,7 +242,7 @@ end
     P, q, A, l, u = banded_qp(200, 400; band = 3)
     opts = (eps_abs = 1.0e-9, eps_rel = 1.0e-9, max_iter = 50_000)
 
-    @test PureOSQP.backend_name(setup(P, q, A, l, u; opts...).linsys) == :cholmod
+    @test PureOSQP.backend_name(setup(P, q, A, l, u; opts...).linsys) in SPARSE_FACTOR_BACKENDS
     forced = setup(P, q, A, l, u; opts..., linsys = :dense)
     @test PureOSQP.backend_name(forced.linsys) == :cholesky
 
@@ -275,7 +275,7 @@ end
     opts = (eps_abs = 1.0e-8, eps_rel = 1.0e-8, max_iter = 50_000)
 
     ws = setup(P, q, A, l, u; opts...)
-    @test PureOSQP.backend_name(ws.linsys) == :sparse_kkt
+    @test PureOSQP.backend_name(ws.linsys) in SPARSE_KKT_BACKENDS
     s = PureOSQP.solve!(ws)
     @test s.status == SOLVED
     @test maximum(kkt_residuals(P, q, A, l, u, s.x, s.y)) < 1.0e-6
@@ -289,6 +289,7 @@ end
 
 @testitem "the full-KKT backend survives a pattern change" begin
     using LinearAlgebra, SparseArrays, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
     # Refactorization reuses the symbolic analysis, which holds only while the pattern does.
     # `n` is large enough that the full KKT is the better form: below about n = 100 a dense
     # `symv` on the reduced system beats a sparse triangular solve on one of size n + m,
@@ -304,7 +305,7 @@ end
     opts = (eps_abs = 1.0e-8, eps_rel = 1.0e-8, max_iter = 50_000)
 
     ws = setup(P, q, A, l, u; opts...)
-    @test PureOSQP.backend_name(ws.linsys) == :sparse_kkt
+    @test PureOSQP.backend_name(ws.linsys) in SPARSE_KKT_BACKENDS
     @test solve!(ws).status == SOLVED
 
     A2 = vcat(dense_row, sparse(2.0I, n, n))
@@ -313,4 +314,28 @@ end
     @test s.status == SOLVED
     ref = solve(P, q, A2, l, u; opts..., linsys = :dense)
     @test s.obj_val ≈ ref.obj_val rtol = 1.0e-7
+end
+
+@testitem "the unchecked substitutions run behind a guard that fires" begin
+    using LinearAlgebra, SparseArrays, LDLFactorizations
+    # `unit_forward!`/`unit_backward!` index `x` by a row read out of the factor, which no
+    # compiler can prove is in range, so they drop the check and `check_factor` establishes
+    # the property once per factorization instead. That trade is only sound while the guard
+    # actually rejects a factor the loops would read out of bounds.
+    # The guard lives with the substitutions it protects, which both factorization engines
+    # share, so it sits in the SparseArrays extension rather than either engine's.
+    Ext = Base.get_extension(PureOSQP, :PureOSQPSparseArraysExt)
+    @test !isnothing(Ext)
+
+    ok = SparseMatrixCSC(4, 4, [1, 2, 2, 2, 2], [3], [1.0])
+    @test Ext.check_factor(ok, 4) === nothing
+
+    # A row index past the end of the system: the very access the loops no longer check.
+    @test_throws "outside 1:4" Ext.check_factor(SparseMatrixCSC(4, 4, [1, 2, 2, 2, 2], [9], [1.0]), 4)
+    # And one before its start.
+    @test_throws "outside 1:4" Ext.check_factor(SparseMatrixCSC(4, 4, [1, 2, 2, 2, 2], [0], [1.0]), 4)
+    # A factor whose order does not match the system would walk `colptr` off its end. The
+    # other malformation, a column pointer inconsistent with the stored entries, cannot be
+    # reached: `SparseMatrixCSC` rejects it in its own constructor.
+    @test_throws "malformed column pointer" Ext.check_factor(ok, 8)
 end

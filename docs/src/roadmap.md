@@ -16,8 +16,8 @@ them, [Algorithm](@ref) for how the solver works.
 | `update_time` | `update!` is not timed; `setup_time`, `solve_time`, `polish_time` and `run_time` are |
 | `primdual_int` | the primal-dual integral, a 1.x convergence diagnostic requiring per-iteration profiling |
 | a structured backend | a `Diagonal` or band type is read efficiently, but the reduced matrix it forms is dense unless `A` is structured too |
-| a sparse full-KKT factorization | a single dense row in `A` makes the reduced matrix dense however sparse `A` is; see below |
 | `polish` and derivatives on GPU | both build a dense `(n+k)×(n+k)` matrix and factor it with `bunchkaufman!`, so both stay on the host |
+| Huber setup | the one benchmark class still short of libosqp, at 0.97×; its loop is 1.07× and its setup 0.71× |
 
 **CUDA in practice.** GPU arrays solve through `linsys = :indirect`, and only through it —
 see [Guarantees](@ref) for the scope and why the other backends are refused at
@@ -32,13 +32,6 @@ synchronizations in `check_termination` cost.
 Note also what a GPU is worth here. The OSQP authors' own CUDA port, cuOSQP, targets
 `nnz ≥ 1e4` and reaches its peak speedup only near `nnz ≈ 1e8`. Below that a single CPU core
 wins, which is why the direct backends were not ported rather than why they could not be.
-
-**A sparse full-KKT factorization.** Eliminating to the reduced system squares `A`, so one
-dense row makes `R` dense however sparse the rest of it is. Measured on the OSQP benchmark
-suite's Portfolio class, whose budget constraint `1ᵀx = 1` is exactly that row: `A` is 0.9%
-dense, `R` is 99% dense, and PureOSQP runs at 0.18× of libosqp there. Upstream does not have
-the problem, because a sparse LDLᵀ of the full `(n+m)×(n+m)` system keeps that row as one
-sparse row.
 
 **A structured backend.** `Ãᵀ diag(ρ) Ã` fills in whatever `P` looked like, so structure in
 `P` alone does not survive into the reduced matrix. It pays only where both are structured —

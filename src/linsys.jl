@@ -116,19 +116,28 @@ function is_convex(::Type{T}, P::AbstractMatrix, sigma) where {T}
 end
 
 """
-    choose_backend(P, A, proto, n, m) -> LinearSystem
+    choose_backend(P, A, proto, n, m, D, E, c, rho_vec, sigma) -> (LinearSystem, Bool)
 
-The backend `linsys = :auto` builds for these matrices.
+The backend `linsys = :auto` builds for these matrices, and whether it already carries a
+factorization of the current data.
 
 Dispatching on `typeof(P)` and `typeof(A)` is the point: a representation that admits a
 cheaper way to form the reduced matrix is served by adding a method here rather than by
 branching inside `factorize!`. The choice is made once, and the backend then becomes part
 of the workspace's type, so the per-iteration solve still dispatches statically.
 
-The default forms the reduced matrix densely, which suits a dense or unrecognized `A`.
+The equilibration factors and `ρ` are passed in because deciding well means building the
+reduced matrix and reading the fill its factorization produces — and once that is done with
+the values the solver will actually use, the factorization is the setup factorization. A
+method that works that way returns `true` and [`setup`](@ref) does not factor again; one
+that only picks a representation returns `false`.
+
+The default forms the reduced matrix densely, which suits a dense or unrecognized `A`, and
+leaves the factorizing to `factorize!`.
 """
-choose_backend(P, A, proto::AbstractVector, n::Integer, m::Integer) =
-    ReducedCholesky(proto, n, m)
+choose_backend(
+    P, A, proto::AbstractVector, n::Integer, m::Integer, D, E, c, rho_vec, sigma
+) = (ReducedCholesky(proto, n, m), false)
 
 "Name of the backend, for reporting."
 backend_name(::ReducedCholesky) = :cholesky
@@ -291,6 +300,35 @@ function indirect_backend(proto::AbstractVector, n::Integer, m::Integer)
         )
     )
 end
+
+"""
+    ldl_backend(gram, proto, n, fill_limit) -> LinearSystem or nothing
+
+A backend that factors the already-assembled reduced matrix `gram.R` with an `LDLᵀ` other
+than the one SparseArrays supplies, or `nothing` if no such factorization is available or
+its fill exceeds `fill_limit * n^2`.
+
+The reduced matrix is passed in already built, so the extension answering this needs to know
+nothing about how it was assembled — and the sparse extension, in turn, needs no dependency
+on whatever does the factoring.
+
+Only the factorization is delegated. The substitutions and the diagonal scaling on the
+per-iteration path stay in this package, over whatever `L` and `D` the backend exposes,
+because they are as fast as any library's and they carry the allocation guarantee.
+"""
+ldl_backend(gram, proto::AbstractVector, n::Integer, fill_limit::Real) = nothing
+
+"""
+    ldl_kkt_backend(K, proto, n, m, fill_limit) -> LinearSystem or nothing
+
+The same delegation for the full quasi-definite KKT matrix `K`, which is factored `LDLᵀ`
+without pivoting because a quasi-definite matrix admits one under any symmetric permutation.
+
+Separate from [`ldl_backend`](@ref) because the solve differs, not the factorization: the
+full system yields `z̃` from the eliminated multiplier where the reduced one recovers it with
+a product against `A`.
+"""
+ldl_kkt_backend(K, proto::AbstractVector, n::Integer, m::Integer, fill_limit::Real) = nothing
 
 """
     require_host(v, what)

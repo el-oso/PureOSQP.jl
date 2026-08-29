@@ -128,45 +128,54 @@ function cost_norms!(pcol, ::Type{T}, P, D, c, n) where {T}
     return acc / n
 end
 
-function scale!(ws::Workspace{T}) where {T}
-    n, m = ws.n, ws.m
-    fill!(ws.D, one(T))
-    fill!(ws.E, one(T))
-    ws.c = one(T)
-    copyto!(ws.q, ws.q0)
-    copyto!(ws.l, ws.l0)
-    copyto!(ws.u, ws.u0)
-    if ws.settings.scaling <= 0
-        return ws
+"""
+    equilibrate!(T, P, A, q0, l0, u0, q, l, u, D, E, d, e, pcol, n, sweeps) -> c
+
+Run modified Ruiz equilibration: `D` and `E` become the column and row factors, `q`, `l` and
+`u` the scaled data, and the returned `c` the cost factor.
+
+Takes the arrays rather than a [`Workspace`](@ref) because the factors must exist before one
+does. The backend is part of the workspace's type, so it is chosen first, and it is chosen by
+building and factoring the reduced matrix the solver will actually use — which needs `D`, `E`
+and `c`. `d`, `e` and `pcol` are scratch of length `n`, `m` and `n`.
+"""
+function equilibrate!(
+        ::Type{T}, P, A, q0, l0, u0, q, l, u, D, E, d, e, pcol, n, sweeps
+    ) where {T}
+    fill!(D, one(T))
+    fill!(E, one(T))
+    c = one(T)
+    copyto!(q, q0)
+    copyto!(l, l0)
+    copyto!(u, u0)
+    if sweeps <= 0
+        return c
     end
-    d = ws.tmp_n
-    e = ws.tmp_m
-    pcol = ws.work_n
-    P, A, D, E = ws.P, ws.A, ws.D, ws.E
     # Seeds `pcol` for the first sweep; every later one gets it from the cost normalization
     # at the end of the sweep before, which reads `P` with the same `D`.
-    cost_norms!(pcol, T, P, D, ws.c, n)
-    for _ in 1:ws.settings.scaling
-        column_norms!(d, e, T, pcol, A, D, E, ws.c)
+    cost_norms!(pcol, T, P, D, c, n)
+    for _ in 1:sweeps
+        column_norms!(d, e, T, pcol, A, D, E, c)
         e .= limit_scaling.(E .* e)
         d .= inv.(sqrt.(d))
         e .= inv.(sqrt.(e))
-        ws.D .*= d
-        ws.E .*= e
-        ws.q .*= d
+        D .*= d
+        E .*= e
+        q .*= d
         # Cost normalization: average column ∞-norm of the scaled P, against ‖q̃‖∞.
         ct = max(
-            cost_norms!(pcol, T, P, D, ws.c, n),
-            limit_scaling(maximum(abs, ws.q; init = zero(T))),
+            cost_norms!(pcol, T, P, D, c, n),
+            limit_scaling(maximum(abs, q; init = zero(T))),
         )
         ct = inv(limit_scaling(ct))
-        ws.q .*= ct
-        ws.c *= ct
+        q .*= ct
+        c *= ct
     end
-    ws.l .= ws.E .* ws.l0
-    ws.u .= ws.E .* ws.u0
-    return ws
+    l .= E .* l0
+    u .= E .* u0
+    return c
 end
+
 
 """
     mul_A!(out, ws, x)
