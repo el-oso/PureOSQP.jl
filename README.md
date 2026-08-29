@@ -194,6 +194,29 @@ exactly what libosqp's sparse LDLᵀ of the full KKT is designed for, and it is 
 there. **Random** sparsity suits neither a sparse factorization nor a dense one, and forming
 the reduced matrix from stored entries then factoring it densely wins by 2.8–4.1×.
 
+### The OSQP benchmark suite
+
+Both families above are synthetic. `bench/osqp_suite.jl` runs the seven problem classes
+OSQP's own benchmark suite uses, which carry the structure real problems have, and the
+answer there is worse — **PureOSQP loses four of the seven**, on identical iteration counts:
+
+| class | PureOSQP | OSQP | vs OSQP |
+|---|---|---|---|
+| Random QP | 3.62 ms | 6.57 ms | **1.82×** |
+| Eq QP | 4.33 ms | 3.32 ms | 0.77× |
+| Portfolio | 16.2 ms | 2.98 ms | **0.18×** |
+| Lasso | 1.67 ms | 1.19 ms | 0.72× |
+| SVM | 3.86 ms | 4.01 ms | 1.04× |
+| Huber | 3.94 ms | 2.73 ms | 0.69× |
+| Control | 4.72 ms | 5.43 ms | **1.15×** |
+
+Portfolio is not a tuning problem. Eliminating to the reduced system squares `A`, so a
+single dense row makes the result dense: its `A` is 0.9% dense and the matrix the solver
+factors is 99% dense. Upstream's full-KKT form does not square that row. This is the
+clearest open item in the [Roadmap](https://el-oso.github.io/PureOSQP.jl/dev/roadmap), and
+it is a limitation of the formulation rather than of any backend.
+
+
 Two more benchmarks cover the rest:
 
 - **sparse `A`, storage choice** — hand PureOSQP the sparse matrices rather than dense
@@ -205,8 +228,9 @@ Two more benchmarks cover the rest:
 
 Full tables, plus structured-storage and matrix-type results and the libosqp 1.x agreement
 check: `bench/headtohead.jl`, `bench/sparse_headtohead.jl`, `bench/solvers.jl`,
-`bench/matrix_types.jl`, `bench/headtohead_v1.jl`, `bench/kkt_backend.jl` and
-`bench/indirect_backend.jl`, with every sample saved under `bench/results/`.
+`bench/matrix_types.jl`, `bench/osqp_suite.jl`, `bench/headtohead_v1.jl`,
+`bench/kkt_backend.jl` and `bench/indirect_backend.jl`, with every sample saved under
+`bench/results/`.
 ## Relationship to upstream OSQP
 
 A Julia implementation of the algorithm, written against the OSQP paper and against the

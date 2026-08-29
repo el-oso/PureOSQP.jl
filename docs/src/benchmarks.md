@@ -326,6 +326,58 @@ not the iteration: `setup` was 49.7% of the run, because the convexity test dens
 into an `n×n` array for a dense Cholesky, `O(n³)` on a tridiagonal matrix. Testing it with
 CHOLMOD instead is 93× faster on that matrix and took `setup` from 56.1 ms to 3.06 ms.
 
+
+## The OSQP benchmark suite
+
+`bench/osqp_suite.jl`. The seven problem classes OSQP's own benchmark suite uses, ported
+from its problem definitions. Both solvers hold `SparseMatrixCSC`; iteration counts are
+identical in every row, so what these measure is per-iteration cost.
+
+| class | n | m | nnz(A) | PureOSQP backend | PureOSQP | OSQP | vs OSQP | iterations |
+|---|---|---|---|---|---|---|---|---|
+| Random QP | 50 | 500 | 3782 | `cholesky` | 3.62 ms | 6.57 ms | **1.82×** | 925 |
+| Eq QP | 200 | 100 | 2881 | `cholesky` | 4.33 ms | 3.32 ms | 0.77× | 50 |
+| Portfolio | 505 | 506 | 2294 | `sparse_formed` | 16.2 ms | 2.98 ms | **0.18×** | 450 |
+| Lasso | 816 | 816 | 1786 | `cholmod` | 1.67 ms | 1.19 ms | 0.72× | 100 |
+| SVM | 808 | 1600 | 2549 | `cholmod` | 3.86 ms | 4.01 ms | 1.04× | 300 |
+| Huber | 1806 | 1800 | 3526 | `cholmod` | 3.94 ms | 2.73 ms | 0.69× | 125 |
+| Control | 320 | 540 | 6540 | `sparse_formed` | 4.72 ms | 5.43 ms | **1.15×** | 325 |
+
+**PureOSQP loses four of the seven**, and this is the corpus that matters: it is the one
+with the block and band structure real problems have. The synthetic families elsewhere on
+this page are uniformly random, which is the worst case for any *sparse factorization* and
+therefore flatters a solver that does not have one.
+
+**Portfolio, at 0.18×, is not a tuning problem.** Its `A` is 0.9% dense, and the reduced
+matrix `R = P̃ + σI + Ãᵀ diag(ρ) Ã` is **99% dense**. One row of `A` — the budget constraint
+`1ᵀx = 1` — touches 99% of the columns, and a single dense row makes `AᵀA` dense however
+sparse the rest of it is. No choice of backend helps, because the choice is downstream of
+forming `R`:
+
+| class | nnz(A)/mn | nnz(R)/n² | nnz(L)/n² | densest row of A |
+|---|---|---|---|---|
+| Portfolio | 0.009 | **0.990** | 0.501 | **0.990** |
+| Lasso | 0.003 | 0.004 | 0.003 | 0.007 |
+| Huber | 0.001 | 0.003 | 0.002 | 0.004 |
+| Control | 0.038 | 0.209 | 0.106 | 0.097 |
+
+This is the structural limit of eliminating to the reduced system, and upstream's design
+does not have it: a sparse LDLᵀ of the *full* KKT matrix keeps the dense row as one sparse
+row instead of squaring it.
+
+**That revises the verdict under
+[How the sparsest case was closed](@ref "How the sparsest case was closed").** A sparse
+factorization of the full KKT was measured there and rejected — correctly, on the family it
+was measured on, where `A` has no dense row and the reduced form is fine. Portfolio shows
+the rejection does not generalize. It is now an open roadmap item with a measured
+justification rather than a rejected idea.
+
+The three modest losses — Eq QP, Lasso and Huber at 0.69–0.77× — are a different matter.
+`cholmod` is selected for Lasso and Huber and its fill gate is behaving (0.003 and 0.002
+against a limit of 0.05), so the reduced matrix is genuinely sparse and genuinely factored
+sparsely. What is left is per-iteration overhead against upstream's single solve on the full
+system, and it has not been decomposed.
+
 ### The SparseArrays extension
 
 PureOSQP's per-iteration products go through `mul!`, which sparse matrices already handle
@@ -373,6 +425,13 @@ dependency chain — took the per-iteration solve from 11.4 µs to 1.6 µs, and 
 
 The lesson generalises past this cell: the same change sped up every other case on this
 page, because the dense solve was on all of their hot paths too.
+
+The *first* finding does not generalise, and
+[The OSQP benchmark suite](@ref "The OSQP benchmark suite") is where it breaks. Sparse
+full-KKT was rejected on a family whose `A` has no dense row, where the reduced form is a
+good trade. On the Portfolio class one row of `A` is dense, the reduced matrix comes out 99%
+dense from a 0.9% dense `A`, and the full-KKT form is the only one that avoids squaring that
+row. Read the rejection as scoped to the corpus it was measured on.
 
 ## The matrix-free backend
 
