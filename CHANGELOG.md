@@ -35,6 +35,19 @@ what is true now; this file is where the history lives.
 
 ### Measurements worth keeping
 
+**The same bounds check was in the equilibration traversals, and cost more there.**
+The four sparse column traversals index a weight vector at a row read out of the matrix, the
+same unprovable access the substitutions had. On a `P` with many stored entries the check is
+most of the per-entry work: for the OSQP suite Eq QP class, whose `P` holds 39 638 entries in
+a 200×200 matrix, a sweep costs 144.5 us checked and 18.7 us unchecked -- 7.7x. Ten Ruiz
+sweeps then dominated its setup. `check_storage` establishes the property once from
+`validate`, and the class went from 1.11x to 2.25x overall, its setup from 0.73x of libosqp
+to 1.49x.
+
+This also corrected a claim made from too little data: equilibration had been measured
+against libosqp on Huber alone, where it was 1.24x ahead, and generalised. On the classes
+with many entries in `P` it was behind -- 0.66x on Eq QP -- which is what prompted looking.
+
 **The substitutions were paying a bounds check per nonzero.** `x[rows[p]] -= vals[p] * xj`
 indexes by a row index read out of the factor, which no compiler can prove is in range;
 QDLDL's identical C loop checks nothing. On factors holding two to three nonzeros per column

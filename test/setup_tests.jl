@@ -133,3 +133,19 @@ end
     @test setup(P, q, A, l, u; linsys = :kkt).linsys isa PureOSQP.FullKKT
     @test PureOSQP.solve(P, q, A, l, u; linsys = :kkt, eps_abs = T(1.0e-2), eps_rel = T(1.0e-2)).status == SOLVED
 end
+
+@testitem "the unchecked column traversals run behind a guard that fires" begin
+    using LinearAlgebra, SparseArrays
+    # The four sparse column traversals index a weight vector at a row read out of the
+    # matrix, which no compiler can prove is in range, so they drop the check and
+    # `check_storage` establishes the property once per `setup` instead. `validate` calls it
+    # on `P` and `A`, so a caller cannot reach those loops without it having passed.
+    @test PureOSQP.check_storage(sparse(1.0I, 3, 3), 3, 3) === nothing
+    # A stored row past the end of the matrix: the access the loops no longer check.
+    @test_throws "outside 1:3" PureOSQP.check_storage(SparseMatrixCSC(3, 3, [1, 2, 2, 2], [7], [1.0]), 3, 3)
+    @test_throws "outside 1:3" PureOSQP.check_storage(SparseMatrixCSC(3, 3, [1, 2, 2, 2], [0], [1.0]), 3, 3)
+    # Dimensions that disagree with the system would size the weight vectors wrongly.
+    @test_throws "expected a 4×3 matrix" PureOSQP.check_storage(sparse(1.0I, 3, 3), 4, 3)
+    # A dense matrix has nothing to establish: its traversals are provably in bounds.
+    @test PureOSQP.check_storage(zeros(3, 3), 3, 3) === nothing
+end

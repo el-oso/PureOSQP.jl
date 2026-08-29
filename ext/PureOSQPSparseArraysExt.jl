@@ -25,12 +25,54 @@ using LinearAlgebra: Symmetric, Diagonal, LowerTriangular, UpperTriangular,
     cholesky, cholesky!, ldlt, ldlt!, issuccess, ldiv!, transpose
 using SparseArrays: SparseMatrixCSC, issparse, nnz, nzrange, rowvals, nonzeros, sparse
 
+"""
+    PureOSQP.check_storage(M::SparseMatrixCSC, rows, cols)
+
+Establish that the four column traversals below can index by a row read out of `M` without
+checking it, or throw.
+
+Those traversals reach a weight vector, and `dest`, at `rows[k]` — an index the compiler
+cannot prove is in range, so it checks every stored entry. On equilibration that check is
+most of the per-entry work: for the OSQP suite's Eq QP, whose `P` holds 39 638 entries in a
+200×200 matrix, a sweep costs 144.5 µs checked and 18.7 µs unchecked.
+
+Called once from [`validate`](@ref), over `nnz(M)` entries, against ten sweeps that each
+traverse the same entries. `SparseMatrixCSC`'s own constructor already enforces most of this;
+checking again is cheap and is what makes dropping the per-entry check defensible rather than
+assumed.
+"""
+function PureOSQP.check_storage(M::SparseMatrixCSC, rows::Integer, cols::Integer)
+    size(M) == (rows, cols) || throw(
+        ArgumentError("expected a $(rows)×$(cols) matrix, got $(size(M))")
+    )
+    colptr, rv = M.colptr, rowvals(M)
+    nz = length(rv)
+    (length(colptr) == cols + 1 && colptr[1] == 1 && colptr[cols + 1] == nz + 1) || throw(
+        ArgumentError("malformed column pointer for a $(rows)×$(cols) matrix")
+    )
+    for j in 1:cols
+        colptr[j] <= colptr[j + 1] || throw(
+            ArgumentError("column pointer decreases at column $j")
+        )
+    end
+    for k in 1:nz
+        1 <= rv[k] <= rows || throw(
+            ArgumentError("row index $(rv[k]) at position $k is outside 1:$rows")
+        )
+    end
+    return nothing
+end
+
+# The four traversals run unchecked, which `check_storage` is what makes safe. `w`, `e` and
+# `dest` are indexed at a stored row, and every caller passes one sized to the matrix's rows:
+# `validate` checks the dimensions and the workspace buffers are built from them.
+
 @inline function PureOSQP.weighted_colmax(
         ::Type{T}, M::SparseMatrixCSC, j::Integer, w::AbstractVector
     ) where {T}
     r = zero(T)
     rows, vals = rowvals(M), nonzeros(M)
-    for k in nzrange(M, j)
+    @inbounds for k in nzrange(M, j)
         r = max(r, w[rows[k]] * abs(T(vals[k])))
     end
     return r
@@ -42,7 +84,7 @@ end
     ) where {T}
     r = zero(T)
     rows, vals = rowvals(M), nonzeros(M)
-    for k in nzrange(M, j)
+    @inbounds for k in nzrange(M, j)
         i = rows[k]
         v = abs(T(vals[k]))
         r = max(r, w[i] * v)
@@ -55,7 +97,7 @@ end
         ::Type{T}, dest::AbstractMatrix, M::SparseMatrixCSC, j::Integer, f::F
     ) where {T, F}
     rows, vals = rowvals(M), nonzeros(M)
-    for k in nzrange(M, j)
+    @inbounds for k in nzrange(M, j)
         i = rows[k]
         dest[i, j] = f(T(vals[k]), i)
     end
@@ -66,7 +108,7 @@ end
         ::Type{T}, dest::AbstractMatrix, M::SparseMatrixCSC, j::Integer, f::F
     ) where {T, F}
     rows, vals = rowvals(M), nonzeros(M)
-    for k in nzrange(M, j)
+    @inbounds for k in nzrange(M, j)
         i = rows[k]
         dest[i, j] += f(T(vals[k]), i)
     end
