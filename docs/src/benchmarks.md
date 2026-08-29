@@ -329,19 +329,27 @@ identical in every row, so what these measure is per-iteration cost.
 | Huber | 1806 | 1800 | `ldlfactorizations` | 2.53 ms | 2.61 ms | **1.03×** | **1.10×** | 0.98× |
 | Portfolio | 505 | 506 | `ldl_kkt` | 2.87 ms | 2.93 ms | **1.02×** | **1.04×** | 0.83× |
 
-**PureOSQP is ahead on every class, on total time and per iteration alike.** This is the
-corpus that matters, the one with the block and band structure real problems have; the
-synthetic families elsewhere on this page are uniformly random, which is the worst case for
-any *sparse factorization* and therefore flatters a solver that does not have one.
+**PureOSQP is ahead on total time and per iteration on every class**, the weakest at 1.02×.
+This is the corpus that matters, the one with the block and band structure real problems
+have; the synthetic families elsewhere on this page are uniformly random, which is the worst
+case for any *sparse factorization* and therefore flatters a solver that does not have one.
 
 A second run on the same quiet machine gives 1.85, 1.50, 1.16, 1.13, 1.10, 1.05, 1.04 in the
 same order, so the two weakest rows sit a little above parity rather than on it. Run-to-run
 spread within one warm session measures 2.5%; between processes on a busy machine it reaches
 10%, which is why these are taken with nothing else running.
 
-**Setup is where the remaining spread is.** Portfolio at 0.83× and Eq QP at 0.74× are behind
-there and still win on total time, because their loops are longer; Control is 0.32× on setup
-and wins anyway on 325 iterations. The shorter the solve, the more setup decides.
+**Setup is slower than libosqp on four of the seven**, and that is the honest weakness in
+this table rather than a footnote to it: Control 0.32×, Eq QP 0.74×, Portfolio 0.83×, Huber
+0.98×. They win on total time regardless because their loops are long enough to absorb it —
+Control spends 1.49 ms setting up and then 325 iterations at 1.60× — but that is a property
+of the problems, not evidence that setup is fast. A caller solving one short problem gets
+the setup number, not the total.
+
+Where it goes, on Huber: equilibration is 220 µs and is already ahead of libosqp's Ruiz
+(265 µs), so the room is elsewhere — building the reduced matrix's slot map, the symbolic
+analysis, and allocating the workspace. Control's 0.32× is the extreme case, where the
+reduced matrix fills in enough that `sparse_formed` has to build a dense `n×n` and invert it.
 
 **Portfolio is what a dense row costs.** Its `A` is 0.9% dense, and the reduced matrix
 `R = P̃ + σI + Ãᵀ diag(ρ) Ã` would be **99% dense**: one row of `A` — the budget constraint

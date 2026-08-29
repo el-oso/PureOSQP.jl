@@ -18,6 +18,7 @@ them, [Algorithm](@ref) for how the solver works.
 | a structured backend | a `Diagonal` or band type is read efficiently, but the reduced matrix it forms is dense unless `A` is structured too |
 | `polish` and derivatives on GPU | both build a dense `(n+k)×(n+k)` matrix and factor it with `bunchkaufman!`, so both stay on the host |
 | a pure-Julia factorization by default | the `LDLᵀ` backends need LDLFactorizations.jl loaded; without it the sparse path is CHOLMOD, which is C and GPL |
+| setup | slower than libosqp on four of the seven benchmark classes — Control 0.32×, Eq QP 0.74×, Portfolio 0.83×, Huber 0.98× — where every per-iteration figure is ahead |
 
 **CUDA in practice.** GPU arrays solve through `linsys = :indirect`, and only through it —
 see [Guarantees](@ref) for the scope and why the other backends are refused at
@@ -32,6 +33,16 @@ synchronizations in `check_termination` cost.
 Note also what a GPU is worth here. The OSQP authors' own CUDA port, cuOSQP, targets
 `nnz ≥ 1e4` and reaches its peak speedup only near `nnz ≈ 1e8`. Below that a single CPU core
 wins, which is why the direct backends were not ported rather than why they could not be.
+
+**Setup.** Every class is ahead of libosqp per iteration, and four are behind it on setup.
+That is invisible in the total-time column only because these problems run long enough to
+absorb it; a caller solving one short problem pays the setup number directly.
+
+Equilibration is not the place to look — on Huber it is 220 µs against libosqp's 265 µs for
+the same sweeps. What is left is building the reduced matrix's slot map, the symbolic
+analysis, and allocating the workspace, none of which has been attacked with the care the
+per-iteration path has. Control's 0.32× is a different problem again: its reduced matrix
+fills in past the sparse gate, so `sparse_formed` builds a dense `n×n` and inverts it.
 
 **A pure-Julia factorization by default.** The solver's own code is pure Julia and its core
 dependencies are LinearAlgebra and TypeContracts, but a sparse problem is factored by CHOLMOD
