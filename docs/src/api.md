@@ -11,6 +11,7 @@ PureOSQP.update_settings!
 PureOSQP.update_rho!
 PureOSQP.dimensions
 PureOSQP.capabilities
+PureOSQP.Optimizer
 PureOSQP.Settings
 PureOSQP.Solution
 PureOSQP.Workspace

@@ -17,7 +17,7 @@ using LinearAlgebra
 using TypeContracts: TypeContracts, @contract, @verify
 
 export setup, solve, solve!, update!, update_settings!, update_rho!, warm_start!, cold_start!
-export dimensions, capabilities, Settings, Solution, Status
+export dimensions, capabilities, Optimizer, Settings, Solution, Status
 export LinearSystem, ReducedCholesky, FullKKT
 export SOLVED, PRIMAL_INFEASIBLE, DUAL_INFEASIBLE, MAX_ITER_REACHED, NON_CONVEX, UNSOLVED
 export TIME_LIMIT_REACHED, INTERRUPTED
@@ -34,5 +34,16 @@ include("admm.jl")
 include("polish.jl")
 include("update.jl")
 include("api.jl")
+
+"""
+    Optimizer(; kwargs...)
+
+MathOptInterface optimizer, available once MathOptInterface is loaded. Keyword arguments
+are the fields of [`Settings`](@ref).
+
+The wrapper lives in a package extension, so it costs nothing to a caller who does not use
+it; this name is the only part of it the core owns.
+"""
+function Optimizer end
 
 end # module PureOSQP

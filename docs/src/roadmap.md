@@ -117,8 +117,11 @@ into a string, and this package throws exceptions that carry their own messages.
 
 ## Ecosystem
 
-**No MathOptInterface wrapper.** In practice this is a larger barrier to use than any
-algorithmic gap above, since it is what makes a solver reachable from JuMP.
+**MathOptInterface wrapper: implemented**, as a package extension, so it costs nothing to
+a caller who does not load MOI. `PureOSQP.Optimizer` is reachable from JuMP, and the whole
+of `MOI.Test` passes with no excluded test names. Note it needs tighter tolerances than the
+solver defaults to: `MOI.Test` checks to `1e-4` and the defaults are `1e-3`.
+
 
 **No sparse linear-algebra backend.** Deliberate, and measured: forming the reduced matrix
 densifies, and a sparse factorization of it does not pay. See
@@ -127,10 +130,8 @@ measurements. A `SparseArrays` extension does specialise equilibration's column 
 
 ## Suggested order
 
-What is left is three projects, in the order they would repay the work: a MathOptInterface
-wrapper, which makes the solver reachable from JuMP and so removes the largest practical
-barrier to anyone using it; solution derivatives; and the matrix-free backend, which comes
-last because every problem the dense backends handle well is one it would handle worse.
+Two projects remain: solution derivatives, and the matrix-free backend. The backend comes
+last, because every problem the dense backends handle well is one it would handle worse.
 
 Two notes for whoever picks these up, both learned the hard way:
 
