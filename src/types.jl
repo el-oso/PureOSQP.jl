@@ -8,6 +8,7 @@
     DUAL_INFEASIBLE_INACCURATE
     MAX_ITER_REACHED
     TIME_LIMIT_REACHED
+    INTERRUPTED
     NON_CONVEX
 end
 
@@ -29,7 +30,7 @@ end
 "Statuses that carry a meaningful primal-dual point."
 @inline has_solution(s::Status) =
     s === SOLVED || s === SOLVED_INACCURATE || s === MAX_ITER_REACHED ||
-    s === TIME_LIMIT_REACHED
+    s === TIME_LIMIT_REACHED || s === INTERRUPTED
 
 @inline INFTY(::Type{T}) where {T} = min(T(1.0e30), prevfloat(typemax(T)))
 @inline MIN_SCALING(::Type{T}) where {T} = T(1.0e-4)

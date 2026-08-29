@@ -392,3 +392,43 @@ end
     @test all(≈(0.1), flat.rho_vec)
     @test all(iszero, flat.constr_type)
 end
+
+@testitem "an interrupt returns the point reached, other exceptions propagate" begin
+    using LinearAlgebra, SparseArrays, OSQP, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    # A matrix that throws once it has been read a set number of times. That is how a
+    # Ctrl-C in the middle of the ADMM loop reaches `solve!`, without needing a signal --
+    # `mul_A!` reads `A` every iteration, so the throw lands inside the loop.
+    mutable struct Fuse{T} <: AbstractMatrix{T}
+        A::Matrix{T}
+        n::Int
+        interrupt::Bool
+    end
+    Base.size(F::Fuse) = size(F.A)
+    function Base.getindex(F::Fuse, i::Int, j::Int)
+        F.n -= 1
+        iszero(F.n) && throw(F.interrupt ? InterruptException() : ErrorException("boom"))
+        return F.A[i, j]
+    end
+
+    P, q, A, l, u = random_qp(8, 16; seed = 3)
+
+    F = Fuse(A, typemax(Int), true)
+    ws = setup(P, q, F, l, u; max_iter = 100_000, check_termination = 0)
+    F.n = 20 * length(A)                  # arm it a few iterations into the loop
+    sol = PureOSQP.solve!(ws)
+    @test sol.status == INTERRUPTED
+    @test PureOSQP.has_solution(sol.status)
+    @test 0 < sol.iter < 100_000
+    # The point is unconverged but real: reported, not replaced with NaN.
+    @test all(isfinite, sol.x)
+    @test all(isfinite, sol.y)
+    @test isfinite(sol.prim_res)
+    @test isfinite(sol.obj_val)
+
+    # Anything that is not an interrupt is a bug, and must not be swallowed as a status.
+    G = Fuse(A, typemax(Int), false)
+    ws2 = setup(P, q, G, l, u; max_iter = 100_000, check_termination = 0)
+    G.n = 20 * length(A)
+    @test_throws "boom" PureOSQP.solve!(ws2)
+end

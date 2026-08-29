@@ -162,6 +162,7 @@ understand a workspace's whole life.
 | `PRIMAL_INFEASIBLE_INACCURATE`, `DUAL_INFEASIBLE_INACCURATE` | as above, found only at ten times the requested tolerances |
 | `MAX_ITER_REACHED` | the iteration limit was hit and even the relaxed check failed |
 | `TIME_LIMIT_REACHED` | `time_limit` was spent before the residuals converged |
+| `INTERRUPTED` | a `Ctrl-C` landed inside the loop; the point reached is returned |
 | `NON_CONVEX` | residuals diverged |
 
 `time_limit` bounds the ADMM loop and defaults to `Inf`. It measures the loop only —

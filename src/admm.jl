@@ -54,6 +54,7 @@ function status_name(s::Status)
     s === DUAL_INFEASIBLE_INACCURATE && return "dual infeasible inaccurate"
     s === MAX_ITER_REACHED && return "maximum iterations reached"
     s === TIME_LIMIT_REACHED && return "time limit reached"
+    s === INTERRUPTED && return "interrupted"
     s === NON_CONVEX && return "problem non convex"
     return "unsolved"
 end
@@ -150,6 +151,11 @@ setup took. The status is returned as soon as the budget is spent, without re-ch
 tolerances, so a run that stops this way reports `TIME_LIMIT_REACHED` even if its last
 point would have passed. The iterates are still meaningful and
 [`has_solution`](@ref PureOSQP.has_solution) accepts it, as it does `MAX_ITER_REACHED`.
+
+An `InterruptException` raised during the loop — a `Ctrl-C` — returns `INTERRUPTED` with
+the point reached rather than losing the run; its residuals are recomputed first, since an
+interrupt lands wherever it lands and not on a scheduled check. Every other exception
+propagates.
 """
 function solve!(ws::Workspace{T}) where {T}
     s = ws.settings
@@ -172,34 +178,43 @@ function solve!(ws::Workspace{T}) where {T}
     limited = isfinite(s.time_limit)
     started = time_ns()
     budget = limited ? round(UInt64, Float64(s.time_limit) * 1.0e9) : typemax(UInt64)
-    for iter in 1:s.max_iter
-        ws.iter = iter
-        admm_step!(ws)
-        if limited && time_ns() - started >= budget
-            # Report the residuals of the point actually reached, not the stale ones from
-            # the last scheduled check.
-            update_residuals!(ws)
-            ws.status = TIME_LIMIT_REACHED
-            s.verbose && print_row(ws)
-            break
-        end
-        adapting = s.adaptive_rho && s.adaptive_rho_interval > 0 &&
-            iter % s.adaptive_rho_interval == 0
-        checking = s.check_termination > 0 && iter % s.check_termination == 0
-        (adapting || checking || iter == 1) || continue
-        update_residuals!(ws)
-        # Only on a termination check: the residuals and objective a row reports are the
-        # ones that check just used, so a printed row always explains the decision made
-        # alongside it.
-        s.verbose && checking && print_row(ws)
-        if checking
-            st = check_termination(ws, false)
-            if st != UNSOLVED
-                ws.status = st
+    try
+        for iter in 1:s.max_iter
+            ws.iter = iter
+            admm_step!(ws)
+            if limited && time_ns() - started >= budget
+                # Report the residuals of the point actually reached, not the stale ones
+                # from the last scheduled check.
+                update_residuals!(ws)
+                ws.status = TIME_LIMIT_REACHED
+                s.verbose && print_row(ws)
                 break
             end
+            adapting = s.adaptive_rho && s.adaptive_rho_interval > 0 &&
+                iszero(iter % s.adaptive_rho_interval)
+            checking = s.check_termination > 0 && iszero(iter % s.check_termination)
+            (adapting || checking || isone(iter)) || continue
+            update_residuals!(ws)
+            # Only on a termination check: the residuals and objective a row reports are
+            # the ones that check just used, so a printed row always explains the decision
+            # made alongside it.
+            s.verbose && checking && print_row(ws)
+            if checking
+                st = check_termination(ws, false)
+                if st != UNSOLVED
+                    ws.status = st
+                    break
+                end
+            end
+            adapting && adapt_rho!(ws)
         end
-        adapting && adapt_rho!(ws)
+    catch e
+        e isa InterruptException || rethrow()
+        # The iterates reached are a valid, if unconverged, point, so hand them back rather
+        # than lose the run. The residuals are refreshed because an interrupt lands
+        # wherever it lands, not on a scheduled check.
+        update_residuals!(ws)
+        ws.status = INTERRUPTED
     end
     if ws.status == UNSOLVED
         update_residuals!(ws)

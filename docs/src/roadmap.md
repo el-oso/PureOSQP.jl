@@ -15,11 +15,6 @@ Some entries are deliberate and will stay; those are marked as such and explaine
 `..._get_vec`), which is what lets a QP sit inside a differentiable program as a layer.
 Nothing here corresponds to it. This is the largest capability gap.
 
-**Interruption.** There is no interrupt checking and no `SIGINT` status, so a long run
-cannot be stopped from the keyboard and reported as such. `time_limit` exists and bounds
-the ADMM loop, but not setup, since setup is not timed either — upstream's budget covers
-the whole run because it times every phase.
-
 **Code generation** — a documented difference rather than work to be done.
 
 `osqp_codegen` writes four files: `workspace.h`, `workspace.c`, `osqp_configure.h` and an
@@ -76,6 +71,11 @@ carries no such problem and is simply not built.
 | `update_time` | `update!` is not timed; `setup_time`, `solve_time`, `polish_time` and `run_time` are |
 | `primdual_int` | the primal-dual integral, a 1.x convergence diagnostic requiring per-iteration profiling |
 
+Interruption is implemented: a `Ctrl-C` inside the loop returns `INTERRUPTED` with the
+point reached, and every other exception propagates. Note that `time_limit` bounds the ADMM
+loop and not `setup`, because `setup` is timed but not budgeted — upstream's limit covers
+the whole run, since it times every phase against it.
+
 ## Missing settings
 
 `check_dualgap`, `scaled_termination` and `rho_is_vec` are implemented.
@@ -120,8 +120,8 @@ measurements. A `SparseArrays` extension does specialise equilibration's column 
 
 ## Suggested order
 
-Three are small: interruption and an `INTERRUPTED` status, the KKT-error `ρ` mode, and the
-`update_settings!` / `update_rho!` / introspection surface.
+Two are small: the KKT-error `ρ` mode, and the `update_settings!` / `update_rho!` /
+introspection surface.
 
 Three are projects, in the order they would repay the work: a MathOptInterface wrapper,
 which is what makes the solver reachable from JuMP and so removes the largest practical

@@ -17,6 +17,10 @@ solve_unscaled(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u; sca
 # Printf and `Base.stdout`. Pinned as its own entry point so that stays checked.
 solve_verbose(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u; verbose = true)
 
+# The `try`/`catch` guarding the ADMM loop against an interrupt is on every solve path,
+# so the trimmer sees it whether or not one is ever raised.
+solve_interruptible(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u; max_iter = 50)
+
 # `time_limit` puts `time_ns` and the UInt64 budget arithmetic on the solve path.
 solve_time_limited(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u; time_limit = 10.0)
 

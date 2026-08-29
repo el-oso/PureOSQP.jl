@@ -19,7 +19,7 @@ using TypeContracts: TypeContracts, @contract, @verify
 export setup, solve, solve!, update!, warm_start!, cold_start!, Settings, Solution, Status
 export LinearSystem, ReducedCholesky, FullKKT
 export SOLVED, PRIMAL_INFEASIBLE, DUAL_INFEASIBLE, MAX_ITER_REACHED, NON_CONVEX, UNSOLVED
-export TIME_LIMIT_REACHED
+export TIME_LIMIT_REACHED, INTERRUPTED
 export PolishStatus, POLISH_SUCCESS, POLISH_FAILED, POLISH_NOT_PERFORMED
 export POLISH_NO_ACTIVE_SET_FOUND, POLISH_LINSYS_ERROR
 export SOLVED_INACCURATE, PRIMAL_INFEASIBLE_INACCURATE, DUAL_INFEASIBLE_INACCURATE
