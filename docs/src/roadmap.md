@@ -59,12 +59,6 @@ wants. If matching it ever became the goal, the honest form is a separate C libr
 Every backend here factors an explicit matrix, so a problem that can only supply
 matrix-vector products cannot be solved.
 
-**Duality-gap termination is implemented** and on by default, matching libosqp 1.x. It
-binds rarely on well-scaled problems, where the residuals already imply a small gap, but
-it does bind: across a sweep of badly scaled objectives it changed the iteration count in
-114 of 600 comparable runs. Comparisons against libosqp 0.6.2 pin it off, since 0.6.2 has
-no such test.
-
 **`ρ` adaptation on KKT error.** Upstream offers four modes: disabled, fixed iteration
 interval, wall-clock fraction, and relative KKT-error decrease. This package implements the
 first two. The wall-clock mode is *deliberately* omitted — it makes iteration counts depend
@@ -84,7 +78,15 @@ carries no such problem and is simply not built.
 
 ## Missing settings
 
-`check_dualgap`, `scaled_termination` and `rho_is_vec` are implemented. What remains:
+`check_dualgap`, `scaled_termination` and `rho_is_vec` are implemented.
+
+`check_dualgap` defaults on, matching libosqp 1.x. It binds rarely on well-scaled problems,
+where the residuals already imply a small gap, but it does bind: across a sweep of badly
+scaled objectives it changed the iteration count in 114 of 600 comparable runs. Anything
+comparing iteration counts against libosqp 0.6.2 pins it off, since 0.6.2 has no such test
+— that includes the oracle tests, the ported C-suite case and the benchmark scripts.
+
+What remains:
 
 - `linsys_solver` selection across QDLDL, MKL Pardiso and CUDA backends. The equivalent
   choice here is `linsys = :auto | :kkt`, which selects a formulation rather than a library.
@@ -118,11 +120,25 @@ measurements. A `SparseArrays` extension does specialise equilibration's column 
 
 ## Suggested order
 
-The small items close real holes for little work: separate `ρ` updates from
-refactorizations in the reported counts, and report `duality_gap` and a real polish status.
-Derivatives and a MathOptInterface wrapper are projects rather than fixes.
+Three are small: interruption and an `INTERRUPTED` status, the KKT-error `ρ` mode, and the
+`update_settings!` / `update_rho!` / introspection surface.
 
-Note that anything printing or timing has to respect the `--trim` guarantee, which
-analyses code whether or not the branch that reaches it is ever taken. `verbose` is the
-worked example: Printf and bare `println` both fail there, so the output is written
-through `Core.stdout` by hand.
+Three are projects, in the order they would repay the work: a MathOptInterface wrapper,
+which is what makes the solver reachable from JuMP and so removes the largest practical
+barrier to anyone using it; solution derivatives; and the matrix-free backend, which is
+last because every problem the dense backends handle well is a problem it would handle
+worse.
+
+Two notes for whoever picks these up, both learned the hard way:
+
+Anything that prints or times has to respect the `--trim` guarantee, which analyses code
+whether or not the branch reaching it is ever taken. `verbose` is the worked example:
+Printf, bare `println` and `lpad` all fail there, so its output is written through
+`Core.stdout` by hand — see `print_padded` in `src/admm.jl`.
+
+Relaxing the element type from `AbstractFloat` to `Real` would let dual numbers run the
+solver, which gives Jacobians and Hessians through AD and, more usefully, a step-size-free
+oracle for checking a derivative implementation. The blocker is small and specific:
+`INFTY` calls `prevfloat(typemax(T))`, which dual numbers have no method for. `Real` rather
+than `Number` because the solver orders `l ≤ Ax ≤ u` and compares residuals derived from
+the iterates, so the element type needs `<` wherever it appears.
