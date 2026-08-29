@@ -16,7 +16,8 @@ module PureOSQP
 using LinearAlgebra
 using TypeContracts: TypeContracts, @contract, @verify
 
-export setup, solve, solve!, update!, warm_start!, cold_start!, Settings, Solution, Status
+export setup, solve, solve!, update!, update_settings!, update_rho!, warm_start!, cold_start!
+export dimensions, capabilities, Settings, Solution, Status
 export LinearSystem, ReducedCholesky, FullKKT
 export SOLVED, PRIMAL_INFEASIBLE, DUAL_INFEASIBLE, MAX_ITER_REACHED, NON_CONVEX, UNSOLVED
 export TIME_LIMIT_REACHED, INTERRUPTED
@@ -32,5 +33,6 @@ include("termination.jl")
 include("admm.jl")
 include("polish.jl")
 include("update.jl")
+include("api.jl")
 
 end # module PureOSQP

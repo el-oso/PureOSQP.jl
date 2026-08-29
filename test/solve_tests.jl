@@ -432,3 +432,108 @@ end
     G.n = 20 * length(A)
     @test_throws "boom" PureOSQP.solve!(ws2)
 end
+
+@testitem "adaptive_rho takes a mode, and a Bool still means what it names" begin
+    using LinearAlgebra, SparseArrays, OSQP, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    P, q, A, l, u = random_qp(20, 60; seed = 7)
+    opts = (eps_abs = 1.0e-8, eps_rel = 1.0e-8, max_iter = 100_000)
+
+    off = PureOSQP.solve(P, q, A, l, u; opts..., adaptive_rho = false)
+    dis = PureOSQP.solve(P, q, A, l, u; opts..., adaptive_rho = :disabled)
+    on = PureOSQP.solve(P, q, A, l, u; opts..., adaptive_rho = true)
+    its = PureOSQP.solve(P, q, A, l, u; opts..., adaptive_rho = :iterations)
+    kkt = PureOSQP.solve(P, q, A, l, u; opts..., adaptive_rho = :kkt_error)
+
+    # The Bool is the old spelling of two of the modes, so they must agree exactly.
+    @test off.iter == dis.iter
+    @test iszero(dis.rho_updates)
+    @test on.iter == its.iter
+    @test on.rho_updates > 0
+    @test kkt.status == SOLVED
+
+    # A fraction that can never be met means the gate never opens, so rho never moves --
+    # which proves the gate is consulted rather than ignored.
+    never = PureOSQP.solve(
+        P, q, A, l, u; opts..., adaptive_rho = :kkt_error, adaptive_rho_fraction = 1.0e-300
+    )
+    @test iszero(never.rho_updates)
+    @test never.iter == off.iter        # identical to not adapting at all
+
+    @test_throws "adaptive_rho must be" PureOSQP.solve(P, q, A, l, u; adaptive_rho = :nope)
+    @test_throws "adaptive_rho_fraction must lie in (0, 1]" PureOSQP.solve(
+        P, q, A, l, u; adaptive_rho_fraction = 0.0
+    )
+end
+
+@testitem "update_settings! refactorizes only for what the factorization contains" begin
+    using LinearAlgebra, SparseArrays, OSQP, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    P, q, A, l, u = random_qp(15, 40; seed = 91)
+    ws = setup(P, q, A, l, u; eps_abs = 1.0e-6, eps_rel = 1.0e-6)
+
+    # A tolerance is not in the matrix, so changing it is free.
+    before = ws.refactor_count
+    update_settings!(ws; eps_abs = 1.0e-9, max_iter = 50_000)
+    @test ws.settings.eps_abs == 1.0e-9
+    @test ws.settings.max_iter == 50_000
+    @test ws.settings.eps_rel == 1.0e-6          # untouched fields survive
+    @test ws.refactor_count == before
+
+    # `rho` and `sigma` are in it, so changing either must refactorize.
+    update_settings!(ws; rho = 0.5)
+    @test ws.refactor_count > before
+    @test ws.rho ≈ 0.5
+    mid = ws.refactor_count
+    update_settings!(ws; sigma = 1.0e-5)
+    @test ws.refactor_count > mid
+
+    # Rejected, not silently ignored: the backend is part of the workspace's type, and the
+    # equilibration factors were computed once from the data setup saw.
+    @test_throws "linsys is fixed" update_settings!(ws; linsys = :kkt)
+    @test_throws "scaling is fixed" update_settings!(ws; scaling = 0)
+    # A rejected call leaves the workspace alone.
+    @test ws.settings.linsys === :auto
+    @test_throws "eps_abs and eps_rel must be non-negative" update_settings!(ws; eps_abs = -1)
+
+    @test PureOSQP.solve!(ws).status == SOLVED
+end
+
+@testitem "update_rho! is the solver's own rho change, exposed" begin
+    using LinearAlgebra, SparseArrays, OSQP, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    A = [1.0 0.0; 0.0 1.0; 1.0 1.0]
+    l = [1.0, -Inf, 0.0]
+    u = [1.0, Inf, 1.0]
+    ws = setup(zeros(2, 2), zeros(2), A, l, u; scaling = 0, rho = 0.1)
+    before = ws.refactor_count
+
+    @test update_rho!(ws, 0.7) === ws
+    @test ws.refactor_count > before
+    @test ws.rho ≈ 0.7
+    # Split across the constraint classes exactly as adaptive rho does.
+    @test ws.rho_vec[1] ≈ 1.0e3 * 0.7      # equality
+    @test ws.rho_vec[2] ≈ 1.0e-6           # free row
+    @test ws.rho_vec[3] ≈ 0.7              # inequality
+
+    # Clamped to the solver's band rather than accepted as given.
+    update_rho!(ws, 1.0e12)
+    @test ws.rho ≈ 1.0e6
+    @test_throws "rho must be positive" update_rho!(ws, 0.0)
+end
+
+@testitem "the introspection surface reports what this build does" begin
+    using LinearAlgebra, SparseArrays, OSQP, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    P, q, A, l, u = random_qp(6, 14; seed = 5)
+    ws = setup(P, q, A, l, u)
+    @test dimensions(ws) == (6, 14)
+
+    c = capabilities()
+    @test c.direct_solver
+    @test c.update_matrices
+    # Claimed only where true: these are the roadmap's open items.
+    @test !c.indirect_solver
+    @test !c.codegen
+    @test !c.derivatives
+end

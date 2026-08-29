@@ -168,6 +168,7 @@ function solve!(ws::Workspace{T}) where {T}
     # rather than the sum of both. `refactor_count` is deliberately not reset: it is a
     # property of the workspace's whole life.
     ws.rho_updates = 0
+    ws.last_rel_kkt = INFTY(T)
     ws.solve_time = 0.0
     ws.polish_time = 0.0
     s.verbose && print_header(ws)
@@ -190,7 +191,7 @@ function solve!(ws::Workspace{T}) where {T}
                 s.verbose && print_row(ws)
                 break
             end
-            adapting = s.adaptive_rho && s.adaptive_rho_interval > 0 &&
+            adapting = s.adaptive_rho !== :disabled && s.adaptive_rho_interval > 0 &&
                 iszero(iter % s.adaptive_rho_interval)
             checking = s.check_termination > 0 && iszero(iter % s.check_termination)
             (adapting || checking || isone(iter)) || continue
@@ -206,7 +207,15 @@ function solve!(ws::Workspace{T}) where {T}
                     break
                 end
             end
-            adapting && adapt_rho!(ws)
+            # The interval decides when the test is made. Under `:kkt_error` the test
+            # itself is whether the error has fallen to `adaptive_rho_fraction` of what it
+            # was when `ρ` last moved, so a run whose error stops falling stops retuning
+            # `ρ` instead of paying for refactorizations that are not helping.
+            if adapting
+                allowed = s.adaptive_rho !== :kkt_error ||
+                    ws.rel_kkt_error <= s.adaptive_rho_fraction * ws.last_rel_kkt
+                allowed && adapt_rho!(ws) && (ws.last_rel_kkt = ws.rel_kkt_error)
+            end
         end
     catch e
         e isa InterruptException || rethrow()

@@ -62,8 +62,9 @@ struct Settings{T <: AbstractFloat}
     eps_prim_inf::T
     eps_dual_inf::T
     scaling::Int
-    adaptive_rho::Bool
+    adaptive_rho::Symbol
     adaptive_rho_interval::Int
+    adaptive_rho_fraction::T
     adaptive_rho_tolerance::T
     check_termination::Int
     check_dualgap::Bool
@@ -81,11 +82,22 @@ function Settings{T}(;
         rho = 0.1, sigma = 1.0e-6, alpha = 1.6, max_iter = 4000, time_limit = Inf,
         eps_abs = 1.0e-3, eps_rel = 1.0e-3, eps_prim_inf = 1.0e-4, eps_dual_inf = 1.0e-4,
         scaling = 10, adaptive_rho = true, adaptive_rho_interval = 50,
-        adaptive_rho_tolerance = 5.0, check_termination = 25,
+        adaptive_rho_fraction = 0.4, adaptive_rho_tolerance = 5.0, check_termination = 25,
         check_dualgap = true, scaled_termination = false, rho_is_vec = true,
         polish = false, polish_refine_iter = 3, delta = 1.0e-6,
         warm_starting = true, verbose = false, linsys = :auto,
     ) where {T <: AbstractFloat}
+    # `adaptive_rho` names a mode. A `Bool` is also accepted: `true` is `:iterations`.
+    rho_mode = adaptive_rho isa Bool ? (adaptive_rho ? :iterations : :disabled) :
+        Symbol(adaptive_rho)
+    rho_mode in (:disabled, :iterations, :kkt_error) || throw(
+        ArgumentError(
+            "adaptive_rho must be :disabled, :iterations, :kkt_error or a Bool, got :$rho_mode"
+        )
+    )
+    0 < adaptive_rho_fraction <= 1 || throw(
+        ArgumentError("adaptive_rho_fraction must lie in (0, 1], got $adaptive_rho_fraction")
+    )
     linsys in (:auto, :kkt) || throw(ArgumentError("linsys must be :auto or :kkt, got :$linsys"))
     sigma > 0 || throw(ArgumentError("sigma must be positive, got $sigma"))
     rho > 0 || throw(ArgumentError("rho must be positive, got $rho"))
@@ -104,7 +116,7 @@ function Settings{T}(;
     return Settings{T}(
         T(rho), T(sigma), T(alpha), Int(max_iter), T(time_limit),
         T(eps_abs), T(eps_rel), T(eps_prim_inf), T(eps_dual_inf),
-        Int(scaling), Bool(adaptive_rho), Int(adaptive_rho_interval),
+        Int(scaling), rho_mode, Int(adaptive_rho_interval), T(adaptive_rho_fraction),
         T(adaptive_rho_tolerance), Int(check_termination),
         Bool(check_dualgap), Bool(scaled_termination), Bool(rho_is_vec),
         Bool(polish), Int(polish_refine_iter), T(delta),
@@ -216,6 +228,7 @@ mutable struct Workspace{
     qtx::T
     SCy::T
     rel_kkt_error::T
+    last_rel_kkt::T
     rho_estimate::T
     rho_updates::Int
     iter::Int
@@ -304,7 +317,7 @@ function setup(
         settings.rho, buf(m, o), buf(m, o), ctype,
         ls, 0,
         zero(T), zero(T), zero(T), zero(T), zero(T),
-        zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), zero(T),
+        zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), INFTY(T),
         settings.rho, 0, 0, UNSOLVED, false, POLISH_NOT_PERFORMED,
         0.0, true, 0.0, 0.0,
         settings,

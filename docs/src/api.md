@@ -7,6 +7,10 @@ PureOSQP.solve!
 PureOSQP.update!
 PureOSQP.warm_start!
 PureOSQP.cold_start!
+PureOSQP.update_settings!
+PureOSQP.update_rho!
+PureOSQP.dimensions
+PureOSQP.capabilities
 PureOSQP.Settings
 PureOSQP.Solution
 PureOSQP.Workspace

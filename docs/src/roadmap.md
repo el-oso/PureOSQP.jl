@@ -54,11 +54,11 @@ wants. If matching it ever became the goal, the honest form is a separate C libr
 Every backend here factors an explicit matrix, so a problem that can only supply
 matrix-vector products cannot be solved.
 
-**`ρ` adaptation on KKT error.** Upstream offers four modes: disabled, fixed iteration
-interval, wall-clock fraction, and relative KKT-error decrease. This package implements the
-first two. The wall-clock mode is *deliberately* omitted — it makes iteration counts depend
-on the machine, and reproducible counts are what the oracle tests check. The KKT-error mode
-carries no such problem and is simply not built.
+**`ρ` adaptation.** Upstream offers four modes: disabled, fixed iteration
+interval, wall-clock fraction, and relative KKT-error decrease. This package implements
+three of them via `adaptive_rho = :disabled | :iterations | :kkt_error`, a `Bool` still
+naming the first two. The wall-clock mode is *deliberately* omitted — it makes counts depend
+on the machine, and reproducible counts are what the oracle tests check.
 
 ## Missing reported information
 
@@ -93,17 +93,24 @@ What remains:
 - `device`, `profiler_level`, `allocate_solution` — embedded and GPU concerns with no
   counterpart.
 
-## Missing API surface
+## API surface
 
-- `osqp_update_settings` — settings are fixed once [`setup`](@ref) returns. 0.6.2 exposed
-  about fifteen individual updaters (`osqp_update_max_iter`, `_eps_abs`, `_alpha`,
-  `_polish`, …) which 1.x consolidated into one call. Note that changing `rho` or `sigma`
-  requires a refactorization, so this is not merely a field assignment.
-- `osqp_update_rho` as a public entry point.
-- Introspection: `osqp_version`, `osqp_capabilities`, `osqp_error_message`,
-  `osqp_get_dimensions`.
+Complete, with one deliberate omission.
 
-[`update!`](@ref) does cover upstream's whole data-update family — `osqp_update_lin_cost`,
+[`update_settings!`](@ref) covers `osqp_update_settings` and the fifteen individual
+updaters 0.6.2 exposed. It refactorizes only for `rho`, `sigma` and `rho_is_vec`, which are
+the settings the factorization contains, and it *rejects* `linsys` and `scaling` rather
+than appearing to accept them: the backend is part of the workspace's type, and the
+equilibration factors were computed once from the data `setup` saw, so honoring either
+would leave the solver quietly running something other than what was asked for.
+
+[`update_rho!`](@ref) is `osqp_update_rho`. [`dimensions`](@ref) and
+[`capabilities`](@ref) are `osqp_get_dimensions` and `osqp_capabilities`.
+
+There is no `osqp_error_message`, and there should not be: it exists to turn an error code
+into a string, and this package throws exceptions that carry their own messages.
+
+[`update!`](@ref) covers upstream's whole data-update family — `osqp_update_lin_cost`,
 `osqp_update_bounds`, `osqp_update_lower_bound`, `osqp_update_upper_bound`,
 `osqp_update_P`, `osqp_update_A` and `osqp_update_P_A` — and `warm_start!(; x, y)` covers
 `osqp_warm_start_x` and `osqp_warm_start_y`.
@@ -120,14 +127,10 @@ measurements. A `SparseArrays` extension does specialise equilibration's column 
 
 ## Suggested order
 
-Two are small: the KKT-error `ρ` mode, and the `update_settings!` / `update_rho!` /
-introspection surface.
-
-Three are projects, in the order they would repay the work: a MathOptInterface wrapper,
-which is what makes the solver reachable from JuMP and so removes the largest practical
-barrier to anyone using it; solution derivatives; and the matrix-free backend, which is
-last because every problem the dense backends handle well is a problem it would handle
-worse.
+What is left is three projects, in the order they would repay the work: a MathOptInterface
+wrapper, which makes the solver reachable from JuMP and so removes the largest practical
+barrier to anyone using it; solution derivatives; and the matrix-free backend, which comes
+last because every problem the dense backends handle well is one it would handle worse.
 
 Two notes for whoever picks these up, both learned the hard way:
 
