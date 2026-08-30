@@ -1,4 +1,44 @@
 """
+    BackendInfo
+
+What a [`LinearSystem`](@ref) backend is and how big the object it solves through is,
+reported by [`backend_info`](@ref).
+
+- `name` — the backend's name, the same symbol [`backend_name`](@ref) returns.
+- `direct` — `true` when a factorization is stored, `false` for a matrix-free iterative
+  backend, whose `factor_nnz` is `0` because there is nothing stored to count.
+- `system` — `:reduced` for the `n×n` system that eliminates `ν`, `:kkt` for the full
+  `(n+m)×(n+m)` quasi-definite system.
+- `dim` — the side length of that system: `n` when `system` is `:reduced`, `n+m` when it is
+  `:kkt`.
+- `factor_nnz` — the number of scalars the stored factorization occupies, counting one
+  triangle: `nnz(L)` for a sparse factor, `dim(dim+1)/2` for a dense one. A backend that
+  stores the explicit inverse rather than a factor reports that inverse's triangle.
+
+`factor_nnz / dim^2` is the fill the *reduced* backends can be compared on, and for them it is
+the quantity the sparse selection thresholds are stated in. It is not that for the two KKT
+backends: their gates threshold `nnz(L)` against the reduced `n`, while `dim` here is `n+m`, so
+the two differ by `(n+m)^2 / n^2` — on Portfolio, 0.0023 against the 0.0091 the gate sees.
+
+The sparse backends' factors are empty until `factorize!` has run. [`setup`](@ref) always
+factorizes, so a backend reached through a workspace is populated.
+"""
+struct BackendInfo
+    name::Symbol
+    direct::Bool
+    system::Symbol
+    dim::Int
+    factor_nnz::Int
+end
+
+"""
+    backend_info(ls::LinearSystem) -> BackendInfo
+
+Describe the backend a workspace holds: `backend_info(ws.linsys)`.
+"""
+function backend_info end
+
+"""
     LinearSystem
 
 Interface for the factorization that solves the ADMM subproblem
@@ -10,7 +50,7 @@ once per iteration. A backend owns its own storage and factorization object; the
 holds one, chosen at [`setup`](@ref) and fixed for the workspace's life, so every call
 dispatches statically.
 
-Implementations must provide the two methods below; the contract is enforced at
+Implementations must provide the three methods below; the contract is enforced at
 precompilation.
 """
 abstract type LinearSystem end
@@ -21,6 +61,7 @@ function solve_system! end
 @contract LinearSystem begin
     factorize!(::Self, ::Any)::Bool
     solve_system!(::Self, ::Any, ::Any, ::Any)::Nothing
+    backend_info(::Self)::BackendInfo
 end
 
 """
@@ -227,12 +268,117 @@ the values the solver will actually use, the factorization is the setup factoriz
 method that works that way returns `true` and [`setup`](@ref) does not factor again; one
 that only picks a representation returns `false`.
 
-The default forms the reduced matrix densely, which suits a dense or unrecognized `A`, and
-leaves the factorizing to `factorize!`.
+A `(P, A)` pair with no method of its own descends [`select_backend`](@ref)'s ladder, whose
+named terminal rung is the dense reduced matrix.
 """
 choose_backend(
     P, A, proto::AbstractVector, n::Integer, m::Integer, D, E, c, rho_vec, sigma
+) = select_backend(P, A, proto, n, m, D, E, c, rho_vec, sigma)
+
+"""
+    select_backend(P, A, proto, n, m, D, E, c, rho_vec, sigma) -> (LinearSystem, Bool)
+
+Descend the selection ladder, returning the first rung that serves this `(P, A)` pair and
+whether that rung already carries a factorization of the current data.
+
+The rungs, in order:
+
+1. [`dense_form_rung`](@ref) — the reduced matrix is dense enough that assembling it from
+   stored entries loses to the dense product, so the pair goes straight to the terminal.
+2. [`kkt_rung`](@ref) — factor the full `(n+m)×(n+m)` quasi-definite matrix sparsely.
+3. [`reduced_rung`](@ref) — factor the `n×n` reduced matrix sparsely.
+4. [`formed_rung`](@ref) — assemble the reduced matrix from stored entries and invert it
+   densely.
+5. [`dense_rung`](@ref) — the terminal: form the reduced matrix densely and invert it. Every
+   pair that can be materialized at all stops here.
+6. [`indirect_rung`](@ref) — matrix-free, for an operator the terminal cannot materialize.
+
+Rungs 2 and 3 decide by factoring the real equilibrated matrix and reading the fill, so the
+factorization they produce is the setup factorization and they return `true`. That is why a
+rung returns the backend rather than a verdict: a query answering only "does this fit" would
+throw that factorization away and pay for it twice.
+
+Each rung is a generic function whose default declines, so an extension adds itself to the
+ladder by defining the method its representation needs. The order is fixed here, in one
+place, rather than emerging from where each gate happens to sit.
+"""
+function select_backend(
+        P, A, proto::AbstractVector, n::Integer, m::Integer, D, E, c, rho_vec, sigma
+    )
+    rung = dense_form_rung(P, A, proto, n, m)
+    isnothing(rung) || return rung
+    rung = kkt_rung(P, A, proto, n, m, D, E, c, rho_vec, sigma)
+    isnothing(rung) || return rung
+    rung = reduced_rung(P, A, proto, n, m, D, E, c, rho_vec, sigma)
+    isnothing(rung) || return rung
+    rung = formed_rung(P, A, proto, n, m)
+    isnothing(rung) || return rung
+    rung = dense_rung(P, A, proto, n, m)
+    isnothing(rung) || return rung
+    return indirect_rung(P, A, proto, n, m)
+end
+
+"""
+    dense_form_rung(P, A, proto, n, m) -> (LinearSystem, Bool) or nothing
+
+Ladder rung 1: send a pair whose stored entries are too dense for sparse assembly to pay
+straight to [`dense_rung`](@ref), skipping the rungs between.
+
+Declines for a representation with no density to measure.
+"""
+dense_form_rung(P, A, proto::AbstractVector, n::Integer, m::Integer) = nothing
+
+"""
+    kkt_rung(P, A, proto, n, m, D, E, c, rho_vec, sigma) -> (LinearSystem, Bool) or nothing
+
+Ladder rung 2: factor the full quasi-definite KKT matrix sparsely, when that beats a dense
+reduced factorization. Decides by factoring, so what it returns is already factored.
+"""
+kkt_rung(P, A, proto::AbstractVector, n::Integer, m::Integer, D, E, c, rho_vec, sigma) = nothing
+
+"""
+    reduced_rung(P, A, proto, n, m, D, E, c, rho_vec, sigma) -> (LinearSystem, Bool) or nothing
+
+Ladder rung 3: factor the reduced matrix sparsely, when its factor stays sparse. Decides by
+factoring, so what it returns is already factored.
+"""
+reduced_rung(P, A, proto::AbstractVector, n::Integer, m::Integer, D, E, c, rho_vec, sigma) = nothing
+
+"""
+    formed_rung(P, A, proto, n, m) -> (LinearSystem, Bool) or nothing
+
+Ladder rung 4: form the reduced matrix by accumulating over stored entries, then invert it
+densely — the same dense arithmetic as [`dense_rung`](@ref) reached without the `m×n` buffer
+its product needs.
+"""
+formed_rung(P, A, proto::AbstractVector, n::Integer, m::Integer) = nothing
+
+"""
+    dense_rung(P, A, proto, n, m) -> (LinearSystem, Bool) or nothing
+
+Ladder rung 5, the terminal: [`ReducedCholesky`](@ref), which forms the reduced matrix with
+one dense product and inverts it. It serves any pair of materializable matrices, which is
+why every rung above it may decline freely.
+
+Declines only for an operator that is not an `AbstractMatrix`, since there is then nothing to
+form the product from.
+"""
+dense_rung(
+    P::AbstractMatrix, A::AbstractMatrix, proto::AbstractVector, n::Integer, m::Integer
 ) = (ReducedCholesky(proto, n, m), false)
+dense_rung(P, A, proto::AbstractVector, n::Integer, m::Integer) = nothing
+
+"""
+    indirect_rung(P, A, proto, n, m) -> (LinearSystem, Bool)
+
+Ladder rung 6, below the terminal: conjugate gradients, which needs only products with `P`
+and `A` and so serves an operator no other rung can materialize.
+
+It has no gate: reaching it means nothing above could serve. Without Krylov loaded there is
+no such backend and [`indirect_backend`](@ref) says so.
+"""
+indirect_rung(P, A, proto::AbstractVector, n::Integer, m::Integer) =
+    (indirect_backend(proto, n, m), false)
 
 choose_backend(
     P::Diagonal, A::Diagonal, proto::AbstractVector, n::Integer, m::Integer,
@@ -257,6 +403,28 @@ backend_name(::ReducedCholesky) = :cholesky
 backend_name(::FullKKT) = :bunchkaufman
 backend_name(::DiagonalReduced) = :diagonal
 backend_name(::TridiagonalReduced) = :tridiagonal
+
+# `Rinv` and `K` are dense, so their triangle is what the factorization occupies. The
+# diagonal and tridiagonal backends store their bands and nothing else.
+dense_triangle(dim::Integer) = dim * (dim + 1) ÷ 2
+
+function backend_info(ls::ReducedCholesky)
+    dim = size(ls.Rinv, 1)
+    return BackendInfo(backend_name(ls), true, :reduced, dim, dense_triangle(dim))
+end
+
+function backend_info(ls::FullKKT)
+    dim = size(ls.K, 1)
+    return BackendInfo(backend_name(ls), true, :kkt, dim, dense_triangle(dim))
+end
+
+backend_info(ls::DiagonalReduced) =
+    BackendInfo(backend_name(ls), true, :reduced, length(ls.dinv), length(ls.dinv))
+
+function backend_info(ls::TridiagonalReduced)
+    dim = length(ls.dv)
+    return BackendInfo(backend_name(ls), true, :reduced, dim, dim + length(ls.ev))
+end
 
 # Overwrite the Cholesky factor occupying `R` with the inverse it factors. `potri!` does
 # this in place and touches only the upper triangle; the fallback covers element types

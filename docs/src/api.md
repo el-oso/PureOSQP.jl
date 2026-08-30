@@ -51,4 +51,25 @@ PureOSQP.ReducedCholesky
 PureOSQP.DiagonalReduced
 PureOSQP.TridiagonalReduced
 PureOSQP.FullKKT
+PureOSQP.indirect_backend
+```
+
+## The selection ladder
+
+```@docs
+PureOSQP.select_backend
+PureOSQP.dense_form_rung
+PureOSQP.kkt_rung
+PureOSQP.reduced_rung
+PureOSQP.formed_rung
+PureOSQP.dense_rung
+PureOSQP.indirect_rung
+```
+
+## Backend introspection
+
+```@docs
+PureOSQP.backend_name
+PureOSQP.backend_info
+PureOSQP.BackendInfo
 ```

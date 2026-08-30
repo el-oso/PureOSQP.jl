@@ -83,7 +83,7 @@ function banded_backend(P, A, proto::AbstractVector{T}, n::Integer, m::Integer) 
     b = reduced_bandwidth(P, A)
     # Below bandwidth 2 the LinearAlgebra backends already apply and are cheaper than a
     # banded factorization; at half the matrix or wider, the dense path wins outright.
-    (b < 2 || b >= n ÷ 2) && return (PureOSQP.ReducedCholesky(proto, n, m), false)
+    (b < 2 || b >= n ÷ 2) && return PureOSQP.dense_rung(P, A, proto, n, m)
     R = BandedMatrix{T}(undef, (n, n), (b, b))
     fill!(R.data, zero(T))
     for i in 1:n
@@ -94,6 +94,15 @@ function banded_backend(P, A, proto::AbstractVector{T}, n::Integer, m::Integer) 
 end
 
 PureOSQP.backend_name(::BandedReduced) = :banded
+
+# The factor keeps `R`'s lower bandwidth, so one triangle of an `n×n` matrix of bandwidth
+# `bw` is `n(bw+1)` entries less the `bw(bw+1)/2` that run off the top-left corner.
+function PureOSQP.backend_info(ls::BandedReduced)
+    dim, bw = size(ls.R, 1), ls.bw
+    return PureOSQP.BackendInfo(
+        PureOSQP.backend_name(ls), true, :reduced, dim, dim * (bw + 1) - bw * (bw + 1) ÷ 2
+    )
+end
 
 function PureOSQP.factorize!(ls::BandedReduced{T}, ws)::Bool where {T}
     n, m, b = ws.n, ws.m, ls.bw

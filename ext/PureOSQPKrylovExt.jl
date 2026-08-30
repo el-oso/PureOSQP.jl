@@ -86,6 +86,12 @@ end
 
 PureOSQP.backend_name(::IndirectCG) = :indirect
 
+# Matrix-free: the preconditioner is a diagonal, not a factorization, so there is no factor
+# to count.
+PureOSQP.backend_info(ls::IndirectCG) = PureOSQP.BackendInfo(
+    PureOSQP.backend_name(ls), false, :reduced, length(ls.rhs), 0
+)
+
 """
     factorize!(ls::IndirectCG, ws) -> Bool
 

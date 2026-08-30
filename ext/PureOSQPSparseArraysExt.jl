@@ -148,25 +148,47 @@ matches the density above which callers are already advised to hand over dense c
 """
 const DENSE_FORM_DENSITY = 0.1
 
-function PureOSQP.choose_backend(
-        P, A::SparseMatrixCSC, proto::AbstractVector{T}, n::Integer, m::Integer,
+function PureOSQP.dense_form_rung(
+        P, A::SparseMatrixCSC, proto::AbstractVector, n::Integer, m::Integer
+    )
+    (n > 0 && m > 0 && nnz(A) > DENSE_FORM_DENSITY * m * n) || return nothing
+    return PureOSQP.dense_rung(P, A, proto, n, m)
+end
+
+# Factoring sparsely beats inverting densely only when the factor stays sparse, which is a
+# property of the pattern and so is measured rather than assumed. Both of these rungs factor
+# the real matrix to find out, so a backend they return is ready to solve.
+function PureOSQP.kkt_rung(
+        P, A::SparseMatrixCSC, proto::AbstractVector, n::Integer, m::Integer,
         D, E, c, rho_vec, sigma
+    )
+    ls = sparse_kkt_backend(P, A, proto, n, m, D, E, c, rho_vec, sigma)
+    return isnothing(ls) ? nothing : (ls, true)
+end
+
+function PureOSQP.reduced_rung(
+        P, A::SparseMatrixCSC, proto::AbstractVector, n::Integer, m::Integer,
+        D, E, c, rho_vec, sigma
+    )
+    ls = cholmod_backend(P, A, proto, n, m, D, E, c, rho_vec, sigma)
+    return isnothing(ls) ? nothing : (ls, true)
+end
+
+function PureOSQP.formed_rung(
+        P, A::SparseMatrixCSC, proto::AbstractVector{T}, n::Integer, m::Integer
     ) where {T <: Real}
-    if n > 0 && m > 0 && nnz(A) > DENSE_FORM_DENSITY * m * n
-        return (PureOSQP.ReducedCholesky(proto, n, m), false)
-    end
-    # Factoring sparsely beats inverting densely only when the factor stays sparse, which
-    # is a property of the pattern and so is measured here rather than assumed. Both of
-    # these factor the real matrix to find out, so a backend they return is ready to solve.
-    kkt = sparse_kkt_backend(P, A, proto, n, m, D, E, c, rho_vec, sigma)
-    isnothing(kkt) || return (kkt, true)
-    ldl = cholmod_backend(P, A, proto, n, m, D, E, c, rho_vec, sigma)
-    isnothing(ldl) || return (ldl, true)
     Rinv = similar(proto, T, n, n)
     return (SparseFormedInverse{T, typeof(Rinv)}(Rinv), false)
 end
 
 PureOSQP.backend_name(::SparseFormedInverse) = :sparse_formed
+
+function PureOSQP.backend_info(ls::SparseFormedInverse)
+    dim = size(ls.Rinv, 1)
+    return PureOSQP.BackendInfo(
+        PureOSQP.backend_name(ls), true, :reduced, dim, PureOSQP.dense_triangle(dim)
+    )
+end
 
 """
     csr_rows(A) -> (rowptr, colind, nzval)
@@ -341,6 +363,10 @@ mutable struct SparseKKT{T <: Real, V <: AbstractVector{T}, F} <: PureOSQP.Linea
 end
 
 PureOSQP.backend_name(::SparseKKT) = :sparse_kkt
+
+PureOSQP.backend_info(ls::SparseKKT) = PureOSQP.BackendInfo(
+    PureOSQP.backend_name(ls), true, :kkt, size(ls.L, 1), nnz(ls.L)
+)
 
 """
     kkt_sparse(T, P, A, rho_inv, E, D, c, sigma) -> SparseMatrixCSC
@@ -669,6 +695,10 @@ mutable struct SparseCholmod{T <: Real, V <: AbstractVector{T}, F} <: PureOSQP.L
 end
 
 PureOSQP.backend_name(::SparseCholmod) = :cholmod
+
+PureOSQP.backend_info(ls::SparseCholmod) = PureOSQP.BackendInfo(
+    PureOSQP.backend_name(ls), true, :reduced, size(ls.L, 1), nnz(ls.L)
+)
 
 
 """

@@ -16,6 +16,7 @@
         "oracle_tests.jl" => 4,
         "polish_tests.jl" => 3,
         "scaling_tests.jl" => 7,
+        "selection_tests.jl" => 4,
         "setup_tests.jl" => 11,
         "solve_tests.jl" => 21,
         "trim_tests.jl" => 1,

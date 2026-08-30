@@ -71,6 +71,10 @@ end
 
 PureOSQP.backend_name(::SparseLDL) = :ldlfactorizations
 
+PureOSQP.backend_info(ls::SparseLDL) = PureOSQP.BackendInfo(
+    PureOSQP.backend_name(ls), true, :reduced, size(ls.L, 1), nnz(ls.L)
+)
+
 """
     PureOSQP.ldl_backend(gram, proto, n, fill_limit) -> SparseLDL or nothing
 
@@ -212,6 +216,10 @@ mutable struct LDLKKT{T <: Real, V <: AbstractVector{T}, G, F} <: PureOSQP.Linea
 end
 
 PureOSQP.backend_name(::LDLKKT) = :ldl_kkt
+
+PureOSQP.backend_info(ls::LDLKKT) = PureOSQP.BackendInfo(
+    PureOSQP.backend_name(ls), true, :kkt, size(ls.L, 1), nnz(ls.L)
+)
 
 function PureOSQP.ldl_kkt_backend(
         gram, proto::AbstractVector{T}, n::Integer, m::Integer, fill_limit::Real

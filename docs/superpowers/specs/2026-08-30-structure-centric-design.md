@@ -32,8 +32,23 @@ the thumb on dense's side of the scale.
 Discouraging dense therefore means **re-deriving those thresholds against measurement rather
 than inheriting them**, and the direction of the correction is testable: find, for each gate,
 the crossover where the structured path actually stops winning, and place the threshold there
-instead of where caution originally put it. If 0.05 is right, measurement will say so; the
-point is that it is currently an assumption, not a finding.
+instead of where caution originally put it.
+
+**Measured 2026-08-30. Both thresholds are too conservative, and the cost is large.**
+Reproduce with `bench/gate_crossover_fill.jl` and `bench/gate_crossover_band.jl`; samples in
+`bench/results/`.
+
+| gate | current | measured | cost of the current setting |
+|---|---|---|---|
+| `nnz(L) < DENSE_FACTOR_FILL·n²` | `0.05` | parity near **0.23** | at `n = 1000`, `:auto` is **1.5–2× slower** than the sparse backend it declines — fill 0.086: 60 ms vs 31 ms; 0.121: 88 vs 57; 0.166: 85 vs 59 |
+| banded declines at `b >= n ÷ 2` | `0.5·n` | **no crossover found** | banded still wins **1.6×** at `b/n = 0.8`, well past the cutoff |
+
+So the fill gate is throwing away roughly a factor of two across a wide band of problems, and
+the banded gate declines in a regime where the banded path is still winning by 1.6×. Neither
+threshold is defended by measurement; both were caution.
+
+**Moving them is a separate, deliberate change** — the ladder refactor is behavior-preserving
+by construction, so these findings are recorded here and acted on next, not folded in.
 
 Structure is a lattice, not a binary:
 
@@ -171,9 +186,23 @@ ladder whose steps carry the existing `(backend, factored)` return, so a gate th
 keeps its factorization. `ReducedCholesky` becomes the ladder's named terminal rung rather than
 the thing reached by falling through.
 
-Also decide, explicitly: **does `IndirectCG` join the ladder?** Joining changes iteration counts
-(inexact inner solves); not joining means S1 contributes nothing to the non-materializing
-objective. Either is defensible; silence is not.
+**Decided: `IndirectCG` joins the ladder as its terminal fallback, below dense.** It is selected
+only when nothing else can serve — a lazy operator with no matching structured backend — so no
+problem that reaches a materializing backend today changes path, and no existing benchmark row
+moves. Competing it against dense on a measured crossover is a later question, deliberately not
+taken now, because its inexact inner solve changes iteration counts and would touch the
+parity-with-libosqp story.
+
+**Decided, defaults taken:**
+
+- `polish` is **refused for lazy operators** with a clear error naming the reason, rather than
+  reaching `polish!`'s entrywise indexing and failing with a `MethodError`.
+- `scaling = 0` is the **documented interim restriction** for lazy operators between S4 and S6,
+  not a silent degradation.
+- **S5 lands with S3**, not before it: adding update-channel methods before a backend benefits
+  from them is speculative interface work, so the Woodbury backend shapes the interface.
+- **Gate-threshold re-derivation joins phase 1**, as measurement only — the thresholds
+  themselves change in a separate, deliberate commit, because S1 must stay behavior-preserving.
 
 **Verification** — not "benchmark figures unchanged", which is not a checkable procedure given
 that idle machine load has moved setup ratios more than code changes have. Instead: assert the
@@ -367,3 +396,46 @@ phase should be judged on that.
   restriction acceptable?
 - **How much of this belongs in PureOSQP versus a separate operator package?** The lazy
   structured operator is useful to more than one solver; the backends are not.
+
+## Resolved: the operator library
+
+**LinearMaps.jl first, as a weak dependency, used at the leaves only. SciMLOperators.jl kept as
+a second adapter.** The protocol itself stays library-agnostic.
+
+Measured 2026-08-30, `n = 400`, `m = 600`, sparse `A` at 5% density:
+
+| | leaf `mul!` alloc | leaf `mul!` time | vs raw | `--trim` | transitive packages |
+|---|---|---|---|---|---|
+| raw `SparseMatrixCSC` | 0 B | 3.63 µs | — | OK | — |
+| LinearMaps `WrappedMap` | **0 B** | **3.64 µs** | +0.3% | **OK** | 45 |
+| SciMLOperators `MatrixOperator` | **0 B** | **3.73 µs** | +0% | **OK** | 56 |
+
+Both are free at the leaf and both are trim-compatible; the expectation that SciMLOperators'
+`DiffEqBase` dependency would break trim was wrong. The remaining differences are a 24% larger
+dependency tree and, decisively for this plan, that **LinearMaps names both structures the
+thesis needs** — `KroneckerMap` *and* `BlockDiagonalMap` — where SciMLOperators has
+`TensorProductOperator` but no block type.
+
+**Leaf-only, not composition.** Letting the library assemble `R` puts its whole algebraic
+structure in one type, which is attractive, but composed application allocates:
+
+| | alloc per apply | time |
+|---|---|---|
+| `LinearCombination`/`CompositeMap` assembling `R` | **9 744 B** | 10.34 µs |
+| `ReducedOperator` assembling `R` from `Workspace` scratch | **0 B** | 10.06 µs |
+
+There is no cache API in LinearMaps to remove those intermediates — that is what
+SciMLOperators' `cache_operator` exists for — so composition would cost the `noalloc`
+guarantee on every CG iteration, and is slower besides. `ReducedOperator` already composes `R`
+from preallocated `Workspace` buffers; the library is only ever called at a leaf. `R`'s
+structure is then derived from the leaves, which is what `bandwidth(R) = max(bw(P), 2 bw(A))`
+already does.
+
+**Consequence for S5.** A protocol built on SciMLOperators' `update_coefficients!` cannot serve
+a LinearMaps user. Library neutrality therefore *forces* the cheap-update channel to be
+PureOSQP's own concept — see S5. That is a cost of neutrality, accepted deliberately.
+
+**Ambiguity risk.** Two operator extensions each adding `choose_backend` methods are fine while
+their type unions are disjoint, but a generic "any operator" fallback would collide — exactly
+the ambiguity the banded backend threw on its first test run. Keep the unions disjoint and test
+with both libraries loaded.

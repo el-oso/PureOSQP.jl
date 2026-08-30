@@ -57,7 +57,7 @@ end
     include(joinpath(@__DIR__, "helpers.jl"))
     LS = PureOSQP.LinearSystem
     spec = TypeContracts.list_contract(LS)
-    @test length(spec) == 2
+    @test length(spec) == 3
 
     # Both shipped backends satisfy it.
     for B in (
@@ -74,7 +74,7 @@ end
     # this the contract could be satisfied vacuously and nobody would notice.
     @eval struct IncompleteBackend <: PureOSQP.LinearSystem end
     @test !TypeContracts.satisfies(IncompleteBackend, LS).satisfied
-    @test length(TypeContracts.satisfies(IncompleteBackend, LS).missing_methods) == 2
+    @test length(TypeContracts.satisfies(IncompleteBackend, LS).missing_methods) == 3
     @test_throws TypeContracts.InterfaceError TypeContracts.check_contract(IncompleteBackend, LS)
 end
 
