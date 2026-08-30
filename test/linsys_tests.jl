@@ -380,3 +380,60 @@ end
     P = Diagonal([1.0, 1.0, -3.0, 1.0, 1.0])
     @test_throws "convex" setup(P, randn(n), Diagonal(ones(n)), -ones(n), ones(n))
 end
+
+@testitem "a bandwidth-one reduced system solves through the tridiagonal backend" begin
+    using LinearAlgebra, Random
+    Random.seed!(21)
+    n = 14
+    cases = (
+        (
+            "SymTridiagonal P, Diagonal A",
+            SymTridiagonal(rand(n) .+ 3, rand(n - 1) ./ 8), Diagonal(rand(n) .+ 0.5),
+        ),
+        (
+            "Diagonal P, Bidiagonal A",
+            Diagonal(rand(n) .+ 2), Bidiagonal(rand(n) .+ 1, rand(n - 1), :U),
+        ),
+        (
+            "SymTridiagonal P, Bidiagonal A",
+            SymTridiagonal(rand(n) .+ 3, rand(n - 1) ./ 8), Bidiagonal(rand(n) .+ 1, rand(n - 1), :L),
+        ),
+    )
+    for (name, P, A) in cases
+        ws = setup(P, randn(n), A, -rand(n), rand(n); scaling = 0, sigma = 1.0e-6, rho = 0.1)
+        @test ws.linsys isa PureOSQP.TridiagonalReduced
+        @test PureOSQP.backend_name(ws.linsys) == :tridiagonal
+        # The bands must equal the reduced matrix the dense backend would have formed.
+        R = Matrix(P) + ws.settings.sigma * I + Matrix(A)' * Diagonal(ws.rho_vec) * Matrix(A)
+        @test ws.linsys.dv ≈ diag(R) rtol = 1.0e-12
+        @test ws.linsys.ev ≈ diag(R, 1) rtol = 1.0e-12
+        bx, bz = randn(n), randn(n)
+        PureOSQP.solve_system!(ws.linsys, ws, bx, bz)
+        K = [Matrix(P) + ws.settings.sigma * I  Matrix(A)'; Matrix(A)  -Diagonal(1 ./ ws.rho_vec)]
+        ref = K \ [bx; bz]
+        @test ws.xtilde ≈ ref[1:n] rtol = 1.0e-9
+        @test ws.ztilde ≈ A * ws.xtilde rtol = 1.0e-9
+    end
+end
+
+@testitem "the tridiagonal backend agrees with the dense one end to end" begin
+    using LinearAlgebra, Random
+    Random.seed!(22)
+    n = 25
+    P = SymTridiagonal(rand(n) .+ 3, rand(n - 1) ./ 8)
+    A = Diagonal(rand(n) .+ 0.5)
+    q, l, u = randn(n), -rand(n), rand(n)
+    opts = (eps_abs = 1.0e-9, eps_rel = 1.0e-9)
+    structured = solve(P, q, A, l, u; opts...)
+    dense = solve(Matrix(P), q, Matrix(A), l, u; opts...)
+    @test structured.status == PureOSQP.SOLVED
+    @test structured.x ≈ dense.x rtol = 1.0e-6
+    @test structured.iter == dense.iter
+end
+
+@testitem "an indefinite SymTridiagonal P is refused" begin
+    using LinearAlgebra
+    n = 4
+    P = SymTridiagonal([1.0, -6.0, 1.0, 1.0], fill(0.05, n - 1))
+    @test_throws "convex" setup(P, randn(n), Diagonal(ones(n)), -ones(n), ones(n))
+end

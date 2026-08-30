@@ -14,7 +14,7 @@ them, [Algorithm](@ref) for how the solver works.
 |---|---|
 | CUDA in practice | the GPU path is designed for it and tested only against JLArrays; nobody has run it on a device |
 | `primdual_int` | the primal-dual integral, a 1.x convergence diagnostic requiring per-iteration profiling |
-| a band-structured backend | a `SymTridiagonal` `P` with a `Diagonal` `A` leaves the reduced matrix tridiagonal; only the diagonal case has a backend |
+| a reduced matrix wider than tridiagonal | bandwidth 2 and up needs BandedMatrices.jl: LinearAlgebra has no symmetric type that stores it |
 | `polish` and derivatives on GPU | both build a dense `(n+k)×(n+k)` matrix and factor it with `bunchkaufman!`, so both stay on the host |
 | a pure-Julia factorization by default | the `LDLᵀ` backends need LDLFactorizations.jl loaded; without it the sparse path is CHOLMOD, which is C and GPL |
 | setup parity on the dense path | Control's `setup` is 0.33× libosqp's, against 1.20× on the run as a whole |
@@ -47,15 +47,11 @@ more in the loop; two `trsv` is the same flop count but serial; `trtri` with two
 the setup and doubles the loop. Equilibration is within 1.13× of libosqp's per sweep. The
 convexity test and the fill gate are fixed costs libosqp does not pay.
 
-**A band-structured backend.** `Ãᵀ diag(ρ) Ã` fills in whatever `P` looked like, so only a
-structured `A` keeps the reduced matrix structured. `Diagonal` with `Diagonal` has a backend;
-the next case is a `SymTridiagonal` `P` with a `Diagonal` `A`, whose reduced matrix is
-tridiagonal and whose `ldlt` solves in `O(n)` allocating nothing.
-
-What it needs that the diagonal case did not: `D*P*D` on a `SymTridiagonal` returns a
-`Tridiagonal`, which `cholesky` rejects as not Hermitian even though it is symmetric to
-`1e-17`, so the backend has to rebuild the `SymTridiagonal` from the diagonals rather than
-rely on the arithmetic to preserve the type.
+**A reduced matrix wider than tridiagonal.** `bandwidth(R) = max(bandwidth(P), 2 bandwidth(A))`,
+so bandwidths 0 and 1 have backends and 2 is the first that does not: a `Tridiagonal` `A`
+squares into it, and LinearAlgebra stores no symmetric banded type beyond `SymTridiagonal`.
+Closing it means BandedMatrices.jl as a weak dependency, with a banded Cholesky at
+`O(n b²)`. Differencing constraints — total variation, isotonic shapes — are what live there.
 
 ## Deliberate differences
 

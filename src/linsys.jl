@@ -126,6 +126,55 @@ function DiagonalReduced(proto::AbstractVector{T}, n::Integer) where {T <: Real}
 end
 
 """
+    TridiagonalReduced{T,V,F} <: LinearSystem
+
+The reduced system when it is tridiagonal. Diagonal scaling preserves a bandwidth and
+`Ãᵀ diag(ρ) Ã` doubles `A`'s, so
+
+    bandwidth(R) = max(bandwidth(P), 2 bandwidth(A))
+
+which is 1 for a `SymTridiagonal` `P` with a `Diagonal` `A`, for a `Diagonal` `P` with a
+`Bidiagonal` `A`, and for the two together. `ldlt` factors that in `O(n)` and its `ldiv!`
+allocates nothing.
+
+`dv` and `ev` hold `R`'s two bands. They are computed entry by entry rather than by forming
+`c D P D + σI + Ãᵀ diag(ρ) Ã`: that product returns a dense `Array` for a `Bidiagonal` `A`
+even though the result has bandwidth 1, so the structure has to be established here rather
+than recovered from the arithmetic. `fdv` and `fev` are the copies `ldlt!` overwrites, which
+keeps a refactorization from allocating.
+"""
+mutable struct TridiagonalReduced{T <: Real, V <: AbstractVector{T}, F} <: LinearSystem
+    dv::V
+    ev::V
+    fdv::V
+    fev::V
+    fact::F
+end
+
+"""
+    TridiagonalReduced(proto::AbstractVector, n)
+
+Build the backend's storage as `similar(proto, ...)`, following the array type of the data
+it was given. See [`ReducedCholesky`](@ref) on why `proto` is a vector.
+"""
+function TridiagonalReduced(proto::AbstractVector{T}, n::Integer) where {T <: Real}
+    dv, ev = similar(proto, T, n), similar(proto, T, max(n - 1, 0))
+    fdv, fev = similar(dv), similar(ev)
+    fact = ldlt!(SymTridiagonal(fill(one(T), 1), fill(one(T), 0)))
+    return TridiagonalReduced{T, typeof(dv), typeof(fact)}(dv, ev, fdv, fev, fact)
+end
+
+"""
+    band_columns(A, k) -> UnitRange
+
+The columns row `k` of `A` can hold a nonzero in. Each structured `A` the tridiagonal
+backend accepts answers this in `O(1)`, which is what keeps forming `Ãᵀ diag(ρ) Ã` linear.
+"""
+band_columns(A::Diagonal, k::Integer) = k:k
+band_columns(A::Bidiagonal, k::Integer) =
+    A.uplo == 'U' ? (k:min(k + 1, size(A, 2))) : (max(k - 1, 1):k)
+
+"""
     is_convex(T, P, sigma) -> Bool
 
 Whether `P + σI` is positive definite, which is what OSQP requires of `P` — not merely that
@@ -146,6 +195,20 @@ end
 # A diagonal matrix is positive definite exactly when its diagonal is, so the test is a
 # pass over `n` entries rather than a factorization of an `n×n` densification of them.
 is_convex(::Type{T}, P::Diagonal, sigma) where {T} = all(d -> d + sigma > zero(T), P.diag)
+
+# `ldlt` of a tridiagonal is `O(n)` and its pivots decide definiteness: all positive is
+# positive definite, and a zero pivot throws rather than reporting.
+function is_convex(::Type{T}, P::SymTridiagonal, sigma) where {T}
+    isempty(P) && return true
+    S = SymTridiagonal(P.dv .+ sigma, copy(P.ev))
+    fact = try
+        ldlt!(S)
+    catch e
+        e isa LinearAlgebra.ZeroPivotException || rethrow()
+        return false
+    end
+    return all(>(zero(T)), fact.data.dv)
+end
 
 """
     choose_backend(P, A, proto, n, m, D, E, c, rho_vec, sigma) -> (LinearSystem, Bool)
@@ -176,10 +239,24 @@ choose_backend(
     D, E, c, rho_vec, sigma
 ) = (DiagonalReduced(proto, n), false)
 
+# The pairs whose reduced matrix has bandwidth 1. `Bidiagonal` is as wide an `A` as this
+# reaches: a `Tridiagonal` one squares to bandwidth 2, which no symmetric type in
+# LinearAlgebra stores.
+choose_backend(
+    P::SymTridiagonal, A::Diagonal, proto::AbstractVector, n::Integer, m::Integer,
+    D, E, c, rho_vec, sigma
+) = (TridiagonalReduced(proto, n), false)
+
+choose_backend(
+    P::Union{Diagonal, SymTridiagonal}, A::Bidiagonal, proto::AbstractVector,
+    n::Integer, m::Integer, D, E, c, rho_vec, sigma
+) = (TridiagonalReduced(proto, n), false)
+
 "Name of the backend, for reporting."
 backend_name(::ReducedCholesky) = :cholesky
 backend_name(::FullKKT) = :bunchkaufman
 backend_name(::DiagonalReduced) = :diagonal
+backend_name(::TridiagonalReduced) = :tridiagonal
 
 # Overwrite the Cholesky factor occupying `R` with the inverse it factors. `potri!` does
 # this in place and touches only the upper triangle; the fallback covers element types
@@ -240,6 +317,44 @@ function factorize!(ls::DiagonalReduced{T}, ws)::Bool where {T}
         ls.dinv[j] = inv(r)
     end
     return true
+end
+
+function factorize!(ls::TridiagonalReduced{T}, ws)::Bool where {T}
+    n, m = ws.n, ws.m
+    P, A, D, E = ws.P, ws.A, ws.D, ws.E
+    c, rho, sigma = ws.c, ws.rho_vec, ws.settings.sigma
+    dv, ev = ls.dv, ls.ev
+    for j in 1:n
+        dv[j] = c * D[j] * P[j, j] * D[j] + sigma
+    end
+    for j in 1:(n - 1)
+        ev[j] = c * D[j] * P[j, j + 1] * D[j + 1]
+    end
+    # `Ãᵀ diag(ρ) Ã` row by row: row `k` reaches only the columns in its band, so each row
+    # contributes to at most two diagonal entries and one off-diagonal one.
+    for k in 1:m
+        w = rho[k] * E[k] * E[k]
+        cols = band_columns(A, k)
+        for j in cols
+            akj = A[k, j] * D[j]
+            dv[j] += w * akj * akj
+            if j + 1 in cols
+                ev[j] += w * akj * A[k, j + 1] * D[j + 1]
+            end
+        end
+    end
+    copyto!(ls.fdv, dv)
+    copyto!(ls.fev, ev)
+    # An `ldlt` reports neither indefiniteness nor a zero pivot the way a Cholesky does: it
+    # returns a factorization with a negative pivot in the first case and throws in the
+    # second. Both mean this backend cannot solve the system, so both are refused here.
+    ls.fact = try
+        ldlt!(SymTridiagonal(ls.fdv, ls.fev))
+    catch e
+        e isa LinearAlgebra.ZeroPivotException || rethrow()
+        return false
+    end
+    return all(>(zero(T)), ls.fact.data.dv)
 end
 
 function factorize!(ls::FullKKT{T}, ws)::Bool where {T}
@@ -304,6 +419,14 @@ function solve_system!(ls::DiagonalReduced, ws, rhs_x, rhs_z)::Nothing
     return nothing
 end
 
+function solve_system!(ls::TridiagonalReduced, ws, rhs_x, rhs_z)::Nothing
+    reduced_rhs!(ws, rhs_x, rhs_z)
+    copyto!(ws.xtilde, ws.work_n)
+    ldiv!(ls.fact, ws.xtilde)
+    ws.m > 0 && mul_A!(ws.ztilde, ws, ws.xtilde)
+    return nothing
+end
+
 function solve_system!(ls::FullKKT, ws, rhs_x, rhs_z)::Nothing
     n, m = ws.n, ws.m
     # Indexed rather than `copyto!(view(...), ...)`: the views leave allocation sites that
@@ -327,6 +450,7 @@ end
 @verify ReducedCholesky trim_compat = true
 @verify FullKKT trim_compat = true
 @verify DiagonalReduced trim_compat = true
+@verify TridiagonalReduced trim_compat = true
 
 """
     refactor!(ws)

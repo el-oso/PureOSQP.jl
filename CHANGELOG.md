@@ -21,6 +21,25 @@ what is true now; this file is where the history lives.
   `A` rather than `P`: `Ãᵀ diag(ρ) Ã` fills in for any other `A`, so a `Diagonal` `P` with a
   general `A` still has a dense reduced matrix and correctly gets the dense backend.
 
+- **`TridiagonalReduced`**, the same idea one band wider. Diagonal scaling preserves a
+  bandwidth and squaring `A` doubles it, so `bandwidth(R) = max(bandwidth(P), 2 bandwidth(A))`
+  — which is 1 for a `SymTridiagonal` `P` with a `Diagonal` `A`, a `Diagonal` `P` with a
+  `Bidiagonal` `A`, or both together. `ldlt` solves that in `O(n)` and its `ldiv!` allocates
+  nothing. Setup is 16.3× faster at `n = 100` and 534× at `n = 2000`, end to end 8.8× and
+  254×. `is_convex` gains a `SymTridiagonal` method that reads the `ldlt` pivots rather than
+  densifying.
+
+  The bands are computed entry by entry rather than by forming the product, because the
+  arithmetic does not preserve the structure: `D P D` on a `SymTridiagonal` returns a
+  `Tridiagonal`, which `cholesky` rejects as not Hermitian though it is symmetric to `1e-17`,
+  and a `Diagonal` `P` with a `Bidiagonal` `A` returns a dense `Array` despite having
+  bandwidth 1. An `ldlt` reports neither indefiniteness nor a zero pivot the way a Cholesky
+  does — a negative pivot for the first, a throw for the second — so `factorize!` tests both
+  rather than trusting the factorization to complain.
+
+  Bandwidth 2 is the boundary: a `Tridiagonal` `A` squares to it and LinearAlgebra has no
+  symmetric type that stores it.
+
 - **`update_time`**, the time spent in `update!` since the previous solve, accumulated
   across however many calls were made and counted in `run_time`. In the receding-horizon
   loop `update!` exists for, a cycle is an update followed by a solve, and that pair is

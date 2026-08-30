@@ -49,5 +49,6 @@ PureOSQP.choose_backend
 PureOSQP.ReducedInverse
 PureOSQP.ReducedCholesky
 PureOSQP.DiagonalReduced
+PureOSQP.TridiagonalReduced
 PureOSQP.FullKKT
 ```

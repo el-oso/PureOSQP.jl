@@ -35,16 +35,38 @@ dense even when `A` is sparse. With sparsity off the table that objection disapp
 measurement shows the reduced form is faster in every dense regime — from 1.45× when
 `m < n` up to 43× when `m ≫ n`.
 
-`Ãᵀ diag(ρ) Ã` is what fills in, so the reduced matrix keeps `P`'s structure only when `A`
-has structure that survives being squared. A `Diagonal` `A` does: with a `Diagonal` `P` the
-whole reduced matrix is diagonal, there is nothing to factor, and a solve is `n` divisions
-rather than an `O(n³)` factorization and an `O(n²)` apply. `choose_backend` dispatches on
-the pair, so that problem — a separable objective under box constraints — reaches
-[`DiagonalReduced`](@ref PureOSQP.DiagonalReduced) without a setting. At `n = 2000` it is
-1736× faster to set up and 1339× faster end to end, on the same iterates.
+`Ãᵀ diag(ρ) Ã` is what fills in, and it fills in by a fixed amount: diagonal scaling
+preserves a bandwidth and squaring `A` doubles it, so
 
-A `Diagonal` `P` with a general `A` gets no such treatment, and correctly: its reduced
-matrix is dense whatever `P` looked like.
+```math
+\mathrm{bandwidth}(R) = \max\bigl(\mathrm{bandwidth}(P),\; 2\,\mathrm{bandwidth}(A)\bigr)
+```
+
+`choose_backend` dispatches on the pair of types, so a problem whose `R` stays narrow is
+solved as such without a setting:
+
+| `P` | `A` | bandwidth of `R` | backend | solve |
+|---|---|---|---|---|
+| `Diagonal` | `Diagonal` | 0 | [`DiagonalReduced`](@ref PureOSQP.DiagonalReduced) | `n` divisions |
+| `SymTridiagonal` | `Diagonal` | 1 | [`TridiagonalReduced`](@ref PureOSQP.TridiagonalReduced) | `ldlt`, `O(n)` |
+| `Diagonal` | `Bidiagonal` | 1 | [`TridiagonalReduced`](@ref PureOSQP.TridiagonalReduced) | `ldlt`, `O(n)` |
+| `SymTridiagonal` | `Bidiagonal` | 1 | [`TridiagonalReduced`](@ref PureOSQP.TridiagonalReduced) | `ldlt`, `O(n)` |
+
+Against the dense path those are 1736× and 534× on setup at `n = 2000`, and 1339× and 254×
+end to end, on the same iterates. A separable objective under box constraints is the first
+row; a tridiagonal one — smoothing, trend filtering — is the second.
+
+Two things the arithmetic will not do for you here, both of which is why the bands are
+computed entry by entry rather than by forming the product. `D P D` on a `SymTridiagonal`
+returns a `Tridiagonal`, which `cholesky` rejects as not Hermitian though it is symmetric to
+`1e-17`; and a `Diagonal` `P` with a `Bidiagonal` `A` returns a dense `Array` despite having
+bandwidth 1. An `ldlt` also reports neither indefiniteness nor a zero pivot the way a
+Cholesky does — it returns a negative pivot for the first and throws for the second — so
+both are tested explicitly.
+
+Bandwidth 2 and wider is where this stops: a `Tridiagonal` `A` squares to bandwidth 2, and
+LinearAlgebra has no symmetric type that stores it. A `Diagonal` `P` with a general `A` gets
+no treatment at all, and correctly: its reduced matrix is dense whatever `P` looked like.
 
 Fill-in is worth quantifying, because it also settles whether a sparse factorization would
 be worth adding. On random sparse `A`, the reduced matrix `R` is much sparser than `A`

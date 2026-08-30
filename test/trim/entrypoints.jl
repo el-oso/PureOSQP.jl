@@ -10,6 +10,7 @@ using LinearAlgebra
 const M = Matrix{Float64}
 const V = Vector{Float64}
 const DM = Diagonal{Float64, Vector{Float64}}
+const STM = SymTridiagonal{Float64, Vector{Float64}}
 
 solve_default(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u)
 solve_polish(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u; polish = true)
@@ -19,6 +20,7 @@ solve_unscaled(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u; sca
 # The diagonal backend is reached by representation rather than by a setting, so it needs a
 # signature of its own to be analysed at all.
 solve_diagonal(P::DM, q::V, A::DM, l::V, u::V) = PureOSQP.solve(P, q, A, l, u)
+solve_tridiagonal(P::STM, q::V, A::DM, l::V, u::V) = PureOSQP.solve(P, q, A, l, u)
 
 # The matrix-free backend exists only once Krylov is loaded, so this entry point is what
 # checks that a weak dependency on the solve path does not cost the trim guarantee.

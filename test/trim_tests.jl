@@ -29,6 +29,15 @@
             )
         )
     )
+    push!(names, :solve_tridiagonal)
+    push!(
+        sigs,
+        :(
+            TrimEntry.solve_tridiagonal(
+                TrimEntry.STM, Vector{Float64}, TrimEntry.DM, Vector{Float64}, Vector{Float64}
+            )
+        )
+    )
     results = TrimCheck.validate(sigs...; init = :(include($entry); using .TrimEntry), progressbar = false)
     ok = Dict(
         String(f) => occursin("is trim compatible", sprint(show, r))
