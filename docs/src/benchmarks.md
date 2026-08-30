@@ -48,29 +48,6 @@ timing table because timing a subprocess measures the subprocess.
 
 PureOSQP is ahead of OSQP on every case in this table.
 
-## How to read this
-
-**PureOSQP is faster than libosqp, and this table is not the honest measure of by how much.**
-It is dense problems, which is the reference implementation's worst case: a *sparse* solver
-handed dense matrices pays sparse-format overhead and scalar sparse LDLᵀ where PureOSQP gets
-BLAS-3 dense Cholesky. Read it as a storage-format comparison on one format. The claim to
-take seriously is [the OSQP benchmark suite](@ref "The OSQP benchmark suite") — the
-reference's own seven classes, in the sparse form it is built for, where PureOSQP leads every
-one of them on identical iteration counts. [Sparse A](@ref "Sparse A") and
-[Matrix types](@ref "Matrix types") are the same solver on the other formats.
-
-**What the matching iteration counts do and do not show.** They mean the algorithm's
-control logic tracks the reference. But the count is *quantized*: with
-`check_termination = 25`, matching counts say both crossed the threshold within the same
-25-iteration window, not that the iterates agree. That the iterates agree is a separate
-result — the transcription test, matching to `1e-10` over the first 25 iterations across
-both linear-system backends and both scaled and unscaled space. And the returned `y` is a
-third thing again, since the objective does not contain `y`; that one comes from the
-referee.
-
-**Run-to-run spread.** Consecutive runs of this benchmark agree within about 5% on every
-row.
-
 ## Sequential re-solves
 
 `P` and `A` fixed, `q`, `l` and `u` changing every step — the receding-horizon loop OSQP is
