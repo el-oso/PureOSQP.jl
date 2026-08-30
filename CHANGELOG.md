@@ -7,6 +7,11 @@ what is true now; this file is where the history lives.
 
 ### Added
 
+- **`update_time`**, the time spent in `update!` since the previous solve, accumulated
+  across however many calls were made and counted in `run_time`. In the receding-horizon
+  loop `update!` exists for, a cycle is an update followed by a solve, and that pair is
+  what the caller pays; it resets once reported, so no solve carries another one's updates.
+
 - **`SparseLDL` and `LDLKKT`**, the reduced and full-KKT backends factored by
   LDLFactorizations.jl, a pure-Julia `LDLᵀ`. A weak dependency: loading it changes which
   engine factors, nothing a caller can observe but speed, and without it the CHOLMOD

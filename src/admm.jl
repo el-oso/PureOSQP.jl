@@ -223,6 +223,9 @@ function solve!(ws::Workspace{T}) where {T}
     s.verbose && print_footer(ws)
     sol = build_solution(ws)
     ws.first_run = false
+    # The updates belonged to this run and are now reported; the next solve counts only the
+    # ones made after it.
+    ws.update_time = 0.0
     # An infeasible run leaves the iterates on a diverging ray; a later solve on this
     # workspace must not resume from there.
     has_solution(ws.status) || cold_start!(ws)
@@ -246,9 +249,11 @@ function solution_from(
         Vector{T}(x), Vector{T}(y), ws.status, obj, dual_obj, gap,
         ws.prim_res, ws.dual_res, ws.rel_kkt_error, ws.iter,
         ws.rho_estimate, ws.rho_updates, ws.polished, ws.status_polish,
-        ws.setup_time, ws.solve_time, ws.polish_time,
-        # Setup is charged to the first run only; a re-solve did not pay it again.
-        (ws.first_run ? ws.setup_time : 0.0) + ws.solve_time + ws.polish_time,
+        ws.setup_time, ws.update_time, ws.solve_time, ws.polish_time,
+        # Setup is charged to the first run only; a re-solve did not pay it again. The
+        # updates since the previous solve are charged here, because they are what this
+        # run cost the caller.
+        (ws.first_run ? ws.setup_time : 0.0) + ws.update_time + ws.solve_time + ws.polish_time,
         Vector{T}(prim_cert), Vector{T}(dual_cert),
     )
 end

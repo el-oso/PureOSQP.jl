@@ -27,6 +27,7 @@ function update!(
         ws::Workspace{T}; q = nothing, l = nothing, u = nothing,
         P = nothing, A = nothing
     ) where {T}
+    t0 = time_ns()
     n, m = ws.n, ws.m
     refactor_needed = false
 
@@ -79,5 +80,9 @@ function update!(
     end
 
     refactor_needed && refactor!(ws)
+    # Accumulated, not assigned: a caller typically makes several calls before solving --
+    # `q`, then `l` and `u`, then perhaps `P` -- and all of them belong to the next solve,
+    # which reports the total and resets it.
+    ws.update_time += (time_ns() - t0) / 1.0e9
     return ws
 end

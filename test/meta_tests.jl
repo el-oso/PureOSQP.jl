@@ -18,7 +18,7 @@
         "setup_tests.jl" => 11,
         "solve_tests.jl" => 21,
         "trim_tests.jl" => 1,
-        "update_tests.jl" => 5,
+        "update_tests.jl" => 6,
     )
     dir = @__DIR__
     files = sort(filter(f -> endswith(f, "_tests.jl"), readdir(dir)))

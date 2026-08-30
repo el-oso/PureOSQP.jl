@@ -13,7 +13,6 @@ them, [Algorithm](@ref) for how the solver works.
 | item | note |
 |---|---|
 | CUDA in practice | the GPU path is designed for it and tested only against JLArrays; nobody has run it on a device |
-| `update_time` | `update!` is not timed; `setup_time`, `solve_time`, `polish_time` and `run_time` are |
 | `primdual_int` | the primal-dual integral, a 1.x convergence diagnostic requiring per-iteration profiling |
 | a structured backend | a `Diagonal` or band type is read efficiently, but the reduced matrix it forms is dense unless `A` is structured too |
 | `polish` and derivatives on GPU | both build a dense `(n+k)×(n+k)` matrix and factor it with `bunchkaufman!`, so both stay on the host |

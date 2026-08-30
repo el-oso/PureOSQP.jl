@@ -99,3 +99,29 @@ end
     @test_throws "not positive definite" update!(ws; P = [2.0 5.0; 5.0 1.0])
     @test_throws "A must stay 2×2" update!(ws; A = ones(3, 2))
 end
+
+@testitem "update! is timed and the time is charged to the next solve" begin
+    using LinearAlgebra, SparseArrays, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    P, q, A, l, u = random_qp(20, 40; seed = 21)
+    opts = (eps_abs = 1.0e-7, eps_rel = 1.0e-7, max_iter = 20_000)
+
+    ws = setup(P, q, A, l, u; opts...)
+    first = solve!(ws)
+    # Nothing was updated before the first solve, and `run_time` charges setup once.
+    @test first.update_time == 0.0
+    @test first.run_time ≈ first.setup_time + first.update_time + first.solve_time + first.polish_time
+
+    # Several calls before one solve all belong to it, so the time accumulates.
+    update!(ws; q = q .* 1.01)
+    update!(ws; l = l .- 0.01, u = u .+ 0.01)
+    second = solve!(ws)
+    @test second.update_time > 0.0
+    # A re-solve did not pay setup again, but it did pay for the updates.
+    @test second.run_time ≈ second.update_time + second.solve_time + second.polish_time
+    @test second.run_time > second.solve_time
+
+    # And the count resets, so a solve never reports another solve's updates.
+    third = solve!(ws)
+    @test third.update_time == 0.0
+end

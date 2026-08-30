@@ -155,6 +155,12 @@ Times are in seconds. `setup_time` belongs to the workspace and is reported by e
 that uses it, but `run_time` counts it only for the first solve — a re-solve did not pay
 it again, so adding it in would overstate the cost of the loop that `update!` exists to
 make cheap.
+
+`update_time` is the time spent in [`update!`](@ref) since the previous solve, accumulated
+across however many calls were made, and it *is* counted in `run_time`: in the loop
+`update!` exists for, a cycle is an update followed by a solve, and that pair is what the
+caller pays. It resets once reported, so each solve accounts for its own updates and no
+others.
 """
 struct Solution{T <: Real}
     x::Vector{T}
@@ -172,6 +178,7 @@ struct Solution{T <: Real}
     polished::Bool
     status_polish::PolishStatus
     setup_time::Float64
+    update_time::Float64
     solve_time::Float64
     polish_time::Float64
     run_time::Float64
@@ -250,6 +257,7 @@ mutable struct Workspace{
     polished::Bool
     status_polish::PolishStatus
     setup_time::Float64
+    update_time::Float64
     first_run::Bool
     solve_time::Float64
     polish_time::Float64
@@ -378,7 +386,7 @@ function setup(
         zero(T), zero(T), zero(T), zero(T), zero(T),
         zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), INFTY(T),
         settings.rho, 0, 0, UNSOLVED, false, POLISH_NOT_PERFORMED,
-        0.0, true, 0.0, 0.0,
+        0.0, 0.0, true, 0.0, 0.0,
         settings,
     )
     if settings.linsys === :kkt
