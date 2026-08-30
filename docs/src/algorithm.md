@@ -53,10 +53,11 @@ solved as such without a setting:
 | `SymTridiagonal` | `Bidiagonal` | 1 | [`TridiagonalReduced`](@ref PureOSQP.TridiagonalReduced) | `ldlt`, `O(n)` |
 | banded | banded | `2 ≤ b < n/2` | `BandedReduced`, with BandedMatrices.jl loaded | banded `cholesky`, `O(n b²)` |
 
-Against the dense path those are 1736×, 534× and 232× on setup at `n = 2000`, and 1339×,
-254× and 90× end to end, on the same iterates. A separable objective under box constraints is
-the first row; a tridiagonal one — smoothing, trend filtering — the second; differencing
-constraints, where a `Tridiagonal` `A` squares to bandwidth 2, the last.
+Against the dense path those are 1710×, 1270× and 699× on setup at `n = 2000`, and 1216×,
+725× and 252× end to end, on the same iterates — see
+[Structured backends](@ref "Structured backends"). A separable objective under box
+constraints is the first row; a tridiagonal one — smoothing, trend filtering — the second;
+differencing constraints, where a `Tridiagonal` `A` squares to bandwidth 2, the last.
 
 The banded backend is a package extension, so it exists only once BandedMatrices.jl is
 loaded; without it those problems take the dense path, correctly but densely. It declines

@@ -12,8 +12,8 @@ what is true now; this file is where the history lives.
   `R = c D P D + σI + Ãᵀ diag(ρ) Ã` diagonal, so there is nothing to factor and a solve is
   `n` divisions. Previously such a problem took the dense default: at `n = 400` the reduced
   matrix was stored as a 1.25 MB dense array with zero off-diagonal nonzeros, then Cholesky
-  factored and inverted. Setup is 19.9× faster at `n = 100` and 1736× at `n = 2000`, end to
-  end 15.9× and 1339×, on identical iterates. `is_convex` gains a `Diagonal` method for the
+  factored and inverted. Setup is 17.6× faster at `n = 100` and 1710× at `n = 2000`, end to
+  end 15.0× and 1216×, on identical iterates. `is_convex` gains a `Diagonal` method for the
   same reason: a diagonal matrix is positive definite exactly when its diagonal is, so the
   test no longer densifies into an `n×n` Cholesky.
 
@@ -25,8 +25,8 @@ what is true now; this file is where the history lives.
   bandwidth and squaring `A` doubles it, so `bandwidth(R) = max(bandwidth(P), 2 bandwidth(A))`
   — which is 1 for a `SymTridiagonal` `P` with a `Diagonal` `A`, a `Diagonal` `P` with a
   `Bidiagonal` `A`, or both together. `ldlt` solves that in `O(n)` and its `ldiv!` allocates
-  nothing. Setup is 16.3× faster at `n = 100` and 534× at `n = 2000`, end to end 8.8× and
-  254×. `is_convex` gains a `SymTridiagonal` method that reads the `ldlt` pivots rather than
+  nothing. Setup is 13.3× faster at `n = 100` and 1270× at `n = 2000`, end to end 8.4× and
+  725×. `is_convex` gains a `SymTridiagonal` method that reads the `ldlt` pivots rather than
   densifying.
 
   The bands are computed entry by entry rather than by forming the product, because the
@@ -40,8 +40,8 @@ what is true now; this file is where the history lives.
 - **`PureOSQPBandedMatricesExt`**, the same rule past what LinearAlgebra can store. A
   `Tridiagonal` `A` squares to bandwidth 2, which no symmetric type in LinearAlgebra holds;
   BandedMatrices.jl holds any bandwidth and its `cholesky` is LAPACK's banded factorization,
-  `O(n b²)` to factor and `O(n b)` to solve. Setup is 9.6× faster at `n = 100` and 232× at
-  `n = 2000`, end to end 3.1× and 90×. A weak dependency, so without it those problems take
+  `O(n b²)` to factor and `O(n b)` to solve. Setup is 7.6× faster at `n = 100` and 699× at
+  `n = 2000`, end to end 3.1× and 252×. A weak dependency, so without it those problems take
   the dense path as before. The backend declines twice: below bandwidth 2 the LinearAlgebra
   backends are cheaper, and at half the matrix or wider the dense factorization wins.
 

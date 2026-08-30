@@ -389,20 +389,35 @@ reps = [
 ]
 
 P_before, A_before = copy(Pd), copy(Ad)
-reference = solve(Pd, q, Ad, l, u; eps_abs = 1e-9, eps_rel = 1e-9)
+reference = setup(Pd, q, Ad, l, u; eps_abs = 1e-9, eps_rel = 1e-9)
+ref = solve!(reference)
+ref_backend = PureOSQP.backend_name(reference.linsys)
 for (name, (Pr, Ar)) in reps
     ws = setup(Pr, q, Ar, l, u; eps_abs = 1e-9, eps_rel = 1e-9)
     @assert ws.P === Pr && ws.A === Ar          # held by reference, not copied
     sol = solve!(ws)
-    @assert sol.x == reference.x && sol.y == reference.y && sol.iter == reference.iter
-    println(rpad(name, 30), "iter = ", sol.iter, ",  backend = ", PureOSQP.backend_name(ws.linsys))
+    backend = PureOSQP.backend_name(ws.linsys)
+    @assert sol.iter == ref.iter                       # same trajectory
+    @assert isapprox(sol.x, ref.x; rtol = 1e-8)        # same answer
+    # Bit-exact only where the same factorization ran; see below.
+    backend == ref_backend && @assert sol.x == ref.x && sol.y == ref.y
+    println(rpad(name, 30), "iter = ", sol.iter, ",  backend = ", backend)
 end
 @assert Pd == P_before && Ad == A_before        # the caller's arrays are never written to
 ```
 
-The assertions are exact equality, not agreement to tolerance. A representation changes how
-the entries are reached, not which entries there are, so every one of these feeds the same
-numbers into the same arithmetic: storage buys speed and memory and nothing else.
+Two different things are on display here, and it is worth keeping them apart.
+
+**A representation that only changes how entries are reached gives bit-identical answers.**
+`Symmetric`, a `SubArray` and a `SparseMatrixCSC` all feed the same numbers into the same
+arithmetic, so `==` holds exactly against the dense reference.
+
+**A representation that changes which backend is chosen changes the arithmetic.** A
+`Diagonal` `P` with a `Bidiagonal` `A` makes the reduced matrix tridiagonal, and that is
+solved by an `ldlt` on two bands rather than by a dense inverse and a `symv` — a different
+factorization, agreeing to about `1e-16` rather than to the bit. The iteration count and the
+answer are the same; the last digits are not. See
+[Which backend a structured matrix gets](@ref "Which backend a structured matrix gets").
 
 `P` has to be symmetric *as stored* — a lower triangle with the upper one left at zero is
 rejected rather than mirrored, since that matrix is a different, non-symmetric problem. Wrap
@@ -443,6 +458,63 @@ PureOSQP.backend_name(scattered.linsys)
 Both are reported by `PureOSQP.backend_name(ws.linsys)`, which names whichever backend the
 workspace ended up with. The dense default is `:cholesky`, and the full quasi-definite
 factorization is `:bunchkaufman`.
+
+### Which backend a structured matrix gets
+
+A structured `P` and `A` are not just read more cheaply — they can make the reduced matrix
+itself narrow, and then there is far less to factor. Eliminating `ν` gives
+
+```math
+R = c D P D + \sigma I + \tilde A^\top \mathrm{diag}(\rho) \tilde A
+```
+
+Diagonal scaling preserves a bandwidth and `ÃᵀρÃ` doubles `A`'s, so
+`bandwidth(R) = max(bandwidth(P), 2 bandwidth(A))`. `linsys = :auto` dispatches on the pair
+of types, with no setting and no density gate involved.
+
+```@example structured
+using PureOSQP, LinearAlgebra
+n = 200
+q, l, u = collect(range(-1.0, 1.0; length = n)), fill(-1.0, n), fill(1.0, n)
+
+# A separable objective under box constraints: R is diagonal, so nothing is factored.
+box = setup(Diagonal(fill(2.0, n)), q, Diagonal(ones(n)), l, u)
+
+# A tridiagonal objective under box constraints: R stays tridiagonal.
+smooth = setup(SymTridiagonal(fill(2.0, n), fill(0.3, n - 1)), q, Diagonal(ones(n)), l, u)
+
+(PureOSQP.backend_name(box.linsys), PureOSQP.backend_name(smooth.linsys))
+```
+
+The first has nothing to factor at all — a solve is `n` divisions — and the second is an
+`ldlt` that costs `O(n)`. Against the dense path the same problems would otherwise take,
+that is worth a great deal at any size worth caring about; see
+[Structured backends](@ref "Structured backends") for the measurements.
+
+Widening `A` widens `R` faster than widening `P` does, which is the practical consequence of
+the rule above. A `Tridiagonal` `A` squares to bandwidth 2, past what `SymTridiagonal`
+stores, and is served by a banded Cholesky once BandedMatrices.jl is loaded:
+
+```@example structured
+using BandedMatrices
+diff = setup(
+    SymTridiagonal(fill(4.0, n), fill(0.3, n - 1)), q,
+    Tridiagonal(fill(-0.25, n - 1), ones(n), fill(-0.25, n - 1)), l, u,
+)
+(PureOSQP.backend_name(diff.linsys), diff.linsys.bw)
+```
+
+Without BandedMatrices loaded that problem takes the dense path instead — correctly, just
+not cheaply. Structure in `P` alone never survives: `ÃᵀρÃ` is dense for a general `A`
+whatever `P` looked like, so a `Diagonal` `P` with a dense `A` is a dense reduced matrix and
+gets the dense backend.
+
+```@example structured
+using Random
+Random.seed!(2)
+PureOSQP.backend_name(setup(Diagonal(fill(2.0, 40)), q[1:40], randn(60, 40),
+                            fill(-1.0, 60), fill(1.0, 60)).linsys)
+```
 
 ## Building a workspace once
 

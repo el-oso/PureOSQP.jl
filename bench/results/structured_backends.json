@@ -1,0 +1,138 @@
+{
+  "blas_threads": 1,
+  "cases": [
+    {
+      "backend": "diagonal",
+      "bw": "0",
+      "dense_setup": "0.000230274",
+      "dense_total": "0.000496737",
+      "iter": "75",
+      "n": "100",
+      "name": "Diagonal, Diagonal",
+      "setup": "1.3094e-5",
+      "total": "3.3072000000000005e-5"
+    },
+    {
+      "backend": "tridiagonal",
+      "bw": "1",
+      "dense_setup": "0.00023156600000000003",
+      "dense_total": "0.000549606",
+      "iter": "100",
+      "n": "100",
+      "name": "SymTridiagonal, Diagonal",
+      "setup": "1.7383e-5",
+      "total": "6.5183e-5"
+    },
+    {
+      "backend": "banded",
+      "bw": "2",
+      "dense_setup": "0.00023347100000000001",
+      "dense_total": "0.000499602",
+      "iter": "75",
+      "n": "100",
+      "name": "SymTridiagonal, Tridiagonal",
+      "setup": "3.0778e-5",
+      "total": "0.00016300800000000002"
+    },
+    {
+      "backend": "diagonal",
+      "bw": "0",
+      "dense_setup": "0.005371917",
+      "dense_total": "0.007029827000000001",
+      "iter": "50",
+      "n": "400",
+      "name": "Diagonal, Diagonal",
+      "setup": "4.9614e-5",
+      "total": "8.448900000000001e-5"
+    },
+    {
+      "backend": "tridiagonal",
+      "bw": "1",
+      "dense_setup": "0.0054033910000000004",
+      "dense_total": "0.012113335000000001",
+      "iter": "100",
+      "n": "400",
+      "name": "SymTridiagonal, Diagonal",
+      "setup": "6.509300000000001e-5",
+      "total": "0.00023325"
+    },
+    {
+      "backend": "banded",
+      "bw": "2",
+      "dense_setup": "0.005370424",
+      "dense_total": "0.0112632025",
+      "iter": "75",
+      "n": "400",
+      "name": "SymTridiagonal, Tridiagonal",
+      "setup": "0.00011441500000000001",
+      "total": "0.0006233650000000001"
+    },
+    {
+      "backend": "diagonal",
+      "bw": "0",
+      "dense_setup": "0.05522988450000001",
+      "dense_total": "0.0693813615",
+      "iter": "50",
+      "n": "1000",
+      "name": "Diagonal, Diagonal",
+      "setup": "0.00011691",
+      "total": "0.00020205100000000002"
+    },
+    {
+      "backend": "tridiagonal",
+      "bw": "1",
+      "dense_setup": "0.055680669",
+      "dense_total": "0.12627870400000002",
+      "iter": "100",
+      "n": "1000",
+      "name": "SymTridiagonal, Diagonal",
+      "setup": "0.00015576400000000002",
+      "total": "0.0005736420000000001"
+    },
+    {
+      "backend": "banded",
+      "bw": "2",
+      "dense_setup": "0.0556359595",
+      "dense_total": "0.1237744525",
+      "iter": "100",
+      "n": "1000",
+      "name": "SymTridiagonal, Tridiagonal",
+      "setup": "0.000276882",
+      "total": "0.001947401"
+    },
+    {
+      "backend": "diagonal",
+      "bw": "0",
+      "dense_setup": "0.39348241500000003",
+      "dense_total": "0.48820925400000004",
+      "iter": "50",
+      "n": "2000",
+      "name": "Diagonal, Diagonal",
+      "setup": "0.000230174",
+      "total": "0.000401467"
+    },
+    {
+      "backend": "tridiagonal",
+      "bw": "1",
+      "dense_setup": "0.38888867450000003",
+      "dense_total": "0.8307136595000001",
+      "iter": "100",
+      "n": "2000",
+      "name": "SymTridiagonal, Diagonal",
+      "setup": "0.000306117",
+      "total": "0.001145259"
+    },
+    {
+      "backend": "banded",
+      "bw": "2",
+      "dense_setup": "0.38385832200000003",
+      "dense_total": "0.7775361635000001",
+      "iter": "75",
+      "n": "2000",
+      "name": "SymTridiagonal, Tridiagonal",
+      "setup": "0.0005489045",
+      "total": "0.0030810480000000003"
+    }
+  ],
+  "julia_version": "1.12.7"
+}

@@ -218,6 +218,57 @@ So the honest claim stays narrow: the caller's matrices are never copied or muta
 `AbstractMatrix` works, a cheaper `mul!` is used when one exists, and a band type is no
 longer read as though it were dense. On a dense `A` none of this is a speed feature.
 
+## Structured backends
+
+A structured `A` is where it becomes one, and by a great deal, because then the *reduced
+matrix* is structured rather than merely the input. Eliminating `ν` gives
+`R = c D P D + σI + Ãᵀ diag(ρ) Ã`; diagonal scaling preserves a bandwidth and `ÃᵀρÃ` doubles
+`A`'s, so
+
+```math
+\mathrm{bandwidth}(R) = \max\bigl(\mathrm{bandwidth}(P),\; 2\,\mathrm{bandwidth}(A)\bigr)
+```
+
+Each row below is one problem solved twice, once in the structured types and once as a
+`Matrix`, so the iteration counts match exactly and the difference is the backend.
+Reproduce with `julia --project=bench bench/structured_backends.jl`; samples are written to
+`bench/results/structured_backends.json`.
+
+| `P`, `A` | n | bw(`R`) | backend | setup | dense setup | setup× | total | dense total | total× |
+|---|---|---|---|---|---|---|---|---|---|
+| `Diagonal`, `Diagonal` | 400 | 0 | `diagonal` | 49.6 µs | 5.37 ms | **108×** | 0.08 ms | 7.03 ms | **83×** |
+| `SymTridiagonal`, `Diagonal` | 400 | 1 | `tridiagonal` | 65.1 µs | 5.40 ms | **83×** | 0.23 ms | 12.1 ms | **52×** |
+| `SymTridiagonal`, `Tridiagonal` | 400 | 2 | `banded` | 114 µs | 5.37 ms | **47×** | 0.62 ms | 11.3 ms | **18×** |
+| `Diagonal`, `Diagonal` | 2000 | 0 | `diagonal` | 230 µs | 393 ms | **1710×** | 0.40 ms | 488 ms | **1216×** |
+| `SymTridiagonal`, `Diagonal` | 2000 | 1 | `tridiagonal` | 306 µs | 389 ms | **1270×** | 1.15 ms | 831 ms | **725×** |
+| `SymTridiagonal`, `Tridiagonal` | 2000 | 2 | `banded` | 549 µs | 384 ms | **699×** | 3.08 ms | 778 ms | **252×** |
+
+The ratios grow with `n` because the two sides have different exponents, not because the
+constant is better: the dense path factors in `O(n³)` and applies in `O(n²)`, and these are
+`O(n b²)` and `O(n b)`. At bandwidth 0 there is no factorization at all — a solve is `n`
+divisions.
+
+**What is selected, and by what.** `Diagonal` with `Diagonal` gives a diagonal `R`;
+`SymTridiagonal` with `Diagonal`, and either with a `Bidiagonal` `A`, give bandwidth 1 and an
+`ldlt`. Both are core LinearAlgebra. Bandwidth 2 and up needs BandedMatrices.jl loaded, since
+LinearAlgebra stores no symmetric banded type past `SymTridiagonal`; without it those
+problems take the dense path, correctly but densely. Selection is dispatch on the pair of
+types — no setting, no density gate — and the banded backend declines in both directions,
+below bandwidth 2 where the LinearAlgebra backends are cheaper and at half the matrix or
+wider where the dense factorization wins.
+
+**Keyed on `A`, not `P`.** `ÃᵀρÃ` is dense for a general `A` whatever `P` looked like, so a
+`Diagonal` `P` with a dense `A` has a dense reduced matrix and correctly gets the dense
+backend. Widening `A` costs twice what widening `P` does.
+
+**The structure has to be established, not inherited.** Julia's arithmetic does not carry it
+through: `D P D` on a `SymTridiagonal` returns a `Tridiagonal`, which `cholesky` rejects as
+not Hermitian though it is symmetric to `1e-17`, and a `Diagonal` `P` with a `Bidiagonal` `A`
+returns a dense `Array` despite having bandwidth 1. The bands are computed entry by entry for
+that reason. An `ldlt` is likewise no substitute for a Cholesky's failure reporting — it
+returns a negative pivot for an indefinite matrix and throws only on an exact zero — so the
+tridiagonal backend tests the pivots itself, where the banded one can rely on `issuccess`.
+
 ## Sparse A
 
 `A` and `P` genuinely sparse, so OSQP's sparse LDLᵀ is playing to its strength. PureOSQP is

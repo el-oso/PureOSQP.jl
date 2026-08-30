@@ -219,10 +219,13 @@ function mul_At!(
     multiply!(ws.tmp_m, ws.E, y)
     A, t, n = ws.A, ws.tmp_m, ws.n
     dl, d, du = A.dl, A.d, A.du
+    # Summed in ascending `i`, which is the order `mul!` against the adjoint uses. Any other
+    # order rounds differently, and a representation is supposed to change how the entries
+    # are reached, not what comes out.
     for j in 1:n
-        v = d[j] * t[j]
+        v = j > 1 ? du[j - 1] * t[j - 1] : zero(T)
+        v += d[j] * t[j]
         j < n && (v += dl[j] * t[j + 1])
-        j > 1 && (v += du[j - 1] * t[j - 1])
         out[j] = v
     end
     scale_by!(out, ws.D)
