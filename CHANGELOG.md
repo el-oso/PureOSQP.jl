@@ -37,8 +37,23 @@ what is true now; this file is where the history lives.
   does — a negative pivot for the first, a throw for the second — so `factorize!` tests both
   rather than trusting the factorization to complain.
 
-  Bandwidth 2 is the boundary: a `Tridiagonal` `A` squares to it and LinearAlgebra has no
-  symmetric type that stores it.
+- **`PureOSQPBandedMatricesExt`**, the same rule past what LinearAlgebra can store. A
+  `Tridiagonal` `A` squares to bandwidth 2, which no symmetric type in LinearAlgebra holds;
+  BandedMatrices.jl holds any bandwidth and its `cholesky` is LAPACK's banded factorization,
+  `O(n b²)` to factor and `O(n b)` to solve. Setup is 9.6× faster at `n = 100` and 232× at
+  `n = 2000`, end to end 3.1× and 90×. A weak dependency, so without it those problems take
+  the dense path as before. The backend declines twice: below bandwidth 2 the LinearAlgebra
+  backends are cheaper, and at half the matrix or wider the dense factorization wins.
+
+  A banded Cholesky reports indefiniteness through `issuccess`, so unlike the tridiagonal
+  backend this one needs no separate test of the pivots.
+
+### Fixed
+
+- **`mul_At!` allocated on every iteration for a `Tridiagonal` `A`.** `mul!` against a
+  `Tridiagonal`'s adjoint allocates 48 bytes in LinearAlgebra, which cost `admm_step!`,
+  `update_residuals!` and `solve_system!` their no-allocation guarantee for any backend
+  holding one. It now walks the three bands directly.
 
 - **`update_time`**, the time spent in `update!` since the previous solve, accumulated
   across however many calls were made and counted in `run_time`. In the receding-horizon

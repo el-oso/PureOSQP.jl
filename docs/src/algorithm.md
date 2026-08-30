@@ -51,10 +51,17 @@ solved as such without a setting:
 | `SymTridiagonal` | `Diagonal` | 1 | [`TridiagonalReduced`](@ref PureOSQP.TridiagonalReduced) | `ldlt`, `O(n)` |
 | `Diagonal` | `Bidiagonal` | 1 | [`TridiagonalReduced`](@ref PureOSQP.TridiagonalReduced) | `ldlt`, `O(n)` |
 | `SymTridiagonal` | `Bidiagonal` | 1 | [`TridiagonalReduced`](@ref PureOSQP.TridiagonalReduced) | `ldlt`, `O(n)` |
+| banded | banded | `2 ≤ b < n/2` | `BandedReduced`, with BandedMatrices.jl loaded | banded `cholesky`, `O(n b²)` |
 
-Against the dense path those are 1736× and 534× on setup at `n = 2000`, and 1339× and 254×
-end to end, on the same iterates. A separable objective under box constraints is the first
-row; a tridiagonal one — smoothing, trend filtering — is the second.
+Against the dense path those are 1736×, 534× and 232× on setup at `n = 2000`, and 1339×,
+254× and 90× end to end, on the same iterates. A separable objective under box constraints is
+the first row; a tridiagonal one — smoothing, trend filtering — the second; differencing
+constraints, where a `Tridiagonal` `A` squares to bandwidth 2, the last.
+
+The banded backend is a package extension, so it exists only once BandedMatrices.jl is
+loaded; without it those problems take the dense path, correctly but densely. It declines
+two ways: below bandwidth 2 the LinearAlgebra backends above are cheaper, and at half the
+matrix or wider the dense factorization wins outright.
 
 Two things the arithmetic will not do for you here, both of which is why the bands are
 computed entry by entry rather than by forming the product. `D P D` on a `SymTridiagonal`
@@ -64,9 +71,8 @@ bandwidth 1. An `ldlt` also reports neither indefiniteness nor a zero pivot the 
 Cholesky does — it returns a negative pivot for the first and throws for the second — so
 both are tested explicitly.
 
-Bandwidth 2 and wider is where this stops: a `Tridiagonal` `A` squares to bandwidth 2, and
-LinearAlgebra has no symmetric type that stores it. A `Diagonal` `P` with a general `A` gets
-no treatment at all, and correctly: its reduced matrix is dense whatever `P` looked like.
+A `Diagonal` `P` with a general `A` gets no treatment at all, and correctly: its reduced
+matrix is dense whatever `P` looked like.
 
 Fill-in is worth quantifying, because it also settles whether a sparse factorization would
 be worth adding. On random sparse `A`, the reduced matrix `R` is much sparser than `A`

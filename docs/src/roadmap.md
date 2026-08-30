@@ -14,7 +14,6 @@ them, [Algorithm](@ref) for how the solver works.
 |---|---|
 | CUDA in practice | the GPU path is designed for it and tested only against JLArrays; nobody has run it on a device |
 | `primdual_int` | the primal-dual integral, a 1.x convergence diagnostic requiring per-iteration profiling |
-| a reduced matrix wider than tridiagonal | bandwidth 2 and up needs BandedMatrices.jl: LinearAlgebra has no symmetric type that stores it |
 | `polish` and derivatives on GPU | both build a dense `(n+k)×(n+k)` matrix and factor it with `bunchkaufman!`, so both stay on the host |
 | a pure-Julia factorization by default | the `LDLᵀ` backends need LDLFactorizations.jl loaded; without it the sparse path is CHOLMOD, which is C and GPL |
 | setup parity on the dense path | Control's `setup` is 0.33× libosqp's, against 1.20× on the run as a whole |
@@ -46,12 +45,6 @@ rejected: a sparse `LDLᵀ` of the reduced matrix or of the KKT reaches setup pa
 more in the loop; two `trsv` is the same flop count but serial; `trtri` with two `trmv` halves
 the setup and doubles the loop. Equilibration is within 1.13× of libosqp's per sweep. The
 convexity test and the fill gate are fixed costs libosqp does not pay.
-
-**A reduced matrix wider than tridiagonal.** `bandwidth(R) = max(bandwidth(P), 2 bandwidth(A))`,
-so bandwidths 0 and 1 have backends and 2 is the first that does not: a `Tridiagonal` `A`
-squares into it, and LinearAlgebra stores no symmetric banded type beyond `SymTridiagonal`.
-Closing it means BandedMatrices.jl as a weak dependency, with a banded Cholesky at
-`O(n b²)`. Differencing constraints — total variation, isotonic shapes — are what live there.
 
 ## Deliberate differences
 

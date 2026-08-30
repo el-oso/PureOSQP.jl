@@ -9,6 +9,7 @@
 using PureOSQP
 using Krylov                   # supplies the :indirect backend, a weak dependency
 using LDLFactorizations        # supplies the LDLᵀ backends, likewise
+using BandedMatrices           # supplies the banded backend, likewise
 using StrictMode
 using AllocCheck, JET          # the :full backends; StrictMode dispatches to them
 using LinearAlgebra, SparseArrays, Random
@@ -34,6 +35,8 @@ function example_workspace(backend::Symbol)
         return example_banded_workspace(200, 400)
     elseif backend === :sparse_kkt
         return example_kkt_workspace(200, 100)
+    elseif backend === :banded
+        return example_banded_backend_workspace(200)
     elseif backend === :tridiagonal
         return example_tridiagonal_workspace(200)
     elseif backend === :diagonal
@@ -42,6 +45,16 @@ function example_workspace(backend::Symbol)
     end
     ws = PureOSQP.setup(P, q, A, l, u; linsys = backend)
     PureOSQP.solve!(ws)        # compile every specialization before analysing it
+    return ws
+end
+
+function example_banded_backend_workspace(n)
+    Random.seed!(10)
+    # A `Tridiagonal` A squares to bandwidth 2, past what `SymTridiagonal` holds.
+    P = SymTridiagonal(rand(n) .+ 4, rand(n - 1) ./ 8)
+    A = Tridiagonal(rand(n - 1) ./ 4, rand(n) .+ 1, rand(n - 1) ./ 4)
+    ws = PureOSQP.setup(P, randn(n), A, -rand(n), rand(n))
+    PureOSQP.solve!(ws)
     return ws
 end
 
@@ -145,7 +158,7 @@ end
 
 failures = String[]
 
-for backend in (:auto, :kkt, :sparse, :cholmod, :diagonal, :tridiagonal, :indirect)
+for backend in (:auto, :kkt, :sparse, :cholmod, :diagonal, :tridiagonal, :banded, :indirect)
     ws = example_workspace(backend)
     W = typeof(ws)
     LS = typeof(ws.linsys)

@@ -1,5 +1,6 @@
 [deps]
 AllocCheck = "9b6a8646-10ed-4001-bbdc-1d2f46dfbb1a"
+BandedMatrices = "aae01518-5342-5314-be14-df237901396f"
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 Chairmarks = "0ca39b1e-fe0b-4e98-acfc-b1656634c4de"
 Clarabel = "61c947e1-3e6d-4ee4-985a-eec8c727bd6e"

@@ -38,6 +38,15 @@
             )
         )
     )
+    push!(names, :solve_banded)
+    push!(
+        sigs,
+        :(
+            TrimEntry.solve_banded(
+                TrimEntry.STM, Vector{Float64}, TrimEntry.TM, Vector{Float64}, Vector{Float64}
+            )
+        )
+    )
     results = TrimCheck.validate(sigs...; init = :(include($entry); using .TrimEntry), progressbar = false)
     ok = Dict(
         String(f) => occursin("is trim compatible", sprint(show, r))

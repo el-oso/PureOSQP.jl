@@ -208,6 +208,27 @@ function mul_At!(out::AbstractVector{T}, ws::Workspace{T}, y::AbstractVector{T})
     return out
 end
 
+# `mul!` against a `Tridiagonal`'s adjoint allocates in LinearAlgebra, which on a path that
+# runs every iteration is the difference between holding the no-allocation guarantee and
+# losing it. The three bands give `Aᵀ t` directly: `(Aᵀt)[j] = d[j]t[j] + dl[j]t[j+1] +
+# du[j-1]t[j-1]`.
+function mul_At!(
+        out::AbstractVector{T}, ws::Workspace{T, <:AbstractMatrix, <:Tridiagonal},
+        y::AbstractVector{T}
+    ) where {T}
+    multiply!(ws.tmp_m, ws.E, y)
+    A, t, n = ws.A, ws.tmp_m, ws.n
+    dl, d, du = A.dl, A.d, A.du
+    for j in 1:n
+        v = d[j] * t[j]
+        j < n && (v += dl[j] * t[j + 1])
+        j > 1 && (v += du[j - 1] * t[j - 1])
+        out[j] = v
+    end
+    scale_by!(out, ws.D)
+    return out
+end
+
 """
     mul_P!(out, ws, x)
 
