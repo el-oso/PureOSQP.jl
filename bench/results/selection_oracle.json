@@ -172,6 +172,26 @@
       "problem": "Symmetric, Banded (n=100), dense"
     },
     {
+      "A_type": "BandedMatrix{Float64, Matrix{Float64}, Base.OneTo{Int64}}",
+      "P_type": "SymTridiagonal{Float64, Vector{Float64}}",
+      "backend": "banded",
+      "factored_at_selection": "1",
+      "linsys_type": "PureOSQPBandedMatricesExt.BandedReduced{Float64, BandedMatrix{Float64, Matrix{Float64}, Base.OneTo{Int64}}, Cholesky{Float64, BandedMatrix{Float64, Matrix{Float64}, Base.OneTo{Int64}}}}",
+      "m": "100",
+      "n": "100",
+      "problem": "SymTridiagonal, wide Banded (n=100)"
+    },
+    {
+      "A_type": "Matrix{Float64}",
+      "P_type": "Matrix{Float64}",
+      "backend": "cholesky",
+      "factored_at_selection": "1",
+      "linsys_type": "ReducedCholesky{Float64, Matrix{Float64}}",
+      "m": "100",
+      "n": "100",
+      "problem": "SymTridiagonal, wide Banded (n=100), dense"
+    },
+    {
       "A_type": "Diagonal{Float64, Vector{Float64}}",
       "P_type": "Diagonal{Float64, Vector{Float64}}",
       "backend": "diagonal",
@@ -270,6 +290,26 @@
       "m": "400",
       "n": "400",
       "problem": "Symmetric, Banded (n=400), dense"
+    },
+    {
+      "A_type": "BandedMatrix{Float64, Matrix{Float64}, Base.OneTo{Int64}}",
+      "P_type": "SymTridiagonal{Float64, Vector{Float64}}",
+      "backend": "banded",
+      "factored_at_selection": "1",
+      "linsys_type": "PureOSQPBandedMatricesExt.BandedReduced{Float64, BandedMatrix{Float64, Matrix{Float64}, Base.OneTo{Int64}}, Cholesky{Float64, BandedMatrix{Float64, Matrix{Float64}, Base.OneTo{Int64}}}}",
+      "m": "400",
+      "n": "400",
+      "problem": "SymTridiagonal, wide Banded (n=400)"
+    },
+    {
+      "A_type": "Matrix{Float64}",
+      "P_type": "Matrix{Float64}",
+      "backend": "cholesky",
+      "factored_at_selection": "1",
+      "linsys_type": "ReducedCholesky{Float64, Matrix{Float64}}",
+      "m": "400",
+      "n": "400",
+      "problem": "SymTridiagonal, wide Banded (n=400), dense"
     },
     {
       "A_type": "Diagonal{Float64, Vector{Float64}}",
@@ -372,6 +412,26 @@
       "problem": "Symmetric, Banded (n=1000), dense"
     },
     {
+      "A_type": "BandedMatrix{Float64, Matrix{Float64}, Base.OneTo{Int64}}",
+      "P_type": "SymTridiagonal{Float64, Vector{Float64}}",
+      "backend": "banded",
+      "factored_at_selection": "1",
+      "linsys_type": "PureOSQPBandedMatricesExt.BandedReduced{Float64, BandedMatrix{Float64, Matrix{Float64}, Base.OneTo{Int64}}, Cholesky{Float64, BandedMatrix{Float64, Matrix{Float64}, Base.OneTo{Int64}}}}",
+      "m": "1000",
+      "n": "1000",
+      "problem": "SymTridiagonal, wide Banded (n=1000)"
+    },
+    {
+      "A_type": "Matrix{Float64}",
+      "P_type": "Matrix{Float64}",
+      "backend": "cholesky",
+      "factored_at_selection": "1",
+      "linsys_type": "ReducedCholesky{Float64, Matrix{Float64}}",
+      "m": "1000",
+      "n": "1000",
+      "problem": "SymTridiagonal, wide Banded (n=1000), dense"
+    },
+    {
       "A_type": "Diagonal{Float64, Vector{Float64}}",
       "P_type": "Diagonal{Float64, Vector{Float64}}",
       "backend": "diagonal",
@@ -470,6 +530,26 @@
       "m": "2000",
       "n": "2000",
       "problem": "Symmetric, Banded (n=2000), dense"
+    },
+    {
+      "A_type": "BandedMatrix{Float64, Matrix{Float64}, Base.OneTo{Int64}}",
+      "P_type": "SymTridiagonal{Float64, Vector{Float64}}",
+      "backend": "banded",
+      "factored_at_selection": "1",
+      "linsys_type": "PureOSQPBandedMatricesExt.BandedReduced{Float64, BandedMatrix{Float64, Matrix{Float64}, Base.OneTo{Int64}}, Cholesky{Float64, BandedMatrix{Float64, Matrix{Float64}, Base.OneTo{Int64}}}}",
+      "m": "2000",
+      "n": "2000",
+      "problem": "SymTridiagonal, wide Banded (n=2000)"
+    },
+    {
+      "A_type": "Matrix{Float64}",
+      "P_type": "Matrix{Float64}",
+      "backend": "cholesky",
+      "factored_at_selection": "1",
+      "linsys_type": "ReducedCholesky{Float64, Matrix{Float64}}",
+      "m": "2000",
+      "n": "2000",
+      "problem": "SymTridiagonal, wide Banded (n=2000), dense"
     }
   ],
   "julia_version": "1.12.7"

@@ -7,8 +7,10 @@
 # the dense path a caller reaches by passing `Matrix` operands — so the iteration counts
 # match and the difference is the backend.
 #
-# `PureOSQP.choose_backend` is extended below so the banded backend can be timed at every
-# bandwidth, including the range the BandedMatrices extension declines to build it for.
+# Every bandwidth in the sweep is one the shipped backend accepts: `A` is `Diagonal`, so
+# `m = n` and the banded rung's storage limit `2b + 1 <= m + n` admits `b` up to `n`. The
+# sweep therefore measures the selection a caller gets rather than one arranged for it, and
+# the assertion below fails if a change to the rung stops that being true.
 using PureOSQP, BandedMatrices, LinearAlgebra, Chairmarks, Printf, JSON, Statistics, Random
 
 BLAS.set_num_threads(1)
@@ -17,25 +19,6 @@ const OPTS = (eps_abs = 1.0e-9, eps_rel = 1.0e-9)
 const BUDGET = parse(Float64, get(ENV, "GATE_BUDGET", "0.5"))
 const SIZES = isempty(ARGS) ? (200, 500, 1000, 2000) : Tuple(parse.(Int, ARGS))
 const FRACTIONS = (0.01, 0.02, 0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8)
-
-const BandedExt = Base.get_extension(PureOSQP, :PureOSQPBandedMatricesExt)
-
-# The banded backend without the extension's bandwidth gate: same storage and same initial
-# factorization, built for every bandwidth so the declined range can be measured instead of
-# assumed. More specific than the extension's `(WideBand, NarrowBand)` method, so it wins.
-function PureOSQP.choose_backend(
-        P::BandedMatrix, A::Diagonal, proto::AbstractVector{T}, n::Integer, m::Integer,
-        D, E, c, rho_vec, sigma
-    ) where {T <: Real}
-    b = BandedExt.reduced_bandwidth(P, A)
-    R = BandedMatrix{T}(undef, (n, n), (b, b))
-    fill!(R.data, zero(T))
-    for i in 1:n
-        R[i, i] = one(T)
-    end
-    fact = cholesky(Symmetric(R))
-    return (BandedExt.BandedReduced{T, typeof(R), typeof(fact)}(R, fact, b), false)
-end
 
 times(x) = [s.time for s in x.samples]
 

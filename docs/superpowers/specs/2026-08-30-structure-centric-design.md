@@ -43,12 +43,22 @@ Reproduce with `bench/gate_crossover_fill.jl` and `bench/gate_crossover_band.jl`
 | `nnz(L) < DENSE_FACTOR_FILL·n²` | `0.05` | parity near **0.23** | at `n = 1000`, `:auto` is **1.5–2× slower** than the sparse backend it declines — fill 0.086: 60 ms vs 31 ms; 0.121: 88 vs 57; 0.166: 85 vs 59 |
 | banded declines at `b >= n ÷ 2` | `0.5·n` | **no crossover found** | banded still wins **1.6×** at `b/n = 0.8`, well past the cutoff |
 
-So the fill gate is throwing away roughly a factor of two across a wide band of problems, and
-the banded gate declines in a regime where the banded path is still winning by 1.6×. Neither
-threshold is defended by measurement; both were caution.
+**The two are not in the same position, and an earlier draft of this section was wrong to say
+both were caution.**
 
-**Moving them is a separate, deliberate change** — the ladder refactor is behavior-preserving
-by construction, so these findings are recorded here and acted on next, not folded in.
+The fill gate **is** defended by measurement, documented at its definition: a bandwidth sweep
+at `n = 2000` put the sparse triangular solves 12.6× ahead at a fill of 0.0025 and losing at
+0.086, crossing near 0.06, and the limit was deliberately set *below* that crossing so the
+accepted region wins on the factorization *and* the per-iteration solve — which keeps the
+choice from depending on how a run divides its time between the two. The new figure measures
+something different, end to end, and relaxing to it would trade that robustness property for
+average-case speed. **Left unchanged; the trade is a decision, not a correction.**
+
+The banded gate was not measured, and its comment — "at half the matrix or wider, the dense
+path wins outright" — is false. **Changed**, to the point where the band stops being the
+smaller representation: a `BandedMatrix` of bandwidth `b` occupies `(2b+1)n` against the dense
+backend's `mn + n²`, so the limit is `2b + 1 <= m + n`. That is storage, which is what the
+old fraction was silently approximating, and speed does not contradict it anywhere measured.
 
 Structure is a lattice, not a binary:
 

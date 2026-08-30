@@ -46,7 +46,30 @@ function families(n)
             Symmetric(Matrix(SymTridiagonal(rand(n) .+ 4, rand(n - 1) ./ 8))),
             BandedMatrix(0 => rand(n) .+ 1, 1 => rand(n - 1) ./ 4, -1 => rand(n - 1) ./ 4),
         ),
+        (
+            # Reduced bandwidth `2·(n÷8)`, which is a quarter of `n` — inside the band the
+            # banded backend accepts, and the case that separates the storage limit from a
+            # fixed fraction of `n`.
+            "SymTridiagonal, wide Banded",
+            SymTridiagonal(rand(n) .+ 4, rand(n - 1) ./ 8),
+            wide_band(n, n ÷ 8),
+        ),
     ]
+end
+
+"""
+    wide_band(n, b) -> BandedMatrix
+
+An `n×n` band of half-width `b`, diagonally dominant so the reduced matrix stays positive
+definite however wide the band is.
+"""
+function wide_band(n::Integer, b::Integer)
+    A = BandedMatrix{Float64}(undef, (n, n), (b, b))
+    fill!(A.data, 0.0)
+    for j in 1:n, i in max(1, j - b):min(n, j + b)
+        A[i, j] = i == j ? 1.0 : 0.01
+    end
+    return A
 end
 
 "One row: set the problem up and read the choice off the workspace."
@@ -60,7 +83,7 @@ function probe(name, P, q, A, l, u)
         A_type = string(typeof(A)),
         backend = string(PureOSQP.backend_name(ws.linsys)),
         linsys_type = string(typeof(ws.linsys)),
-        factored_at_selection = string(ws.refactor_count),
+        refactor_count = string(ws.refactor_count),
     )
 end
 
@@ -87,7 +110,7 @@ println("-"^150)
 for r in rows
     @printf(
         "%-40s %6d %6d %-26s %-26s %-18s %s\n",
-        r.problem, r.n, r.m, r.P_type, r.A_type, r.backend, r.factored_at_selection
+        r.problem, r.n, r.m, r.P_type, r.A_type, r.backend, r.refactor_count
     )
 end
 

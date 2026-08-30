@@ -82,8 +82,16 @@ PureOSQP.choose_backend(
 function banded_backend(P, A, proto::AbstractVector{T}, n::Integer, m::Integer) where {T <: Real}
     b = reduced_bandwidth(P, A)
     # Below bandwidth 2 the LinearAlgebra backends already apply and are cheaper than a
-    # banded factorization; at half the matrix or wider, the dense path wins outright.
-    (b < 2 || b >= n ÷ 2) && return PureOSQP.dense_rung(P, A, proto, n, m)
+    # banded factorization.
+    #
+    # The upper limit is storage, not speed. A `BandedMatrix` of bandwidth `b` occupies
+    # `(2b+1)n`, against the `mn + n²` the dense backend needs for its `W` and `Rinv`, so the
+    # band is the smaller representation exactly while `2b + 1 <= m + n`. Speed does not
+    # decide it: a bandwidth sweep at `n` of 200 to 2000 has the banded factorization ahead at
+    # every bandwidth measured, by 2.85× at `b = 0` and still 1.60× at `b = 0.8n` for
+    # `n = 1000`, so a limit set where the band stops being faster would be above this one.
+    # See `bench/gate_crossover_band.jl`.
+    (b < 2 || 2b + 1 > m + n) && return PureOSQP.dense_rung(P, A, proto, n, m)
     R = BandedMatrix{T}(undef, (n, n), (b, b))
     fill!(R.data, zero(T))
     for i in 1:n

@@ -148,7 +148,7 @@ matches the density above which callers are already advised to hand over dense c
 """
 const DENSE_FORM_DENSITY = 0.1
 
-function PureOSQP.dense_form_rung(
+function PureOSQP.density_gate_rung(
         P, A::SparseMatrixCSC, proto::AbstractVector, n::Integer, m::Integer
     )
     (n > 0 && m > 0 && nnz(A) > DENSE_FORM_DENSITY * m * n) || return nothing

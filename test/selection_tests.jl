@@ -28,8 +28,11 @@ end
     using LDLFactorizations, SparseArrays, Krylov
     Random.seed!(71)
 
-    # Each pair is named with the backend it selects, and with the backend its dense form
-    # selects: densifying must cost the structured choice and land on the terminal rung.
+    # Each pair is named with the backend it selects. Handing the same numbers over as dense
+    # `Matrix`es always reaches the terminal rung, which is what the second assertion checks —
+    # for the pairs whose structured form selects something else, that is the structure being
+    # worth something; for the one whose structured form is already `:cholesky`, it is not a
+    # change.
     families(n) = [
         (
             :diagonal,
@@ -49,12 +52,25 @@ end
             SymTridiagonal(rand(n) .+ 4, rand(n - 1) ./ 8),
             Bidiagonal(rand(n) .+ 1, rand(n - 1) ./ 4, :L),
         ),
-        # Bandwidth 2 against `n ÷ 2 = 50`: wide enough that the banded rung declines and
-        # the terminal takes it.
+        # `Symmetric` over a dense parent is not one of the types the banded rung accepts, so
+        # this never reaches it and the terminal takes it however narrow the band is.
         (
             :cholesky,
             Symmetric(Matrix(SymTridiagonal(rand(n) .+ 4, rand(n - 1) ./ 8))),
             BandedMatrix(0 => rand(n) .+ 1, 1 => rand(n - 1) ./ 4, -1 => rand(n - 1) ./ 4),
+        ),
+        # Reduced bandwidth `n ÷ 2`, where the band is still the smaller representation:
+        # `2b + 1 = n + 1` against the dense backend's `m + n = 2n`.
+        (
+            :banded,
+            SymTridiagonal(rand(n) .+ 4, rand(n - 1) ./ 8),
+            let b = n ÷ 4, A = BandedMatrix{Float64}(undef, (n, n), (b, b))
+                fill!(A.data, 0.0)
+                for j in 1:n, i in max(1, j - b):min(n, j + b)
+                    A[i, j] = i == j ? 1.0 : 0.01
+                end
+                A
+            end,
         ),
     ]
 
@@ -73,7 +89,7 @@ end
     P, A = Matrix(1.0I, n, n), randn(m, n)
 
     # A materializable pair stops at the dense terminal, and the rungs above it decline.
-    @test isnothing(PureOSQP.dense_form_rung(P, A, proto, n, m))
+    @test isnothing(PureOSQP.density_gate_rung(P, A, proto, n, m))
     @test isnothing(PureOSQP.formed_rung(P, A, proto, n, m))
     ls, factored = PureOSQP.dense_rung(P, A, proto, n, m)
     @test ls isa PureOSQP.ReducedCholesky
@@ -86,6 +102,16 @@ end
     ls, factored = PureOSQP.indirect_rung(Opaque(), Opaque(), proto, n, m)
     @test PureOSQP.backend_name(ls) === :indirect
     @test !factored
+
+    # The descent itself, not just its rungs: a pair no rung above the terminal serves stops
+    # at the terminal, and one no rung serves at all reaches the bottom.
+    D, E, c, rho, sig = ones(n), ones(m), 1.0, ones(m), 1.0e-6
+    ls, factored = PureOSQP.select_backend(P, A, proto, n, m, D, E, c, rho, sig)
+    @test ls isa PureOSQP.ReducedCholesky
+    @test !factored
+    ls, factored = PureOSQP.select_backend(Opaque(), Opaque(), proto, n, m, D, E, c, rho, sig)
+    @test PureOSQP.backend_name(ls) === :indirect
+    @test !factored
 end
 
 @testitem "backend_info describes each backend it is asked about" begin
@@ -93,8 +119,9 @@ end
     using LDLFactorizations, BandedMatrices, Krylov
     Random.seed!(72)
 
-    # `factor_nnz` counts one triangle of whatever the backend stores, so the fill it
-    # implies is comparable across backends whether the factor is dense or sparse.
+    # `factor_nnz` counts one triangle of whatever the backend stores, in that
+    # factorization's own convention. `factor_fill` is what normalizes it against the
+    # problem's `n` so two backends' fills compare.
     function check(ws, name, direct, system, dim)
         info = PureOSQP.backend_info(ws.linsys)
         @test info isa PureOSQP.BackendInfo

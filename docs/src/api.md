@@ -58,7 +58,7 @@ PureOSQP.indirect_backend
 
 ```@docs
 PureOSQP.select_backend
-PureOSQP.dense_form_rung
+PureOSQP.density_gate_rung
 PureOSQP.kkt_rung
 PureOSQP.reduced_rung
 PureOSQP.formed_rung
