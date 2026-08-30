@@ -88,13 +88,12 @@ PureBLAS column.
 "Factorizations" counts the whole 20-step sequence: one from `setup`, plus one per step
 whose constraint classification changed.
 
-**`update!` is worth much less than it used to be, and that is a consequence of making
-`setup` faster.** Its whole benefit is skipping setup; once setup dropped sevenfold (see
-[Sparse A](@ref "Sparse A")) there was far less left to skip. At `n = 100` it is now
-level with rebuilding — the two runs also differ in warm starting, so they take different
-numbers of iterations and the comparison is no longer purely setup-versus-setup. It pays
-where solves are short and setup is a large share, and it remains the right call when you
-want warm starting; at the larger sizes it is close to a wash.
+**`update!` is worth about as much as `setup` costs, which is not much.** Its whole benefit
+is skipping setup, and setup is fast (see [Sparse A](@ref "Sparse A")), so there is little
+left to skip. At `n = 100` it is level with rebuilding — the two runs also differ in warm
+starting, so they take different iteration counts and the row is not purely
+setup-versus-setup. It pays where solves are short and setup is a large share of them, and it
+remains the right call when you want warm starting; at the larger sizes it is close to a wash.
 
 **This loop is the case where the BLAS choice is least predictable from the single-solve
 numbers.** A re-solve sequence refactorizes far more often per iteration than one long
@@ -306,11 +305,11 @@ is a good design there. Where PureOSQP pulls ahead is the case that suits neithe
 factorization nor a dense one, where forming the reduced matrix from stored entries and
 factoring it densely turns out to beat factoring a KKT matrix that fills in.
 
-The banded family also found a real defect rather than confirming a belief. At
-`n = 2000, m = 4000` PureOSQP first measured **0.61×** — libosqp 1.6× ahead. The cause was
-not the iteration: `setup` was 49.7% of the run, because the convexity test densified `P`
-into an `n×n` array for a dense Cholesky, `O(n³)` on a tridiagonal matrix. Testing it with
-CHOLMOD instead is 93× faster on that matrix and took `setup` from 56.1 ms to 3.06 ms.
+The banded family is what makes the convexity test's representation matter. Testing a
+tridiagonal `P` by densifying it into an `n×n` array for a dense Cholesky is `O(n³)` on a
+matrix holding `O(n)` entries, and at `n = 2000, m = 4000` that alone is half the run.
+Testing it through CHOLMOD instead is 93× faster on that matrix — hence the sparse method in
+`ext/PureOSQPSparseArraysExt.jl`.
 
 
 ## The OSQP benchmark suite
@@ -382,45 +381,13 @@ dense `505×505` factorization in place of a sparse `1011×1011` one.
 | Huber | 0.001 | 0.003 | 0.004 | `ldlfactorizations` |
 | Control | 0.038 | 0.209 | 0.097 | `sparse_formed` |
 
-**Eq QP was a storage cost, and equilibration now absorbs most of it.** Its `P` has
+**Eq QP is a storage cost, and equilibration absorbs most of it.** Its `P` has
 `nnz(P)/n² = 0.99` — a matrix that is 99% dense, handed over as a `SparseMatrixCSC` — so the
-column traversals gather where they could stream. Two things follow. Handing the same matrix
-over as a `Matrix` still takes `scale!` from 2.98 ms to 0.304 ms, which is the rule under
-[Sparse A](@ref "Sparse A") costing an order of magnitude when ignored. And half the passes
-over `P` were redundant: the cost normalization at the end of a sweep computes the column
-norms the next sweep needs, with the same `D`, so `cost_norms!` now returns both and the
-class went from 0.77× to 1.19×.
-
-### What closed the gap
-
-Four changes, in the order they were found, each measured against the class it was aimed at.
-
-**The substitutions paid a bounds check per nonzero.** `x[rows[p]] -= vals[p] * xj` indexes
-by a row read out of the factor, which no compiler can prove is in range, where QDLDL's
-identical C loop checks nothing. On factors holding two to three nonzeros per column that
-check is a large fraction of the work: removing it is worth 1.18× to 1.32× on the pair.
-`check_factor` establishes the property once per factorization instead, so the loops
-run unchecked behind a guard rather than an assumption. This was the largest single item and
-took Portfolio from 0.88× to 1.00×.
-
-**Selection and the setup factorization were separate.** Equilibration and the `ρ` split now
-run before the backend is chosen, so the factorization that measures a candidate's fill is
-the one the solver keeps. Setup fell 24–29% on the four sparse classes.
-
-**Refactorization rebuilt the reduced matrix through four allocating sparse products.** It is
-now a single pass over a stored slot map — see `ReducedGram` — which allocates
-nothing. A refactorization runs every time `ρ` is retuned, inside the solve loop, so this is
-not a setup-only saving.
-
-**Back-substitution gathered where it could scatter.** Storing the factor transposed lets it
-scatter down a column like the forward solve rather than accumulating into a scalar.
-
-One thing deliberately *not* done: `cholmod_backend` still forms the reduced matrix through
-sparse products to measure its fill, and then builds the slot map separately rather than
-reusing that pattern. Reusing it looks like free work and is not sound — a sparse product
-drops an entry that cancels to exactly zero, whether one cancels depends on `ρ`, and a map
-built from the cancelled pattern would silently lose that term the moment `ρ` moved. The
-duplication is the price of a pattern that stays valid.
+column traversals gather where they could stream. Handing the same matrix over as a `Matrix`
+takes the scaling pass from 2.98 ms to 0.304 ms, which is the rule under
+[Sparse A](@ref "Sparse A") costing an order of magnitude when ignored. A sweep also needs
+only one traversal of `P`, not two: its closing cost normalization computes the column norms
+the next sweep opens with, under the same `D`, so `cost_norms!` returns both.
 
 ### The SparseArrays extension
 
