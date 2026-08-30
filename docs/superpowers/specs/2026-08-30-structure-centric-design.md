@@ -7,28 +7,55 @@ last two rungs rather than the destination.
 
 ## Objective
 
-**Structure-centric: never form an `O(n²)` object when the structure admits `O(nb)` or
-`O(nk)` storage, and never form anything at all when the structure admits a factored solve.**
+**Structure-centric: choose the cheapest representation the structure admits, and treat forming
+an `O(n²)` object as a cost to be justified rather than the default.**
 
-Stated this way rather than as "non-materializing by default", because the package's own
-measurements contradict the stronger claim: `ext/PureOSQPKrylovExt.jl` records that a direct
-factorization is "some two orders of magnitude faster whenever the matrix *can* be formed", and
-the matrix-free backend takes different iteration counts because its inner solve is inexact.
-Materializing a *compressed structured* representation is usually right; materializing an
-`O(n²)` one rarely is. The objective is the second half of that, not the first.
+Forming a dense matrix is *permitted*, not prohibited — it is sometimes the cheapest thing
+available, and the package's own measurements say so: `ext/PureOSQPKrylovExt.jl` records that a
+direct factorization is "some two orders of magnitude faster whenever the matrix *can* be
+formed", and the matrix-free backend takes different iteration counts because its inner solve
+is inexact. What is wrong today is not that dense formation exists; it is that dense formation
+is the **default reached by falling through**, so its `O(n²)` memory and `O(n³)` factorization
+get paid whenever nothing else volunteers — including on problems whose structure would have
+made them `O(nb)`, `O(nk)`, or free.
+
+So the objective is a change of *default and ordering*, not a prohibition. Dense stays, named
+and last — **permitted, but discouraged: it should have to earn the choice rather than receive
+it by default or by a tie.**
+
+That has a concrete consequence, because **today's gates are biased the other way.** The fill
+gate is `nnz(L) < DENSE_FACTOR_FILL · n²` with `DENSE_FACTOR_FILL = 0.05`: a sparse factor must
+be under 5% of the dense size to win, so anything between 5% and 100% goes dense. The banded
+backend defers at `b >= n ÷ 2`, i.e. dense wins from half-bandwidth upward. Both thresholds put
+the thumb on dense's side of the scale.
+
+Discouraging dense therefore means **re-deriving those thresholds against measurement rather
+than inheriting them**, and the direction of the correction is testable: find, for each gate,
+the crossover where the structured path actually stops winning, and place the threshold there
+instead of where caution originally put it. If 0.05 is right, measurement will say so; the
+point is that it is currently an assumption, not a finding.
 
 Structure is a lattice, not a binary:
 
 | level | what structure means | how it is known | cost to exploit |
 |---|---|---|---|
 | algebraic | banded, block-diagonal, Kronecker, low-rank + diagonal, circulant | **declared by type** | free — dispatch |
-| sparse | a nonzero *pattern* | **discovered** by symbolic analysis | paid at setup, every time |
+| sparse | a nonzero *pattern* | **discovered** by symbolic analysis | paid once at setup |
 | dense | none | — | — |
 
 Sparse is a weak structure: pattern-only, not algebraic. You cannot reason about a sparsity
 pattern, only measure its fill, which is why every sparse path needs a symbolic analysis and a
 gate. Algebraic structure states the *form of the factorization* up front, so exploiting it is
-free and frequently means never materializing anything.
+free and frequently means never materializing anything. The per-*refactorization* cost of the
+sparse path was already engineered away — `ReducedGram`'s slot map pays the pattern analysis
+once and refills in a single allocation-free pass — so the distinction is about the *selection*
+cost, not the steady state.
+
+**The lattice is a description, not a preference order.** A cost gate cuts across it: the
+banded backend defers to dense at `b >= n ÷ 2`, so declared algebraic structure still loses to
+dense when the band is wide enough. Structure says which *forms* are available; value-dependent
+cost still decides among them. Any ladder built on this must carry both, and a design that
+treats "algebraic beats sparse beats dense" as an ordering will pick wrong at the extremes.
 
 The measured version of that distinction, from `bench/structured_backends.jl` at `n = 2000`:
 `Diagonal`/`Diagonal` is **1710×** faster to set up than the dense path on the same problem —
@@ -251,13 +278,20 @@ benchmark table.
 
 ## Phasing
 
-| phase | work | risk |
-|---|---|---|
-| 1 | S1 + S7 — the ladder, dense terminal, behavior-preserving | low; provable by the existing suite and benchmark table |
-| 2 | S2 — structure vocabulary, type-level first | low |
-| 3 | S4 + S5 — relax the bound, split the ρ path | low |
-| 4 | S3 — first unmaterialized structured backend | medium |
-| 5 | S6 — equilibration protocol | high |
+| phase | work | risk | delivers |
+|---|---|---|---|
+| 1 | S1 + S7 — the ladder, dense terminal | low; checked by asserting the backend chosen per suite class | no behavior change at all |
+| 2 | S2 — structure vocabulary, type-level first | low | selection reads one description |
+| 3 | S5 — split the ρ and data update paths | low | cheap-update channel for later backends |
+| 4 | S3 — first structured backend (Woodbury over a diagonal core) | medium | the new tier, on `AbstractMatrix` types |
+| 5 | S4 — relax the bound, operator protocol | medium | **lazy operators, but `scaling = 0` only** |
+| 6 | S6 — equilibration protocol | high | lazy operators with scaling |
+
+**S4 moved after S3 and is marked partial deliberately.** A relaxed bound reaches
+`equilibrate!`'s column walks immediately, so between phases 5 and 6 a lazy operator is usable
+only unscaled. Doing S3 first means the new backend tier is proved on ordinary `AbstractMatrix`
+types — where equilibration, `is_convex`, `issymmetric` and `polish!` all still work — before
+the protocol work destabilizes any of them.
 
 For phase 4, start with **rank-`(k+1)` Woodbury over a diagonal core**, and be precise about
 the motivating problem, because an earlier draft got it wrong.
@@ -296,7 +330,12 @@ phase should be judged on that.
 
 ## Validation
 
-- **S1 is a refactor**: every backend choice and every benchmark figure must be unchanged.
+- **S1 is a refactor**: assert the *backend chosen per suite class* in a test, and establish by
+  construction that the selection path does no new work. Not "benchmark figures unchanged" —
+  medians are not a CI-checkable invariant, and this repository's own notes record idle machine
+  load moving setup ratios further than code changes did.
+- **Gate thresholds are findings, not settings.** Each retuned threshold needs the crossover
+  measurement that justifies it, saved under `bench/results/` like every other datapoint.
   Assert the chosen backend per suite class in a test.
 - **Each new backend**: bands or blocks checked against the densely-formed reduced matrix, and
   the solve checked against the full KKT system solved by `\`, as `test/banded_tests.jl` does.
