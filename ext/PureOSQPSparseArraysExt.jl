@@ -728,12 +728,12 @@ Structural, so it agrees with [`reduced_gram`](@ref) exactly. Counting the forme
 instead would undercount: a sparse product drops an entry that cancels to zero, and whether
 one cancels depends on `ρ`.
 """
-function reduced_nnz(P::SparseMatrixCSC, A::SparseMatrixCSC, n::Integer)
+function reduced_nnz(P::SparseMatrixCSC, A::SparseMatrixCSC, n::Integer, limit::Integer = typemax(Int))
     rowptr, colind, _ = csr_order(A)
     arows, prows = rowvals(A), rowvals(P)
     mark = zeros(Int, n)
     total = 0
-    for j in 1:n
+    @inbounds for j in 1:n
         for p in nzrange(A, j)
             k = arows[p]
             for t in rowptr[k]:(rowptr[k + 1] - 1)
@@ -757,6 +757,11 @@ function reduced_nnz(P::SparseMatrixCSC, A::SparseMatrixCSC, n::Integer)
             mark[j] = j
             total += 1
         end
+        # The caller compares against a limit, so counting past it answers a question nobody
+        # asked. A problem this backend refuses is exactly the one with the most to count:
+        # on the OSQP suite's Control class the count reaches the limit after a fraction of
+        # the columns, and stopping there is the difference between 92 µs and a few.
+        total > limit && return total
     end
     return total
 end
@@ -1110,7 +1115,8 @@ function cholmod_backend(
     # Counted rather than formed: the gate wants `nnz(R)` and nothing else, and that comes
     # from the patterns. `reduced_nnz` reports one triangle where the limit is stated for the
     # whole matrix.
-    2 * reduced_nnz(P, A, n) < 2 * DENSE_FACTOR_FILL * n^2 || return nothing
+    limit = floor(Int, DENSE_FACTOR_FILL * n^2)
+    reduced_nnz(P, A, n, limit) < limit || return nothing
     gram = reduced_gram(T, P, A, n)
     R = refill!(gram, P, A, rho_vec, E, D, c, sigma)
     # A pure-Julia LDLᵀ, if one is loaded, factors this faster than CHOLMOD does and hands
