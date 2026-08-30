@@ -48,7 +48,8 @@ end
     @test PureOSQP.backend_name(diag_ws.linsys) == :diagonal
     tri_ws = setup(SymTridiagonal(rand(n) .+ 3, rand(n - 1) ./ 8), q, Diagonal(rand(n) .+ 1), l, u)
     @test PureOSQP.backend_name(tri_ws.linsys) == :tridiagonal
-    # A band wide enough that the dense factorization is the cheaper one.
+    # A band wide enough to stop being the smaller representation: this `A` has `m = n`, so
+    # the rung declines once `2b + 1` exceeds `m + n`, which `b = n ÷ 2` does by one.
     wide = BandedMatrix{Float64}(undef, (n, n), (n ÷ 2, n ÷ 2))
     fill!(wide.data, 0.0)
     for j in 1:n, i in max(1, j - n ÷ 2):min(n, j + n ÷ 2)

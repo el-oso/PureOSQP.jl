@@ -71,5 +71,6 @@ PureOSQP.indirect_rung
 ```@docs
 PureOSQP.backend_name
 PureOSQP.backend_info
+PureOSQP.factor_fill
 PureOSQP.BackendInfo
 ```

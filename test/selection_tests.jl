@@ -138,6 +138,16 @@ end
     P, A = Matrix(1.0I, n, n), randn(m, n)
     check(setup(P, q, A, l, u), :cholesky, true, :reduced, n)
     check(setup(P, q, A, l, u; linsys = :kkt), :bunchkaufman, true, :kkt, n + m)
+
+    # `factor_fill` normalizes against `n` for both, where `dim` differs between them.
+    red = setup(P, q, A, l, u)
+    kkt = setup(P, q, A, l, u; linsys = :kkt)
+    @test PureOSQP.factor_fill(red) ==
+        PureOSQP.backend_info(red.linsys).factor_nnz / n^2
+    @test PureOSQP.factor_fill(kkt) ==
+        PureOSQP.backend_info(kkt.linsys).factor_nnz / n^2
+    # The KKT backend's own `dim` is `n + m`, so normalizing by it would differ.
+    @test PureOSQP.backend_info(kkt.linsys).dim == n + m
     check(setup(P, q, A, l, u; linsys = :indirect), :indirect, false, :reduced, n)
     @test iszero(PureOSQP.backend_info(setup(P, q, A, l, u; linsys = :indirect).linsys).factor_nnz)
 

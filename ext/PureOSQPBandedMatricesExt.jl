@@ -80,18 +80,26 @@ PureOSQP.choose_backend(
 ) where {T <: Real} = banded_backend(P, A, proto, n, m)
 
 function banded_backend(P, A, proto::AbstractVector{T}, n::Integer, m::Integer) where {T <: Real}
-    b = reduced_bandwidth(P, A)
+    # A bandwidth wider than `n - 1` describes the same full matrix as `n - 1` does, and the
+    # diagonals past it are stored padding. `A` taller than it is wide can produce one.
+    b = min(reduced_bandwidth(P, A), n - 1)
     # Below bandwidth 2 the LinearAlgebra backends already apply and are cheaper than a
     # banded factorization.
     #
-    # The upper limit is storage, not speed. A `BandedMatrix` of bandwidth `b` occupies
-    # `(2b+1)n`, against the `mn + n²` the dense backend needs for its `W` and `Rinv`, so the
-    # band is the smaller representation exactly while `2b + 1 <= m + n`. Speed does not
-    # decide it: a bandwidth sweep at `n` of 200 to 2000 has the banded factorization ahead at
-    # every bandwidth measured, by 2.85× at `b = 0` and still 1.60× at `b = 0.8n` for
-    # `n = 1000`, so a limit set where the band stops being faster would be above this one.
+    # The upper limit is storage. A `BandedMatrix` of bandwidth `b` occupies `(2b+1)n` and
+    # `cholesky!` factors it in place, against the `mn + n²` the dense backend needs for its
+    # `W` and `Rinv`, so the band is the smaller representation exactly while
+    # `2b + 1 <= m + n`.
+    #
+    # Storage alone would accept more than it should, because `mn + n²` counts the dense
+    # backend's `W` scratch: measured against the reduced matrix itself the band stops being a
+    # compression at `2b + 1 = n`, and past that the two are close enough that the banded
+    # factorization's worse constants decide. A sweep has it ahead at every bandwidth from
+    # `b = 2` through `b = 0.8n` — 2.85× at `b = 2` and 1.60× at `b = 0.8n` for `n = 1000`,
+    # the margin growing with `n` — and behind near `b = n - 1`, at 0.80× for `n = 200`. The
+    # second limit is where that sweep stops, so the accepted range is the measured one.
     # See `bench/gate_crossover_band.jl`.
-    (b < 2 || 2b + 1 > m + n) && return PureOSQP.dense_rung(P, A, proto, n, m)
+    (b < 2 || 2b + 1 > m + n || 5b > 4n) && return PureOSQP.dense_rung(P, A, proto, n, m)
     R = BandedMatrix{T}(undef, (n, n), (b, b))
     fill!(R.data, zero(T))
     for i in 1:n

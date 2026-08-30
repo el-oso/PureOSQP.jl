@@ -8,7 +8,7 @@
 # match and the difference is the backend.
 #
 # Every bandwidth in the sweep is one the shipped backend accepts: `A` is `Diagonal`, so
-# `m = n` and the banded rung's storage limit `2b + 1 <= m + n` admits `b` up to `n`. The
+# `m = n` and the banded rung's storage limit `2b + 1 <= m + n` admits `b` up to `n - 1`. The
 # sweep therefore measures the selection a caller gets rather than one arranged for it, and
 # the assertion below fails if a change to the rung stops that being true.
 using PureOSQP, BandedMatrices, LinearAlgebra, Chairmarks, Printf, JSON, Statistics, Random

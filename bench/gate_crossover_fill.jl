@@ -9,7 +9,10 @@
 #
 # The `choose_backend` method below is what makes the sweep possible: past the fill limit
 # `setup` will not build a sparse backend at all, so the comparison needs a way to ask for
-# one anyway. It is confined to this file; nothing it does changes what ships.
+# one anyway. Extending a function in another module registers the method globally, whatever
+# module the statement sits in, so running this file leaves that method in place for the rest
+# of the session: run it in a process of its own, not in a shared daemon alongside anything
+# whose selection matters.
 #
 # The module keeps this file's names to itself: benchmarks here are run through a persistent
 # Julia session, where two scripts sharing `Main` would silently share their constants.
