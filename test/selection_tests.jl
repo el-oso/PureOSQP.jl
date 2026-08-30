@@ -28,6 +28,16 @@ end
     using LDLFactorizations, SparseArrays, Krylov
     Random.seed!(71)
 
+    "An `n×n` band of half-width `b`, diagonally dominant so the reduced matrix is definite."
+    function wide_band(n, b)
+        A = BandedMatrix{Float64}(undef, (n, n), (b, b))
+        fill!(A.data, 0.0)
+        for j in 1:n, i in max(1, j - b):min(n, j + b)
+            A[i, j] = i == j ? 1.0 : 0.01
+        end
+        return A
+    end
+
     # Each pair is named with the backend it selects. Handing the same numbers over as dense
     # `Matrix`es always reaches the terminal rung, which is what the second assertion checks —
     # for the pairs whose structured form selects something else, that is the structure being
@@ -59,19 +69,11 @@ end
             Symmetric(Matrix(SymTridiagonal(rand(n) .+ 4, rand(n - 1) ./ 8))),
             BandedMatrix(0 => rand(n) .+ 1, 1 => rand(n - 1) ./ 4, -1 => rand(n - 1) ./ 4),
         ),
-        # Reduced bandwidth `n ÷ 2`, where the band is still the smaller representation:
-        # `2b + 1 = n + 1` against the dense backend's `m + n = 2n`.
-        (
-            :banded,
-            SymTridiagonal(rand(n) .+ 4, rand(n - 1) ./ 8),
-            let b = n ÷ 4, A = BandedMatrix{Float64}(undef, (n, n), (b, b))
-                fill!(A.data, 0.0)
-                for j in 1:n, i in max(1, j - b):min(n, j + b)
-                    A[i, j] = i == j ? 1.0 : 0.01
-                end
-                A
-            end,
-        ),
+        # Either side of the rung's limit, which accepts while `7b <= n`. A `BandedMatrix` `A`
+        # of half-width `bA` gives a reduced bandwidth of `2bA`, so `bA = 7` is inside at
+        # `n = 100` and `bA = 8` is outside.
+        (:banded, SymTridiagonal(rand(n) .+ 4, rand(n - 1) ./ 8), wide_band(n, 7)),
+        (:cholesky, SymTridiagonal(rand(n) .+ 4, rand(n - 1) ./ 8), wide_band(n, 8)),
     ]
 
     n = 100

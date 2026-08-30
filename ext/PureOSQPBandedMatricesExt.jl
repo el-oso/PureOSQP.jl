@@ -80,26 +80,25 @@ PureOSQP.choose_backend(
 ) where {T <: Real} = banded_backend(P, A, proto, n, m)
 
 function banded_backend(P, A, proto::AbstractVector{T}, n::Integer, m::Integer) where {T <: Real}
-    # A bandwidth wider than `n - 1` describes the same full matrix as `n - 1` does, and the
-    # diagonals past it are stored padding. `A` taller than it is wide can produce one.
-    b = min(reduced_bandwidth(P, A), n - 1)
-    # Below bandwidth 2 the LinearAlgebra backends already apply and are cheaper than a
-    # banded factorization.
+    b = reduced_bandwidth(P, A)
+    # Below bandwidth 2 the LinearAlgebra backends already apply and are cheaper than a banded
+    # factorization. Above `n/7` the dense path wins per iteration, and the limit is that
+    # ratio because of what the two backends store.
     #
-    # The upper limit is storage. A `BandedMatrix` of bandwidth `b` occupies `(2b+1)n` and
-    # `cholesky!` factors it in place, against the `mn + n²` the dense backend needs for its
-    # `W` and `Rinv`, so the band is the smaller representation exactly while
-    # `2b + 1 <= m + n`.
+    # `ReducedCholesky` keeps the reduced matrix's *inverse*, so its iteration is one `symv`:
+    # `n²` flops with no dependency between them. A band keeps a *factor*, so its iteration is
+    # two triangular solves — `O(nb)` flops, but computed in sequence, which costs about
+    # sevenfold against `symv` at equal flop count. The band's flop advantage is `n/b`, so it
+    # clears that handicap only while `b < n/7`, and the measured per-iteration ratio crosses
+    # 1 between `b = 0.15n` and `b = 0.25n`.
     #
-    # Storage alone would accept more than it should, because `mn + n²` counts the dense
-    # backend's `W` scratch: measured against the reduced matrix itself the band stops being a
-    # compression at `2b + 1 = n`, and past that the two are close enough that the banded
-    # factorization's worse constants decide. A sweep has it ahead at every bandwidth from
-    # `b = 2` through `b = 0.8n` — 2.85× at `b = 2` and 1.60× at `b = 0.8n` for `n = 1000`,
-    # the margin growing with `n` — and behind near `b = n - 1`, at 0.80× for `n = 200`. The
-    # second limit is where that sweep stops, so the accepted range is the measured one.
-    # See `bench/gate_crossover_band.jl`.
-    (b < 2 || 2b + 1 > m + n || 5b > 4n) && return PureOSQP.dense_rung(P, A, proto, n, m)
+    # The factorization pulls the other way and pulls hard: 445× at `b = 0.01n`, still 4.4× at
+    # `b = 0.99n`. Choosing on that instead would make the backend depend on the iteration
+    # count — the band repays its per-iteration loss within about 640 iterations at
+    # `n = 1000` but only 119 at `n = 200`, and the benchmark classes here run from 50 to 925.
+    # The limit takes the range that wins on both, so the choice does not turn on how long a
+    # particular problem happens to run. See `bench/gate_band_beyond.jl`.
+    (b < 2 || 7b > n) && return PureOSQP.dense_rung(P, A, proto, n, m)
     R = BandedMatrix{T}(undef, (n, n), (b, b))
     fill!(R.data, zero(T))
     for i in 1:n

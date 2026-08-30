@@ -47,12 +47,12 @@ function families(n)
             BandedMatrix(0 => rand(n) .+ 1, 1 => rand(n - 1) ./ 4, -1 => rand(n - 1) ./ 4),
         ),
         (
-            # Reduced bandwidth `2·(n÷8)`, which is a quarter of `n` — inside the band the
-            # banded backend accepts, and the case that separates the storage limit from a
-            # fixed fraction of `n`.
+            # Reduced bandwidth `2·(n÷16)`, an eighth of `n` — inside the range the
+            # banded backend accepts, whose limit is `7b <= n`.
+
             "SymTridiagonal, wide Banded",
             SymTridiagonal(rand(n) .+ 4, rand(n - 1) ./ 8),
-            wide_band(n, n ÷ 8),
+            wide_band(n, n ÷ 16),
         ),
     ]
 end

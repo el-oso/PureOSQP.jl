@@ -325,9 +325,10 @@ outside it:
 - A [`choose_backend`](@ref) method for a specific `(P, A)` pair wins over this ladder by
   dispatch, which is how the structured and banded backends are chosen. The ladder is the
   body of the *fallback* method.
-- A pair that reaches rung 5 and whose factorization then fails — an indefinite `P` that
-  `σ` does not lift — is rebuilt on [`FullKKT`](@ref) by [`setup`](@ref). That is the last
-  word on selection, and it is not a rung.
+- Any backend that arrives unfactored and whose `factorize!` then fails — an indefinite `P`
+  that `σ` does not lift, whichever rung or `choose_backend` method produced it — is rebuilt
+  on [`FullKKT`](@ref) by [`setup`](@ref). That is the last word on selection, and it is not
+  a rung.
 
 Each rung is a generic function whose default declines, so an extension adds itself to the
 ladder by defining the method its representation needs. The order is fixed here, in one

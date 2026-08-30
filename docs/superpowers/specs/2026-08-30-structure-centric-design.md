@@ -55,10 +55,18 @@ something different, end to end, and relaxing to it would trade that robustness 
 average-case speed. **Left unchanged; the trade is a decision, not a correction.**
 
 The banded gate was not measured, and its comment — "at half the matrix or wider, the dense
-path wins outright" — is false. **Changed**, to the point where the band stops being the
-smaller representation: a `BandedMatrix` of bandwidth `b` occupies `(2b+1)n` against the dense
-backend's `mn + n²`, so the limit is `2b + 1 <= m + n`. That is storage, which is what the
-old fraction was silently approximating, and speed does not contradict it anywhere measured.
+path wins outright" — is false. **Changed** to two conditions:
+
+- storage, `2b + 1 <= m + n`, the point where the band stops being smaller than the dense
+  backend's `W` and `Rinv` together;
+- and `5b <= 4n`, because storage alone accepts too much. Measured against the reduced matrix
+  itself the band stops being a compression at `2b + 1 = n`, and beyond that the banded
+  factorization's worse constants decide: the sweep has it ahead from `b = 2` through
+  `b = 0.8n` and **behind near `b = n - 1`, at 0.80× for `n = 200`**. The second condition is
+  where the sweep stops, so the accepted range is exactly the measured one.
+
+The bandwidth is also clamped to `n - 1` first: a wider one describes the same full matrix and
+the diagonals past it are stored padding, which a tall `A` can otherwise produce.
 
 Structure is a lattice, not a binary:
 
