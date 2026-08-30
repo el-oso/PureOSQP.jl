@@ -34,40 +34,6 @@ than inheriting them**, and the direction of the correction is testable: find, f
 the crossover where the structured path actually stops winning, and place the threshold there
 instead of where caution originally put it.
 
-**Measured 2026-08-30. Both thresholds are too conservative, and the cost is large.**
-Reproduce with `bench/gate_crossover_fill.jl` and `bench/gate_crossover_band.jl`; samples in
-`bench/results/`.
-
-| gate | current | measured | cost of the current setting |
-|---|---|---|---|
-| `nnz(L) < DENSE_FACTOR_FILL·n²` | `0.05` | parity near **0.23** | at `n = 1000`, `:auto` is **1.5–2× slower** than the sparse backend it declines — fill 0.086: 60 ms vs 31 ms; 0.121: 88 vs 57; 0.166: 85 vs 59 |
-| banded declines at `b >= n ÷ 2` | `0.5·n` | **no crossover found** | banded still wins **1.6×** at `b/n = 0.8`, well past the cutoff |
-
-**The two are not in the same position, and an earlier draft of this section was wrong to say
-both were caution.**
-
-The fill gate **is** defended by measurement, documented at its definition: a bandwidth sweep
-at `n = 2000` put the sparse triangular solves 12.6× ahead at a fill of 0.0025 and losing at
-0.086, crossing near 0.06, and the limit was deliberately set *below* that crossing so the
-accepted region wins on the factorization *and* the per-iteration solve — which keeps the
-choice from depending on how a run divides its time between the two. The new figure measures
-something different, end to end, and relaxing to it would trade that robustness property for
-average-case speed. **Left unchanged; the trade is a decision, not a correction.**
-
-The banded gate was not measured, and its comment — "at half the matrix or wider, the dense
-path wins outright" — is false. **Changed** to two conditions:
-
-- storage, `2b + 1 <= m + n`, the point where the band stops being smaller than the dense
-  backend's `W` and `Rinv` together;
-- and `5b <= 4n`, because storage alone accepts too much. Measured against the reduced matrix
-  itself the band stops being a compression at `2b + 1 = n`, and beyond that the banded
-  factorization's worse constants decide: the sweep has it ahead from `b = 2` through
-  `b = 0.8n` and **behind near `b = n - 1`, at 0.80× for `n = 200`**. The second condition is
-  where the sweep stops, so the accepted range is exactly the measured one.
-
-The bandwidth is also clamped to `n - 1` first: a wider one describes the same full matrix and
-the diagonals past it are stored padding, which a tall `A` can otherwise produce.
-
 Structure is a lattice, not a binary:
 
 | level | what structure means | how it is known | cost to exploit |
@@ -85,8 +51,8 @@ once and refills in a single allocation-free pass — so the distinction is abou
 cost, not the steady state.
 
 **The lattice is a description, not a preference order.** A cost gate cuts across it: the
-banded backend defers to dense at `b >= n ÷ 2`, so declared algebraic structure still loses to
-dense when the band is wide enough. Structure says which *forms* are available; value-dependent
+banded backend defers to dense once the band is wide enough, so declared algebraic structure
+still loses when the values say it should. Structure says which *forms* are available; value-dependent
 cost still decides among them. Any ladder built on this must carry both, and a design that
 treats "algebraic beats sparse beats dense" as an ordering will pick wrong at the extremes.
 
@@ -171,6 +137,17 @@ gate → `SparseFormedInverse` → `FullKKT` on failure); what is implicit is on
 method specificity, and the type unions are currently disjoint by construction.
 
 ## Requirements
+
+| item | state |
+|---|---|
+| S1 — explicit selection ladder, dense terminal | **done** |
+| S2 — one structure description | open; deferred until S3 gives it a second consumer |
+| S3 — unmaterialized structured backends | **in progress** — Woodbury over a diagonal core |
+| S4 — relax the `AbstractMatrix` bound, operator protocol | open |
+| S5 — split the cheap update paths out of `factorize!` | open; lands with S3 |
+| S6 — equilibration protocol for lazy operators | open; last |
+| S7 — backend introspection | **done** — `BackendInfo`, `backend_info`, `factor_fill` |
+
 
 Tracked as a checklist. **Build** = must be written; **Reuse** = exists, needs wiring.
 
@@ -415,45 +392,6 @@ phase should be judged on that.
 - **How much of this belongs in PureOSQP versus a separate operator package?** The lazy
   structured operator is useful to more than one solver; the backends are not.
 
-## Resolved: the operator library
 
-**LinearMaps.jl first, as a weak dependency, used at the leaves only. SciMLOperators.jl kept as
-a second adapter.** The protocol itself stays library-agnostic.
-
-Measured 2026-08-30, `n = 400`, `m = 600`, sparse `A` at 5% density:
-
-| | leaf `mul!` alloc | leaf `mul!` time | vs raw | `--trim` | transitive packages |
-|---|---|---|---|---|---|
-| raw `SparseMatrixCSC` | 0 B | 3.63 µs | — | OK | — |
-| LinearMaps `WrappedMap` | **0 B** | **3.64 µs** | +0.3% | **OK** | 45 |
-| SciMLOperators `MatrixOperator` | **0 B** | **3.73 µs** | +0% | **OK** | 56 |
-
-Both are free at the leaf and both are trim-compatible; the expectation that SciMLOperators'
-`DiffEqBase` dependency would break trim was wrong. The remaining differences are a 24% larger
-dependency tree and, decisively for this plan, that **LinearMaps names both structures the
-thesis needs** — `KroneckerMap` *and* `BlockDiagonalMap` — where SciMLOperators has
-`TensorProductOperator` but no block type.
-
-**Leaf-only, not composition.** Letting the library assemble `R` puts its whole algebraic
-structure in one type, which is attractive, but composed application allocates:
-
-| | alloc per apply | time |
-|---|---|---|
-| `LinearCombination`/`CompositeMap` assembling `R` | **9 744 B** | 10.34 µs |
-| `ReducedOperator` assembling `R` from `Workspace` scratch | **0 B** | 10.06 µs |
-
-There is no cache API in LinearMaps to remove those intermediates — that is what
-SciMLOperators' `cache_operator` exists for — so composition would cost the `noalloc`
-guarantee on every CG iteration, and is slower besides. `ReducedOperator` already composes `R`
-from preallocated `Workspace` buffers; the library is only ever called at a leaf. `R`'s
-structure is then derived from the leaves, which is what `bandwidth(R) = max(bw(P), 2 bw(A))`
-already does.
-
-**Consequence for S5.** A protocol built on SciMLOperators' `update_coefficients!` cannot serve
-a LinearMaps user. Library neutrality therefore *forces* the cheap-update channel to be
-PureOSQP's own concept — see S5. That is a cost of neutrality, accepted deliberately.
-
-**Ambiguity risk.** Two operator extensions each adding `choose_backend` methods are fine while
-their type unions are disjoint, but a generic "any operator" fallback would collide — exactly
-the ambiguity the banded backend threw on its first test run. Keep the unions disjoint and test
-with both libraries loaded.
+Measurements, reversals and review findings are in
+`2026-08-30-structure-centric-log.md`. Nothing there changes a requirement here.
