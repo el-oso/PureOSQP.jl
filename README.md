@@ -168,8 +168,8 @@ PureBLAS is the faster of the two on every case in this table.
 
 This table is **dense** problems, which is the reference implementation's worst case: a
 sparse solver handed dense matrices, paying scalar sparse LDLᵀ where PureOSQP gets BLAS-3
-dense Cholesky. Read it as a storage-format comparison on one format, not a solver-quality
-one, and not a statement about which format this solver is for.
+dense Cholesky. Read it as a storage-format comparison on one format. The margin to take
+seriously is the sparse one below, where both solvers hold the format libosqp is built for.
 
 ### Sparse against libosqp, both sides sparse
 

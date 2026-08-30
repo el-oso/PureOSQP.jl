@@ -50,13 +50,14 @@ PureOSQP is ahead of OSQP on every case in this table.
 
 ## How to read this
 
-**The timings are not a claim that this solver is better than OSQP.** This table is dense
-problems, which is the reference implementation's worst case: it is a *sparse* solver being
-handed dense matrices, so it pays sparse-format overhead and scalar sparse LDLᵀ where
-PureOSQP gets BLAS-3 dense Cholesky. The right reading is a *storage-format* comparison on
-one format, not a solver-quality one — and not a statement about which format this solver
-is for, since it aims to serve all of them. [Sparse A](@ref "Sparse A") and
-[Matrix types](@ref "Matrix types") are the same solver on the others.
+**PureOSQP is faster than libosqp, and this table is not the honest measure of by how much.**
+It is dense problems, which is the reference implementation's worst case: a *sparse* solver
+handed dense matrices pays sparse-format overhead and scalar sparse LDLᵀ where PureOSQP gets
+BLAS-3 dense Cholesky. Read it as a storage-format comparison on one format. The claim to
+take seriously is [the OSQP benchmark suite](@ref "The OSQP benchmark suite") — the
+reference's own seven classes, in the sparse form it is built for, where PureOSQP leads every
+one of them on identical iteration counts. [Sparse A](@ref "Sparse A") and
+[Matrix types](@ref "Matrix types") are the same solver on the other formats.
 
 **What the matching iteration counts do and do not show.** They mean the algorithm's
 control logic tracks the reference. But the count is *quantized*: with
