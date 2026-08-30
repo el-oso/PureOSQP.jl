@@ -18,12 +18,24 @@
         :(TrimEntry.$f(Matrix{Float64}, Vector{Float64}, Matrix{Float64}, Vector{Float64}, Vector{Float64}))
             for f in names
     ]
+    # The diagonal backend is selected by the matrix type, so its entry point takes
+    # `Diagonal` and cannot share the signature the others are checked with.
+    push!(names, :solve_diagonal)
+    push!(
+        sigs,
+        :(
+            TrimEntry.solve_diagonal(
+                TrimEntry.DM, Vector{Float64}, TrimEntry.DM, Vector{Float64}, Vector{Float64}
+            )
+        )
+    )
     results = TrimCheck.validate(sigs...; init = :(include($entry); using .TrimEntry), progressbar = false)
     ok = Dict(
         String(f) => occursin("is trim compatible", sprint(show, r))
             for (f, r) in zip(names, results)
     )
-    for f in names[1:(end - 1)]
+    for f in names
+        f === :not_trimmable && continue
         @test ok[String(f)]
     end
     @test !ok["not_trimmable"]

@@ -35,6 +35,17 @@ dense even when `A` is sparse. With sparsity off the table that objection disapp
 measurement shows the reduced form is faster in every dense regime — from 1.45× when
 `m < n` up to 43× when `m ≫ n`.
 
+`Ãᵀ diag(ρ) Ã` is what fills in, so the reduced matrix keeps `P`'s structure only when `A`
+has structure that survives being squared. A `Diagonal` `A` does: with a `Diagonal` `P` the
+whole reduced matrix is diagonal, there is nothing to factor, and a solve is `n` divisions
+rather than an `O(n³)` factorization and an `O(n²)` apply. `choose_backend` dispatches on
+the pair, so that problem — a separable objective under box constraints — reaches
+[`DiagonalReduced`](@ref PureOSQP.DiagonalReduced) without a setting. At `n = 2000` it is
+1736× faster to set up and 1339× faster end to end, on the same iterates.
+
+A `Diagonal` `P` with a general `A` gets no such treatment, and correctly: its reduced
+matrix is dense whatever `P` looked like.
+
 Fill-in is worth quantifying, because it also settles whether a sparse factorization would
 be worth adding. On random sparse `A`, the reduced matrix `R` is much sparser than `A`
 suggests it should be, but its Cholesky factor is not:

@@ -7,6 +7,20 @@ what is true now; this file is where the history lives.
 
 ### Added
 
+- **`DiagonalReduced`**, the backend for a `Diagonal` `P` with a `Diagonal` `A` — a
+  separable objective under box constraints. Both diagonal leaves
+  `R = c D P D + σI + Ãᵀ diag(ρ) Ã` diagonal, so there is nothing to factor and a solve is
+  `n` divisions. Previously such a problem took the dense default: at `n = 400` the reduced
+  matrix was stored as a 1.25 MB dense array with zero off-diagonal nonzeros, then Cholesky
+  factored and inverted. Setup is 19.9× faster at `n = 100` and 1736× at `n = 2000`, end to
+  end 15.9× and 1339×, on identical iterates. `is_convex` gains a `Diagonal` method for the
+  same reason: a diagonal matrix is positive definite exactly when its diagonal is, so the
+  test no longer densifies into an `n×n` Cholesky.
+
+  Selection is by dispatch on the pair, not by a setting or a density gate, and keyed on
+  `A` rather than `P`: `Ãᵀ diag(ρ) Ã` fills in for any other `A`, so a `Diagonal` `P` with a
+  general `A` still has a dense reduced matrix and correctly gets the dense backend.
+
 - **`update_time`**, the time spent in `update!` since the previous solve, accumulated
   across however many calls were made and counted in `run_time`. In the receding-horizon
   loop `update!` exists for, a cycle is an update followed by a solve, and that pair is

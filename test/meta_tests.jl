@@ -9,7 +9,7 @@
         "derivative_tests.jl" => 5,
         "gpu_tests.jl" => 4,
         "indirect_tests.jl" => 3,
-        "linsys_tests.jl" => 16,
+        "linsys_tests.jl" => 19,
         "meta_tests.jl" => 1,
         "moi_tests.jl" => 2,
         "oracle_tests.jl" => 4,

@@ -339,3 +339,44 @@ end
     # reached: `SparseMatrixCSC` rejects it in its own constructor.
     @test_throws "malformed column pointer" Ext.check_factor(ok, 8)
 end
+
+@testitem "a diagonal P and A solve through the diagonal backend" begin
+    using LinearAlgebra, Random
+    Random.seed!(11)
+    n = 12
+    P = Diagonal(rand(n) .+ 0.5)
+    A = Diagonal(rand(n) .+ 0.5)
+    ws = setup(P, randn(n), A, -rand(n), rand(n); scaling = 0, sigma = 1.0e-6, rho = 0.1)
+    @test ws.linsys isa PureOSQP.DiagonalReduced
+    @test PureOSQP.backend_name(ws.linsys) == :diagonal
+
+    # Against the same system the dense backend would have built and factored.
+    bx, bz = randn(n), randn(n)
+    PureOSQP.solve_system!(ws.linsys, ws, bx, bz)
+    K = [P + ws.settings.sigma * I  A'; A  -Diagonal(1 ./ ws.rho_vec)]
+    ref = K \ [bx; bz]
+    @test ws.xtilde ≈ ref[1:n] rtol = 1.0e-9
+    @test ws.ztilde ≈ A * ws.xtilde rtol = 1.0e-9
+end
+
+@testitem "the diagonal backend agrees with the dense one end to end" begin
+    using LinearAlgebra, Random
+    Random.seed!(12)
+    n = 20
+    d, a = rand(n) .+ 0.5, rand(n) .+ 0.5
+    q, l, u = randn(n), -rand(n), rand(n)
+    opts = (eps_abs = 1.0e-9, eps_rel = 1.0e-9)
+    structured = solve(Diagonal(d), q, Diagonal(a), l, u; opts...)
+    dense = solve(Matrix(Diagonal(d)), q, Matrix(Diagonal(a)), l, u; opts...)
+    @test structured.status == PureOSQP.SOLVED
+    @test dense.status == PureOSQP.SOLVED
+    @test structured.x ≈ dense.x rtol = 1.0e-6
+    @test structured.iter == dense.iter
+end
+
+@testitem "the diagonal backend refuses an indefinite P" begin
+    using LinearAlgebra
+    n = 5
+    P = Diagonal([1.0, 1.0, -3.0, 1.0, 1.0])
+    @test_throws "convex" setup(P, randn(n), Diagonal(ones(n)), -ones(n), ones(n))
+end

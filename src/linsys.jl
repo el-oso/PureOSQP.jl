@@ -98,6 +98,34 @@ function FullKKT(proto::AbstractVector{T}, n::Integer, m::Integer) where {T <: R
 end
 
 """
+    DiagonalReduced{T,V} <: LinearSystem
+
+The reduced system when it is diagonal, which it is when `P` and `A` both are:
+
+    R = c D P D + σI + Ãᵀ diag(ρ) Ã
+
+is a sum of diagonal terms, so there is nothing to factor and each solve is `n` divisions.
+`dinv` holds `R`'s reciprocal diagonal.
+
+`Ãᵀ diag(ρ) Ã` fills in for any other `A`, which is why this is keyed on `A`'s type and not
+`P`'s: a `Diagonal` `P` with a general `A` still has a dense reduced matrix.
+"""
+struct DiagonalReduced{T <: Real, V <: AbstractVector{T}} <: LinearSystem
+    dinv::V
+end
+
+"""
+    DiagonalReduced(proto::AbstractVector, n)
+
+Build the backend's storage as `similar(proto, ...)`, following the array type of the data
+it was given. See [`ReducedCholesky`](@ref) on why `proto` is a vector.
+"""
+function DiagonalReduced(proto::AbstractVector{T}, n::Integer) where {T <: Real}
+    dinv = similar(proto, T, n)
+    return DiagonalReduced{T, typeof(dinv)}(dinv)
+end
+
+"""
     is_convex(T, P, sigma) -> Bool
 
 Whether `P + σI` is positive definite, which is what OSQP requires of `P` — not merely that
@@ -114,6 +142,10 @@ function is_convex(::Type{T}, P::AbstractMatrix, sigma) where {T}
     isempty(P) && return true
     return issuccess(cholesky!(Symmetric(Matrix{T}(P) + sigma * I); check = false))
 end
+
+# A diagonal matrix is positive definite exactly when its diagonal is, so the test is a
+# pass over `n` entries rather than a factorization of an `n×n` densification of them.
+is_convex(::Type{T}, P::Diagonal, sigma) where {T} = all(d -> d + sigma > zero(T), P.diag)
 
 """
     choose_backend(P, A, proto, n, m, D, E, c, rho_vec, sigma) -> (LinearSystem, Bool)
@@ -139,9 +171,15 @@ choose_backend(
     P, A, proto::AbstractVector, n::Integer, m::Integer, D, E, c, rho_vec, sigma
 ) = (ReducedCholesky(proto, n, m), false)
 
+choose_backend(
+    P::Diagonal, A::Diagonal, proto::AbstractVector, n::Integer, m::Integer,
+    D, E, c, rho_vec, sigma
+) = (DiagonalReduced(proto, n), false)
+
 "Name of the backend, for reporting."
 backend_name(::ReducedCholesky) = :cholesky
 backend_name(::FullKKT) = :bunchkaufman
+backend_name(::DiagonalReduced) = :diagonal
 
 # Overwrite the Cholesky factor occupying `R` with the inverse it factors. `potri!` does
 # this in place and touches only the upper triangle; the fallback covers element types
@@ -182,6 +220,25 @@ function factorize!(ls::ReducedCholesky{T}, ws)::Bool where {T}
     F = cholesky!(Symmetric(R); check = false)
     issuccess(F) || return false
     invert_spd!(R, F)
+    return true
+end
+
+function factorize!(ls::DiagonalReduced{T}, ws)::Bool where {T}
+    n, m = ws.n, ws.m
+    P, A, D, E = ws.P, ws.A, ws.D, ws.E
+    c, rho, sigma = ws.c, ws.rho_vec, ws.settings.sigma
+    for j in 1:n
+        dj = D[j]
+        r = c * dj * P[j, j] * dj + sigma
+        if j <= m
+            a = E[j] * A[j, j] * dj
+            r += rho[j] * a * a
+        end
+        # The reduced matrix carries `σI`, so a non-positive entry means `P` was indefinite
+        # by more than `σ` absorbs -- the same condition a Cholesky reports as a failure.
+        r > zero(T) || return false
+        ls.dinv[j] = inv(r)
+    end
     return true
 end
 
@@ -240,6 +297,13 @@ function solve_system!(ls::ReducedInverse, ws, rhs_x, rhs_z)::Nothing
     return nothing
 end
 
+function solve_system!(ls::DiagonalReduced, ws, rhs_x, rhs_z)::Nothing
+    reduced_rhs!(ws, rhs_x, rhs_z)
+    multiply!(ws.xtilde, ls.dinv, ws.work_n)
+    ws.m > 0 && mul_A!(ws.ztilde, ws, ws.xtilde)
+    return nothing
+end
+
 function solve_system!(ls::FullKKT, ws, rhs_x, rhs_z)::Nothing
     n, m = ws.n, ws.m
     # Indexed rather than `copyto!(view(...), ...)`: the views leave allocation sites that
@@ -262,6 +326,7 @@ end
 
 @verify ReducedCholesky trim_compat = true
 @verify FullKKT trim_compat = true
+@verify DiagonalReduced trim_compat = true
 
 """
     refactor!(ws)

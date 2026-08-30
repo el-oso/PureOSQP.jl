@@ -34,9 +34,21 @@ function example_workspace(backend::Symbol)
         return example_banded_workspace(200, 400)
     elseif backend === :sparse_kkt
         return example_kkt_workspace(200, 100)
+    elseif backend === :diagonal
+        # Chosen by representation, like the sparse backends: no setting reaches it.
+        return example_diagonal_workspace(200)
     end
     ws = PureOSQP.setup(P, q, A, l, u; linsys = backend)
     PureOSQP.solve!(ws)        # compile every specialization before analysing it
+    return ws
+end
+
+function example_diagonal_workspace(n)
+    Random.seed!(7)
+    P, A = Diagonal(rand(n) .+ 0.5), Diagonal(rand(n) .+ 0.5)
+    l, u = -rand(n), rand(n)
+    ws = PureOSQP.setup(P, randn(n), A, l, u)
+    PureOSQP.solve!(ws)
     return ws
 end
 
@@ -122,7 +134,7 @@ end
 
 failures = String[]
 
-for backend in (:auto, :kkt, :sparse, :cholmod, :indirect)
+for backend in (:auto, :kkt, :sparse, :cholmod, :diagonal, :indirect)
     ws = example_workspace(backend)
     W = typeof(ws)
     LS = typeof(ws.linsys)

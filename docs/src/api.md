@@ -48,5 +48,6 @@ PureOSQP.LinearSystem
 PureOSQP.choose_backend
 PureOSQP.ReducedInverse
 PureOSQP.ReducedCholesky
+PureOSQP.DiagonalReduced
 PureOSQP.FullKKT
 ```
