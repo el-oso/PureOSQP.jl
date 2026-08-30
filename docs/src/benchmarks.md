@@ -321,40 +321,59 @@ identical in every row, so what these measure is per-iteration cost.
 
 | class | n | m | PureOSQP backend | PureOSQP | OSQP | vs OSQP | per iteration | setup |
 |---|---|---|---|---|---|---|---|---|
-| Eq QP | 200 | 100 | `cholesky` | 1.65 ms | 3.71 ms | **2.25×** | **5.04×** | **1.49×** |
-| Random QP | 50 | 500 | `cholesky` | 3.62 ms | 6.74 ms | **1.86×** | **1.67×** | **3.45×** |
-| SVM | 808 | 1600 | `ldlfactorizations` | 2.74 ms | 4.06 ms | **1.48×** | **1.51×** | **1.14×** |
-| Control | 320 | 540 | `sparse_formed` | 4.76 ms | 5.41 ms | **1.14×** | **1.63×** | 0.32× |
-| Lasso | 816 | 816 | `ldlfactorizations` | 1.05 ms | 1.17 ms | **1.11×** | **1.15×** | **1.03×** |
-| Portfolio | 505 | 506 | `ldl_kkt` | 2.80 ms | 3.01 ms | **1.08×** | **1.09×** | 0.98× |
-| Huber | 1806 | 1800 | `ldlfactorizations` | 2.56 ms | 2.72 ms | **1.06×** | **1.07×** | 0.96× |
+| Eq QP | 200 | 100 | `cholesky` | 1.60 ms | 3.31 ms | **2.06×** | **5.19×** | **1.51×** |
+| Random QP | 50 | 500 | `cholesky` | 3.58 ms | 6.66 ms | **1.86×** | **1.70×** | **3.58×** |
+| SVM | 808 | 1600 | `ldlfactorizations` | 2.69 ms | 3.95 ms | **1.47×** | **1.56×** | **1.11×** |
+| Control | 320 | 540 | `sparse_formed` | 4.46 ms | 5.33 ms | **1.20×** | **1.60×** | 0.33× |
+| Portfolio | 505 | 506 | `ldl_kkt` | 2.75 ms | 2.96 ms | **1.08×** | **1.08×** | 0.99× |
+| Lasso | 816 | 816 | `ldlfactorizations` | 1.07 ms | 1.15 ms | **1.08×** | **1.09×** | **1.07×** |
+| Huber | 1806 | 1800 | `ldlfactorizations` | 2.52 ms | 2.62 ms | **1.04×** | **1.08×** | 0.98× |
 
-**PureOSQP is ahead on every class, and the weakest is 1.06×.** This is the corpus that
+**PureOSQP is ahead on every class, and the weakest is 1.04×.** This is the corpus that
 matters, the one with the block and band structure real problems have; the synthetic families
 elsewhere on this page are uniformly random, which is the worst case for any *sparse
-factorization* and therefore flatters a solver that does not have one. Run-to-run spread
-within one warm session measures 2.5%; between processes on a busy machine it reaches 10%,
-which is why these are taken with nothing else running.
+factorization* and therefore flatters a solver that does not have one.
 
-**Setup is above parity on five of the seven.** Control's 0.32× is the dense path, where the
-deficit is bought rather than suffered: forming and inverting `R` costs `O(n³)` once and makes
-every iteration a single `symv`, worth 1.63× per iteration over 325 of them. Taking it sparse
-instead was measured and loses about a millisecond net.
+Every figure here is a median over ten seconds of samples, and the two solvers are timed in
+the order pure, libosqp, libosqp, pure. Timing one solver to completion before starting the
+other charges any drift across the row — the clock ramping, the caches filling — entirely to
+whichever went second, which is precisely the bias a ratio cannot survive; interleaving puts
+each of them both early and late. The medians of the two turns are taken over the pooled
+samples rather than averaged, so a turn that ran under a transient does not get half the
+weight of a clean one.
 
-**Two of the setup figures are medians of eight, because they are not equally measurable.**
-A setup dominated by one large compute-bound operation times reliably: Control's is a dense
-Cholesky and inverse on `n = 320`, and eight repeats span 0.314 to 0.322 — its 3.1× deficit is
-real and reproducible, not an artifact. A setup made of many small operations and workspace
-allocation does not: Huber's eight repeats span 0.90 to 0.99 with nothing changing, because
-the ratio divides two sub-millisecond numbers that sit within a few percent of each other and
-each vary about 10% between processes. Read Huber's and Portfolio's setup figures as ±10%,
-and the rest of the table as ±2.5%.
+**Setup leads on four of the seven, and Portfolio and Huber sit on parity.** Control's 0.33×
+is the dense path, where the deficit is bought rather than suffered: forming and inverting `R`
+costs `O(n³)` once and makes every iteration a single `symv`, worth 1.60× per iteration over
+325 of them. Taking it sparse instead was measured and loses more in the loop than it recovers
+in setup.
+
+Within that factorization, forming `R` from the stored entries is the small part and the
+explicit inverse is the large one: `potrf` costs `n³/3` and the `potri` that follows a further
+`2n³/3`. The inverse is what makes each iteration one `symv`. Keeping the factor and applying
+it as two `trsv` is the same flop count but serial; inverting only the triangle with `trtri`
+and applying two `trmv` halves the setup cost but doubles the loop's. Over 325 iterations
+neither trade pays.
+
+**Some setup figures are far more measurable than others.** A setup dominated by one large
+compute-bound operation times reliably: Control's is a dense Cholesky and inverse on
+`n = 320`, and its deficit is reproducible rather than an artifact. A setup made of many small
+operations and workspace allocation does not, because the ratio divides two sub-millisecond
+numbers that sit within a few percent of each other. Portfolio's 0.99× and Huber's 0.98× are
+parity, not deficits — read them, and Lasso's, as the interval they are rather than the digits
+they print.
+
+What dominates that interval is other load on the machine, not sampling: a pool of idle
+processes left running moved a setup ratio further than any change to the code in this table
+did. Run these with the machine otherwise quiet.
 
 **Portfolio is what a dense row costs.** Its `A` is 0.9% dense, and the reduced matrix
 `R = P̃ + σI + Ãᵀ diag(ρ) Ã` would be **99% dense**: one row of `A` — the budget constraint
 `1ᵀx = 1` — touches 99% of the columns, and a single dense row makes `AᵀA` dense however
-sparse the rest of it is. `SparseKKT` factors the full quasi-definite system instead, which
-keeps that row as one sparse row, and takes the class from 16.2 ms to 5.47 ms.
+sparse the rest of it is. The `ldl_kkt` backend factors the full quasi-definite system
+instead, which keeps that row as one sparse row: its factor holds 2322 nonzeros against the
+KKT's 3305, so the elimination fills in nothing. Forming the reduced matrix here would mean a
+dense `505×505` factorization in place of a sparse `1011×1011` one.
 
 | class | nnz(A)/mn | nnz(R)/n² | densest row of A | backend |
 |---|---|---|---|---|

@@ -8,7 +8,7 @@
 #
 # The classes themselves are in `suite_problems.jl`, which other benchmarks include.
 using PureOSQP, OSQP, LinearAlgebra, SparseArrays, Chairmarks, LDLFactorizations
-using Printf, JSON
+using Printf, JSON, Statistics
 
 include(joinpath(@__DIR__, "suite_problems.jl"))
 
@@ -19,6 +19,30 @@ const OPTS = (eps_abs = 1.0e-5, eps_rel = 1.0e-5, max_iter = 20_000)
 # libosqp 0.6.2 has no duality-gap test and would reject the setting; with it on the two
 # solvers stop on different criteria and the iteration counts would compare the criteria.
 const PURE_ONLY = (check_dualgap = false,)
+
+# Seconds given to each of the four measurements a row makes.
+const BUDGET = 5
+
+"""
+    abba(a, b) -> (ta, tb)
+
+Time `a` and `b` in the order a, b, b, a, and return each one's median.
+
+A row that timed `a` fully before starting `b` charges any drift over the row — the clock
+ramping, the package heating — entirely to whichever ran second. Reversing the order for the
+second pair puts each one both early and late, so a drift that is monotonic over the row lands
+on both equally rather than becoming a ratio.
+
+The two turns are pooled and the median taken over all of their samples together, so a turn
+that ran under a transient does not get half the weight of a clean one.
+"""
+function abba(a, b)
+    ta1, tb1 = (@be a() seconds = BUDGET), (@be b() seconds = BUDGET)
+    tb2, ta2 = (@be b() seconds = BUDGET), (@be a() seconds = BUDGET)
+    return (pooled_median(ta1, ta2), pooled_median(tb1, tb2))
+end
+
+pooled_median(x, y) = median(s.time for s in Iterators.flatten((x.samples, y.samples)))
 
 solve_pure(P, q, A, l, u) = PureOSQP.solve(P, q, A, l, u; OPTS..., PURE_ONLY...)
 
@@ -50,8 +74,7 @@ function compare(name, prob)
     gap = abs(sp.obj_val - so.info.obj_val) / max(1, abs(so.info.obj_val))
     gap < 1.0e-4 || error("$name: objectives disagree by $gap")
     ws = PureOSQP.setup(P, q, A, l, u; OPTS..., PURE_ONLY...)
-    tp = (@b solve_pure(P, q, A, l, u)).time
-    to = (@b solve_osqp(P, q, A, l, u)).time
+    tp, to = abba(() -> solve_pure(P, q, A, l, u), () -> solve_osqp(P, q, A, l, u))
     return (;
         name, n = size(A, 2), m = size(A, 1), nnz_A = nnz(sparse(A)), nnz_P = nnz(sparse(P)),
         backend = PureOSQP.backend_name(ws.linsys), t_pure = tp, t_osqp = to, ratio = to / tp,

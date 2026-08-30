@@ -200,26 +200,31 @@ the reduced matrix from stored entries then factoring it densely wins by 2.8–4
 
 Both families above are synthetic. `bench/osqp_suite.jl` runs the seven problem classes
 OSQP's own benchmark suite uses, which carry the structure real problems have, and the
-answer there is harder — **PureOSQP leads four of the seven**, on identical iteration counts:
+answer there is closer — **PureOSQP leads all seven**, on identical iteration counts, with
+the weakest at 1.04×:
 
 | class | PureOSQP | OSQP | vs OSQP |
 |---|---|---|---|
-| Random QP | 3.74 ms | 6.69 ms | **1.79×** |
-| Eq QP | 3.37 ms | 4.03 ms | **1.19×** |
-| Portfolio | 4.28 ms | 3.48 ms | 0.81× |
-| Lasso | 1.79 ms | 1.30 ms | 0.72× |
-| SVM | 4.13 ms | 4.37 ms | **1.06×** |
-| Huber | 4.20 ms | 2.90 ms | 0.69× |
-| Control | 5.16 ms | 5.68 ms | **1.10×** |
+| Eq QP | 1.60 ms | 3.31 ms | **2.06×** |
+| Random QP | 3.58 ms | 6.66 ms | **1.86×** |
+| SVM | 2.69 ms | 3.95 ms | **1.47×** |
+| Control | 4.46 ms | 5.33 ms | **1.20×** |
+| Portfolio | 2.75 ms | 2.96 ms | **1.08×** |
+| Lasso | 1.07 ms | 1.15 ms | **1.08×** |
+| Huber | 2.52 ms | 2.62 ms | **1.04×** |
+
+Each figure is the median of samples taken over ten seconds, with the two solvers timed in
+the order pure, libosqp, libosqp, pure so that drift across a row falls on both alike.
 
 Portfolio is what a dense row costs. Eliminating to the reduced system squares `A`, so one
 dense row makes the result dense: its `A` is 0.9% dense and the reduced matrix would be 99%
 dense. A sparse factorization of the full quasi-definite system keeps that row as one sparse
-row, which is what `sparse_kkt` does and what took the class from 16.2 ms to 4.28 ms.
+row, which is what `ldl_kkt` does.
 
-Lasso and Huber are the two still behind. Both pick the right backend on a genuinely sparse
-reduced matrix; what is left is that the reduced form needs a product with `A` and one with
-`Aᵀ` every iteration where the full-KKT form gets both from the factorization.
+Setup is the half still uneven. Control forms and inverts a dense reduced matrix, which costs
+0.32× libosqp's setup and returns 1.62× on every one of its 325 iterations; the sparse
+alternatives reach setup parity and give back more than that in the loop. See the
+[roadmap](https://el-oso.github.io/PureOSQP.jl/dev/roadmap/) for what has been ruled out.
 
 
 Two more benchmarks cover the rest:

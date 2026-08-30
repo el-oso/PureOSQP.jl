@@ -6,6 +6,7 @@
 # splitting the total at the end of setup gives a per-iteration cost that is directly
 # comparable.
 using PureOSQP, OSQP, LinearAlgebra, SparseArrays, Chairmarks, LDLFactorizations, Printf
+using Statistics
 
 BLAS.set_num_threads(1)
 
@@ -13,6 +14,25 @@ include(joinpath(@__DIR__, "suite_problems.jl"))
 
 const OPTS = (eps_abs = 1.0e-5, eps_rel = 1.0e-5, max_iter = 20_000)
 const PURE_ONLY = (check_dualgap = false,)
+
+# Seconds given to each measurement.
+const BUDGET = 5
+
+"""
+    abba(a, b) -> (ta, tb)
+
+Time `a` and `b` in the order a, b, b, a, and return each one's median, so that a drift that
+is monotonic over the pair lands on both equally rather than becoming a ratio. `a` and `b` are
+thunks returning a Chairmarks benchmark; the samples of each one's two turns are pooled before
+the median is taken.
+"""
+function abba(a, b)
+    ta1, tb1 = a(), b()
+    tb2, ta2 = b(), a()
+    return (pooled_median(ta1, ta2), pooled_median(tb1, tb2))
+end
+
+pooled_median(x, y) = median(s.time for s in Iterators.flatten((x.samples, y.samples)))
 
 function osqp_model(P, q, A, l, u)
     model = OSQP.Model()
@@ -37,10 +57,17 @@ for (name, build) in CASES
     iter = sp.iter
     # Both `solve!`s consume the object they are handed, so each sample gets a fresh one
     # from the setup expression, which Chairmarks runs untimed.
-    ps = (@b PureOSQP.setup(P, q, A, l, u; OPTS..., PURE_ONLY...)).time
-    po = (@b PureOSQP.setup(P, q, A, l, u; OPTS..., PURE_ONLY...) PureOSQP.solve!(_)).time
-    ls = (@b osqp_model(P, q, A, l, u)).time
-    lo = (@b osqp_model(P, q, A, l, u) OSQP.solve!(_)).time
+    ps, ls = abba(
+        () -> @be(PureOSQP.setup(P, q, A, l, u; OPTS..., PURE_ONLY...), seconds = BUDGET),
+        () -> @be(osqp_model(P, q, A, l, u), seconds = BUDGET),
+    )
+    po, lo = abba(
+        () -> @be(
+            PureOSQP.setup(P, q, A, l, u; OPTS..., PURE_ONLY...),
+            PureOSQP.solve!(_), seconds = BUDGET
+        ),
+        () -> @be(osqp_model(P, q, A, l, u), OSQP.solve!(_), seconds = BUDGET),
+    )
     @printf(
         "%-12s %5d | %6.2fms %6.2fms %8.2f | %6.2fms %6.2fms %8.2f | %6.2fx %6.2fx\n",
         name, iter, 1.0e3ps, 1.0e3po, 1.0e6po / iter, 1.0e3ls, 1.0e3lo, 1.0e6lo / iter,
