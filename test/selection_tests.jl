@@ -69,11 +69,11 @@ end
             Symmetric(Matrix(SymTridiagonal(rand(n) .+ 4, rand(n - 1) ./ 8))),
             BandedMatrix(0 => rand(n) .+ 1, 1 => rand(n - 1) ./ 4, -1 => rand(n - 1) ./ 4),
         ),
-        # Either side of the rung's limit, which accepts while `7b <= n`. A `BandedMatrix` `A`
-        # of half-width `bA` gives a reduced bandwidth of `2bA`, so `bA = 7` is inside at
-        # `n = 100` and `bA = 8` is outside.
-        (:banded, SymTridiagonal(rand(n) .+ 4, rand(n - 1) ./ 8), wide_band(n, 7)),
-        (:cholesky, SymTridiagonal(rand(n) .+ 4, rand(n - 1) ./ 8), wide_band(n, 8)),
+        # Either side of the rung's limit, which accepts while `4b <= n`. A `BandedMatrix` `A`
+        # of half-width `bA` gives a reduced bandwidth of `2bA`, so `bA = 12` is inside at
+        # `n = 100` and `bA = 13` is outside.
+        (:banded, SymTridiagonal(rand(n) .+ 4, rand(n - 1) ./ 8), wide_band(n, 12)),
+        (:cholesky, SymTridiagonal(rand(n) .+ 4, rand(n - 1) ./ 8), wide_band(n, 13)),
     ]
 
     n = 100

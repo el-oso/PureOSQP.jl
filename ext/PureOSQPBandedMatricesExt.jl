@@ -82,23 +82,23 @@ PureOSQP.choose_backend(
 function banded_backend(P, A, proto::AbstractVector{T}, n::Integer, m::Integer) where {T <: Real}
     b = reduced_bandwidth(P, A)
     # Below bandwidth 2 the LinearAlgebra backends already apply and are cheaper than a banded
-    # factorization. Above `n/7` the dense path wins per iteration, and the limit is that
-    # ratio because of what the two backends store.
+    # factorization. Above `n/4` the dense path wins per iteration.
     #
-    # `ReducedCholesky` keeps the reduced matrix's *inverse*, so its iteration is one `symv`:
-    # `n²` flops with no dependency between them. A band keeps a *factor*, so its iteration is
-    # two triangular solves — `O(nb)` flops, but computed in sequence, which costs about
-    # sevenfold against `symv` at equal flop count. The band's flop advantage is `n/b`, so it
-    # clears that handicap only while `b < n/7`, and the measured per-iteration ratio crosses
-    # 1 between `b = 0.15n` and `b = 0.25n`.
+    # Both halves of the choice favour the band below that. Its factorization is far cheaper —
+    # 445x at `b = 0.01n`, still 4.4x at `b = 0.99n` — and so is its iteration, by 5.6x at
+    # `b = 0.05n` and 1.5x at `b = 0.2n` for `n = 1000`, crossing 1 near `b = 0.3n` at every
+    # size from 500 to 3000. The limit sits below that crossing so the accepted range wins on
+    # the factorization and the iteration both, which keeps the choice from depending on how
+    # many iterations a particular problem takes.
     #
-    # The factorization pulls the other way and pulls hard: 445× at `b = 0.01n`, still 4.4× at
-    # `b = 0.99n`. Choosing on that instead would make the backend depend on the iteration
-    # count — the band repays its per-iteration loss within about 640 iterations at
-    # `n = 1000` but only 119 at `n = 200`, and the benchmark classes here run from 50 to 925.
-    # The limit takes the range that wins on both, so the choice does not turn on how long a
-    # particular problem happens to run. See `bench/gate_band_beyond.jl`.
-    (b < 2 || 7b > n) && return PureOSQP.dense_rung(P, A, proto, n, m)
+    # Measure it with BLAS pinned to one thread, as every benchmark here does. A multithreaded
+    # `symv` is some eightfold faster and moves the crossing below `b = 0.05n`, so a sweep run
+    # under a different thread count answers a different question.
+    #
+    # `b <= n/4` also implies the band is the smaller representation — `(2b+1)n` against the
+    # dense backend's `mn + n^2` — and implies `b < n - 1`, so neither needs testing separately.
+    # See `bench/gate_band_beyond.jl`.
+    (b < 2 || 4b > n) && return PureOSQP.dense_rung(P, A, proto, n, m)
     R = BandedMatrix{T}(undef, (n, n), (b, b))
     fill!(R.data, zero(T))
     for i in 1:n
