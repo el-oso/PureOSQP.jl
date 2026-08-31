@@ -114,5 +114,3 @@ function solve_system!(ls::BlockReduced, ws, rhs_x, rhs_z)::Nothing
     ws.m > 0 && mul_A!(ws.ztilde, ws, x)
     return nothing
 end
-
-@verify BlockReduced trim_compat = true

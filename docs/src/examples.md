@@ -640,10 +640,44 @@ nonscalar = setup(Diagonal(1.0:n), q, A, fill(-1.0, n), fill(1.0, n); scaling = 
  nonscalar = PureOSQP.backend_name(nonscalar.linsys))
 ```
 
-Giving up equilibration is a real cost on a badly scaled problem, and it is the price of this
-tier. If your `P` is zero rather than `μI` the two are compatible in principle — a Kronecker
-product's row and column ∞-norms are exactly the Kronecker products of the factors' norms —
-but that route is not built.
+#### Ill-conditioned Kronecker problems
+
+Giving up equilibration is the price of this tier, and an ill-conditioned problem is exactly
+where equilibration earns its keep — so that is where the trade has to be judged. Note that
+`κ(A₁ ⊗ A₂) = κ(A₁)·κ(A₂)`, so each factor carries the square root of the figure below.
+
+**The backend stays sound.** Against a dense path given the same `scaling = 0`, so the
+comparison is the backends' and nothing else, it matches iteration for iteration and agrees on
+the solution up to `κ(A) ≈ 10¹⁶` (`bench/results/kronecker_conditioning.json`):
+
+| κ(A) | kronecker | dense, also unscaled | solutions agree |
+|---|---|---|---|
+| 1e2 | SOLVED, 175 | SOLVED, 175 | yes |
+| 1e8 | SOLVED, 450 | SOLVED, 450 | yes |
+| 1e12 | SOLVED, 1100 | SOLVED, 1100 | yes |
+| 1e16 | SOLVED, 2525 | SOLVED, 2525 | yes |
+
+Iterations climb steeply with conditioning — 175 to 2525 — because nothing is preconditioning
+the problem. That is the cost, and it is not hidden by the structure.
+
+**Whether it still wins depends on size**, because the tier buys `O(n₁n₂(n₁+n₂))` per iteration
+against a dense `O(n₁²n₂²)`, and that has to cover the extra iterations. Against a dense path
+allowed its equilibration — the choice a caller actually faces — at `κ(A) = 10¹²`:
+
+| n | kronecker (`scaling = 0`) | dense, equilibrated | speedup |
+|---|---|---|---|
+| 30 | 175 iter, 0.11 ms | 300 iter, 0.19 ms | 1.7× |
+| 168 | 350 iter, 0.61 ms | 575 iter, 3.27 ms | 5.4× |
+| 480 | 875 iter, 3.98 ms | 500 iter, 27.25 ms | 6.9× |
+
+At `n = 480` the tier takes 1.75× the iterations and still finishes 6.9× sooner. The iteration
+counts are noisy in both directions — ADMM's trajectory is sensitive to scaling — so read the
+times rather than the ratio of counts.
+
+If your `P` is zero rather than `μI`, equilibration and the structure are compatible in
+principle: a Kronecker product's row and column ∞-norms are exactly the Kronecker products of
+the factors' norms, so equilibrating each factor would preserve the diagonalization. That
+route is not built.
 
 ### Low-rank coupling
 

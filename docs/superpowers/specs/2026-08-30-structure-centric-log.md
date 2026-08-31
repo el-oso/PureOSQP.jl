@@ -311,36 +311,51 @@ diagonal but not scalar.
 which stays uniform under adaptive `ρ` since that scales a single number. One equality row or
 one fully free row gives it two values.
 
-**The entry point does not pass `--trim`, and this is the one path in the package outside that
-gate.** The verifier reports `setup` on a `KroneckerOperator` as returning
-`Workspace{…, LS} where LS` and refuses the solve as an unresolved call.
+**A keyword on any entry point cost the `--trim` guarantee, and the Kronecker tier is only
+what exposed it.** The verifier reported `setup` returning `Workspace{…, LS} where LS` and
+refused the solve as an unresolved call. Three compiler behaviors compose into it:
 
-The bisection that narrows it, each line measured:
+1. A non-default keyword reaches `setup` as a **non-singleton `Pairs`**. With no keyword the
+   empty `Pairs` is a singleton — a constant in the type domain — so `Settings{T}()`
+   concrete-evaluates and `settings.linsys` folds to `Const(:auto)`.
+2. Propagating that constant into `#setup#` needs interprocedural const-prop, and the
+   compiler's **size heuristic refuses** a method that large. A second barrier sits at the
+   `solve` edge, where codegen calls a names-erased instance whose keywords are
+   `NamedTuple{?}`.
+3. Un-pruned, every `settings.linsys` branch stays live and the return merges **four**
+   `Workspace` types — the chosen backend, `ReducedCholesky`, `FullKKT`, and `IndirectCG` once
+   Krylov is loaded. `Base.Compiler.MAX_TYPEUNION_LENGTH` is 3, so `tmerge` widens the union
+   and every later `solve!` is a dynamic dispatch.
 
-| path | verdict |
-|---|---|
-| `setup` alone on a `KroneckerOperator` | passes |
-| `solve` whose rung **declines** (default scaling, dense terminal) | passes |
-| `solve` whose rung **accepts** | **fails** |
-| the operator's `mul!`, adjoint `mul!`, `getindex` alone | all pass |
+The fix is `Base.@constprop :aggressive` on `setup` and on `solve`. Both are needed: either
+alone leaves the other barrier standing.
 
-So it is `solve!` on a workspace actually carrying a `KroneckerReduced`. Five explanations
-were tested and falsified: the `scaling = 0` keyword (it constant-folds to
-`Base.Pairs(:scaling => 0)`); the three-way backend union (identical member-for-member to
-`RowCoupled`'s and `BlockDiagonal`'s, both of which pass — and `linsys = :dense` does not
-avoid it, since `settings.linsys` is a runtime field and every branch stays live); the
-operator's type-parameter count, collapsed from four to two; a `Union{Nothing,T}` the rung
-left for its caller, now split into a predicate and a value; and the operator's own methods,
-which trim on their own.
+**It was never a Kronecker problem.** `solve_lowrank_scaled` — the existing low-rank pair with
+`scaling = 0` — failed identically before the fix, and now guards the keyword path in the gate.
+Six hypotheses were falsified before that was clear, and two of them were falsified *wrongly*:
+the keyword was dismissed because the verifier printed `QuoteNode(Pairs(:scaling => 0))`, which
+shows only that the *caller* held the constant; and the union was measured on the kwarg-less
+call, where it is genuinely three members and genuinely passes. A bisection column recorded as
+"rung accepts / rung declines" was really "keyword present / absent" — the verifier never runs
+code, so a runtime rung outcome cannot be what it sees.
 
-What is left untested is `factorize!`, the one method on this path the passing backends do not
-share, and the one that calls `eigen` — a far larger LAPACK surface than the `cholesky!` and
-`bunchkaufman!` they use. That is the next thing to read, and if it is the blocker the fix is
-an in-package symmetric eigensolver rather than a smaller change.
+The cheap oracle, once found, made every candidate a two-second check rather than a
+forty-second gate run: `Base.return_types` on the wrapped call, asking only whether the result
+is a `Union` or has widened to a `UnionAll`. That is the instrument to reach for first next
+time, not last.
 
-The backend's own methods are `typestable, noalloc`, so this is a `--trim` resolution gap and
-not a type-stability one. The missing entry point is recorded in `test/trim_tests.jl` and
-`test/trim/entrypoints.jl` rather than left silent.
+**The ceiling stays, and one path is already past it.** With constants flowing, a structured
+keyword signature infers exactly three members — `{ladder backend, ReducedCholesky, FullKKT}`
+— which is the cap, not comfortably under it. A `(P, A)` pair whose ladder can produce more
+than two inferable outcome types re-widens even with the annotations, and the gate would catch
+that the way `solve_kronecker` catches this.
+
+Separately, and not caused by the annotations: `choose_backend(::SparseMatrixCSC,
+::SparseMatrixCSC, …)` infers `Tuple{Any, Bool}` — inference gives up entirely, with or
+without keywords — so a sparse `setup` returns a widened workspace and each `solve!` on it is
+one dynamic dispatch. There is no sparse trim entry point, so the gate has never covered it.
+That is a real hole in the "every public entry point is `--trim` compatible" claim and it
+predates this work.
 
 One implementation note worth the same line the block tier got: `solve_system!` allocated at
 two sites, both from a single `ls.X .*= ls.dinv`. An in-place broadcast has `X` on both sides

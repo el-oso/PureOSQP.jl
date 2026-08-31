@@ -66,6 +66,7 @@ PureOSQP.coupling_rank
 PureOSQP.BlockDiagonal
 PureOSQP.KroneckerOperator
 PureOSQP.factors
+PureOSQP.is_scalar_multiple
 PureOSQP.scalar_multiple
 PureOSQP.nblocks
 PureOSQP.rowrange

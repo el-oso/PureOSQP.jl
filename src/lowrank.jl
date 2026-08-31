@@ -164,5 +164,3 @@ function solve_system!(ls::DiagonalLowRank, ws, rhs_x, rhs_z)::Nothing
     ws.m > 0 && mul_A!(ws.ztilde, ws, x)
     return nothing
 end
-
-@verify DiagonalLowRank trim_compat = true

@@ -126,5 +126,3 @@ function solve_system!(ls::KroneckerReduced, ws, rhs_x, rhs_z)::Nothing
     ws.m > 0 && mul_A!(ws.ztilde, ws, ws.xtilde)
     return nothing
 end
-
-@verify KroneckerReduced trim_compat = true

@@ -147,7 +147,7 @@ method specificity, and the type unions are currently disjoint by construction.
 |---|---|
 | S1 — explicit selection ladder, dense terminal | **done** |
 | S2 — one structure description | **dropped** — `structural_rows` already is the shared description, and each of the four terms it would replace is read only inside the extension that defines it |
-| S3 — unmaterialized structured backends | **done** — Woodbury, block-diagonal and Kronecker; the Kronecker tier serves a narrow acceptance region (below) and is the one backend outside the `--trim` gate |
+| S3 — unmaterialized structured backends | **done** — Woodbury, block-diagonal and Kronecker; the Kronecker tier serves a narrow acceptance region (below) and every backend is inside the `--trim` gate |
 | S4 — relax the `AbstractMatrix` bound | **done, by a different route** — the bound is unchanged; `ProductOperator` presents a foreign hierarchy as an `AbstractMatrix`, `ext/PureOSQPLinearMapsExt.jl` accepts a `LinearMap`, and `is_materializable` authorizes the refusals |
 | S5 — split the cheap update paths out of `factorize!` | **done** — `refactor_rho!`, defaulting to a full rebuild; `DiagonalLowRank` overrides it |
 | S6 — equilibration protocol for lazy operators | **done** — two seam levels for an operator that can answer its own norms, and column probing for one that cannot; no protocol addition was needed for either |
@@ -270,10 +270,17 @@ The new tier. No interface change needed; `IndirectCG` is the existence proof.
   destroys. Equilibration is excluded because `c·μ·D²` is diagonal but not scalar. The rung
   checks all three and declines to the dense terminal otherwise.
 
-  Two things this leaves open. A `P = 0` problem *can* be equilibrated, because a Kronecker
+  One thing this leaves open: a `P = 0` problem *can* be equilibrated, because a Kronecker
   product's row and column ∞-norms are exactly the Kronecker products of the factors' norms
-  (measured at 0.0 error) — that route is not built. And the public entry is the one path in
-  the package outside the `--trim` gate; see `test/trim/entrypoints.jl`.
+  (measured at 0.0 error) — that route is not built.
+
+  On an ill-conditioned problem the missing equilibration is the whole cost, and it is
+  measured (`bench/results/kronecker_conditioning.json`). The backend stays sound —
+  iteration-for-iteration identical to an equally unscaled dense path, with agreeing solutions,
+  up to `κ(A) ≈ 10¹⁶` — but iterations climb from 175 to 2525 across that range. Against a
+  dense path allowed its equilibration, at `κ(A) = 10¹²`, the tier is 1.7× at `n = 30` and
+  6.9× at `n = 480`: the `O(n₁n₂(n₁+n₂))` apply covers the extra iterations once the problem
+  is large enough.
 - **low-rank + structured → Woodbury / Sherman–Morrison** — k coupling rows give
   `Ãᵀdiag(ρ)Ã = (structured part) + Uᵀdiag(ρ_k)U`; solve the structured part, correct through a
   k×k system, `O(n·k)` rather than `O(n³)`. **Built** as `RowCoupled` + `DiagonalLowRank`
