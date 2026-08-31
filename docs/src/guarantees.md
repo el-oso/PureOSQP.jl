@@ -94,14 +94,64 @@ make that a *proof* rather than an observation.
 
 ## `--trim` compatibility
 
-`juliac --trim` needs every call resolved statically. All public entry points are checked
-with [TrimCheck.jl](https://github.com/JuliaLang/TrimCheck.jl), in
-`test/trim_tests.jl`, so a dynamic dispatch or a reflective call cannot creep in unnoticed:
+`juliac --trim` needs every call resolved statically. Two things enforce that, and they cover
+different halves of the surface.
 
-- `solve` with default settings, with `polish = true`, with `linsys = :kkt`, and with
-  `scaling = 0`;
-- `setup` → `solve!` → `update!` → `solve!`;
-- `setup` → `solve!` → `warm_start!` → `solve!`.
+**Every backend, as a filter.** `src/PureOSQP.jl` carries
+
+```julia
+@verify LinearSystem subtypes = true trim_compat = true
+```
+
+which checks every [`PureOSQP.LinearSystem`](@ref) subtype at precompilation. An extension's
+backends load after that sweep and cannot be swept the same way (re-registering the core
+backends is method overwriting during precompilation), so `test/coverage_tests.jl` runs the
+same check over every subtype with all extensions loaded, with no exemption list.
+
+Be precise about what that buys, because it is less than it looks. The check scans each
+backend's declared method bodies and does not follow calls out of them, so it catches a
+backend that itself names something unresolvable and nothing deeper — the CHOLMOD backends
+pass it while reaching SuiteSparse through `ccall`. It also reports by warning rather than by
+raising, so it is the test that enforces it and not the load. The test pins both properties: it
+reads the returned verdict rather than waiting for an exception, and it checks a deliberately
+trim-unsafe backend is rejected, so a sweep that stopped discriminating would be caught.
+
+The load-bearing guarantee is the entry-point enumeration below, which runs the trimmer.
+
+**Entry points, per path.** `test/trim_tests.jl` validates a concrete call for each public
+path with [TrimCheck.jl](https://github.com/JuliaLang/TrimCheck.jl):
+
+- `solve` with default settings, with `polish = true`, `linsys = :kkt`, `linsys = :indirect`,
+  `scaling = 0`, `verbose = true`, `max_iter` and `time_limit`;
+- one per structured representation — diagonal, tridiagonal (both spellings), banded,
+  low-rank, block-diagonal, Kronecker, and a products-only operator;
+- sparse operands: `SparseMatrixCSC` on both sides with `linsys = :kkt` and with
+  `linsys = :dense`, and a sparse `A` under a diagonal `P` on `:auto`;
+- `setup` → `solve!` → `update!` → `solve!`, and the same with `warm_start!`;
+- `update_settings!`/`update_rho!`/`cold_start!`, and the derivatives.
+
+That list is an enumeration, so it proves what it names and no more. The backend sweep above
+is what makes coverage of the *backends* structural rather than remembered.
+
+**What a sparse problem needs to be AOT-compilable.** Two conditions, both about keeping
+SuiteSparse out of the binary rather than about the backends, which pass the sweep above like
+every other.
+
+*Name the backend.* `linsys` reaches [`setup`](@ref) as a type parameter, so `:kkt`, `:dense`
+and `:indirect` eliminate the selection ladder instead of leaving it unused. Left on `:auto`, a
+pair that is sparse on both sides is incompatible by construction, and for two independent
+reasons — removing either one leaves the other. That ladder has to consider the reduced rung,
+which factors with CHOLMOD, whose bindings reach their C structs through `getproperty` on
+pointer-backed wrappers that no static analysis resolves. And it reaches more backend types
+than inference will merge: `Base.Compiler.MAX_TYPEUNION_LENGTH` is 3, so the workspace type
+widens to `Workspace{…} where LS` and every later `solve!` becomes a dynamic dispatch. A sparse
+`A` under a structured `P` is compatible on `:auto`, because the rungs that pair descends reach
+neither a sparse factorization nor a fourth backend type.
+
+*Load LDLFactorizations.* [`PureOSQP.is_convex`](@ref) needs a factorization to answer for a
+sparse `P` that is not diagonal, and only a pure-Julia one is resolvable. With the extension
+loaded, dispatch settles which is used before the trimmer runs, so the CHOLMOD fallback is
+unreachable; without it, that fallback is the only answer and the path is not compatible.
 
 The same test includes a **negative control** — an entry point that calls
 `Base.return_types`, which the trimmer cannot resolve. It must be reported as *not*

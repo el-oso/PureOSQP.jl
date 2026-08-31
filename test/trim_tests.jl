@@ -65,8 +65,35 @@
             )
         )
     )
-    # No Kronecker entry point; `test/trim/entrypoints.jl` records the bisection and what is
-    # ruled out. This gate does not cover that backend, which is stated rather than hidden.
+    push!(names, :solve_kronecker)
+    push!(
+        sigs,
+        :(
+            TrimEntry.solve_kronecker(
+                TrimEntry.DM, Vector{Float64}, TrimEntry.KO, Vector{Float64}, Vector{Float64}
+            )
+        )
+    )
+    # A keyword on a pair whose ladder backend is a fourth type is what merges past the union
+    # length cap, so a second such pair keeps the guard off any one backend.
+    push!(names, :solve_lowrank_scaled)
+    push!(
+        sigs,
+        :(
+            TrimEntry.solve_lowrank_scaled(
+                TrimEntry.DM, Vector{Float64}, TrimEntry.RC, Vector{Float64}, Vector{Float64}
+            )
+        )
+    )
+    push!(names, :setup_kronecker)
+    push!(
+        sigs,
+        :(
+            TrimEntry.setup_kronecker(
+                TrimEntry.DM, Vector{Float64}, TrimEntry.KO, Vector{Float64}, Vector{Float64}
+            )
+        )
+    )
     push!(names, :solve_block)
     push!(
         sigs,
@@ -82,6 +109,28 @@
         :(
             TrimEntry.solve_operator(
                 TrimEntry.PO, Vector{Float64}, TrimEntry.PO, Vector{Float64}, Vector{Float64}
+            )
+        )
+    )
+    # Sparse operands, which are compatible only with the backend named -- see the comment in
+    # `trim/entrypoints.jl` for why `:auto` on a doubly sparse pair is not.
+    for f in (:solve_sparse_kkt, :solve_sparse_dense)
+        push!(names, f)
+        push!(
+            sigs,
+            :(
+                TrimEntry.$f(
+                    TrimEntry.SPM, Vector{Float64}, TrimEntry.SPM, Vector{Float64}, Vector{Float64}
+                )
+            )
+        )
+    end
+    push!(names, :solve_sparse_diagonal)
+    push!(
+        sigs,
+        :(
+            TrimEntry.solve_sparse_diagonal(
+                TrimEntry.DM, Vector{Float64}, TrimEntry.SPM, Vector{Float64}, Vector{Float64}
             )
         )
     )

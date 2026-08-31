@@ -738,10 +738,6 @@ function solve_system!(ls::FullKKT, ws, rhs_x, rhs_z)::Nothing
     return nothing
 end
 
-@verify ReducedCholesky trim_compat = true
-@verify FullKKT trim_compat = true
-@verify DiagonalReduced trim_compat = true
-@verify TridiagonalReduced trim_compat = true
 
 """
     refactor!(ws)
@@ -823,6 +819,19 @@ full system yields `z̃` from the eliminated multiplier where the reduced one re
 a product against `A`.
 """
 ldl_kkt_backend(gram, proto::AbstractVector, n::Integer, m::Integer, fill_limit::Real) = nothing
+
+"""
+    ldl_posdef(P, sigma) -> Bool or nothing
+
+Whether `P + σI` is positive definite, answered by an `LDLᵀ` other than the one SparseArrays
+supplies, or `nothing` if no such factorization is available.
+
+[`is_convex`](@ref) asks this before reaching for a factorization of its own. An `LDLᵀ`
+answers definiteness by the sign of `D` rather than by failing, so the question needs no
+error path, and a pure-Julia one keeps the convexity test inside what `juliac --trim` can
+resolve — which the SuiteSparse bindings are not.
+"""
+ldl_posdef(P, sigma) = nothing
 
 """
     require_host(v, what)

@@ -1217,6 +1217,13 @@ function PureOSQP.is_convex(::Type{T}, P::SparseMatrixCSC, sigma) where {T}
         end
         return true
     end
+    # An `LDLᵀ` from outside SuiteSparse answers this when one is available, and dispatch
+    # settles which it is, so the CHOLMOD factorization below is not merely unused then but
+    # unreachable — which is what keeps a sparse `P` inside `juliac --trim`. The bindings
+    # reached from `cholesky` are not resolvable statically, so leaving them on a live branch
+    # would cost the guarantee whether or not they ever run.
+    answer = PureOSQP.ldl_posdef(P, sigma)
+    isnothing(answer) || return answer
     return issuccess(cholesky(Symmetric(SparseMatrixCSC{T, Int}(P) + sigma * I); check = false))
 end
 

@@ -44,6 +44,10 @@ end
 large bound would otherwise dominate the sum."
 @inline ZERO_DEADZONE(::Type{T}) where {T} = T(1.0e-10)
 
+"The backends `linsys` may name. [`setup`](@ref) rejects anything else before turning the
+choice into a type parameter, so an unusable name costs an error and not a specialization."
+const LINSYS_OPTIONS = (:auto, :dense, :kkt, :indirect)
+
 """
     Settings{T}
 
@@ -104,7 +108,7 @@ function Settings{T}(;
     0 < adaptive_rho_fraction <= 1 || throw(
         ArgumentError("adaptive_rho_fraction must lie in (0, 1], got $adaptive_rho_fraction")
     )
-    linsys in (:auto, :dense, :kkt, :indirect) || throw(
+    linsys in LINSYS_OPTIONS || throw(
         ArgumentError("linsys must be :auto, :dense, :kkt or :indirect, got :$linsys")
     )
     cg_max_iter > 0 || throw(ArgumentError("cg_max_iter must be positive, got $cg_max_iter"))
@@ -354,13 +358,43 @@ function setup(
     return setup(T, P, q, A, l, u; kwargs...)
 end
 
-function setup(
+# `@constprop :aggressive` because the settings have to reach inference as constants. A
+# non-default keyword — `scaling = 0`, `linsys = :kkt` — otherwise arrives as a non-singleton
+# `Pairs`, the compiler's size heuristic refuses to propagate it into a method this large, and
+# `settings.scaling` stays unknown, leaving every branch below live. The return then merges one
+# `Workspace` per reachable backend: `ReducedCholesky`, `FullKKT`, `IndirectCG` once Krylov is
+# loaded, and whichever the ladder chose. That is three for a pair the ladder sends to
+# `ReducedCholesky` anyway, and four for a pair with a backend of its own.
+# `Base.Compiler.MAX_TYPEUNION_LENGTH` is 3, so the fourth widens the union to
+# `Workspace{…} where LS` and every later `solve!` is a dynamic dispatch, which `--trim`
+# rejects. An absent keyword leaves the empty `Pairs`, a singleton that folds without help.
+#
+# `linsys` is lifted out of the keywords and into a `Val` because constant propagation is not
+# enough for it: naming a backend has to make the other branches *unreachable*, not merely
+# narrow the merged return type, since the branch this eliminates is the one that reaches
+# `choose_backend` and, through the sparse ladder, CHOLMOD's bindings. Propagation does not
+# enter a method this large — the constant arrives as `linsys::Symbol` — so the choice is
+# carried as a type parameter and the dead branches are gone by specialization instead.
+Base.@constprop :aggressive function setup(
         ::Type{T}, P::AbstractMatrix, q::AbstractVector, A::AbstractMatrix,
-        l::AbstractVector, u::AbstractVector; kwargs...
+        l::AbstractVector, u::AbstractVector; linsys::Symbol = :auto, kwargs...
     ) where {T <: Real}
+    # Rejected here rather than left to `Settings`: past this point the name becomes a type
+    # parameter, and an unusable one would specialize the whole of `setup_backend` before the
+    # settings it cannot satisfy are ever built.
+    linsys in LINSYS_OPTIONS || throw(
+        ArgumentError("linsys must be :auto, :dense, :kkt or :indirect, got :$linsys")
+    )
+    return setup_backend(Val(linsys), T, P, q, A, l, u; kwargs...)
+end
+
+function setup_backend(
+        ::Val{LS}, ::Type{T}, P::AbstractMatrix, q::AbstractVector, A::AbstractMatrix,
+        l::AbstractVector, u::AbstractVector; kwargs...
+    ) where {LS, T <: Real}
     t0 = time_ns()
     n, m = validate(P, q, A, l, u)
-    settings = Settings{T}(; kwargs...)
+    settings = Settings{T}(; linsys = LS, kwargs...)
     if !is_convex(T, P, settings.sigma)
         throw(ArgumentError("P + sigma*I is not positive definite: P is indefinite, so the problem is not convex. Increase sigma if P + sigma*I can be made positive definite."))
     end
@@ -407,17 +441,21 @@ function setup(
         0.0, 0.0, true, 0.0, 0.0,
         settings,
     )
-    if settings.linsys === :kkt
+    # `LS` is a type parameter, so a named backend leaves exactly one of these branches live
+    # and the rest are gone before the trimmer sees them. `settings` still holds and validates
+    # the same value; reading it back here instead would put the choice beyond inference's
+    # reach and make every branch reachable again.
+    if LS === :kkt
         ws = make(FullKKT(q0, n, m))
         refactor!(ws)
         return finish_setup!(ws, t0)
-    elseif settings.linsys === :dense
+    elseif LS === :dense
         # Past `choose_backend` entirely. Its two gates for a sparse `A` are measured
         # thresholds, and this is the way to overrule one that misjudges a problem.
         ws = make(ReducedCholesky(q0, n, m))
         refactor!(ws)
         return finish_setup!(ws, t0)
-    elseif settings.linsys === :indirect
+    elseif LS === :indirect
         ws = make(indirect_backend(q0, n, m))
         refactor!(ws)
         return finish_setup!(ws, t0)
