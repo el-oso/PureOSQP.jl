@@ -27,11 +27,13 @@ export POLISH_NO_ACTIVE_SET_FOUND, POLISH_LINSYS_ERROR
 export SOLVED_INACCURATE, PRIMAL_INFEASIBLE_INACCURATE, DUAL_INFEASIBLE_INACCURATE
 
 include("blockdiagonal.jl")
+include("kronecker.jl")
 include("rowcoupled.jl")
 include("linsys.jl")
 include("operator.jl")
 include("lowrank.jl")
 include("block.jl")
+include("kronsolve.jl")
 include("types.jl")
 include("elementwise.jl")
 include("scaling.jl")

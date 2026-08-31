@@ -43,6 +43,8 @@ function example_workspace(backend::Symbol)
         return example_tridiagonal_workspace(200)
     elseif backend === :lowrank
         return example_lowrank_workspace(200, 3)
+    elseif backend === :kronecker
+        return example_kronecker_workspace(12, 10)
     elseif backend === :block
         return example_block_workspace(200, 5)
     elseif backend === :operator
@@ -73,6 +75,18 @@ function example_tridiagonal_workspace(n)
     P = SymTridiagonal(rand(n) .+ 3, rand(n - 1) ./ 8)
     A = Diagonal(rand(n) .+ 0.5)
     ws = PureOSQP.setup(P, randn(n), A, -rand(n), rand(n))
+    PureOSQP.solve!(ws)
+    return ws
+end
+
+function example_kronecker_workspace(n1, n2)
+    Random.seed!(15)
+    K = PureOSQP.KroneckerOperator(randn(n1, n1), randn(n2, n2))
+    n = n1 * n2
+    b = Matrix(K) * randn(n)
+    ws = PureOSQP.setup(
+        Diagonal(fill(2.0, n)), randn(n), K, b .- rand(n), b .+ rand(n); scaling = 0
+    )
     PureOSQP.solve!(ws)
     return ws
 end
@@ -234,7 +248,7 @@ failures = String[]
 
 for backend in (
         :auto, :kkt, :sparse, :cholmod, :diagonal, :tridiagonal, :banded, :lowrank, :indirect,
-        :block, :operator, :productoperator,
+        :block, :kronecker, :operator, :productoperator,
     )
     ws = example_workspace(backend)
     W = typeof(ws)

@@ -53,6 +53,7 @@ PureOSQP.DiagonalReduced
 PureOSQP.TridiagonalReduced
 PureOSQP.DiagonalLowRank
 PureOSQP.BlockReduced
+PureOSQP.KroneckerReduced
 PureOSQP.FullKKT
 PureOSQP.indirect_backend
 ```
@@ -63,6 +64,9 @@ PureOSQP.indirect_backend
 PureOSQP.RowCoupled
 PureOSQP.coupling_rank
 PureOSQP.BlockDiagonal
+PureOSQP.KroneckerOperator
+PureOSQP.factors
+PureOSQP.scalar_multiple
 PureOSQP.nblocks
 PureOSQP.rowrange
 PureOSQP.colrange
@@ -86,6 +90,7 @@ PureOSQP.density_gate_rung
 PureOSQP.kkt_rung
 PureOSQP.reduced_rung
 PureOSQP.block_rung
+PureOSQP.kronecker_rung
 PureOSQP.lowrank_rung
 PureOSQP.formed_rung
 PureOSQP.dense_rung

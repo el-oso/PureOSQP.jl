@@ -286,6 +286,48 @@ a run that timed a first call — the block specialization was compiled inside t
 while the dense one was already warm. And it called a 4.4e4 figure "a true objective", which no
 run here establishes.
 
+## Kronecker: three conditions, and a gate it does not pass
+
+The obstacle recorded earlier — that `ρ` must be uniform — was one of three, and finding the
+other two took measuring the off-diagonal mass the Kronecker eigenbasis leaves behind rather
+than reasoning about the algebra:
+
+| configuration | off-diagonal / diagonal |
+|---|---|
+| `P = μI`, uniform `ρ`, no scaling | 1.2e-15 |
+| `P = 0`, uniform `ρ`, Kronecker equilibration | 6.8e-16 |
+| `P = μI`, Kronecker equilibration | 0.155 |
+| `P` Kronecker but not scalar | 0.664 |
+| non-uniform `ρ` | 0.115 |
+
+A Kronecker `P` is the surprising one: `c·D·P·D` and `ρ·Ãᵀà ` are simultaneously
+diagonalizable only when the first is a *scalar* multiple of the identity, so the structure
+being present in `P` does not help and actively prevents the backend from applying. And a
+scalar `P` is incompatible with equilibration for the same reason at one remove: `c·μ·D²` is
+diagonal but not scalar.
+
+`ρ` uniformity is free for the problems this was built for. Verified against
+`classify_rho!`: two-sided and one-sided inequalities are all class 0 and get the same `ρ`,
+which stays uniform under adaptive `ρ` since that scales a single number. One equality row or
+one fully free row gives it two values.
+
+**The entry point does not pass `--trim`, and this is the one path in the package outside that
+gate.** The verifier reports `setup` on a `KroneckerOperator` as returning
+`Workspace{…, LS} where LS` and refuses the solve as an unresolved call. Four hypotheses were
+tested and falsified: the `scaling = 0` keyword (it constant-folds), the three-way backend
+union (`linsys = :dense` takes an early return with one backend type and fails identically),
+the operator's type-parameter count (collapsed from four to two, no change), and a
+`Union{Nothing,T}` the rung left for `factorize!` to narrow (moved into the backend as a
+field, no change). What remains is the operator itself on whichever path reads it, and it is
+not isolated. The backend's own methods are `typestable, noalloc`; a missing entry point is a
+gap in coverage, recorded in `test/trim_tests.jl` and `test/trim/entrypoints.jl` rather than
+left silent.
+
+One implementation note worth the same line the block tier got: `solve_system!` allocated at
+two sites, both from a single `ls.X .*= ls.dinv`. An in-place broadcast has `X` on both sides
+and keeps an `unaliascopy` branch AllocCheck cannot rule out — the trap `src/elementwise.jl`
+already documents for the vector cases, met again in matrix form.
+
 ## Why `block_rung` carries no cost gate
 
 Every other structured rung has one — the band gate at `4b > n`, the low-rank gate at

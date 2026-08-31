@@ -410,6 +410,8 @@ function select_backend(
     isnothing(rung) || return rung
     rung = reduced_rung(P, A, proto, n, m, D, E, c, rho_vec, sigma)
     isnothing(rung) || return rung
+    rung = kronecker_rung(P, A, proto, n, m, D, E, c, rho_vec, sigma)
+    isnothing(rung) || return rung
     rung = block_rung(P, A, proto, n, m, D, E, c, rho_vec, sigma)
     isnothing(rung) || return rung
     rung = lowrank_rung(P, A, proto, n, m, D, E, c, rho_vec, sigma)

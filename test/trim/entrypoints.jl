@@ -47,6 +47,17 @@ solve_indirect(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u; lin
 const BD = PureOSQP.BlockDiagonal{Float64, Matrix{Float64}}
 solve_block(P::BD, q::V, A::BD, l::V, u::V) = PureOSQP.solve(P, q, A, l, u)
 
+# The Kronecker backend. Its rung accepts only unscaled data with a scalar `P`, so the entry
+# point carries `scaling = 0` the way the caller would have to.
+# No Kronecker entry point. `setup` on a `KroneckerOperator` infers a workspace the verifier
+# reports as `Workspace{…, LS} where LS`, so the solve is an unresolved call and the path is
+# not `--trim` compatible. What is ruled out: the `scaling = 0` keyword (it constant-folds to
+# `Base.Pairs(:scaling => 0)`), the backend union (`linsys = :dense` takes an early return with
+# one backend type and fails the same way), the operator's type-parameter count, and the
+# `Union{Nothing,T}` the rung once left for `factorize!`. What is left is the operator itself
+# on whichever path reads it, and that is not isolated. `KroneckerReduced`'s own methods are
+# `typestable, noalloc` under StrictMode; it is the public entry that does not trim.
+
 const PO = PureOSQP.ProductOperator{Float64, Matrix{Float64}, Vector{Float64}}
 solve_operator(P::PO, q::V, A::PO, l::V, u::V) =
     PureOSQP.solve(P, q, A, l, u; scaling = 0, linsys = :indirect)
