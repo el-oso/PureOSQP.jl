@@ -73,11 +73,18 @@ end
             PureOSQP.reduced_diagonal!(zeros(n), dense...)
     end
 
-    # And end to end. The preconditioner is the only thing the matrix-free backend reads
-    # from `A` besides its products, so a structured `A` must precondition identically and
-    # take the same number of iterations. The iterates themselves agree only to rounding:
-    # `mul!` against a `Bidiagonal` or a `RowCoupled` sums a row in a different order than
-    # the dense `gemv` does, which moves the last bit.
+    # And end to end. The preconditioner is the only thing the matrix-free backend reads from
+    # `A` besides its products, so a structured `A` must precondition identically -- that is
+    # exact and is asserted below.
+    #
+    # The run that follows is not. `mul!` against a `Bidiagonal` or a `RowCoupled` sums a row
+    # in a different order than the dense `gemv` does, so the iterates differ in the last bit
+    # from the first step, and conjugate gradients inside an ADMM loop compounds that: the
+    # residual crosses the tolerance at a different check, and once `ρ` adapts on a different
+    # iteration the two runs are solving slightly different subproblems. Across 60 seeds and
+    # three operators the counts differ in 12 of 180 runs, by as much as 175 against 4000, so
+    # an equal-iteration assertion here would pin an accident of the seed. What survives the
+    # divergence is the answer, and that is what this checks.
     q = randn(n)
     opts = (linsys = :indirect, eps_abs = 1.0e-9, eps_rel = 1.0e-9)
     for A in structured
@@ -90,7 +97,6 @@ end
 
         res, ref = PureOSQP.solve!(ws), PureOSQP.solve!(ref_ws)
         @test res.status == SOLVED
-        @test res.iter == ref.iter
         @test res.x ≈ ref.x rtol = 1.0e-7
     end
 end
