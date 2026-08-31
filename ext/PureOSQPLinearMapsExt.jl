@@ -26,10 +26,15 @@ reading them costs nothing and is what the map's author already declared.
 """
 function PureOSQP.ProductOperator{T}(
         map::LinearMap;
-        symmetric::Bool = issymmetric(map), posdef::Bool = isposdef(map)
+        symmetric::Bool = issymmetric(map), posdef::Bool = isposdef(map),
+        probe::Bool = false
     ) where {T <: Real}
     rows, cols = size(map)
-    return PureOSQP.ProductOperator{T, typeof(map)}(map, rows, cols, symmetric, posdef)
+    basis = zeros(T, probe ? cols : 0)
+    column = zeros(T, probe ? rows : 0)
+    return PureOSQP.ProductOperator{T, typeof(map), typeof(basis)}(
+        map, rows, cols, symmetric, posdef, probe, basis, column
+    )
 end
 
 """

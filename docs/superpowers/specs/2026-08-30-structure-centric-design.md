@@ -150,7 +150,7 @@ method specificity, and the type unions are currently disjoint by construction.
 | S3 — unmaterialized structured backends | **done** for Woodbury over a diagonal core; block-diagonal and Kronecker unbuilt |
 | S4 — relax the `AbstractMatrix` bound | **done, by a different route** — the bound is unchanged; `ProductOperator` presents a foreign hierarchy as an `AbstractMatrix`, `ext/PureOSQPLinearMapsExt.jl` accepts a `LinearMap`, and `is_materializable` authorizes the refusals |
 | S5 — split the cheap update paths out of `factorize!` | **done** — `refactor_rho!`, defaulting to a full rebuild; `DiagonalLowRank` overrides it |
-| S6 — equilibration protocol for lazy operators | **dropped** — replaced by the two documented seam levels, which an operator overrides at whichever level it can answer, and by the representation-independence test that checks the seam |
+| S6 — equilibration protocol for lazy operators | **done** — two seam levels for an operator that can answer its own norms, and column probing for one that cannot; no protocol addition was needed for either |
 | S7 — backend introspection | **done** — `BackendInfo`, `backend_info`, `factor_fill` |
 
 
@@ -329,10 +329,16 @@ backend as a full rebuild, which is the "rebuild" response of the three.
 `bench/results/rho_update.json` records what the one override saves: 1.14–1.44× for
 `DiagonalLowRank`, and exactly 1.00× for the backends that take the default.
 
-### S6 — Equilibration protocol for lazy operators (dropped)
+### S6 — Equilibration protocol for lazy operators (built)
 Ruiz needs row and column ∞-norms of `P` and `A`. Materialized: walk entries. Lazy: cannot.
-The option taken is the first below; the others are recorded because the choice between them is
-the whole content of this item.
+Both of the first two options below are built: an operator that can answer its own norms
+overrides a seam, and one that cannot recovers each column as a product.
+
+A [`ProductOperator`](@ref) built with `probe = true` implements the per-column seam —
+`weighted_colmax` and `weighted_colmax_rowmax!` — through [`probe_column!`](@ref), so no new
+protocol was added and the operator reaches equilibration at the default scaling. It is exact
+where the wrapped `mul!` selects stored entries: `D`, `E` and `c` come out bitwise equal to
+walking the same matrix, which `test/operator_tests.jl` asserts with `==`.
 
 - **the operator supplies its norms** — trivial for `Diagonal`, per-block for a block operator,
   and it needs no addition to the protocol, because the seam it overrides is already there.

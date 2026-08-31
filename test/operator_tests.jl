@@ -87,6 +87,42 @@ end
     @test PureOSQP.backend_name(ws.linsys) === :indirect
 end
 
+@testitem "probing equilibrates an operator with no entries" begin
+    using LinearAlgebra, Krylov, Random
+    Random.seed!(34)
+
+    n, m = 40, 25
+    # Badly scaled on purpose: equilibration is what this test is about, so the factors must
+    # be far from one.
+    P = let S = randn(n, n)
+        Symmetric(S'S ./ n + 8I)
+    end
+    A = randn(m, n) ./ sqrt(n)
+    A[1, :] .*= 1.0e4
+    A[:, 1] .*= 1.0e3
+    q = randn(n)
+    b = A * randn(n)
+    l, u = b .- rand(m), b .+ rand(m)
+
+    probed = setup(
+        PureOSQP.ProductOperator{Float64}(Matrix(P); symmetric = true, posdef = true, probe = true),
+        q,
+        PureOSQP.ProductOperator{Float64}(A; probe = true),
+        l, u; linsys = :indirect,
+    )
+    walked = setup(P, q, A, l, u)
+
+    # `A * eⱼ` copies column `j` when the wrapped operator selects stored entries, so the
+    # factors are the same numbers by the same arithmetic, not merely close.
+    @test probed.D == walked.D
+    @test probed.E == walked.E
+    @test probed.c == walked.c
+
+    # Without `probe`, the same operator refuses and names every way out.
+    bare = PureOSQP.ProductOperator{Float64}(Matrix(P); symmetric = true, posdef = true)
+    @test_throws "probe = true" setup(bare, q, PureOSQP.ProductOperator{Float64}(A), l, u)
+end
+
 @testitem "a LinearMap reaches the solver" begin
     using LinearAlgebra, LinearMaps, Krylov, Random
     Random.seed!(33)

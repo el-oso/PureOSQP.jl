@@ -201,6 +201,37 @@ Every site is inside Krylov's `cg!` — `time_ns`, `allocate_if`, `ktimer` — s
 and never taken, which is why `:indirect` already used the measured tier rather than the
 static check. Measured, the path allocates 0 bytes.
 
+## Probing, measured
+
+Column probing is built, and it is exact where it applies: for an operator whose `mul!`
+selects stored entries, `A·eⱼ` copies column `j`, so `D`, `E` and `c` come out bitwise equal
+to walking the same matrix.
+
+What it is worth is less clear than the case for building it, and the measurement
+(`bench/results/probe_equilibration.json`, 1 BLAS thread, both runs required to report their
+status) says:
+
+| row scale spread | unscaled | probed | probed total |
+|---|---|---|---|
+| 0 (well scaled) | 100–150 iter, solved | 100–150 iter, solved | 3–4× **slower** |
+| 4 orders | 100 000 iter, no convergence | 100 000 iter, no convergence | no difference |
+| 8 orders | 100 000 iter, no convergence | 100 000 iter, no convergence | **3–14× faster** |
+
+Three readings, none of them the tidy one:
+
+- On a well-scaled problem probing is a cost and nothing else, which is what the trade
+  predicts. Setup dominates at these sizes: 1.8–10 ms of the total is the probing.
+- **Equilibration did not turn non-convergence into convergence** on any problem measured.
+  The claim that skipping it is "a measurable loss" is still not demonstrated, and the
+  synthetic generator here may simply produce problems the matrix-free backend cannot solve at
+  either scaling — the failure is shared, so it is not evidence about equilibration.
+- At the widest spread the equilibrated system's CG converges far faster per ADMM iteration:
+  the same 100 000 iterations cost 335 ms against 4628 ms. That is the one clear win, and it
+  is about the inner solve rather than the outer one.
+
+So probing earns its place for a badly scaled problem with a cheap product, and costs
+otherwise, which is why it is a constructor flag rather than a default.
+
 ## The plan's own reorderings
 
 - **S5 moved from before S3 to after it.** The phasing table put the update-path split ahead of

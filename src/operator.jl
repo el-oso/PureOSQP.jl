@@ -1,5 +1,5 @@
 """
-    ProductOperator{T,L} <: AbstractMatrix{T}
+    ProductOperator{T,L,V} <: AbstractMatrix{T}
 
 An operator that supplies products but no entries, presented as an `AbstractMatrix` so the
 solver's own seams reach it.
@@ -19,19 +19,27 @@ The last two are declared by the author rather than computed: verifying either f
 alone costs more than the solve. `symmetric` and `posdef` are ignored for a `ProductOperator`
 standing in for `A`, which is neither.
 
-Equilibration is the one seam this does not answer. Ruiz needs column and row ∞-norms, which
-products do not give; `getindex` therefore throws a message naming the two ways out rather
-than letting a `CanonicalIndexError` escape from inside a column walk. Either pass
-`scaling = 0`, or give the wrapped type a [`structural_rows`](@ref) method — or, for a
-representation with no columns to speak of, `PureOSQP.column_norms!` and
-`PureOSQP.cost_norms!`.
+Equilibration needs column and row ∞-norms, which products do not give directly. Three ways to
+supply them, in the order they cost:
+
+  - a [`structural_rows`](@ref) method on the wrapped type, which a *structured* operator can
+    answer for free and which skips probing entirely;
+  - `probe = true`, which recovers each column as `op * eⱼ` — `(2·sweeps + 1)·n` products,
+    exact where the wrapped `mul!` selects stored entries;
+  - `scaling = 0`, which skips equilibration and costs whatever the problem's scaling costs.
+
+An operator offering none of the three is refused by name rather than escaping as a
+`CanonicalIndexError` from inside a column walk.
 """
-struct ProductOperator{T <: Real, L} <: AbstractMatrix{T}
+struct ProductOperator{T <: Real, L, V <: AbstractVector{T}} <: AbstractMatrix{T}
     op::L
     rows::Int
     cols::Int
     symmetric::Bool
     posdef::Bool
+    probe::Bool
+    basis::V       # scratch of length `cols`, holds one basis vector at a time
+    column::V      # scratch of length `rows`, receives `op * eⱼ`
 end
 
 """
@@ -43,10 +51,24 @@ Wrap `op`, which must answer `size`, `mul!` against a vector, and `mul!` against
 
 `symmetric` and `posdef` are the author's declaration about the operator, checked by nothing.
 They are required of a `P` and irrelevant to an `A`.
+
+`probe` decides what happens at equilibration, which needs column and row maxima that products
+do not give. With it, [`probe_column!`](@ref) recovers column `j` as `op * eⱼ` and the maxima
+are read off that; without it, an operator that overrides neither equilibration seam is
+refused and told to pass `scaling = 0`. Probing costs `(2·sweeps + 1)·n` products — 21n at the
+default `scaling = 10` — so it is worth it when the product is cheap and the problem is badly
+scaled, and not otherwise. It is exact for an operator whose `mul!` selects stored entries and
+agrees to that operator's own rounding for one that recomputes them.
 """
-function ProductOperator{T}(op; symmetric::Bool = false, posdef::Bool = false) where {T <: Real}
+function ProductOperator{T}(
+        op; symmetric::Bool = false, posdef::Bool = false, probe::Bool = false
+    ) where {T <: Real}
     rows, cols = size(op)
-    return ProductOperator{T, typeof(op)}(op, rows, cols, symmetric, posdef)
+    basis = zeros(T, probe ? cols : 0)
+    column = zeros(T, probe ? rows : 0)
+    return ProductOperator{T, typeof(op), typeof(basis)}(
+        op, rows, cols, symmetric, posdef, probe, basis, column
+    )
 end
 
 Base.size(M::ProductOperator) = (M.rows, M.cols)
@@ -64,20 +86,75 @@ end
 # The message names no type: interpolating one goes through `show(::IO, ::Type)`, a runtime
 # dispatch `--trim` cannot resolve, and this branch is live code for an operator that has no
 # entries to give.
-function Base.getindex(M::ProductOperator, ::Integer, ::Integer)
+"""
+    no_entries()
+
+Throw the refusal an operator with no readable entries owes its caller, naming every way out.
+
+One function rather than a message per site, so the three remedies stay listed together. The
+message interpolates nothing: `show(::IO, ::Type)` is a runtime dispatch `--trim` cannot
+resolve, and this branch is live code for an operator that declines.
+"""
+function no_entries()
     throw(
         ArgumentError(
             "this operator supplies products only and has no entries to read. Equilibration " *
-                "needs column and row norms: pass `scaling = 0` to skip it, or give the " *
-                "wrapped type a `PureOSQP.structural_rows` method, or override " *
-                "`PureOSQP.column_norms!` and `PureOSQP.cost_norms!` for it."
+                "needs column and row norms: build it with `probe = true` to recover each " *
+                "column as a product, pass `scaling = 0` to skip equilibration, or give the " *
+                "wrapped type a `PureOSQP.structural_rows` method."
         )
     )
 end
 
+Base.getindex(::ProductOperator, ::Integer, ::Integer) = no_entries()
+
 is_materializable(::ProductOperator) = false
 is_symmetric(M::ProductOperator) = M.symmetric
 is_convex(::Type{T}, P::ProductOperator, sigma) where {T} = P.posdef
+
+"""
+    probe_column!(M::ProductOperator, j) -> AbstractVector
+
+Column `j` of `M`, recovered as `M * eⱼ` and returned in `M`'s own scratch, which the next
+call overwrites.
+
+Exact for an operator whose `mul!` selects stored entries, since the product then copies the
+column. An operator applying a factored or composed form recomputes each entry instead, so its
+column agrees to that operator's rounding rather than bitwise — which is the case probing
+exists for, the entries not being there to walk.
+"""
+function probe_column!(M::ProductOperator{T}, j::Integer) where {T}
+    fill!(M.basis, zero(T))
+    M.basis[j] = one(T)
+    mul!(M.column, M.op, M.basis)
+    return M.column
+end
+
+# Equilibration's per-column seam, answered by one product each. A structured operator
+# overrides `structural_rows` instead and never reaches these.
+function weighted_colmax(::Type{T}, M::ProductOperator, j::Integer, w::AbstractVector) where {T}
+    M.probe || no_entries()
+    col = probe_column!(M, j)
+    r = zero(T)
+    for i in eachindex(col, w)
+        r = max(r, w[i] * abs(T(col[i])))
+    end
+    return r
+end
+
+function weighted_colmax_rowmax!(
+        ::Type{T}, e::AbstractVector, M::ProductOperator, j::Integer, w::AbstractVector, s
+    ) where {T}
+    M.probe || no_entries()
+    col = probe_column!(M, j)
+    r = zero(T)
+    for i in eachindex(col, w, e)
+        v = abs(T(col[i]))
+        r = max(r, w[i] * v)
+        e[i] = max(e[i], s * v)
+    end
+    return r
+end
 
 """
     unpreconditioned!(dest)

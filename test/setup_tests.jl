@@ -151,7 +151,10 @@ end
 end
 
 @testitem "a Symmetric wrapper is accepted for sparse and dense P" begin
-    using LinearAlgebra, SparseArrays
+    # `:ldl_kkt` and `:sparse_kkt` exist only once LDLFactorizations is loaded. Without this
+    # import the item asserts whichever backends a sibling item happened to make reachable in
+    # the same worker, which is a different assertion on every run.
+    using LinearAlgebra, SparseArrays, LDLFactorizations
     n = m = 60
     M = sparse(Diagonal(range(1.0, 3.0; length = n)))
     M[1, 2] = M[2, 1] = 0.4

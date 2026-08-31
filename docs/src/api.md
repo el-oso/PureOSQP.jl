@@ -68,6 +68,8 @@ PureOSQP.is_materializable
 PureOSQP.reduced_diagonal!
 PureOSQP.ProductOperator
 PureOSQP.unpreconditioned!
+PureOSQP.probe_column!
+PureOSQP.no_entries
 ```
 
 ## The selection ladder

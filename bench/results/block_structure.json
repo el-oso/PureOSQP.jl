@@ -1,0 +1,89 @@
+{
+  "cases": [
+    {
+      "backend": "cholesky",
+      "block_words": "1275",
+      "blocks": "1",
+      "factor_words": "1275",
+      "flop_ceiling": "1.0",
+      "frac": "1.0",
+      "largest": "50",
+      "n": "50",
+      "name": "Random QP",
+      "p_respects": "true"
+    },
+    {
+      "backend": "cholesky",
+      "block_words": "20100",
+      "blocks": "1",
+      "factor_words": "20100",
+      "flop_ceiling": "1.0",
+      "frac": "1.0",
+      "largest": "200",
+      "n": "200",
+      "name": "Eq QP",
+      "p_respects": "true"
+    },
+    {
+      "backend": "ldl_kkt",
+      "block_words": "127765",
+      "blocks": "1",
+      "factor_words": "2322",
+      "flop_ceiling": "1.0",
+      "frac": "1.0",
+      "largest": "505",
+      "n": "505",
+      "name": "Portfolio",
+      "p_respects": "true"
+    },
+    {
+      "backend": "ldlfactorizations",
+      "block_words": "174571",
+      "blocks": "227",
+      "factor_words": "990",
+      "flop_ceiling": "0.3779949838120804",
+      "frac": "0.7230392156862745",
+      "largest": "590",
+      "n": "816",
+      "name": "Lasso",
+      "p_respects": "true"
+    },
+    {
+      "backend": "ldlfactorizations",
+      "block_words": "173386",
+      "blocks": "221",
+      "factor_words": "977",
+      "flop_ceiling": "0.38538815810864985",
+      "frac": "0.7277227722772277",
+      "largest": "588",
+      "n": "808",
+      "name": "SVM",
+      "p_respects": "true"
+    },
+    {
+      "backend": "ldlfactorizations",
+      "block_words": "634737",
+      "blocks": "228",
+      "factor_words": "3393",
+      "flop_ceiling": "0.24171644530556585",
+      "frac": "0.6229235880398671",
+      "largest": "1125",
+      "n": "1806",
+      "name": "Huber",
+      "p_respects": "true"
+    },
+    {
+      "backend": "sparse_formed",
+      "block_words": "51360",
+      "blocks": "1",
+      "factor_words": "51360",
+      "flop_ceiling": "1.0",
+      "frac": "1.0",
+      "largest": "320",
+      "n": "320",
+      "name": "Control",
+      "p_respects": "true"
+    }
+  ],
+  "julia_version": "1.12.7"
+}
