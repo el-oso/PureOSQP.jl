@@ -14,6 +14,8 @@ using StrictMode
 using AllocCheck, JET          # the :full backends; StrictMode dispatches to them
 using LinearAlgebra, SparseArrays, Random
 
+include(joinpath(@__DIR__, "lazy_operator.jl"))
+
 # A disabled audit prints exactly like a clean one. Never report a pass without this.
 StrictMode.assert_enabled()
 
@@ -39,6 +41,12 @@ function example_workspace(backend::Symbol)
         return example_banded_backend_workspace(200)
     elseif backend === :tridiagonal
         return example_tridiagonal_workspace(200)
+    elseif backend === :lowrank
+        return example_lowrank_workspace(200, 3)
+    elseif backend === :operator
+        return example_operator_workspace(200)
+    elseif backend === :productoperator
+        return example_product_operator_workspace(200)
     elseif backend === :diagonal
         # Chosen by representation, like the sparse backends: no setting reaches it.
         return example_diagonal_workspace(200)
@@ -63,6 +71,52 @@ function example_tridiagonal_workspace(n)
     P = SymTridiagonal(rand(n) .+ 3, rand(n - 1) ./ 8)
     A = Diagonal(rand(n) .+ 0.5)
     ws = PureOSQP.setup(P, randn(n), A, -rand(n), rand(n))
+    PureOSQP.solve!(ws)
+    return ws
+end
+
+function example_lowrank_workspace(n, k)
+    Random.seed!(11)
+    P = Diagonal(rand(n) .+ 0.5)
+    A = PureOSQP.RowCoupled(randn(k, n) ./ 4, ones(n - k), collect(1:(n - k)))
+    ws = PureOSQP.setup(P, randn(n), A, -rand(n), rand(n))
+    PureOSQP.solve!(ws)
+    return ws
+end
+
+"""
+A workspace over a caller-supplied operator that stores no matrix at all: `P` applies
+`Diagonal(d) + α v vᵀ` through a closure and declares `is_materializable` false, so the
+ladder descends past the dense terminal to the matrix-free rung.
+
+What this row measures is narrower than the others. The hot path here runs the caller's
+`mul!`, so `noalloc` and `typestable` on `admm_step!` hold only as far as that `mul!` does;
+the operator in `lazy_operator.jl` is written to carry them, and this row is what shows that
+the surrounding machinery does not take them away.
+"""
+function example_operator_workspace(n)
+    Random.seed!(12)
+    P = LazyPSD(rand(n) .+ 2.0, randn(n) ./ sqrt(n), 0.5)
+    A = randn(n, n) ./ sqrt(n)
+    b = A * randn(n)
+    # `scaling = 0`: equilibration walks columns, and this operator supplies products only.
+    ws = PureOSQP.setup(P, randn(n), A, b .- rand(n), b .+ rand(n); scaling = 0)
+    PureOSQP.solve!(ws)
+    return ws
+end
+
+# `LazyPSD` above is an operator written as an `AbstractMatrix` directly. `ProductOperator`
+# is the other route -- a wrapper around a hierarchy that is not one -- and it reaches the
+# solve path through a different concrete `Workspace` type, so it is analysed separately.
+function example_product_operator_workspace(n)
+    Random.seed!(13)
+    S = randn(n, n)
+    P = PureOSQP.ProductOperator{Float64}(
+        Symmetric(S'S ./ n + 8I); symmetric = true, posdef = true
+    )
+    A = PureOSQP.ProductOperator{Float64}(randn(n, n) ./ sqrt(n))
+    b = randn(n)
+    ws = PureOSQP.setup(P, randn(n), A, b .- rand(n), b .+ rand(n); scaling = 0)
     PureOSQP.solve!(ws)
     return ws
 end
@@ -158,12 +212,19 @@ end
 
 failures = String[]
 
-for backend in (:auto, :kkt, :sparse, :cholmod, :diagonal, :tridiagonal, :banded, :indirect)
+for backend in (
+        :auto, :kkt, :sparse, :cholmod, :diagonal, :tridiagonal, :banded, :lowrank, :indirect,
+        :operator, :productoperator,
+    )
     ws = example_workspace(backend)
     W = typeof(ws)
     LS = typeof(ws.linsys)
     V = Vector{Float64}
-    tier = backend === :indirect ? :hot_measured : :hot
+    # `:operator` and `:productoperator` reach the same matrix-free backend as `:indirect`
+    # and take the same exemption for Krylov's `cg!`, whose timing and `allocate_if` branches
+    # are statically visible and never taken.
+    matrix_free = backend in (:indirect, :operator, :productoperator)
+    tier = matrix_free ? :hot_measured : :hot
     # See `:warm_sparse`: only the factorization side is affected, never the hot path.
     # `:cholmod` reaches sparse arithmetic whichever engine factors it -- the reduced matrix
     # is assembled the same way before either sees it.
@@ -176,9 +237,11 @@ for backend in (:auto, :kkt, :sparse, :cholmod, :diagonal, :tridiagonal, :banded
         (PureOSQP.solve_system!, (LS, W, V, V), tier, solve_sys),
         (PureOSQP.check_termination, (W, Bool), :warm, nothing),
         (PureOSQP.factorize!, (LS, W), warm, nothing),
+        # Runs every time `ρ` moves, so it sits inside the solve loop rather than at setup.
+        (PureOSQP.refactor_rho!, (LS, W), warm, nothing),
         (PureOSQP.solve!, (W,), warm, nothing),
     ]
-    if backend === :indirect
+    if matrix_free
         # The operator is this package's own code and gets the full static guarantee, with
         # no exemption: it is where a matrix-free product would allocate if one did.
         op = Base.get_extension(PureOSQP, :PureOSQPKrylovExt).ReducedOperator(ws)

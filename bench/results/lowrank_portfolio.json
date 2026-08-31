@@ -1,0 +1,42 @@
+{
+  "blas_threads": 1,
+  "cases": [
+    {
+      "form": "SparseMatrixCSC",
+      "iter": "2750",
+      "obj_val": "-2.3419566700499357",
+      "regime": "fixed ρ",
+      "setup": "0.000302189",
+      "status": "SOLVED",
+      "total": "0.014605486"
+    },
+    {
+      "form": "RowCoupled",
+      "iter": "2750",
+      "obj_val": "-2.341956670056322",
+      "regime": "fixed ρ",
+      "setup": "0.000161995",
+      "status": "SOLVED",
+      "total": "0.0123665795"
+    },
+    {
+      "form": "SparseMatrixCSC",
+      "iter": "900",
+      "obj_val": "-2.341953373536136",
+      "regime": "adaptive ρ",
+      "setup": "0.000301828",
+      "status": "SOLVED",
+      "total": "0.005072929"
+    },
+    {
+      "form": "RowCoupled",
+      "iter": "1900",
+      "obj_val": "-2.3419533721465924",
+      "regime": "adaptive ρ",
+      "setup": "0.000162305",
+      "status": "SOLVED",
+      "total": "0.008712438000000001"
+    }
+  ],
+  "julia_version": "1.12.7"
+}
