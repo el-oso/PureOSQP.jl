@@ -7,6 +7,7 @@
         "banded_tests.jl" => 4,
         "block_tests.jl" => 3,
         "c_suite_tests.jl" => 9,
+        "coverage_tests.jl" => 1,
         "corpus_tests.jl" => 4,
         "derivative_tests.jl" => 5,
         "gpu_tests.jl" => 4,

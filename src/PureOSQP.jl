@@ -56,4 +56,11 @@ it; this name is the only part of it the core owns.
 """
 function Optimizer end
 
+# Every [`LinearSystem`](@ref) in this module must be `--trim` compatible, asserted here rather
+# than backend by backend: a per-backend `@verify` is opt-in, so a new backend acquires the
+# guarantee only if whoever wrote it remembered to ask. This sees every subtype defined by the
+# time the module finishes, so forgetting is not possible. An extension's backends load later
+# and carry the same declaration at the end of the extension.
+@verify LinearSystem subtypes = true trim_compat = true
+
 end # module PureOSQP
