@@ -48,10 +48,10 @@ solved as such without a setting:
 | `P` | `A` | bandwidth of `R` | backend | solve |
 |---|---|---|---|---|
 | `Diagonal` | `Diagonal` | 0 | [`DiagonalReduced`](@ref PureOSQP.DiagonalReduced) | `n` divisions |
-| `SymTridiagonal` | `Diagonal` | 1 | [`TridiagonalReduced`](@ref PureOSQP.TridiagonalReduced) | `ldlt`, `O(n)` |
+| `SymTridiagonal` or `Tridiagonal` | `Diagonal` | 1 | [`TridiagonalReduced`](@ref PureOSQP.TridiagonalReduced) | `ldlt`, `O(n)` |
 | `Diagonal` | `Bidiagonal` | 1 | [`TridiagonalReduced`](@ref PureOSQP.TridiagonalReduced) | `ldlt`, `O(n)` |
-| `SymTridiagonal` | `Bidiagonal` | 1 | [`TridiagonalReduced`](@ref PureOSQP.TridiagonalReduced) | `ldlt`, `O(n)` |
-| banded | banded | `2 ≤ b < n/2` | `BandedReduced`, with BandedMatrices.jl loaded | banded `cholesky`, `O(n b²)` |
+| `SymTridiagonal` or `Tridiagonal` | `Bidiagonal` | 1 | [`TridiagonalReduced`](@ref PureOSQP.TridiagonalReduced) | `ldlt`, `O(n)` |
+| banded | banded | `2 ≤ b ≤ n/4` | `BandedReduced`, with BandedMatrices.jl loaded | banded `cholesky`, `O(n b²)` |
 
 Against the dense path those are 1710×, 1270× and 699× on setup at `n = 2000`, and 1216×,
 725× and 252× end to end, on the same iterates — see
@@ -59,10 +59,15 @@ Against the dense path those are 1710×, 1270× and 699× on setup at `n = 2000`
 constraints is the first row; a tridiagonal one — smoothing, trend filtering — the second;
 differencing constraints, where a `Tridiagonal` `A` squares to bandwidth 2, the last.
 
+The same band spelled `Tridiagonal` selects the same backend as `SymTridiagonal`. Both name
+bandwidth 1, `setup` has already established that `P` is symmetric, and the backend reads
+only the diagonal and one superdiagonal — so the choice of spelling is the user's and does
+not change what solves the problem.
+
 The banded backend is a package extension, so it exists only once BandedMatrices.jl is
 loaded; without it those problems take the dense path, correctly but densely. It declines
-two ways: below bandwidth 2 the LinearAlgebra backends above are cheaper, and at half the
-matrix or wider the dense factorization wins outright.
+two ways: below bandwidth 2 the LinearAlgebra backends above are cheaper, and above a quarter
+of the matrix the dense path wins per iteration.
 
 Two things the arithmetic will not do for you here, both of which is why the bands are
 computed entry by entry rather than by forming the product. `D P D` on a `SymTridiagonal`
@@ -155,9 +160,11 @@ Both tables are reproduced by `bench/kkt_backend.jl`.
 
 ### Choosing a backend
 
-`linsys = :auto` (the default) uses the reduced Cholesky and falls back to a
-`bunchkaufman!` factorization of the full quasi-definite system if the Cholesky reports
-that the matrix is not positive definite. On the measurements above that fallback never
+`linsys = :auto` (the default) descends the selection ladder and takes the first rung that
+serves the given `P` and `A`; the reduced Cholesky is its terminal rung, reached by any pair
+that can be materialized and nothing cheaper fits. That Cholesky falls back to a
+`bunchkaufman!` factorization of the full quasi-definite system if it reports that the matrix
+is not positive definite. On the measurements above that fallback never
 triggers with equilibration on, so treat it as a safety net rather than as the mechanism
 that handles ill-conditioning.
 
@@ -178,8 +185,10 @@ normalization step. It is stored as factors rather than applied to the matrices:
 
 Every per-iteration product runs `mul!` on the caller's original matrix with the factors
 applied around it, so a structured or lazy `A` keeps its fast product and nothing is
-copied. Only the direct solve materializes dense buffers: an `m×n` scaled copy of `A` and
-the `n×n` reduced matrix, rebuilt whenever `ρ` changes.
+copied. Which backend materializes anything depends on the rung: the dense terminal holds an
+`m×n` scaled copy of `A` and the `n×n` reduced matrix, rebuilt whenever `ρ` changes, while the
+structured backends store only what their structure needs — `n` reciprocals, two bands,
+`O(nb)`, or a `k×n` correction — and the matrix-free backend stores none of it.
 
 ## Adaptive ρ
 

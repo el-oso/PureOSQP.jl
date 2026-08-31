@@ -10,22 +10,40 @@ The factorization backend is an interface, declared with
 [TypeContracts.jl](https://github.com/el-oso/TypeContracts.jl) and enforced at
 precompilation:
 
-```julia
-@contract LinearSystem begin
-    factorize!(::Self, ::Any)::Bool
-    solve_system!(::Self, ::Any, ::Any, ::Any)::Nothing
-end
+```@eval
+using PureOSQP, TypeContracts, Markdown
+Markdown.parse(replace(contract_md_string(PureOSQP.LinearSystem), r"\A# [^\n]*\n+" => ""))
 ```
 
-`@verify ReducedCholesky trim_compat=true` and the same for [`FullKKT`](@ref) run when the
-module precompiles, so a backend that is missing a method — or whose method infers to the
-wrong return type — fails to load rather than failing at solve time.
+[`PureOSQP.refactor_rho!`](@ref) is outside the contract: it refreshes the factorization when
+`ρ` alone has moved, and rebuilding from scratch is a correct answer, so its default is
+[`PureOSQP.factorize!`](@ref) and no backend has to implement it.
+
+`@verify` runs when the module precompiles, so a backend that is missing a method — or whose
+method infers to the wrong return type — fails to load rather than failing at solve time.
+The backends verified in the core module, which is what is loaded here (each extension
+verifies its own):
+
+```@eval
+using PureOSQP, TypeContracts, Markdown
+verified = String[]
+for m in methods(verified_trait)
+    m.sig isa DataType && length(m.sig.parameters) == 3 || continue
+    p = m.sig.parameters[3]
+    p isa DataType && p <: Type || continue
+    t = p.parameters[1]
+    t isa TypeVar && continue
+    push!(verified, string(nameof(t)))
+end
+Markdown.parse(join(("  - `" * v * "`" for v in sort!(verified)), "\n"))
+```
 
 The contract is covered by a test that gives it something to reject: a type that declares
 the supertype and implements none of it must be reported as unsatisfied. Without that, a
 contract can be satisfied vacuously and nobody notices.
 
-To add a backend, subtype `LinearSystem`, implement the two methods, and `@verify` it.
+To add a backend, subtype `LinearSystem`, implement the mandatory methods above, and
+`@verify` it.
 Note the backend is fixed when the workspace is built, so it is part of the workspace's
 type and every per-iteration call dispatches statically — there is no runtime branch on
 which backend is in use.
@@ -33,7 +51,7 @@ which backend is in use.
 ## No allocation, no type instability
 
 `bench/strictmode_audit.jl` uses [StrictMode.jl](https://github.com/el-oso/StrictMode.jl)
-to check, for **both** backends:
+to check, for every backend the audit can reach:
 
 | function | guarantees |
 |---|---|
@@ -42,7 +60,18 @@ to check, for **both** backends:
 | `solve_system!` | type-stable, allocation-free |
 | `check_termination` | type-stable |
 | `factorize!` | type-stable |
+| `refactor_rho!` | type-stable |
 | `solve!` | type-stable |
+
+Two qualifications the audit makes and this page inherits. A backend reaching sparse
+arithmetic gets no static allocation claim for its factorization, because the sparse
+libraries it calls carry allocation sites of their own. And the matrix-free backend's hot
+path is checked by **measurement** rather than statically: Krylov's `cg!` holds timing and
+buffer-allocation branches that are visible to a static analysis and never taken, so the
+static check reports them and a measured run reports zero bytes.
+
+An operator supplied by the caller is guaranteed only as far as its own `mul!` is: these
+properties are the solver's, and a product that allocates makes the iteration allocate.
 
 Run it with `cd bench && julia --project=. strictmode_audit.jl`.
 

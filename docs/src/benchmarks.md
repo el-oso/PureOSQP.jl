@@ -249,13 +249,13 @@ constant is better: the dense path factors in `O(n³)` and applies in `O(n²)`, 
 divisions.
 
 **What is selected, and by what.** `Diagonal` with `Diagonal` gives a diagonal `R`;
-`SymTridiagonal` with `Diagonal`, and either with a `Bidiagonal` `A`, give bandwidth 1 and an
-`ldlt`. Both are core LinearAlgebra. Bandwidth 2 and up needs BandedMatrices.jl loaded, since
-LinearAlgebra stores no symmetric banded type past `SymTridiagonal`; without it those
-problems take the dense path, correctly but densely. Selection is dispatch on the pair of
-types — no setting, no density gate — and the banded backend declines in both directions,
-below bandwidth 2 where the LinearAlgebra backends are cheaper and at half the matrix or
-wider where the dense factorization wins.
+`SymTridiagonal` or `Tridiagonal` with `Diagonal`, and any of the three with a `Bidiagonal`
+`A`, give bandwidth 1 and an `ldlt`. Both are core LinearAlgebra. Bandwidth 2 and up needs
+BandedMatrices.jl loaded, since LinearAlgebra stores no symmetric banded type past
+`SymTridiagonal`; without it those problems take the dense path, correctly but densely.
+Selection is dispatch on the pair of types — no setting, no density gate — and the banded
+backend declines in both directions, below bandwidth 2 where the LinearAlgebra backends are
+cheaper and above a quarter of the matrix where the dense path wins per iteration.
 
 **Keyed on `A`, not `P`.** `ÃᵀρÃ` is dense for a general `A` whatever `P` looked like, so a
 `Diagonal` `P` with a dense `A` has a dense reduced matrix and correctly gets the dense

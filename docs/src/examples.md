@@ -516,6 +516,62 @@ PureOSQP.backend_name(setup(Diagonal(fill(2.0, 40)), q[1:40], randn(60, 40),
                             fill(-1.0, 60), fill(1.0, 60)).linsys)
 ```
 
+### Supplying a matrix type of your own
+
+`P` and `A` are held by reference and reached through a small set of functions, so a
+representation the package has never heard of works by declaring itself
+`<: AbstractMatrix{T}` and supplying `size`, `mul!`, and `mul!` against its adjoint. That
+much is enough to solve. Everything below is optional and each override replaces one generic
+walk over entries with whatever the representation can answer more cheaply.
+
+There are two seam levels, and which one a representation wants depends on whether it can
+enumerate a column.
+
+**Per column.** [`PureOSQP.structural_rows`](@ref)`(M, j)` names the rows column `j` can hold
+a nonzero in; the four traversals in `src/scaling.jl` — `weighted_colmax`,
+`weighted_colmax_rowmax!`, `scaled_col!` and `add_scaled_col!` — follow it, so a single
+`structural_rows` method makes equilibration and the dense formation cost the column's own
+entries rather than all `m` of them. A representation whose columns are cheaper to walk than
+to index overrides the four traversals directly instead; the sparse extension does that,
+because `M[i, j]` on a `SparseMatrixCSC` is a binary search.
+
+**Per sweep.** `column_norms!` and `cost_norms!` are the whole of what equilibration asks
+per sweep, so a representation that answers in whole-matrix or closed form overrides those
+two and never sees a column index. The GPU extension is the shipped example: it replaces
+both with array reductions, which is what lets a device array equilibrate under
+`allowscalar(false)`.
+
+Beyond equilibration there are three more override points, all optional:
+`PureOSQP.reduced_diagonal!` for the matrix-free preconditioner,
+[`PureOSQP.is_convex`](@ref) for the convexity test `setup` runs before choosing a backend,
+and [`PureOSQP.is_symmetric`](@ref) for the symmetry check — the last two both densify or
+scan `n²` positions otherwise.
+
+[`PureOSQP.RowCoupled`](@ref) is the worked example in the package itself: a few dense rows
+above a block holding one entry per row. It defines `size`, `getindex` and `mul!`, and adds
+one `structural_rows` method; that is all it takes for a `Diagonal` `P` with a `RowCoupled`
+`A` to reach the low-rank backend and to equilibrate at the cost of its own entries.
+
+An operator that supplies **only** products — nothing to index at all — says so with
+[`PureOSQP.is_materializable`](@ref):
+
+```julia
+PureOSQP.is_materializable(::MyOperator) = false
+```
+
+`linsys = :auto` then declines the dense terminal and lands on the matrix-free backend, which
+needs Krylov.jl loaded. `polish!` and the two derivative entry points build a dense matrix
+out of `P` and `A` entry by entry, so they refuse such an operator by name rather than
+failing inside a factorization: pass `polish = false`, and differentiate a materialized form
+of the problem. Equilibration also walks columns, so an operator that overrides neither seam
+level needs `scaling = 0`.
+
+The hot-path guarantees carry a condition here that they do not carry elsewhere. `admm_step!`
+allocates nothing and is type-stable for a caller-supplied operator only as far as that
+operator's own `mul!` is: a broadcast in it, or a `DimensionMismatch` message built from a
+type, is enough to lose both. `bench/lazy_operator.jl` is written to hold them, and
+`bench/strictmode_audit.jl` checks it.
+
 ## Building a workspace once
 
 `solve` builds a workspace, solves, and throws the workspace away. [`setup`](@ref) hands it

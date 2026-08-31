@@ -27,6 +27,7 @@ PureOSQP.mul_A!
 PureOSQP.mul_At!
 PureOSQP.mul_P!
 PureOSQP.refactor!
+PureOSQP.refactor_rho!
 PureOSQP.factorize!
 PureOSQP.solve_system!
 PureOSQP.admm_step!
@@ -50,8 +51,23 @@ PureOSQP.ReducedInverse
 PureOSQP.ReducedCholesky
 PureOSQP.DiagonalReduced
 PureOSQP.TridiagonalReduced
+PureOSQP.DiagonalLowRank
 PureOSQP.FullKKT
 PureOSQP.indirect_backend
+```
+
+## Structured inputs
+
+```@docs
+PureOSQP.RowCoupled
+PureOSQP.coupling_rank
+PureOSQP.structural_rows
+PureOSQP.is_convex
+PureOSQP.is_symmetric
+PureOSQP.is_materializable
+PureOSQP.reduced_diagonal!
+PureOSQP.ProductOperator
+PureOSQP.unpreconditioned!
 ```
 
 ## The selection ladder
@@ -61,6 +77,7 @@ PureOSQP.select_backend
 PureOSQP.density_gate_rung
 PureOSQP.kkt_rung
 PureOSQP.reduced_rung
+PureOSQP.lowrank_rung
 PureOSQP.formed_rung
 PureOSQP.dense_rung
 PureOSQP.indirect_rung
