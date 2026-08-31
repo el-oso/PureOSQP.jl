@@ -42,6 +42,7 @@ of iterative refinement against the unregularized operator.
 """
 function polish!(ws::Workspace{T}) where {T}
     require_host(ws.x, "polishing")
+    require_entries(ws.P, ws.A, "polishing", "Leave `polish = false` and take the ADMM iterate.")
     n, m = ws.n, ws.m
     δ = ws.settings.delta
     active = Int[]

@@ -69,7 +69,8 @@ holds one, chosen at [`setup`](@ref) and fixed for the workspace's life, so ever
 dispatches statically.
 
 Implementations must provide the three methods below; the contract is enforced at
-precompilation.
+precompilation. [`refactor_rho!`](@ref) is optional, and rebuilding from scratch is a correct
+answer to it.
 """
 abstract type LinearSystem end
 
@@ -81,6 +82,22 @@ function solve_system! end
     solve_system!(::Self, ::Any, ::Any, ::Any)::Nothing
     backend_info(::Self)::BackendInfo
 end
+
+"""
+    refactor_rho!(ls, ws) -> Bool
+
+Refresh the factorization after `ρ` moved and nothing else, returning whether it succeeded.
+
+Separate from [`factorize!`](@ref) because the two events are not the same: `ρ` changes on
+its own every time [`adapt_rho!`](@ref) fires, while `P`, `A`, `D`, `E` and `c` change only
+through [`setup`](@ref) and [`update!`](@ref). A backend whose factorization is partly
+independent of `ρ` can keep that part.
+
+Rebuilding everything is correct, and is what the default does. An override may assume the
+`ρ`-independent parts are current, since every path that invalidates them calls
+[`refactor!`](@ref) instead.
+"""
+refactor_rho!(ls::LinearSystem, ws) = factorize!(ls, ws)
 
 """
     ReducedInverse <: LinearSystem
@@ -192,9 +209,9 @@ The reduced system when it is tridiagonal. Diagonal scaling preserves a bandwidt
 
     bandwidth(R) = max(bandwidth(P), 2 bandwidth(A))
 
-which is 1 for a `SymTridiagonal` `P` with a `Diagonal` `A`, for a `Diagonal` `P` with a
-`Bidiagonal` `A`, and for the two together. `ldlt` factors that in `O(n)` and its `ldiv!`
-allocates nothing.
+which is 1 for a `SymTridiagonal` or `Tridiagonal` `P` with a `Diagonal` `A`, for a
+`Diagonal` `P` with a `Bidiagonal` `A`, and for the two together. `ldlt` factors that in
+`O(n)` and its `ldiv!` allocates nothing.
 
 `dv` and `ev` hold `R`'s two bands. They are computed entry by entry rather than by forming
 `c D P D + σI + Ãᵀ diag(ρ) Ã`: that product returns a dense `Array` for a `Bidiagonal` `A`
@@ -269,6 +286,52 @@ function is_convex(::Type{T}, P::SymTridiagonal, sigma) where {T}
     return all(>(zero(T)), fact.data.dv)
 end
 
+# `validate` has established that `P` is symmetric before this runs, so a `Tridiagonal`
+# describes the same band as the `SymTridiagonal` built from its diagonal and superdiagonal,
+# and gets the same `O(n)` test rather than the generic densification.
+is_convex(::Type{T}, P::Tridiagonal, sigma) where {T} =
+    is_convex(T, SymTridiagonal(diag(P), diag(P, 1)), sigma)
+
+"""
+    is_materializable(M) -> Bool
+
+Whether `M`'s entries can be read one at a time. True unless the representation says
+otherwise.
+
+Forming the reduced matrix, [`polish!`](@ref) and the derivatives all read entries; an
+operator that supplies only `mul!` declares `false` here and is refused by those paths by
+name rather than by a `MethodError` from inside a factorization. Declining is a statement
+by the operator's author about what it can answer, not a measured threshold.
+
+The method body is a literal, so a call against a type with no override folds away and the
+rungs that consult it stay concretely typed.
+"""
+is_materializable(M) = true
+
+"""
+    require_entries(P, A, what, remedy)
+
+Throw unless both operators can be read entry by entry, naming what needs it.
+
+[`polish!`](@ref) and the derivatives copy `P` and `A` into a dense matrix one entry at a
+time and factor it, which an operator supplying only products cannot serve. Without this
+the caller gets a `MethodError` from inside the copy, which says nothing about what to do.
+
+The message names no type. Interpolating one goes through `show(::IO, ::Type)`, which is a
+runtime dispatch that `--trim` cannot resolve — and for an operator that declines, the
+condition folds to `false`, so this branch is live code rather than the dead one it is for
+every materializable pair.
+"""
+function require_entries(P, A, what::String, remedy::String)
+    (is_materializable(P) && is_materializable(A)) || throw(
+        ArgumentError(
+            "$what reads the entries of P and A one at a time, and one of them declares " *
+                "`PureOSQP.is_materializable` false: it supplies products only. $remedy"
+        )
+    )
+    return nothing
+end
+
 """
     choose_backend(P, A, proto, n, m, D, E, c, rho_vec, sigma) -> (LinearSystem, Bool)
 
@@ -305,11 +368,13 @@ The rungs, in order:
    stored entries loses to the dense product, so the pair goes straight to the terminal.
 2. [`kkt_rung`](@ref) — factor the full `(n+m)×(n+m)` quasi-definite matrix sparsely.
 3. [`reduced_rung`](@ref) — factor the `n×n` reduced matrix sparsely.
-4. [`formed_rung`](@ref) — assemble the reduced matrix from stored entries and invert it
+4. [`lowrank_rung`](@ref) — the reduced matrix is a structured core plus a low-rank
+   correction, solved through the correction rather than formed.
+5. [`formed_rung`](@ref) — assemble the reduced matrix from stored entries and invert it
    densely.
-5. [`dense_rung`](@ref) — form the reduced matrix densely and invert it. Every pair that can
+6. [`dense_rung`](@ref) — form the reduced matrix densely and invert it. Every pair that can
    be materialized at all stops here.
-6. [`indirect_rung`](@ref) — matrix-free, for an operator the terminal cannot materialize.
+7. [`indirect_rung`](@ref) — matrix-free, for an operator the terminal cannot materialize.
 
 Rungs 2 and 3 decide by factoring the real equilibrated matrix and reading the fill, so the
 factorization they produce is the setup factorization and they return `true`. That is why a
@@ -342,6 +407,8 @@ function select_backend(
     rung = kkt_rung(P, A, proto, n, m, D, E, c, rho_vec, sigma)
     isnothing(rung) || return rung
     rung = reduced_rung(P, A, proto, n, m, D, E, c, rho_vec, sigma)
+    isnothing(rung) || return rung
+    rung = lowrank_rung(P, A, proto, n, m, D, E, c, rho_vec, sigma)
     isnothing(rung) || return rung
     rung = formed_rung(P, A, proto, n, m)
     isnothing(rung) || return rung
@@ -383,31 +450,41 @@ reduced_rung(P, A, proto::AbstractVector, n::Integer, m::Integer, D, E, c, rho_v
 """
     formed_rung(P, A, proto, n, m) -> (LinearSystem, Bool) or nothing
 
-Ladder rung 4: form the reduced matrix by accumulating over stored entries, then invert it
+Ladder rung 5: form the reduced matrix by accumulating over stored entries, then invert it
 densely — the same dense arithmetic as [`dense_rung`](@ref) reached without the `m×n` buffer
 its product needs.
+
+Accumulating reads entries, so a method here declines an operand that answers
+[`is_materializable`](@ref) with `false`, as rung 6 does.
 """
 formed_rung(P, A, proto::AbstractVector, n::Integer, m::Integer) = nothing
 
 """
     dense_rung(P, A, proto, n, m) -> (LinearSystem, Bool) or nothing
 
-Ladder rung 5, the terminal: [`ReducedCholesky`](@ref), which forms the reduced matrix with
+Ladder rung 6, the terminal: [`ReducedCholesky`](@ref), which forms the reduced matrix with
 one dense product and inverts it. It serves any pair of materializable matrices, which is
 why every rung above it may decline freely.
 
-Declines only for an operator that is not an `AbstractMatrix`, since there is then nothing to
-form the product from.
+Declines when either operand answers [`is_materializable`](@ref) with `false`, since forming
+the product reads entries. The ladder then falls through to [`indirect_rung`](@ref).
 """
-dense_rung(
-    P::AbstractMatrix, A::AbstractMatrix, proto::AbstractVector, n::Integer, m::Integer
-) = (ReducedCholesky(proto, n, m), false)
+function dense_rung(
+        P::AbstractMatrix, A::AbstractMatrix, proto::AbstractVector, n::Integer, m::Integer
+    )
+    (is_materializable(P) && is_materializable(A)) || return nothing
+    return (ReducedCholesky(proto, n, m), false)
+end
+
+# Every rung declines rather than erroring on a pair it does not serve, so the ladder reaches
+# its next rung instead of the caller reaching a `MethodError`. This is the terminal rung's
+# share of that: an operand outside `AbstractMatrix` is served below, not here.
 dense_rung(P, A, proto::AbstractVector, n::Integer, m::Integer) = nothing
 
 """
     indirect_rung(P, A, proto, n, m) -> (LinearSystem, Bool)
 
-Ladder rung 6, below the terminal: conjugate gradients, which needs only products with `P`
+Ladder rung 7, below the terminal: conjugate gradients, which needs only products with `P`
 and `A` and so serves an operator no other rung can materialize.
 
 It has no gate: reaching it means nothing above could serve. Without Krylov loaded there is
@@ -424,13 +501,17 @@ choose_backend(
 # The pairs whose reduced matrix has bandwidth 1. `Bidiagonal` is as wide an `A` as this
 # reaches: a `Tridiagonal` one squares to bandwidth 2, which no symmetric type in
 # LinearAlgebra stores.
+#
+# A `Tridiagonal` `P` names the same band a `SymTridiagonal` one does, and `factorize!`
+# reads it through `P[j, j]` and `P[j, j+1]` alone; `validate` has already established that
+# `P` is symmetric, so the subdiagonal it also stores holds the same numbers.
 choose_backend(
-    P::SymTridiagonal, A::Diagonal, proto::AbstractVector, n::Integer, m::Integer,
-    D, E, c, rho_vec, sigma
+    P::Union{SymTridiagonal, Tridiagonal}, A::Diagonal, proto::AbstractVector,
+    n::Integer, m::Integer, D, E, c, rho_vec, sigma
 ) = (TridiagonalReduced(proto, n), false)
 
 choose_backend(
-    P::Union{Diagonal, SymTridiagonal}, A::Bidiagonal, proto::AbstractVector,
+    P::Union{Diagonal, SymTridiagonal, Tridiagonal}, A::Bidiagonal, proto::AbstractVector,
     n::Integer, m::Integer, D, E, c, rho_vec, sigma
 ) = (TridiagonalReduced(proto, n), false)
 
@@ -667,7 +748,21 @@ measured problem has produced once equilibration is on — the remedy is to rebu
 workspace with `linsys = :kkt` rather than to switch backend underneath the caller.
 """
 function refactor!(ws)
-    ok = factorize!(ws.linsys, ws)
+    return refactored!(ws, factorize!(ws.linsys, ws))
+end
+
+"""
+    refactor_rho!(ws)
+
+Refresh the workspace's factorization after `ρ` alone changed, through the backend's
+[`refactor_rho!`](@ref) rather than a full rebuild. Counted and reported like any other
+refactorization.
+"""
+function refactor_rho!(ws)
+    return refactored!(ws, refactor_rho!(ws.linsys, ws))
+end
+
+function refactored!(ws, ok::Bool)
     ok || throw(
         ArgumentError(
             "the linear system could not be factorized with the $(backend_name(ws.linsys)) backend. " *

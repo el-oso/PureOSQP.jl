@@ -53,3 +53,41 @@ end
     @test !s.polished
     @test s.x ≈ -(P \ q) rtol = 1.0e-5
 end
+
+@testitem "polish and the derivatives refuse a non-materializable operator" begin
+    using LinearAlgebra, Random, Krylov
+
+    # Products and nothing else, as in `test/linsys_tests.jl`. Both paths below build a
+    # dense matrix out of `P` and `A` entry by entry, which this operator cannot serve.
+    struct ProductsOnly{T} <: AbstractMatrix{T}
+        m::Matrix{T}
+    end
+    Base.size(op::ProductsOnly) = size(op.m)
+    LinearAlgebra.mul!(y::AbstractVector, op::ProductsOnly, x::AbstractVector) = mul!(y, op.m, x)
+    LinearAlgebra.mul!(
+        y::AbstractVector, op::Adjoint{<:Any, <:ProductsOnly}, x::AbstractVector
+    ) = mul!(y, parent(op).m', x)
+    PureOSQP.is_materializable(::ProductsOnly) = false
+    LinearAlgebra.issymmetric(op::ProductsOnly) = issymmetric(op.m)
+    PureOSQP.is_convex(::Type{T}, op::ProductsOnly, sigma) where {T} =
+        PureOSQP.is_convex(T, op.m, sigma)
+    PureOSQP.reduced_diagonal!(
+        dest, ::Type{T}, P::ProductsOnly, A::ProductsOnly, rho, E, D, sigma, c
+    ) where {T} = PureOSQP.reduced_diagonal!(dest, T, P.m, A.m, rho, E, D, sigma, c)
+
+    Random.seed!(32)
+    n, m = 12, 24
+    X = randn(n, n)
+    P, A = ProductsOnly(Matrix(X'X / n + I)), ProductsOnly(randn(m, n))
+    q = randn(n)
+    b = A.m * randn(n)
+    l, u = b .- rand(m), b .+ rand(m)
+    opts = (scaling = 0, eps_abs = 1.0e-8, eps_rel = 1.0e-8, max_iter = 100_000)
+
+    @test_throws "Leave `polish = false`" PureOSQP.solve(P, q, A, l, u; opts..., polish = true)
+
+    ws = setup(P, q, A, l, u; opts...)
+    @test PureOSQP.solve!(ws).status == SOLVED
+    @test_throws "supplies products only" PureOSQP.adjoint_derivative(ws, randn(n), randn(m))
+    @test_throws "no matrix-free form" PureOSQP.forward_derivative(ws; dq = randn(n))
+end

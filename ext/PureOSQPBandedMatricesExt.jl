@@ -49,6 +49,20 @@ banded_bandwidth(::SymTridiagonal) = 1
 banded_bandwidth(M::BandedMatrix) = max(bandwidth(M, 1), bandwidth(M, 2))
 banded_bandwidth(M::Symmetric{<:Any, <:BandedMatrix}) = banded_bandwidth(parent(M))
 
+# Equilibration and the dense formation walk a column at a time through `structural_rows`.
+# Without these the generic method reports every row, so a matrix holding `O(nb)` entries is
+# visited `O(n^2)` times per Ruiz sweep. Both derive their bounds from the bandwidths stated
+# above rather than encoding them again.
+@inline PureOSQP.structural_rows(M::BandedMatrix, j::Integer) =
+    max(firstindex(M, 1), j - bandwidth(M, 2)):min(lastindex(M, 1), j + bandwidth(M, 1))
+
+# The wrapper mirrors one triangle across the diagonal, so the rows it can hold a nonzero in
+# span the wider of the parent's two bandwidths on both sides.
+@inline function PureOSQP.structural_rows(M::Symmetric{<:Any, <:BandedMatrix}, j::Integer)
+    b = banded_bandwidth(M)
+    return max(firstindex(M, 1), j - b):min(lastindex(M, 1), j + b)
+end
+
 """
     reduced_bandwidth(P, A) -> Int
 
@@ -62,10 +76,13 @@ const BandedLike = Union{
     BandedMatrix, Symmetric{<:Any, <:BandedMatrix},
 }
 
-# The types PureOSQP itself has no backend for. The two methods below split on `A` so that
-# neither overlaps the other, nor the `(Diagonal, Diagonal)`, `(SymTridiagonal, Diagonal)`
-# and `(Diagonal|SymTridiagonal, Bidiagonal)` methods in `src/linsys.jl`, whose reduced
-# matrices are narrow enough for the LinearAlgebra backends.
+# The types PureOSQP itself has no backend for. The two methods below split so that neither
+# overlaps the other, nor the `(Diagonal, Diagonal)`,
+# `(SymTridiagonal|Tridiagonal, Diagonal)` and
+# `(Diagonal|SymTridiagonal|Tridiagonal, Bidiagonal)` methods in `src/linsys.jl`, whose
+# reduced matrices are narrow enough for the LinearAlgebra backends. A `Tridiagonal` `A`
+# squares past those, which is why it is a `WideBand`; a `Tridiagonal` `P` does not, so the
+# second method's `P` position stops at the types BandedMatrices itself supplies.
 const WideBand = Union{Tridiagonal, BandedMatrix, Symmetric{<:Any, <:BandedMatrix}}
 const NarrowBand = Union{Diagonal, Bidiagonal}
 
@@ -75,7 +92,8 @@ PureOSQP.choose_backend(
 ) where {T <: Real} = banded_backend(P, A, proto, n, m)
 
 PureOSQP.choose_backend(
-    P::WideBand, A::NarrowBand, proto::AbstractVector{T}, n::Integer, m::Integer,
+    P::Union{BandedMatrix, Symmetric{<:Any, <:BandedMatrix}}, A::NarrowBand,
+    proto::AbstractVector{T}, n::Integer, m::Integer,
     D, E, c, rho_vec, sigma
 ) where {T <: Real} = banded_backend(P, A, proto, n, m)
 
@@ -161,8 +179,25 @@ function PureOSQP.solve_system!(ls::BandedReduced, ws, rhs_x, rhs_z)::Nothing
     return nothing
 end
 
-# A banded matrix is factored as one, rather than densified into an `n×n` Cholesky.
-function PureOSQP.is_convex(::Type{T}, P::BandedMatrix, sigma) where {T}
+# Every position outside the band holds a structural zero on both sides of the diagonal, so
+# only the stored band has to be compared: a pair `(i, j)` with either entry stored is
+# reached from column `j` or from column `i`, and a pair with neither is zero against zero.
+# The generic entrywise scan is `O(n²)` and is the largest single term in a banded `setup`.
+function PureOSQP.is_symmetric(M::BandedMatrix)
+    size(M, 1) == size(M, 2) || return false
+    for j in axes(M, 2), i in PureOSQP.structural_rows(M, j)
+        M[i, j] == M[j, i] || return false
+    end
+    return true
+end
+
+# A banded matrix is factored as one, rather than densified into an `n×n` Cholesky. The
+# wrapper is admitted alongside the bare matrix because everything below reads `P` through
+# `banded_bandwidth`, `size` and `P[i, j]`, all of which the wrapper answers. The union is
+# narrower than `BandedLike`: the other types it names have their own methods in `src/`.
+function PureOSQP.is_convex(
+        ::Type{T}, P::Union{BandedMatrix, Symmetric{<:Any, <:BandedMatrix}}, sigma
+    ) where {T}
     isempty(P) && return true
     b = banded_bandwidth(P)
     S = BandedMatrix{T}(undef, size(P), (b, b))

@@ -26,7 +26,10 @@ export PolishStatus, POLISH_SUCCESS, POLISH_FAILED, POLISH_NOT_PERFORMED
 export POLISH_NO_ACTIVE_SET_FOUND, POLISH_LINSYS_ERROR
 export SOLVED_INACCURATE, PRIMAL_INFEASIBLE_INACCURATE, DUAL_INFEASIBLE_INACCURATE
 
+include("rowcoupled.jl")
 include("linsys.jl")
+include("operator.jl")
+include("lowrank.jl")
 include("types.jl")
 include("elementwise.jl")
 include("scaling.jl")

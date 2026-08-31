@@ -165,3 +165,43 @@ end
         @test ss.x == sd.x
     end
 end
+
+@testitem "two spellings of one problem equilibrate and solve alike" begin
+    using LinearAlgebra, SparseArrays, OSQP, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    # Equilibration is a property of the numbers, not of how they are stored: declaring a
+    # problem's structure must give the same `D`, `E` and `c` as handing over the same
+    # entries with no structure to declare. The two forms here reach different backends, so
+    # this is the seam where a traversal override, a `structural_rows` method or a scaling
+    # shortcut could silently change what the solver is given.
+    Random.seed!(45)
+    n, k = 60, 4
+    C = randn(k, n) ./ 4
+    A = PureOSQP.RowCoupled(C, rand(n) .+ 0.5, collect(1:n))
+    P = Diagonal(rand(n) .+ 1)
+    m = k + n
+    q = randn(n)
+    b = Matrix(A) * randn(n)
+    l, u = b .- rand(m), b .+ rand(m)
+    # A fixed rho keeps the comparison on equilibration and the backends: rho adaptation
+    # turns a last-digit difference between two backends into a different update point,
+    # and from there the two forms take different iteration counts for a reason that has
+    # nothing to do with scaling.
+    opts = (eps_abs = 1.0e-9, eps_rel = 1.0e-9, adaptive_rho = false, max_iter = 20_000)
+
+    structured = setup(P, q, A, l, u; opts...)
+    formed = setup(sparse(P), q, sparse(Matrix(A)), l, u; opts...)
+    @test PureOSQP.backend_name(structured.linsys) == :lowrank
+    @test PureOSQP.backend_name(formed.linsys) != :lowrank
+    @test structured.D == formed.D
+    @test structured.E == formed.E
+    @test structured.c == formed.c
+
+    ss = PureOSQP.solve!(structured)
+    sf = PureOSQP.solve!(formed)
+    @test ss.status == SOLVED
+    @test sf.status == SOLVED
+    @test ss.iter == sf.iter
+    @test ss.obj_val ≈ sf.obj_val rtol = 1.0e-8
+    @test ss.x ≈ sf.x rtol = 1.0e-8
+end

@@ -284,6 +284,19 @@ function check_bounds(l, u)
     return check_bounds(Array(l), Array(u))
 end
 
+"""
+    is_symmetric(M) -> Bool
+
+Whether `M` equals its transpose, which [`setup`](@ref) requires of `P`.
+
+The generic method is `issymmetric`, an entrywise scan over all `n²` positions. A
+representation whose entries are structurally zero outside a known set overrides this and
+compares only that set — `ext/PureOSQPBandedMatricesExt.jl` does, where the generic scan is
+the largest single term in a banded `setup`. It is an override point for the same reason
+[`is_convex`](@ref) is: the cost is a property of the representation, not of the problem.
+"""
+is_symmetric(M) = issymmetric(M)
+
 function validate(P, q, A, l, u)
     n = size(P, 1)
     size(P, 2) == n || throw(ArgumentError("P must be square, got size $(size(P))"))
@@ -292,7 +305,7 @@ function validate(P, q, A, l, u)
     length(q) == n || throw(ArgumentError("length(q) = $(length(q)) must equal size(P, 1) = $n"))
     length(l) == m || throw(ArgumentError("length(l) = $(length(l)) must equal size(A, 1) = $m"))
     length(u) == m || throw(ArgumentError("length(u) = $(length(u)) must equal size(A, 1) = $m"))
-    issymmetric(P) || throw(ArgumentError("P must be symmetric. Pass the full matrix or a Symmetric wrapper, not a stored triangle."))
+    is_symmetric(P) || throw(ArgumentError("P must be symmetric. Pass the full matrix or a Symmetric wrapper, not a stored triangle."))
     all(isfinite, q) || throw(ArgumentError("q must be finite, found NaN or Inf"))
     any(isnan, l) && throw(ArgumentError("l contains NaN"))
     any(isnan, u) && throw(ArgumentError("u contains NaN"))
@@ -327,6 +340,11 @@ Build a workspace for `min ½xᵀPx + qᵀx  s.t.  l ≤ Ax ≤ u`.
 `P` must be a full symmetric matrix (or a `Symmetric` wrapper), not a stored triangle.
 `P` and `A` may be any `AbstractMatrix` and are not copied or modified. Keyword arguments
 are the fields of [`Settings`](@ref).
+
+A `Symmetric` wrapper is accepted over any parent, but it costs something over a
+`SparseMatrixCSC`: the sparse-factorization backends are keyed on that concrete type, so a
+wrapped one descends past them, and equilibration walks the wrapper entrywise rather than by
+stored column. Pass the full `SparseMatrixCSC` to reach those backends.
 """
 function setup(
         P::AbstractMatrix, q::AbstractVector, A::AbstractMatrix,

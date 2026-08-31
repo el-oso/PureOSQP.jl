@@ -15,13 +15,21 @@ end
 # at zero. Both hold for every caller here, and the sparse overrides already depend on it.
 
 """
-    structural_rows(M, j) -> AbstractUnitRange
+    structural_rows(M, j) -> iterable of row indices
 
-The rows in which column `j` of `M` can hold a nonzero.
+The rows in which column `j` of `M` can hold a nonzero, in increasing order and without
+repeats.
 
 Every row, in general. A banded matrix has a much shorter answer, and taking the generic one
-is what makes a `Diagonal` `P` cost `O(n)` per column rather than `O(1)` — the reason
-structured storage measured slower than dense before these methods existed.
+is what makes a `Diagonal` `P` cost `O(n)` per column rather than `O(1)` — enough on its own
+to make structured storage slower than dense.
+
+The iterator's state must be concretely typed: this runs on the equilibration path, where a
+dynamic dispatch costs an order of magnitude and fails `--trim`.
+
+A range for every representation whose nonzeros are contiguous down a column, which is most
+of them; [`RowCoupled`](@ref) is the exception, since its dense rows sit above scattered
+single-entry ones.
 """
 @inline structural_rows(M::AbstractMatrix, j::Integer) = axes(M, 1)
 @inline structural_rows(M::Diagonal, j::Integer) = j:j
@@ -252,14 +260,19 @@ end
 The diagonal of the reduced matrix, `c·D[j]²·P[j,j] + σ + Σᵢ ρᵢ(E[i]·A[i,j]·D[j])²`.
 
 The matrix-free backend preconditions with this, and it is the one thing that backend needs
-from `P` and `A` other than their products. A representation that cannot be indexed
-overrides it with whole-matrix reductions.
+from `P` and `A` other than their products. The row sum follows
+[`structural_rows`](@ref)`(A, j)`, so a declared structure costs only its own entries; a
+representation that cannot be indexed at all overrides this function with whole-matrix
+reductions.
 """
 function reduced_diagonal!(dest, ::Type{T}, P, A, rho, E, D, sigma, c) where {T}
+    # `rho` and `E` are workspace vectors indexed by the same `i` that indexes `A`'s rows, so
+    # a representation whose rows are not counted from one would read the wrong weights.
+    Base.require_one_based_indexing(rho, E)
     for j in eachindex(dest)
         dj = D[j]
         d = c * dj * T(P[j, j]) * dj + sigma
-        for i in eachindex(rho, E)
+        for i in structural_rows(A, j)
             a = E[i] * T(A[i, j]) * dj
             d += rho[i] * a * a
         end

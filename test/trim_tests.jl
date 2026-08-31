@@ -38,6 +38,15 @@
             )
         )
     )
+    push!(names, :solve_tridiagonal_unsym)
+    push!(
+        sigs,
+        :(
+            TrimEntry.solve_tridiagonal_unsym(
+                TrimEntry.TM, Vector{Float64}, TrimEntry.DM, Vector{Float64}, Vector{Float64}
+            )
+        )
+    )
     push!(names, :solve_banded)
     push!(
         sigs,
@@ -47,11 +56,34 @@
             )
         )
     )
+    push!(names, :solve_lowrank)
+    push!(
+        sigs,
+        :(
+            TrimEntry.solve_lowrank(
+                TrimEntry.DM, Vector{Float64}, TrimEntry.RC, Vector{Float64}, Vector{Float64}
+            )
+        )
+    )
+    push!(names, :solve_operator)
+    push!(
+        sigs,
+        :(
+            TrimEntry.solve_operator(
+                TrimEntry.PO, Vector{Float64}, TrimEntry.PO, Vector{Float64}, Vector{Float64}
+            )
+        )
+    )
     results = TrimCheck.validate(sigs...; init = :(include($entry); using .TrimEntry), progressbar = false)
     ok = Dict(
         String(f) => occursin("is trim compatible", sprint(show, r))
             for (f, r) in zip(names, results)
     )
+    # A bare failed assertion names the entry point but not what the trimmer objected to,
+    # which is the only part that says where to look.
+    for (f, r) in zip(names, results)
+        f === :not_trimmable || ok[String(f)] || println("$f:\n", sprint(show, r))
+    end
     for f in names
         f === :not_trimmable && continue
         @test ok[String(f)]

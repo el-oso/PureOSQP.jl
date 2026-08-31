@@ -437,3 +437,200 @@ end
     P = SymTridiagonal([1.0, -6.0, 1.0, 1.0], fill(0.05, n - 1))
     @test_throws "convex" setup(P, randn(n), Diagonal(ones(n)), -ones(n), ones(n))
 end
+
+@testitem "a diagonal core with coupling rows solves through the low-rank backend" begin
+    using LinearAlgebra, Random
+    Random.seed!(41)
+    n, k, m0 = 40, 3, 40
+    P = Diagonal(rand(n) .+ 1)
+    A = PureOSQP.RowCoupled(randn(k, n), m0)
+    @test size(A) == (k + m0, n)
+    # The type must agree with the matrix it stands for, entry by entry.
+    dense_A = [A.coupling; Matrix(1.0I, m0, n)]
+    @test Matrix(A) == dense_A
+
+    ws = setup(P, randn(n), A, -rand(k + m0), rand(k + m0); scaling = 0, sigma = 1.0e-6, rho = 0.1)
+    @test ws.linsys isa PureOSQP.DiagonalLowRank
+    @test PureOSQP.backend_name(ws.linsys) == :lowrank
+
+    # Against the full KKT system the backend stands for.
+    bx, bz = randn(n), randn(k + m0)
+    PureOSQP.solve_system!(ws.linsys, ws, bx, bz)
+    K = [Matrix(P) + ws.settings.sigma * I  dense_A'; dense_A  -Diagonal(1 ./ ws.rho_vec)]
+    ref = K \ [bx; bz]
+    @test ws.xtilde ≈ ref[1:n] rtol = 1.0e-9
+    @test ws.ztilde ≈ dense_A * ws.xtilde rtol = 1.0e-9
+end
+
+@testitem "the low-rank backend agrees with the dense one end to end" begin
+    using LinearAlgebra, Random
+    Random.seed!(42)
+    n, k, m0 = 60, 4, 60
+    C = randn(k, n)
+    A = PureOSQP.RowCoupled(C, m0)
+    dense_A = [C; Matrix(1.0I, m0, n)]
+    P = Diagonal(rand(n) .+ 1)
+    q, l, u = randn(n), -rand(k + m0), rand(k + m0)
+    opts = (eps_abs = 1.0e-9, eps_rel = 1.0e-9)
+    low = solve(P, q, A, l, u; opts...)
+    dense = solve(Matrix(P), q, dense_A, l, u; opts...)
+    @test low.status == PureOSQP.SOLVED
+    @test low.iter == dense.iter
+    @test low.x ≈ dense.x rtol = 1.0e-6
+end
+
+@testitem "the low-rank rung declines a correction too wide to pay" begin
+    using LinearAlgebra, Random
+    Random.seed!(43)
+    n = 20
+    proto = zeros(n)
+
+    "The rung's verdict for a coupling of rank `k`."
+    function rung(k)
+        A = PureOSQP.RowCoupled(randn(k, n), n)
+        m = k + n
+        return PureOSQP.lowrank_rung(
+            Diagonal(ones(n)), A, proto, n, m, ones(n), ones(m), 1.0, ones(m), 1.0e-6
+        )
+    end
+
+    # The limit is `10k <= n`, which is `k <= 2` here.
+    @test isnothing(rung(3))
+    @test isnothing(rung(n ÷ 2))
+    ls, factored = rung(2)
+    @test ls isa PureOSQP.DiagonalLowRank
+    @test !factored
+end
+
+@testitem "a rho update leaves the same factorization as a full rebuild" begin
+    using LinearAlgebra, Random
+    Random.seed!(44)
+    n, k = 60, 3
+    P = Diagonal(rand(n) .+ 0.5)
+    A = PureOSQP.RowCoupled(randn(k, n) ./ 4, ones(n - k), collect(1:(n - k)))
+    ws = setup(P, randn(n), A, -rand(n), rand(n))
+
+    "The solve of a fixed right-hand side, which is what the factorization is for."
+    function applied(ws)
+        PureOSQP.solve_system!(ws.linsys, ws, ws.rhs_x, ws.rhs_z)
+        return copy(ws.xtilde)
+    end
+
+    ws.rhs_x .= randn(n)
+    ws.rhs_z .= randn(ws.m)
+    PureOSQP.set_rho_vec!(ws, 3.7)
+    @test PureOSQP.refactor_rho!(ws.linsys, ws)
+    cheap = applied(ws)
+    @test PureOSQP.factorize!(ws.linsys, ws)
+    @test cheap ≈ applied(ws) rtol = 1.0e-12
+end
+
+@testitem "is_convex answers without densifying for Tridiagonal and banded-symmetric P" begin
+    using LinearAlgebra, Random, BandedMatrices
+
+    "The generic method's answer: densify, shift and factor."
+    reference(M, sigma) = issuccess(cholesky!(Symmetric(Matrix{Float64}(M) + sigma * I); check = false))
+
+    sigma = 1.0e-6
+    rng = MersenneTwister(77)
+    n, b = 40, 3
+
+    "A symmetric band of half-width `b`, shifted on the diagonal."
+    function band_matrix(shift)
+        B = BandedMatrix{Float64}(undef, (n, n), (b, b))
+        fill!(B.data, 0.0)
+        B[band(0)] .= rand(MersenneTwister(78), n) .+ 2b .+ shift
+        for k in 1:b
+            B[band(k)] .= rand(MersenneTwister(78 + k), n - k) ./ (4b)
+            B[band(-k)] .= B[band(k)]
+        end
+        return Symmetric(B)
+    end
+
+    ev = rand(rng, n - 1) ./ 8
+    dv = rand(rng, n) .+ 2.0
+    definite = (Tridiagonal(copy(ev), copy(dv), copy(ev)), band_matrix(0.0))
+    indefinite = (Tridiagonal(copy(ev), dv .- 5.0, copy(ev)), band_matrix(-3.0 * 2b))
+
+    for P in definite
+        @test PureOSQP.is_convex(Float64, P, sigma)
+        @test reference(P, sigma)
+    end
+    for P in indefinite
+        @test !PureOSQP.is_convex(Float64, P, sigma)
+        @test !reference(P, sigma)
+    end
+
+    # A method of its own, not the densifying `AbstractMatrix` fallback.
+    generic = which(PureOSQP.is_convex, Tuple{Type{Float64}, AbstractMatrix, Float64})
+    for P in definite
+        @test which(PureOSQP.is_convex, Tuple{Type{Float64}, typeof(P), Float64}) !== generic
+    end
+
+    # The reduced matrix is `c D P D + σI + Ãᵀ diag(ρ) Ã`, so a large enough `ρ` makes it
+    # positive definite over an indefinite `P`. `factorize!` therefore cannot stand in for
+    # the convexity test, and `setup` has to run `is_convex` on its own.
+    bad = SymTridiagonal(dv .- 5.0, copy(ev))
+    ws = setup(SymTridiagonal(copy(dv), copy(ev)), randn(rng, n), Diagonal(ones(n)), -rand(rng, n), rand(rng, n); scaling = 0, sigma = sigma)
+    @test PureOSQP.backend_name(ws.linsys) === :tridiagonal
+    @test !PureOSQP.is_convex(Float64, bad, sigma)
+    ws.P = bad
+    PureOSQP.set_rho_vec!(ws, 50.0)
+    @test PureOSQP.factorize!(ws.linsys, ws)
+end
+
+@testitem "a products-only operator routes to the indirect rung" begin
+    using LinearAlgebra, Random, Krylov
+
+    # An operator that supplies products and nothing else. It is an `AbstractMatrix` so that
+    # `Workspace` accepts it, but it defines no `getindex`; `is_materializable` is how it
+    # says so, and the reference matrix is kept beside it only so the test has something to
+    # compare against.
+    struct ProductsOnly{T} <: AbstractMatrix{T}
+        m::Matrix{T}
+    end
+    Base.size(op::ProductsOnly) = size(op.m)
+    LinearAlgebra.mul!(y::AbstractVector, op::ProductsOnly, x::AbstractVector) = mul!(y, op.m, x)
+    LinearAlgebra.mul!(
+        y::AbstractVector, op::Adjoint{<:Any, <:ProductsOnly}, x::AbstractVector
+    ) = mul!(y, parent(op).m', x)
+    PureOSQP.is_materializable(::ProductsOnly) = false
+    LinearAlgebra.issymmetric(op::ProductsOnly) = issymmetric(op.m)
+    PureOSQP.is_convex(::Type{T}, op::ProductsOnly, sigma) where {T} =
+        PureOSQP.is_convex(T, op.m, sigma)
+    PureOSQP.reduced_diagonal!(
+        dest, ::Type{T}, P::ProductsOnly, A::ProductsOnly, rho, E, D, sigma, c
+    ) where {T} = PureOSQP.reduced_diagonal!(dest, T, P.m, A.m, rho, E, D, sigma, c)
+
+    Random.seed!(31)
+    n, m = 20, 40
+    X = randn(n, n)
+    Pm = Matrix(X'X / n + I)
+    Am = randn(m, n)
+    q = randn(n)
+    b = Am * randn(n)
+    l, u = b .- rand(m), b .+ rand(m)
+    opts = (scaling = 0, eps_abs = 1.0e-8, eps_rel = 1.0e-8, max_iter = 100_000)
+
+    # Falling through past the dense terminal without Krylov is a named refusal rather than
+    # a `MethodError` from inside a factorization. `invoke` reaches the core method whether
+    # or not the extension has added its own, so this holds in either load state.
+    @test_throws "needs Krylov.jl" invoke(
+        PureOSQP.indirect_backend, Tuple{AbstractVector, Integer, Integer}, q, n, m
+    )
+
+    ws = setup(ProductsOnly(Pm), q, ProductsOnly(Am), l, u; opts..., linsys = :auto)
+    @test PureOSQP.backend_name(ws.linsys) === :indirect
+    lazy = PureOSQP.solve!(ws)
+    ref = PureOSQP.solve(Pm, q, Am, l, u; opts...)
+    @test lazy.status == SOLVED
+    @test ref.status == SOLVED
+    # The inner solve is inexact, so the two take different iterates to the same answer.
+    @test lazy.x ≈ ref.x atol = 1.0e-5
+    @test lazy.obj_val ≈ ref.obj_val atol = 1.0e-5
+
+    # The trait is what declines rung 6, and it declines on either operand alone.
+    @test isnothing(PureOSQP.dense_rung(ProductsOnly(Pm), Am, q, n, m))
+    @test isnothing(PureOSQP.dense_rung(Pm, ProductsOnly(Am), q, n, m))
+    @test PureOSQP.dense_rung(Pm, Am, q, n, m)[1] isa PureOSQP.ReducedCholesky
+end

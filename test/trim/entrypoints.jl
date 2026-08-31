@@ -24,12 +24,28 @@ solve_unscaled(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u; sca
 solve_diagonal(P::DM, q::V, A::DM, l::V, u::V) = PureOSQP.solve(P, q, A, l, u)
 solve_tridiagonal(P::STM, q::V, A::DM, l::V, u::V) = PureOSQP.solve(P, q, A, l, u)
 
+# The same band spelled `Tridiagonal` reaches the same backend over a different `Workspace`
+# type, which is a specialization of every solve method in its own right.
+solve_tridiagonal_unsym(P::TM, q::V, A::DM, l::V, u::V) = PureOSQP.solve(P, q, A, l, u)
+
 # A Tridiagonal A squares past SymTridiagonal, so this is the BandedMatrices extension.
 solve_banded(P::STM, q::V, A::TM, l::V, u::V) = PureOSQP.solve(P, q, A, l, u)
+
+# The Woodbury backend, whose `A` is a matrix type of this package's own rather than one of
+# LinearAlgebra's.
+const RC = PureOSQP.RowCoupled{Float64, Matrix{Float64}, Vector{Float64}}
+solve_lowrank(P::DM, q::V, A::RC, l::V, u::V) = PureOSQP.solve(P, q, A, l, u)
 
 # The matrix-free backend exists only once Krylov is loaded, so this entry point is what
 # checks that a weak dependency on the solve path does not cost the trim guarantee.
 solve_indirect(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u; linsys = :indirect)
+
+# An operator that supplies only products. Its `getindex` throws on a branch the trimmer
+# analyses whether or not it runs, which is what keeps that message free of the string
+# formatting `--trim` rejects.
+const PO = PureOSQP.ProductOperator{Float64, Matrix{Float64}}
+solve_operator(P::PO, q::V, A::PO, l::V, u::V) =
+    PureOSQP.solve(P, q, A, l, u; scaling = 0, linsys = :indirect)
 
 # `verbose` prints through hand-written formatting precisely because `--trim` rejects
 # Printf and `Base.stdout`. Pinned as its own entry point so that stays checked.
