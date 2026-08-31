@@ -13,7 +13,7 @@ Two examples ship, and both are worth reading as templates:
 
 Each step buys something on its own, so a representation is usable before it is finished.
 
-### 1. `size` and `mul!` — the operator works
+### 1. `size`, `mul!` and `getindex` — the operator works
 
 Declare the type `<: AbstractMatrix{T}` and give it `size`, `mul!` against a vector, and
 `mul!` against a vector for its adjoint. Products run off whatever the type stores.
@@ -37,7 +37,15 @@ function LinearAlgebra.mul!(y::AbstractVector, A::Blocks, x::AbstractVector)
 end
 ```
 
-At this point the solver runs, and the per-iteration products cost what the structure costs.
+`getindex` is needed too, and it is easy to miss why: `setup` tests `P` for symmetry and for
+`P + σI` being positive definite *before* any backend is chosen, and the generic methods for
+both read entries. An operator with `size` and `mul!` alone fails there with a
+`CanonicalIndexError`, not at solve time. Two ways past it — give the type a `getindex`, which
+for most structured representations is a cheap lookup, or override
+[`PureOSQP.is_symmetric`](@ref) and [`PureOSQP.is_convex`](@ref) block-wise and declare
+[`PureOSQP.is_materializable`](@ref) `false`.
+
+With that, the solver runs and the per-iteration products cost what the structure costs.
 Selection still reaches the dense terminal, so an `n×n` reduced matrix is still formed.
 
 An operator from a hierarchy that is not `AbstractMatrix` — `LinearMaps.LinearMap`,
@@ -93,8 +101,18 @@ Selection is multiple dispatch. A method on `choose_backend` for your pair of ty
 the ladder by being more specific, which is the whole mechanism:
 
 ```julia
-PureOSQP.choose_backend(P::Blocks, A::Blocks, proto, n, m) = (BlockSolve(...), false)
+function PureOSQP.choose_backend(
+        P::Blocks, A::Blocks, proto::AbstractVector, n::Integer, m::Integer,
+        D, E, c, rho_vec, sigma
+    )
+    return (BlockSolve(...), false)
+end
 ```
+
+The ten arguments are the seam's signature, not decoration: `D`, `E`, `c` and `rho_vec` are
+there because two rungs decide by factoring the *equilibrated* matrix and handing that
+factorization on. Define a method with fewer and it silently never dispatches — the ladder
+proceeds to the dense terminal and nothing reports a problem.
 
 Return `(backend, false)` when the backend arrives unfactored, `(backend, true)` when it
 already carries a factorization of the current data. A rung inside the ladder instead returns
@@ -103,12 +121,18 @@ serves.
 
 ## What each omission costs
 
-| stopped after | products | setup | reduced matrix | selection |
+| stopped after | products | equilibration | reduced matrix | selection |
 |---|---|---|---|---|
-| 1 — `size`, `mul!` | structured | `O(mn)` | formed, `n×n` | dense terminal |
+| 1 — `size`, `mul!`, `getindex` | structured | `O(mn)` | formed, `n×n` | dense terminal |
 | 2 — `structural_rows` | structured | `O(nnz)` | formed, `n×n` | dense terminal |
 | 3 — a `LinearSystem` | structured | `O(nnz)` | never formed | needs step 4 |
 | 4 — `choose_backend` | structured | `O(nnz)` | never formed | reaches your backend |
+
+The equilibration column is not the whole of `setup`. `is_symmetric` and `is_convex` run
+before a backend is chosen and their generic methods are `O(n²)` and `O(n³)` — a type that
+does not override them pays that on every `setup` however cheap the rest is.
+[`PureOSQP.BlockDiagonal`](@ref) overrides both block-wise, and is worth reading for the
+shape.
 
 ## Paths that need entries, and how they decline
 

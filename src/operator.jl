@@ -108,6 +108,19 @@ end
 
 Base.getindex(::ProductOperator, ::Integer, ::Integer) = no_entries()
 
+# `getindex` refusing is right for equilibration and baffling as the answer to printing the
+# object, which is what the `AbstractArray` display would call it for. Showing the shape and
+# the wrapped operator says everything there is to say without reading an entry.
+function Base.show(io::IO, ::MIME"text/plain", M::ProductOperator{T}) where {T}
+    print(io, M.rows, "×", M.cols, " ProductOperator{", T, "} over ", typeof(M.op))
+    M.probe && print(io, ", probing")
+    M.symmetric && print(io, ", symmetric")
+    M.posdef && print(io, ", posdef")
+    return nothing
+end
+
+Base.show(io::IO, M::ProductOperator) = show(io, MIME"text/plain"(), M)
+
 is_materializable(::ProductOperator) = false
 is_symmetric(M::ProductOperator) = M.symmetric
 is_convex(::Type{T}, P::ProductOperator, sigma) where {T} = P.posdef
@@ -124,6 +137,9 @@ column agrees to that operator's rounding rather than bitwise — which is the c
 exists for, the entries not being there to walk.
 """
 function probe_column!(M::ProductOperator{T}, j::Integer) where {T}
+    # The scratch is empty on an operator built without `probe`, which would otherwise fail
+    # here as a `BoundsError` saying nothing about why.
+    M.probe || no_entries()
     fill!(M.basis, zero(T))
     M.basis[j] = one(T)
     mul!(M.column, M.op, M.basis)

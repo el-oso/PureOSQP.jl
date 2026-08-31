@@ -368,13 +368,15 @@ The rungs, in order:
    stored entries loses to the dense product, so the pair goes straight to the terminal.
 2. [`kkt_rung`](@ref) — factor the full `(n+m)×(n+m)` quasi-definite matrix sparsely.
 3. [`reduced_rung`](@ref) — factor the `n×n` reduced matrix sparsely.
-4. [`lowrank_rung`](@ref) — the reduced matrix is a structured core plus a low-rank
+4. [`block_rung`](@ref) — the reduced matrix decouples into independent blocks, solved one
+   at a time and never assembled whole.
+5. [`lowrank_rung`](@ref) — the reduced matrix is a structured core plus a low-rank
    correction, solved through the correction rather than formed.
-5. [`formed_rung`](@ref) — assemble the reduced matrix from stored entries and invert it
+6. [`formed_rung`](@ref) — assemble the reduced matrix from stored entries and invert it
    densely.
-6. [`dense_rung`](@ref) — form the reduced matrix densely and invert it. Every pair that can
+7. [`dense_rung`](@ref) — form the reduced matrix densely and invert it. Every pair that can
    be materialized at all stops here.
-7. [`indirect_rung`](@ref) — matrix-free, for an operator the terminal cannot materialize.
+8. [`indirect_rung`](@ref) — matrix-free, for an operator the terminal cannot materialize.
 
 Rungs 2 and 3 decide by factoring the real equilibrated matrix and reading the fill, so the
 factorization they produce is the setup factorization and they return `true`. That is why a
@@ -452,7 +454,7 @@ reduced_rung(P, A, proto::AbstractVector, n::Integer, m::Integer, D, E, c, rho_v
 """
     formed_rung(P, A, proto, n, m) -> (LinearSystem, Bool) or nothing
 
-Ladder rung 5: form the reduced matrix by accumulating over stored entries, then invert it
+Ladder rung 6: form the reduced matrix by accumulating over stored entries, then invert it
 densely — the same dense arithmetic as [`dense_rung`](@ref) reached without the `m×n` buffer
 its product needs.
 
@@ -464,7 +466,7 @@ formed_rung(P, A, proto::AbstractVector, n::Integer, m::Integer) = nothing
 """
     dense_rung(P, A, proto, n, m) -> (LinearSystem, Bool) or nothing
 
-Ladder rung 6, the terminal: [`ReducedCholesky`](@ref), which forms the reduced matrix with
+Ladder rung 7, the terminal: [`ReducedCholesky`](@ref), which forms the reduced matrix with
 one dense product and inverts it. It serves any pair of materializable matrices, which is
 why every rung above it may decline freely.
 
@@ -486,7 +488,7 @@ dense_rung(P, A, proto::AbstractVector, n::Integer, m::Integer) = nothing
 """
     indirect_rung(P, A, proto, n, m) -> (LinearSystem, Bool)
 
-Ladder rung 7, below the terminal: conjugate gradients, which needs only products with `P`
+Ladder rung 8, below the terminal: conjugate gradients, which needs only products with `P`
 and `A` and so serves an operator no other rung can materialize.
 
 It has no gate: reaching it means nothing above could serve. Without Krylov loaded there is

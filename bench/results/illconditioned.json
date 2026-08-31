@@ -1,0 +1,78 @@
+{
+  "blas_threads": 1,
+  "cases": [
+    {
+      "backend": "cholesky",
+      "iter": "4000",
+      "linsys": "auto",
+      "obj_val": "182375.90291073135",
+      "seconds": "0.07522612000000001",
+      "shape": "dense",
+      "status": "MAX_ITER_REACHED",
+      "words": "45150"
+    },
+    {
+      "backend": "bunchkaufman",
+      "iter": "4000",
+      "linsys": "kkt",
+      "obj_val": "182375.3448614311",
+      "seconds": "0.320212453",
+      "shape": "dense",
+      "status": "MAX_ITER_REACHED",
+      "words": "180300"
+    },
+    {
+      "backend": "indirect",
+      "iter": "4000",
+      "linsys": "indirect",
+      "obj_val": "0.016927232306613582",
+      "seconds": "0.7508741955",
+      "shape": "dense",
+      "status": "MAX_ITER_REACHED",
+      "words": "0"
+    },
+    {
+      "backend": "block",
+      "iter": "4000",
+      "linsys": "auto",
+      "obj_val": "27139.988506994858",
+      "seconds": "0.022559257000000003",
+      "shape": "blocks of 50",
+      "status": "MAX_ITER_REACHED",
+      "words": "7650"
+    },
+    {
+      "backend": "cholesky",
+      "iter": "4000",
+      "linsys": "dense",
+      "obj_val": "27139.99259117422",
+      "seconds": "0.035622947",
+      "shape": "blocks of 50",
+      "status": "MAX_ITER_REACHED",
+      "words": "45150"
+    },
+    {
+      "backend": "bunchkaufman",
+      "iter": "4000",
+      "linsys": "kkt",
+      "obj_val": "27140.01924021427",
+      "seconds": "0.32952144",
+      "shape": "blocks of 50",
+      "status": "MAX_ITER_REACHED",
+      "words": "180300"
+    },
+    {
+      "backend": "indirect",
+      "iter": "4000",
+      "linsys": "indirect",
+      "obj_val": "1.2549844804722314e9",
+      "seconds": "0.38126126000000005",
+      "shape": "blocks of 50",
+      "status": "MAX_ITER_REACHED",
+      "words": "0"
+    }
+  ],
+  "julia_version": "1.12.7",
+  "kappa": 1.0e12,
+  "n": 300
+}

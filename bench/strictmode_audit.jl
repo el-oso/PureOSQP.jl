@@ -43,6 +43,8 @@ function example_workspace(backend::Symbol)
         return example_tridiagonal_workspace(200)
     elseif backend === :lowrank
         return example_lowrank_workspace(200, 3)
+    elseif backend === :block
+        return example_block_workspace(200, 5)
     elseif backend === :operator
         return example_operator_workspace(200)
     elseif backend === :productoperator
@@ -71,6 +73,24 @@ function example_tridiagonal_workspace(n)
     P = SymTridiagonal(rand(n) .+ 3, rand(n - 1) ./ 8)
     A = Diagonal(rand(n) .+ 0.5)
     ws = PureOSQP.setup(P, randn(n), A, -rand(n), rand(n))
+    PureOSQP.solve!(ws)
+    return ws
+end
+
+"A random symmetric positive definite block of side `k`."
+function spd_block(k)
+    S = randn(k, k)
+    return Matrix(Symmetric(S'S ./ k + 3I))
+end
+
+function example_block_workspace(n, K)
+    Random.seed!(14)
+    nb = n ÷ K
+    P = PureOSQP.BlockDiagonal([spd_block(nb) for _ in 1:K])
+    A = PureOSQP.BlockDiagonal([randn(nb, nb) ./ sqrt(nb) for _ in 1:K])
+    m = size(A, 1)
+    b = randn(m)
+    ws = PureOSQP.setup(P, randn(size(A, 2)), A, b .- rand(m), b .+ rand(m))
     PureOSQP.solve!(ws)
     return ws
 end
@@ -214,7 +234,7 @@ failures = String[]
 
 for backend in (
         :auto, :kkt, :sparse, :cholmod, :diagonal, :tridiagonal, :banded, :lowrank, :indirect,
-        :operator, :productoperator,
+        :block, :operator, :productoperator,
     )
     ws = example_workspace(backend)
     W = typeof(ws)

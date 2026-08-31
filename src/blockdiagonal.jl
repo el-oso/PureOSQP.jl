@@ -9,7 +9,9 @@ A matrix that is a diagonal run of blocks, stored as the blocks and nothing else
 
 The shape a decoupled problem takes: independent subsystems that share only the objective's
 form, such as scenarios in a stochastic program or periods that no constraint links. Storage
-is `Σ mᵢnᵢ` against `mn`, and nothing of size `m×n` is ever formed.
+is `Σ mᵢnᵢ` against `mn`. Nothing of size `m×n` or `n×n` is formed at any point, which takes
+block-wise [`is_symmetric`](@ref) and [`is_convex`](@ref) methods as well as a backend: those
+two run in `setup` before a backend is chosen, and their generic methods reach for entries.
 
 The structure survives into the reduced matrix. `Ãᵀ diag(ρ) Ã` is block-diagonal on the same
 column partition, so with a `P` partitioned the same way
@@ -89,6 +91,9 @@ end
 # Products run block by block over `Σ mᵢnᵢ` entries; a generic `mul!` would call the
 # `getindex` above `mn` times, most of them landing on a structural zero.
 function LinearAlgebra.mul!(y::AbstractVector, A::BlockDiagonal, x::AbstractVector)
+    # The block boundaries are positions counted from one, so the operands are indexed from
+    # one too. Declared rather than assumed, since the signature invites any `AbstractVector`.
+    Base.require_one_based_indexing(y, x)
     for i in eachindex(A.blocks)
         mul!(view(y, rowrange(A, i)), A.blocks[i], view(x, colrange(A, i)))
     end
@@ -99,6 +104,7 @@ function LinearAlgebra.mul!(
         y::AbstractVector, At::Adjoint{<:Any, <:BlockDiagonal}, x::AbstractVector
     )
     A = parent(At)
+    Base.require_one_based_indexing(y, x)
     for i in eachindex(A.blocks)
         mul!(view(y, colrange(A, i)), A.blocks[i]', view(x, rowrange(A, i)))
     end
@@ -119,4 +125,22 @@ from the corresponding blocks of both.
 function same_column_partition(P::BlockDiagonal, A::BlockDiagonal)
     P.colstart == A.colstart || return false
     return P.rowstart == P.colstart
+end
+
+# `setup` tests symmetry and convexity of `P` before any backend is chosen, and the generic
+# methods reach for entries: `issymmetric` walks all `n²` positions, and `is_convex` builds
+# `Matrix(P) + σI` and factors it densely. Both would form the `n×n` object this type exists
+# to avoid, on every `setup` and on every `update!` that replaces `P`. A block-diagonal matrix
+# is symmetric exactly when its blocks are square and each is symmetric, and `P + σI` is
+# positive definite exactly when each `Pᵢ + σI` is, so both cost `Σ` over the blocks.
+function is_symmetric(P::BlockDiagonal)
+    P.rowstart == P.colstart || return false
+    return all(issymmetric, P.blocks)
+end
+
+function is_convex(::Type{T}, P::BlockDiagonal, sigma) where {T}
+    P.rowstart == P.colstart || return false
+    return all(P.blocks) do B
+        isempty(B) || issuccess(cholesky(Symmetric(Matrix{T}(B)) + sigma * I; check = false))
+    end
 end

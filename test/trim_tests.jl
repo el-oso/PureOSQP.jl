@@ -65,6 +65,15 @@
             )
         )
     )
+    push!(names, :solve_block)
+    push!(
+        sigs,
+        :(
+            TrimEntry.solve_block(
+                TrimEntry.BD, Vector{Float64}, TrimEntry.BD, Vector{Float64}, Vector{Float64}
+            )
+        )
+    )
     push!(names, :solve_operator)
     push!(
         sigs,

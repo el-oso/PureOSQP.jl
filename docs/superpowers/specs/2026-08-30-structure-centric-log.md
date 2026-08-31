@@ -213,7 +213,7 @@ status) says:
 
 | row scale spread | unscaled | probed | probed total |
 |---|---|---|---|
-| 0 (well scaled) | 100–150 iter, solved | 100–150 iter, solved | 3–4× **slower** |
+| 0 (well scaled) | 100–150 iter, solved | 100–150 iter, solved | 1.7–4.3× **slower** |
 | 4 orders | 100 000 iter, no convergence | 100 000 iter, no convergence | no difference |
 | 8 orders | 100 000 iter, no convergence | 100 000 iter, no convergence | **3–14× faster** |
 
@@ -260,13 +260,45 @@ were fixed:
   block took `K = 6` from 1.11× to 1.40×, and the ill-conditioned case below from 45 ms to
   23.5 ms.
 
-**At `κ = 10¹²`, `n = 300`, `K = 6`** — a real case rather than a swept one — the block backend
-agrees with both direct alternatives to six significant figures (44251.775 against dense's
-44251.797 and the KKT factorization's 44251.729) while storing 7650 words against 45 150 and
-180 300, and running in 23.5 ms against 36.5 and 1189. **Matrix-free CG on the same problem
-returns 1.86e9 against a true objective of 4.4e4** — not slow, wrong. That is the argument for
-a structured *direct* backend, and it is why the reduced form's squaring of `κ(A)` did not turn
-out to be the binding constraint it looked like.
+**At `κ = 10¹²`, `n = 300`, `K = 6`** — a size and conditioning taken from a real case rather
+than swept — `bench/illconditioned.jl` records what four backends do, and the statuses come
+first: **none of them converges.** All four stop at `max_iter`, so what follows compares where
+they are after 4000 iterations, not four answers.
+
+| backend | status | objective | words | time |
+|---|---|---|---|---|
+| `block` | MAX_ITER_REACHED | 2.714e4 | 7 650 | 22.6 ms |
+| `cholesky` | MAX_ITER_REACHED | 2.714e4 | 45 150 | 35.6 ms |
+| `bunchkaufman` | MAX_ITER_REACHED | 2.714e4 | 180 300 | 329.5 ms |
+| `indirect` | MAX_ITER_REACHED | **1.255e9** | 0 | 381.3 ms |
+
+The three direct backends agree; the matrix-free one is five orders away. That is a
+**consistency** result between backends, not evidence any is near the optimum — on an
+unconverged run no objective here is the true one, and CG's answer is *flagged* by its status
+rather than silently wrong. What survives non-convergence is the shape: on a reduced matrix
+whose conditioning is `κ(A)²`, CG's iterates are not approaching what the direct backends'
+are, so it is not the same solve at a looser tolerance. That is the argument for a structured
+*direct* backend.
+
+Two corrections to what an earlier draft of this section claimed. It reported 1.6× and **50×**
+against dense and KKT; measured warm the ratios are **1.58× and 14.6×**, and the 50× came from
+a run that timed a first call — the block specialization was compiled inside the measurement
+while the dense one was already warm. And it called a 4.4e4 figure "a true objective", which no
+run here establishes.
+
+## Why `block_rung` carries no cost gate
+
+Every other structured rung has one — the band gate at `4b > n`, the low-rank gate at
+`10k > n`, both set below a measured crossing. The block rung declines only a single block and
+a mismatched partition, and that is deliberate: `Σ nᵢ³ ≤ n³` and `Σ nᵢ² ≤ n²` hold for every
+partition, so the backend cannot be doing more work or holding more storage than the rung
+below it. The equal-block sweep in `bench/block_backend.json` is the easy case for that claim;
+the skewed corners it omits — partitions like `[228, 12]` and `[236, 2, 2]`, where one block is
+nearly everything — tie at about 1.03×, and never lose.
+
+The claim is a bound rather than a measurement, which is why it is recorded here: the LOG's own
+history shows this backend *did* lose, at 0.76×, before the blocks were assembled with a `syrk`
+instead of a scalar loop. A bound on flops does not bound an implementation.
 
 ## The plan's own reorderings
 

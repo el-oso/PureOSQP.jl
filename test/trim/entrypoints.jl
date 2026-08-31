@@ -43,6 +43,10 @@ solve_indirect(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u; lin
 # An operator that supplies only products. Its `getindex` throws on a branch the trimmer
 # analyses whether or not it runs, which is what keeps that message free of the string
 # formatting `--trim` rejects.
+# The block backend, whose `P` and `A` are both this package's own matrix type.
+const BD = PureOSQP.BlockDiagonal{Float64, Matrix{Float64}}
+solve_block(P::BD, q::V, A::BD, l::V, u::V) = PureOSQP.solve(P, q, A, l, u)
+
 const PO = PureOSQP.ProductOperator{Float64, Matrix{Float64}, Vector{Float64}}
 solve_operator(P::PO, q::V, A::PO, l::V, u::V) =
     PureOSQP.solve(P, q, A, l, u; scaling = 0, linsys = :indirect)

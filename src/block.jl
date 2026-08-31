@@ -12,13 +12,13 @@ and nothing couples them, so `K` Cholesky factorizations replace one and each so
 triangular solves over `Σ nᵢ` entries. Against the dense terminal that is `Σ nᵢ³` against `n³`
 to factor and `Σ nᵢ²` against `n²` to store; for `K` equal blocks, `K²` and `K`.
 
-`blocks` holds each `Rᵢ` and is overwritten by its factor, as the banded backend's storage is.
-`facts` holds the factorizations, rebuilt whenever `ρ` moves.
+`blocks` holds each `Rᵢ` and is overwritten by that block's *inverse*, so a solve is one `symv`
+per block rather than two triangular solves; `scaled` is the scratch each block is assembled
+in. Both are rebuilt whenever `ρ` moves.
 """
-mutable struct BlockReduced{T <: Real, M <: AbstractMatrix{T}, F} <: LinearSystem
+struct BlockReduced{T <: Real, M <: AbstractMatrix{T}} <: LinearSystem
     blocks::Vector{M}
     scaled::Vector{M}      # block `i` holds `sqrt(ρ) ⊙ E ⊙ Aᵢ ⊙ D`, so `Rᵢ` is one `syrk`
-    facts::Vector{F}
 end
 
 """
@@ -34,12 +34,8 @@ function BlockReduced(
     scaled = [similar(proto, T, r, s) for (r, s) in zip(rows, sizes)]
     for B in blocks
         fill!(B, zero(T))
-        for i in axes(B, 1)
-            B[i, i] = one(T)
-        end
     end
-    facts = [cholesky!(Symmetric(copy(B))) for B in blocks]
-    return BlockReduced{T, eltype(blocks), eltype(facts)}(blocks, scaled, facts)
+    return BlockReduced{T, eltype(blocks)}(blocks, scaled)
 end
 
 backend_name(::BlockReduced) = :block
