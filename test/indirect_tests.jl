@@ -50,3 +50,47 @@ end
     @test_throws "cg_max_iter must be positive" setup(P, q, A, l, u; cg_max_iter = 0)
     @test_throws "cg_tol_fraction must lie in (0, 1]" setup(P, q, A, l, u; cg_tol_fraction = 2.0)
 end
+
+@testitem "reduced_diagonal! matches the full walk for structured A" begin
+    using LinearAlgebra, Random, Krylov
+    Random.seed!(91)
+    n, k = 24, 3
+    # `A` is only read at entries it can hold, so a structured spelling and its dense form
+    # must give the same reciprocals to the last bit.
+    structured = (
+        Diagonal(randn(n) ./ 2),
+        Bidiagonal(randn(n) ./ 2, randn(n - 1) ./ 4, :U),
+        PureOSQP.RowCoupled(randn(k, n) ./ 4, ones(n - k), collect(1:(n - k))),
+    )
+    P = Diagonal(rand(n) .+ 0.5)
+    D, sigma, c = rand(n) .+ 0.5, 1.0e-6, 1.3
+    for A in structured
+        m = size(A, 1)
+        rho, E = rand(m) .+ 0.1, rand(m) .+ 0.5
+        args = (Float64, P, A, rho, E, D, sigma, c)
+        dense = (Float64, P, Matrix(A), rho, E, D, sigma, c)
+        @test PureOSQP.reduced_diagonal!(zeros(n), args...) ==
+            PureOSQP.reduced_diagonal!(zeros(n), dense...)
+    end
+
+    # And end to end. The preconditioner is the only thing the matrix-free backend reads
+    # from `A` besides its products, so a structured `A` must precondition identically and
+    # take the same number of iterations. The iterates themselves agree only to rounding:
+    # `mul!` against a `Bidiagonal` or a `RowCoupled` sums a row in a different order than
+    # the dense `gemv` does, which moves the last bit.
+    q = randn(n)
+    opts = (linsys = :indirect, eps_abs = 1.0e-9, eps_rel = 1.0e-9)
+    for A in structured
+        m = size(A, 1)
+        lo, hi = -rand(m) .- 0.5, rand(m) .+ 0.5
+        ws, ref_ws = setup(P, q, A, lo, hi; opts...), setup(P, q, Matrix(A), lo, hi; opts...)
+        @test PureOSQP.factorize!(ws.linsys, ws)
+        @test PureOSQP.factorize!(ref_ws.linsys, ref_ws)
+        @test ws.linsys.prec == ref_ws.linsys.prec
+
+        res, ref = PureOSQP.solve!(ws), PureOSQP.solve!(ref_ws)
+        @test res.status == SOLVED
+        @test res.iter == ref.iter
+        @test res.x ≈ ref.x rtol = 1.0e-7
+    end
+end

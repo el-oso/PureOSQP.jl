@@ -1,0 +1,111 @@
+{
+  "blas_threads": 1,
+  "cases": [
+    {
+      "backend": "lowrank",
+      "full": "1.886866666666667e-6",
+      "n": "500",
+      "name": "lowrank k=1",
+      "rho": "1.6280555555555557e-6"
+    },
+    {
+      "backend": "lowrank",
+      "full": "3.5430000000000002e-6",
+      "n": "500",
+      "name": "lowrank k=4",
+      "rho": "2.512909090909091e-6"
+    },
+    {
+      "backend": "lowrank",
+      "full": "8.5752e-5",
+      "n": "500",
+      "name": "lowrank k=n/10",
+      "rho": "6.9751e-5"
+    },
+    {
+      "backend": "tridiagonal",
+      "full": "4.147714285714286e-6",
+      "n": "500",
+      "name": "tridiagonal",
+      "rho": "4.146428571428572e-6"
+    },
+    {
+      "backend": "cholesky",
+      "full": "0.0061626255",
+      "n": "500",
+      "name": "dense",
+      "rho": "0.006167084000000001"
+    },
+    {
+      "backend": "lowrank",
+      "full": "3.7771428571428573e-6",
+      "n": "1000",
+      "name": "lowrank k=1",
+      "rho": "3.252777777777778e-6"
+    },
+    {
+      "backend": "lowrank",
+      "full": "7.283500000000001e-6",
+      "n": "1000",
+      "name": "lowrank k=4",
+      "rho": "5.0716e-6"
+    },
+    {
+      "backend": "lowrank",
+      "full": "0.0004995910000000001",
+      "n": "1000",
+      "name": "lowrank k=n/10",
+      "rho": "0.00043682300000000003"
+    },
+    {
+      "backend": "tridiagonal",
+      "full": "8.309e-6",
+      "n": "1000",
+      "name": "tridiagonal",
+      "rho": "8.315666666666667e-6"
+    },
+    {
+      "backend": "cholesky",
+      "full": "0.0403873905",
+      "n": "1000",
+      "name": "dense",
+      "rho": "0.040358105500000005"
+    },
+    {
+      "backend": "lowrank",
+      "full": "7.487666666666667e-6",
+      "n": "2000",
+      "name": "lowrank k=1",
+      "rho": "6.447e-6"
+    },
+    {
+      "backend": "lowrank",
+      "full": "1.4447e-5",
+      "n": "2000",
+      "name": "lowrank k=4",
+      "rho": "1.0084e-5"
+    },
+    {
+      "backend": "lowrank",
+      "full": "0.0034746985",
+      "n": "2000",
+      "name": "lowrank k=n/10",
+      "rho": "0.0030121025"
+    },
+    {
+      "backend": "tridiagonal",
+      "full": "1.6682e-5",
+      "n": "2000",
+      "name": "tridiagonal",
+      "rho": "1.6691e-5"
+    },
+    {
+      "backend": "cholesky",
+      "full": "0.28303518000000005",
+      "n": "2000",
+      "name": "dense",
+      "rho": "0.284581176"
+    }
+  ],
+  "julia_version": "1.12.7"
+}

@@ -23,7 +23,7 @@ using TypeContracts: TypeContracts, @verify
 using LinearAlgebra: Symmetric, Diagonal, LowerTriangular, UpperTriangular,
     UnitLowerTriangular, UnitUpperTriangular, I, diag,
     cholesky, cholesky!, ldlt, ldlt!, issuccess, ldiv!, transpose
-using SparseArrays: SparseMatrixCSC, issparse, nnz, nzrange, rowvals, nonzeros, sparse
+using SparseArrays: SparseMatrixCSC, nnz, nzrange, rowvals, nonzeros, sparse
 
 """
     PureOSQP.check_storage(M::SparseMatrixCSC, rows, cols)
@@ -177,6 +177,10 @@ end
 function PureOSQP.formed_rung(
         P, A::SparseMatrixCSC, proto::AbstractVector{T}, n::Integer, m::Integer
     ) where {T <: Real}
+    # `SparseFormedInverse.factorize!` accumulates `P`'s columns through `add_scaled_col!`,
+    # which indexes. `A` is a `SparseMatrixCSC` here and so always readable; `P` is not
+    # constrained by the signature.
+    PureOSQP.is_materializable(P) || return nothing
     Rinv = similar(proto, T, n, n)
     return (SparseFormedInverse{T, typeof(Rinv)}(Rinv), false)
 end
@@ -584,7 +588,10 @@ further `factorize!`.
 function sparse_kkt_backend(
         P, A, proto::AbstractVector{T}, n::Integer, m::Integer, D, E, c, rho_vec, sigma
     ) where {T <: Real}
-    (issparse(P) && n > 0 && m > 0) || return nothing
+    # The concrete type, not `issparse`: everything downstream of here — `kkt_gram`,
+    # `refill_kkt!` — is written against `SparseMatrixCSC`'s stored columns, and a
+    # `Symmetric` wrapper over one answers `issparse` while matching none of it.
+    (P isa SparseMatrixCSC && n > 0 && m > 0) || return nothing
     # Only worth considering where the reduced form loses, which is what the dense row means.
     densest_row(A)^2 < DENSE_FACTOR_FILL * n^2 && return nothing
     gram = kkt_gram(T, P, A, n, m)
@@ -1139,7 +1146,9 @@ refactorization reuses. When the answer is no, [`densest_row`](@ref) usually say
 function cholmod_backend(
         P, A, proto::AbstractVector{T}, n::Integer, m::Integer, D, E, c, rho_vec, sigma
     ) where {T <: Real}
-    (issparse(P) && n > 0) || return nothing
+    # As in `sparse_kkt_backend`: `reduced_gram` and `refill!` need `SparseMatrixCSC`'s
+    # stored columns, which a `Symmetric` wrapper over one does not present.
+    (P isa SparseMatrixCSC && n > 0) || return nothing
     # A lower bound on `nnz(R)`, computed in one pass over `A`'s stored entries.
     densest_row(A)^2 < DENSE_FACTOR_FILL * n^2 || return nothing
     # Counted rather than formed: the gate wants `nnz(R)` and nothing else, and that comes
@@ -1208,6 +1217,13 @@ function PureOSQP.is_convex(::Type{T}, P::SparseMatrixCSC, sigma) where {T}
         end
         return true
     end
+    # An `LDLᵀ` from outside SuiteSparse answers this when one is available, and dispatch
+    # settles which it is, so the CHOLMOD factorization below is not merely unused then but
+    # unreachable — which is what keeps a sparse `P` inside `juliac --trim`. The bindings
+    # reached from `cholesky` are not resolvable statically, so leaving them on a live branch
+    # would cost the guarantee whether or not they ever run.
+    answer = PureOSQP.ldl_posdef(P, sigma)
+    isnothing(answer) || return answer
     return issuccess(cholesky(Symmetric(SparseMatrixCSC{T, Int}(P) + sigma * I); check = false))
 end
 

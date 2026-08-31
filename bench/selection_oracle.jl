@@ -54,6 +54,11 @@ function families(n)
             SymTridiagonal(rand(n) .+ 4, rand(n - 1) ./ 8),
             wide_band(n, n ÷ 10),
         ),
+        (
+            "Diagonal, RowCoupled",
+            Diagonal(rand(n) .+ 0.5),
+            PureOSQP.RowCoupled(randn(3, n) ./ 4, ones(n - 3), collect(1:(n - 3))),
+        ),
     ]
 end
 

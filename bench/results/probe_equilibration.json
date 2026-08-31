@@ -1,0 +1,150 @@
+{
+  "blas_threads": 1,
+  "cases": [
+    {
+      "m": "60",
+      "n": "100",
+      "probed_iter": "125",
+      "probed_setup": "0.001811485",
+      "probed_status": "SOLVED",
+      "probed_total": "0.003782249",
+      "spread": "0.0",
+      "unscaled_iter": "100",
+      "unscaled_status": "SOLVED",
+      "unscaled_total": "0.0012837375"
+    },
+    {
+      "m": "60",
+      "n": "100",
+      "probed_iter": "100000",
+      "probed_setup": "0.0018284910000000002",
+      "probed_status": "MAX_ITER_REACHED",
+      "probed_total": "3.357095134",
+      "spread": "4.0",
+      "unscaled_iter": "100000",
+      "unscaled_status": "MAX_ITER_REACHED",
+      "unscaled_total": "3.3867361980000004"
+    },
+    {
+      "m": "60",
+      "n": "100",
+      "probed_iter": "100000",
+      "probed_setup": "0.001778421",
+      "probed_status": "MAX_ITER_REACHED",
+      "probed_total": "0.925405621",
+      "spread": "8.0",
+      "unscaled_iter": "100000",
+      "unscaled_status": "MAX_ITER_REACHED",
+      "unscaled_total": "2.539380297"
+    },
+    {
+      "m": "120",
+      "n": "100",
+      "probed_iter": "125",
+      "probed_setup": "0.002295773",
+      "probed_status": "SOLVED",
+      "probed_total": "0.0055632830000000005",
+      "spread": "0.0",
+      "unscaled_iter": "150",
+      "unscaled_status": "SOLVED",
+      "unscaled_total": "0.0032101965"
+    },
+    {
+      "m": "120",
+      "n": "100",
+      "probed_iter": "100000",
+      "probed_setup": "0.0022946800000000003",
+      "probed_status": "MAX_ITER_REACHED",
+      "probed_total": "4.675805499",
+      "spread": "4.0",
+      "unscaled_iter": "100000",
+      "unscaled_status": "MAX_ITER_REACHED",
+      "unscaled_total": "4.669288397"
+    },
+    {
+      "m": "120",
+      "n": "100",
+      "probed_iter": "100000",
+      "probed_setup": "0.0023045545",
+      "probed_status": "MAX_ITER_REACHED",
+      "probed_total": "0.33465077200000004",
+      "spread": "8.0",
+      "unscaled_iter": "100000",
+      "unscaled_status": "MAX_ITER_REACHED",
+      "unscaled_total": "4.628332326000001"
+    },
+    {
+      "m": "60",
+      "n": "200",
+      "probed_iter": "100",
+      "probed_setup": "0.008451345",
+      "probed_status": "SOLVED",
+      "probed_total": "0.012391887",
+      "spread": "0.0",
+      "unscaled_iter": "100",
+      "unscaled_status": "SOLVED",
+      "unscaled_total": "0.0028582390000000003"
+    },
+    {
+      "m": "60",
+      "n": "200",
+      "probed_iter": "100000",
+      "probed_setup": "0.008322831499999999",
+      "probed_status": "MAX_ITER_REACHED",
+      "probed_total": "8.292535755000001",
+      "spread": "4.0",
+      "unscaled_iter": "100000",
+      "unscaled_status": "MAX_ITER_REACHED",
+      "unscaled_total": "8.047909807"
+    },
+    {
+      "m": "60",
+      "n": "200",
+      "probed_iter": "100000",
+      "probed_setup": "0.008406508",
+      "probed_status": "MAX_ITER_REACHED",
+      "probed_total": "1.3385821770000002",
+      "spread": "8.0",
+      "unscaled_iter": "100000",
+      "unscaled_status": "MAX_ITER_REACHED",
+      "unscaled_total": "8.083107584"
+    },
+    {
+      "m": "120",
+      "n": "200",
+      "probed_iter": "150",
+      "probed_setup": "0.009795681",
+      "probed_status": "SOLVED",
+      "probed_total": "0.016917220500000003",
+      "spread": "0.0",
+      "unscaled_iter": "125",
+      "unscaled_status": "SOLVED",
+      "unscaled_total": "0.0057446680000000005"
+    },
+    {
+      "m": "120",
+      "n": "200",
+      "probed_iter": "100000",
+      "probed_setup": "0.010142886",
+      "probed_status": "MAX_ITER_REACHED",
+      "probed_total": "10.248596868",
+      "spread": "4.0",
+      "unscaled_iter": "100000",
+      "unscaled_status": "MAX_ITER_REACHED",
+      "unscaled_total": "10.382844836"
+    },
+    {
+      "m": "120",
+      "n": "200",
+      "probed_iter": "100000",
+      "probed_setup": "0.009975829",
+      "probed_status": "MAX_ITER_REACHED",
+      "probed_total": "0.754739585",
+      "spread": "8.0",
+      "unscaled_iter": "100000",
+      "unscaled_status": "MAX_ITER_REACHED",
+      "unscaled_total": "10.609921243"
+    }
+  ],
+  "julia_version": "1.12.7"
+}

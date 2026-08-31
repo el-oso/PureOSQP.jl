@@ -77,7 +77,7 @@ function adapt_rho!(ws::Workspace{T}) where {T}
     band = ws.settings.adaptive_rho_tolerance
     if rho_new > ws.rho * band || rho_new < ws.rho / band
         set_rho_vec!(ws, rho_new)
-        refactor!(ws)
+        refactor_rho!(ws)
         ws.rho_updates += 1
         return true
     end

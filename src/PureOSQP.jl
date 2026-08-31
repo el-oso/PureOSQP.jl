@@ -26,7 +26,14 @@ export PolishStatus, POLISH_SUCCESS, POLISH_FAILED, POLISH_NOT_PERFORMED
 export POLISH_NO_ACTIVE_SET_FOUND, POLISH_LINSYS_ERROR
 export SOLVED_INACCURATE, PRIMAL_INFEASIBLE_INACCURATE, DUAL_INFEASIBLE_INACCURATE
 
+include("blockdiagonal.jl")
+include("kronecker.jl")
+include("rowcoupled.jl")
 include("linsys.jl")
+include("operator.jl")
+include("lowrank.jl")
+include("block.jl")
+include("kronsolve.jl")
 include("types.jl")
 include("elementwise.jl")
 include("scaling.jl")
@@ -48,5 +55,12 @@ The wrapper lives in a package extension, so it costs nothing to a caller who do
 it; this name is the only part of it the core owns.
 """
 function Optimizer end
+
+# Every [`LinearSystem`](@ref) in this module must be `--trim` compatible, asserted here rather
+# than backend by backend: a per-backend `@verify` is opt-in, so a new backend acquires the
+# guarantee only if whoever wrote it remembered to ask. This sees every subtype defined by the
+# time the module finishes, so forgetting is not possible. An extension's backends load later
+# and carry the same declaration at the end of the extension.
+@verify LinearSystem subtypes = true trim_compat = true
 
 end # module PureOSQP

@@ -74,6 +74,24 @@ end
         # `n = 100` and `bA = 13` is outside.
         (:banded, SymTridiagonal(rand(n) .+ 4, rand(n - 1) ./ 8), wide_band(n, 12)),
         (:cholesky, SymTridiagonal(rand(n) .+ 4, rand(n - 1) ./ 8), wide_band(n, 13)),
+        # Three dense rows above bounds on the remaining variables: a diagonal core plus a
+        # rank-3 correction, which is not banded at any width.
+        (
+            :lowrank,
+            Diagonal(rand(n) .+ 0.5),
+            PureOSQP.RowCoupled(randn(3, n) ./ 4, ones(n - 3), collect(1:(n - 3))),
+        ),
+        # Either side of the rung's limit, which accepts while `10k <= n`.
+        (
+            :lowrank,
+            Diagonal(rand(n) .+ 0.5),
+            PureOSQP.RowCoupled(randn(10, n) ./ 4, ones(n - 10), collect(1:(n - 10))),
+        ),
+        (
+            :cholesky,
+            Diagonal(rand(n) .+ 0.5),
+            PureOSQP.RowCoupled(randn(11, n) ./ 4, ones(n - 11), collect(1:(n - 11))),
+        ),
     ]
 
     n = 100
@@ -97,9 +115,11 @@ end
     @test ls isa PureOSQP.ReducedCholesky
     @test !factored
 
-    # Below the terminal: an operator the terminal cannot form a product from reaches the
-    # matrix-free rung instead of falling out of the ladder.
-    struct Opaque end
+    # Below the terminal: an operator that supplies only products reaches the matrix-free
+    # rung instead of falling out of the ladder. `is_materializable` is what declines the
+    # terminal, so the decline is reachable from a type `Workspace` accepts.
+    struct Opaque <: AbstractMatrix{Float64} end
+    PureOSQP.is_materializable(::Opaque) = false
     @test isnothing(PureOSQP.dense_rung(Opaque(), Opaque(), proto, n, m))
     ls, factored = PureOSQP.indirect_rung(Opaque(), Opaque(), proto, n, m)
     @test PureOSQP.backend_name(ls) === :indirect
@@ -172,4 +192,36 @@ end
     @test info.factor_nnz < info.dim^2
     @test info.system in (:reduced, :kkt)
     @test info.direct
+end
+
+@testitem "two spellings of one matrix select the same backend" begin
+    using LinearAlgebra, SparseArrays, BandedMatrices, Random
+    Random.seed!(73)
+
+    # `Tridiagonal` and `SymTridiagonal` name the same band, so a problem written either way
+    # is one problem and has to reach one backend. Calling `choose_backend` directly beside
+    # `setup` is what makes a method ambiguity between `src` and the banded extension fail
+    # here rather than at some caller's first use.
+    n = 60
+    dv, ev = rand(n) .+ 3, rand(n - 1) ./ 8
+    sym = SymTridiagonal(copy(dv), copy(ev))
+    tri = Tridiagonal(copy(ev), copy(dv), copy(ev))
+    diag_A = Diagonal(rand(n) .+ 0.5)
+    bidi_A = Bidiagonal(rand(n) .+ 1, rand(n - 1) ./ 4, :L)
+    tri_A = Tridiagonal(rand(n - 1) ./ 4, rand(n) .+ 1, rand(n - 1) ./ 4)
+
+    q, l, u = randn(n), -rand(n), rand(n)
+    named(P, A) = PureOSQP.backend_name(setup(P, q, A, l, u).linsys)
+
+    @test named(tri, diag_A) === named(sym, diag_A) === :tridiagonal
+    @test named(tri, bidi_A) === named(sym, bidi_A) === :tridiagonal
+    @test named(sym, tri_A) === :banded
+
+    proto = zeros(n)
+    D, E, c, rho, sigma = ones(n), ones(n), 1.0, ones(n), 1.0e-6
+    picked(P, A) =
+        PureOSQP.backend_name(first(PureOSQP.choose_backend(P, A, proto, n, n, D, E, c, rho, sigma)))
+    @test picked(tri, diag_A) === picked(sym, diag_A) === :tridiagonal
+    @test picked(tri, bidi_A) === picked(sym, bidi_A) === :tridiagonal
+    @test picked(sym, tri_A) === :banded
 end

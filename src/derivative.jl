@@ -28,6 +28,12 @@ Throws rather than returning anything when the derivative does not exist. See
 """
 function active_kkt(ws::Workspace{T}) where {T}
     require_host(ws.x, "differentiating the solution")
+    require_entries(
+        ws.P, ws.A, "differentiating the solution",
+        "`adjoint_derivative` and `forward_derivative` need the active-set KKT matrix, which " *
+            "has no matrix-free form: re-express the problem with a matrix `P` and `A` to " *
+            "differentiate it."
+    )
     n, m = ws.n, ws.m
     x = ws.D .* ws.x
     y = (ws.E .* ws.y) ./ ws.c

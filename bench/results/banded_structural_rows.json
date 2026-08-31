@@ -1,0 +1,172 @@
+{
+  "cases": [
+    {
+      "backend": "banded",
+      "bandwidth": 8,
+      "blas_threads": 1,
+      "equilibration_s": 0.0025421460000000003,
+      "label": "generic",
+      "n": 250,
+      "setup_scaled_s": 0.0026190910000000005,
+      "setup_unscaled_s": 7.6945e-5
+    },
+    {
+      "backend": "banded",
+      "bandwidth": 8,
+      "blas_threads": 1,
+      "equilibration_s": 0.010339089000000001,
+      "label": "generic",
+      "n": 500,
+      "setup_scaled_s": 0.010538921000000001,
+      "setup_unscaled_s": 0.00019983200000000002
+    },
+    {
+      "backend": "banded",
+      "bandwidth": 8,
+      "blas_threads": 1,
+      "equilibration_s": 0.041765949000000004,
+      "label": "generic",
+      "n": 1000,
+      "setup_scaled_s": 0.042311118,
+      "setup_unscaled_s": 0.0005451690000000001
+    },
+    {
+      "backend": "banded",
+      "bandwidth": 8,
+      "blas_threads": 1,
+      "equilibration_s": 0.16785975949999998,
+      "label": "generic",
+      "n": 2000,
+      "setup_scaled_s": 0.16962966299999999,
+      "setup_unscaled_s": 0.0017699035000000001
+    },
+    {
+      "backend": "banded",
+      "bandwidth": 8,
+      "blas_threads": 8,
+      "equilibration_s": 0.0025497650000000003,
+      "label": "generic",
+      "n": 250,
+      "setup_scaled_s": 0.0026314290000000002,
+      "setup_unscaled_s": 8.166400000000001e-5
+    },
+    {
+      "backend": "banded",
+      "bandwidth": 8,
+      "blas_threads": 8,
+      "equilibration_s": 0.0103767705,
+      "label": "generic",
+      "n": 500,
+      "setup_scaled_s": 0.010581652,
+      "setup_unscaled_s": 0.00020488150000000003
+    },
+    {
+      "backend": "banded",
+      "bandwidth": 8,
+      "blas_threads": 8,
+      "equilibration_s": 0.041930604,
+      "label": "generic",
+      "n": 1000,
+      "setup_scaled_s": 0.042498600000000004,
+      "setup_unscaled_s": 0.0005679960000000001
+    },
+    {
+      "backend": "banded",
+      "bandwidth": 8,
+      "blas_threads": 8,
+      "equilibration_s": 0.167844772,
+      "label": "generic",
+      "n": 2000,
+      "setup_scaled_s": 0.1696614735,
+      "setup_unscaled_s": 0.0018167015000000002
+    },
+    {
+      "backend": "banded",
+      "bandwidth": 8,
+      "blas_threads": 1,
+      "equilibration_s": 0.00012603800000000003,
+      "label": "banded",
+      "n": 250,
+      "setup_scaled_s": 0.00020180100000000001,
+      "setup_unscaled_s": 7.5763e-5
+    },
+    {
+      "backend": "banded",
+      "bandwidth": 8,
+      "blas_threads": 1,
+      "equilibration_s": 0.000253057,
+      "label": "banded",
+      "n": 500,
+      "setup_scaled_s": 0.00044640200000000004,
+      "setup_unscaled_s": 0.000193345
+    },
+    {
+      "backend": "banded",
+      "bandwidth": 8,
+      "blas_threads": 1,
+      "equilibration_s": 0.0005085000000000001,
+      "label": "banded",
+      "n": 1000,
+      "setup_scaled_s": 0.001050111,
+      "setup_unscaled_s": 0.000541611
+    },
+    {
+      "backend": "banded",
+      "bandwidth": 8,
+      "blas_threads": 1,
+      "equilibration_s": 0.0010217170000000001,
+      "label": "banded",
+      "n": 2000,
+      "setup_scaled_s": 0.002743946,
+      "setup_unscaled_s": 0.001722229
+    },
+    {
+      "backend": "banded",
+      "bandwidth": 8,
+      "blas_threads": 8,
+      "equilibration_s": 0.000126379,
+      "label": "banded",
+      "n": 250,
+      "setup_scaled_s": 0.000205858,
+      "setup_unscaled_s": 7.9479e-5
+    },
+    {
+      "backend": "banded",
+      "bandwidth": 8,
+      "blas_threads": 8,
+      "equilibration_s": 0.000254015,
+      "label": "banded",
+      "n": 500,
+      "setup_scaled_s": 0.00045390700000000003,
+      "setup_unscaled_s": 0.00019989200000000002
+    },
+    {
+      "backend": "banded",
+      "bandwidth": 8,
+      "blas_threads": 8,
+      "equilibration_s": 0.0005092150000000001,
+      "label": "banded",
+      "n": 1000,
+      "setup_scaled_s": 0.0010644625000000001,
+      "setup_unscaled_s": 0.0005552475
+    },
+    {
+      "backend": "banded",
+      "bandwidth": 8,
+      "blas_threads": 8,
+      "equilibration_s": 0.0010220529999999998,
+      "label": "banded",
+      "n": 2000,
+      "setup_scaled_s": 0.002779012,
+      "setup_unscaled_s": 0.0017569590000000002
+    }
+  ],
+  "cpu_threads": 16,
+  "julia_version": "1.12.7",
+  "sizes": [
+    250,
+    500,
+    1000,
+    2000
+  ]
+}

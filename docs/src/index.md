@@ -111,10 +111,14 @@ answer worse.
 
 ## Choosing a linear-system backend
 
-`linsys = :auto` (default) takes an `n×n` Cholesky of the reduced system and inverts it in
-place, so each iteration's solve is one `symv`; it falls back to a Bunch-Kaufman
-factorization of the full `(n+m)×(n+m)` quasi-definite system if the Cholesky reports the
-matrix is not positive definite. `linsys = :kkt` forces the full factorization: slower, but
+`linsys = :auto` (default) descends a ladder of backends and takes the first that serves the
+`P` and `A` it was given, which for a pair of dense matrices is an `n×n` Cholesky of the
+reduced system, inverted in place so each iteration's solve is one `symv`. A structured pair
+stops higher — diagonal, tridiagonal, banded, sparse, or a low-rank correction — and an
+operator that declares [`PureOSQP.is_materializable`](@ref) false reaches the matrix-free
+backend instead, since every rung that would form a matrix declines it. The dense Cholesky
+falls back to a Bunch-Kaufman factorization of the full `(n+m)×(n+m)` quasi-definite system
+if it reports the matrix is not positive definite. `linsys = :kkt` forces the full factorization: slower, but
 more accurate at moderate conditioning and closer to what the reference implementation
 does, which makes it useful when a result is in question.
 

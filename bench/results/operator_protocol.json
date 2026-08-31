@@ -1,0 +1,59 @@
+{
+  "budget_seconds": 0.3,
+  "cases": [
+    {
+      "n": 500,
+      "blas_threads": 1,
+      "lazy_backend": "indirect",
+      "dense_backend": "cholesky",
+      "lazy_setup": 0.000166545,
+      "dense_setup": 0.0089919865,
+      "setup_ratio": 53.99133267285118,
+      "lazy_step": 0.000302857,
+      "dense_step": 4.4915e-5,
+      "step_ratio": 0.14830431523788454
+    },
+    {
+      "n": 1000,
+      "blas_threads": 1,
+      "lazy_backend": "indirect",
+      "dense_backend": "cholesky",
+      "lazy_setup": 0.000676659,
+      "dense_setup": 0.05607989,
+      "setup_ratio": 82.87762373662362,
+      "lazy_step": 0.001082255,
+      "dense_step": 0.000258749,
+      "step_ratio": 0.23908321051877793
+    },
+    {
+      "n": 500,
+      "blas_threads": 8,
+      "lazy_backend": "indirect",
+      "dense_backend": "cholesky",
+      "lazy_setup": 0.000179389,
+      "dense_setup": 0.0055426065,
+      "setup_ratio": 30.897136948196376,
+      "lazy_step": 0.000309866,
+      "dense_step": 4.215e-5,
+      "step_ratio": 0.13602654050460522
+    },
+    {
+      "n": 1000,
+      "blas_threads": 8,
+      "lazy_backend": "indirect",
+      "dense_backend": "cholesky",
+      "lazy_setup": 0.000682009,
+      "dense_setup": 0.025091136,
+      "setup_ratio": 36.790036495119566,
+      "lazy_step": 0.0005675330000000001,
+      "dense_step": 9.464900000000001e-5,
+      "step_ratio": 0.166772681059956
+    }
+  ],
+  "cpu_threads": 16,
+  "julia_version": "1.12.7",
+  "sizes": [
+    500,
+    1000
+  ]
+}

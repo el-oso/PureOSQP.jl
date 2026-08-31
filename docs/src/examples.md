@@ -516,6 +516,190 @@ PureOSQP.backend_name(setup(Diagonal(fill(2.0, 40)), q[1:40], randn(60, 40),
                             fill(-1.0, 60), fill(1.0, 60)).linsys)
 ```
 
+### Supplying a matrix type of your own
+
+`P` and `A` are held by reference and reached through a small set of functions, so a
+representation the package has never heard of works by declaring itself
+`<: AbstractMatrix{T}` and supplying `size`, `mul!`, and `mul!` against its adjoint. That
+much is enough to solve. Everything below is optional and each override replaces one generic
+walk over entries with whatever the representation can answer more cheaply.
+
+There are two seam levels, and which one a representation wants depends on whether it can
+enumerate a column.
+
+**Per column.** [`PureOSQP.structural_rows`](@ref)`(M, j)` names the rows column `j` can hold
+a nonzero in; the four traversals in `src/scaling.jl` — `weighted_colmax`,
+`weighted_colmax_rowmax!`, `scaled_col!` and `add_scaled_col!` — follow it, so a single
+`structural_rows` method makes equilibration and the dense formation cost the column's own
+entries rather than all `m` of them. A representation whose columns are cheaper to walk than
+to index overrides the four traversals directly instead; the sparse extension does that,
+because `M[i, j]` on a `SparseMatrixCSC` is a binary search.
+
+**Per sweep.** `column_norms!` and `cost_norms!` are the whole of what equilibration asks
+per sweep, so a representation that answers in whole-matrix or closed form overrides those
+two and never sees a column index. The GPU extension is the shipped example: it replaces
+both with array reductions, which is what lets a device array equilibrate under
+`allowscalar(false)`.
+
+Beyond equilibration there are three more override points, all optional:
+`PureOSQP.reduced_diagonal!` for the matrix-free preconditioner,
+[`PureOSQP.is_convex`](@ref) for the convexity test `setup` runs before choosing a backend,
+and [`PureOSQP.is_symmetric`](@ref) for the symmetry check — the last two both densify or
+scan `n²` positions otherwise.
+
+[`PureOSQP.RowCoupled`](@ref) is the worked example in the package itself: a few dense rows
+above a block holding one entry per row. It defines `size`, `getindex` and `mul!`, and adds
+one `structural_rows` method; that is all it takes for a `Diagonal` `P` with a `RowCoupled`
+`A` to reach the low-rank backend and to equilibrate at the cost of its own entries.
+
+An operator that supplies **only** products — nothing to index at all — says so with
+[`PureOSQP.is_materializable`](@ref):
+
+```julia
+PureOSQP.is_materializable(::MyOperator) = false
+```
+
+`linsys = :auto` then declines the dense terminal and lands on the matrix-free backend, which
+needs Krylov.jl loaded. `polish!` and the two derivative entry points build a dense matrix
+out of `P` and `A` entry by entry, so they refuse such an operator by name rather than
+failing inside a factorization: pass `polish = false`, and differentiate a materialized form
+of the problem. Equilibration also walks columns, so an operator that overrides neither seam
+level needs `scaling = 0`.
+
+The hot-path guarantees carry a condition here that they do not carry elsewhere. `admm_step!`
+allocates nothing and is type-stable for a caller-supplied operator only as far as that
+operator's own `mul!` is: a broadcast in it, or a `DimensionMismatch` message built from a
+type, is enough to lose both. `bench/lazy_operator.jl` is written to hold them, and
+`bench/strictmode_audit.jl` checks it.
+
+## Structured operators the package ships
+
+Three representations come with a backend that never forms the reduced matrix. Each is an
+ordinary argument to [`setup`](@ref) — the structure is declared by the type, and selection
+finds it by dispatch.
+
+### Block-diagonal
+
+[`PureOSQP.BlockDiagonal`](@ref) is a diagonal run of blocks, stored as the blocks. When `P`
+and `A` split their columns at the same places, the reduced matrix decouples into independent
+systems that are factored one at a time.
+
+```@example blocks
+using PureOSQP, LinearAlgebra
+
+blocks_P = [Matrix(Symmetric([2.0 0.3; 0.3 2.0])) for _ in 1:4]
+blocks_A = [[1.0 -1.0; 0.5 1.0] for _ in 1:4]
+P = PureOSQP.BlockDiagonal(blocks_P)
+A = PureOSQP.BlockDiagonal(blocks_A)
+
+n, m = size(P, 1), size(A, 1)
+q = collect(range(-1.0, 1.0; length = n))
+ws = setup(P, q, A, fill(-1.0, m), fill(1.0, m))
+PureOSQP.backend_name(ws.linsys)
+```
+
+The storage that buys, against forming the `n×n` reduced matrix:
+
+```@example blocks
+(blocks = PureOSQP.backend_info(ws.linsys).factor_nnz, dense = n * (n + 1) ÷ 2)
+```
+
+### Kronecker
+
+[`PureOSQP.KroneckerOperator`](@ref) is `A₁ ⊗ A₂` held as its two factors, and the backend
+solves through their eigenbases. It has the narrowest acceptance region in the package, and
+all three conditions are structural rather than tunable:
+
+| condition | why |
+|---|---|
+| `P` is a *scalar* multiple of `I` | `c·D·P·D` and `ρ·Ãᵀ diag(ρ) Ã` are simultaneously diagonalizable only then. A Kronecker `P` does **not** qualify. |
+| `ρ` is one number | true automatically when every constraint is an inequality; one equality row gives `ρ` a second value |
+| `scaling = 0` | `c·μ·D²` is diagonal but not scalar, so any equilibration breaks the diagonalization |
+
+```@example kron
+using PureOSQP, LinearAlgebra
+
+A1 = [1.0 0.5; -0.5 1.0]
+A2 = [2.0 0.0 1.0; 0.0 1.5 0.0; 1.0 0.0 2.0]
+A = PureOSQP.KroneckerOperator(A1, A2)      # 6×6, stored as 4 + 9 entries
+
+n = size(A, 2)
+P = Diagonal(fill(2.0, n))                  # μI, as the tier requires
+q = collect(range(-1.0, 1.0; length = n))
+ws = setup(P, q, A, fill(-1.0, n), fill(1.0, n); scaling = 0)
+PureOSQP.backend_name(ws.linsys)
+```
+
+Break any one condition and the rung declines — the problem is solved by the dense terminal
+instead, more slowly and just as correctly:
+
+```@example kron
+equilibrated = setup(P, q, A, fill(-1.0, n), fill(1.0, n))   # scaling left at its default
+nonscalar = setup(Diagonal(1.0:n), q, A, fill(-1.0, n), fill(1.0, n); scaling = 0)
+(equilibrated = PureOSQP.backend_name(equilibrated.linsys),
+ nonscalar = PureOSQP.backend_name(nonscalar.linsys))
+```
+
+#### Ill-conditioned Kronecker problems
+
+Giving up equilibration is the price of this tier, and an ill-conditioned problem is exactly
+where equilibration earns its keep — so that is where the trade has to be judged. Note that
+`κ(A₁ ⊗ A₂) = κ(A₁)·κ(A₂)`, so each factor carries the square root of the figure below.
+
+**The backend stays sound.** Against a dense path given the same `scaling = 0`, so the
+comparison is the backends' and nothing else, it matches iteration for iteration and agrees on
+the solution up to `κ(A) ≈ 10¹⁶` (`bench/results/kronecker_conditioning.json`):
+
+| κ(A) | kronecker | dense, also unscaled | solutions agree |
+|---|---|---|---|
+| 1e2 | SOLVED, 175 | SOLVED, 175 | yes |
+| 1e8 | SOLVED, 450 | SOLVED, 450 | yes |
+| 1e12 | SOLVED, 1100 | SOLVED, 1100 | yes |
+| 1e16 | SOLVED, 2525 | SOLVED, 2525 | yes |
+
+Iterations climb steeply with conditioning — 175 to 2525 — because nothing is preconditioning
+the problem. That is the cost, and it is not hidden by the structure.
+
+**Whether it still wins depends on size**, because the tier buys `O(n₁n₂(n₁+n₂))` per iteration
+against a dense `O(n₁²n₂²)`, and that has to cover the extra iterations. Against a dense path
+allowed its equilibration — the choice a caller actually faces — at `κ(A) = 10¹²`:
+
+| n | kronecker (`scaling = 0`) | dense, equilibrated | speedup |
+|---|---|---|---|
+| 30 | 175 iter, 0.11 ms | 300 iter, 0.19 ms | 1.7× |
+| 168 | 350 iter, 0.61 ms | 575 iter, 3.27 ms | 5.4× |
+| 480 | 875 iter, 3.98 ms | 500 iter, 27.25 ms | 6.9× |
+
+At `n = 480` the tier takes 1.75× the iterations and still finishes 6.9× sooner. The iteration
+counts are noisy in both directions — ADMM's trajectory is sensitive to scaling — so read the
+times rather than the ratio of counts.
+
+If your `P` is zero rather than `μI`, equilibration and the structure are compatible in
+principle: a Kronecker product's row and column ∞-norms are exactly the Kronecker products of
+the factors' norms, so equilibrating each factor would preserve the diagonalization. That
+route is not built.
+
+### Low-rank coupling
+
+[`PureOSQP.RowCoupled`](@ref) is a few dense rows above rows holding one entry each, which
+with a `Diagonal` `P` makes the reduced matrix a diagonal plus a rank-`k` correction, solved
+by Woodbury.
+
+```@example rowcoupled
+using PureOSQP, LinearAlgebra
+
+# The rung accepts while `10k <= n`, so two coupling rows need at least twenty variables:
+# below that the correction costs more than the dense solve it replaces.
+n = 24
+coupling = reshape(collect(range(0.1, 0.8; length = 2n)), 2, n)   # two dense rows
+A = PureOSQP.RowCoupled(coupling, ones(n), collect(1:n))          # then a bound per variable
+P = Diagonal(fill(1.5, n))
+q = collect(range(-1.0, 1.0; length = n))
+m = size(A, 1)
+ws = setup(P, q, A, fill(-1.0, m), fill(1.0, m))
+PureOSQP.backend_name(ws.linsys)
+```
+
 ## Building a workspace once
 
 `solve` builds a workspace, solves, and throws the workspace away. [`setup`](@ref) hands it

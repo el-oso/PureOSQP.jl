@@ -27,9 +27,9 @@ module PureOSQPLDLFactorizationsExt
 
 using PureOSQP: PureOSQP
 using TypeContracts: TypeContracts, @verify
-using LinearAlgebra: Symmetric
-using SparseArrays: SparseMatrixCSC, nnz, nzrange, rowvals, nonzeros
-using LDLFactorizations: LDLFactorizations, ldl_analyze, ldl_factorize!
+using LinearAlgebra: Symmetric, I
+using SparseArrays: SparseMatrixCSC, nnz, nzrange, rowvals, nonzeros, triu
+using LDLFactorizations: LDLFactorizations, ldl_analyze, ldl_factorize!, factorized
 
 """
     fact_L(F) -> SparseMatrixCSC
@@ -101,6 +101,38 @@ function PureOSQP.ldl_backend(gram, proto::AbstractVector{T}, n::Integer, fill_l
     return SparseLDL{T, typeof(proto), typeof(gram), typeof(fact)}(
         gram, fact, fact_L(fact), fact_perm(fact), inv.(fact.d), similar(proto, T, n)
     )
+end
+
+"""
+    ldl_posdef(P::SparseMatrixCSC, sigma) -> Bool
+
+Whether `P + σI` is positive definite, read off the `LDLᵀ` factorization's diagonal.
+
+The return is `Bool` and not `Union{Bool, Nothing}` on purpose: [`PureOSQP.is_convex`](@ref)
+keeps a factorization of its own for when this is unavailable, and a maybe-answer would leave
+that fallback reachable for the trimmer even though dispatch has already settled the question.
+
+`ldl_factorize!` stops at a zero pivot rather than raising, and `factorized` is how that is
+detected. It is a verdict and not a refusal to answer: the factorization stops exactly when
+`P + σI` is singular, which is a definite answer of "not positive definite". The diagonal must
+not be read in that case — it is filled only as far as the column that stopped, and holds
+uninitialized memory beyond it.
+"""
+function PureOSQP.ldl_posdef(P::SparseMatrixCSC, sigma)
+    # No rows, nothing to violate definiteness, and `ldl_analyze` indexes unconditionally.
+    isempty(P) && return true
+    # Only the triangle: `ldl_factorize!` consumes every stored entry rather than reading the
+    # half the `Symmetric` wrapper names, so a fully stored `P` — which is what this package
+    # takes — would contribute each off-diagonal twice and report a definite matrix indefinite.
+    M = Symmetric(triu(P) + sigma * I, :U)
+    fact = ldl_analyze(M)
+    ldl_factorize!(M, fact)
+    factorized(fact) || return false
+    d = fact.d
+    for k in eachindex(d)
+        d[k] > zero(eltype(d)) || return false
+    end
+    return true
 end
 
 function PureOSQP.factorize!(ls::SparseLDL{T}, ws)::Bool where {T}

@@ -149,3 +149,48 @@ end
     # A dense matrix has nothing to establish: its traversals are provably in bounds.
     @test PureOSQP.check_storage(zeros(3, 3), 3, 3) === nothing
 end
+
+@testitem "a Symmetric wrapper is accepted for sparse and dense P" begin
+    # `:ldl_kkt` and `:sparse_kkt` exist only once LDLFactorizations is loaded. Without this
+    # import the item asserts whichever backends a sibling item happened to make reachable in
+    # the same worker, which is a different assertion on every run.
+    using LinearAlgebra, SparseArrays, LDLFactorizations
+    n = m = 60
+    M = sparse(Diagonal(range(1.0, 3.0; length = n)))
+    M[1, 2] = M[2, 1] = 0.4
+    # One dense row over an identity block: sparse enough for the density gate to decline,
+    # and its dense row is what carries the pair past the fill gate into the sparse rungs.
+    A = sparse(
+        vcat(fill(1, n), 2:m), vcat(1:n, 1:(m - 1)),
+        vcat(fill(1.0, n), fill(1.0, m - 1)), m, n
+    )
+    q = collect(range(-1.0, 1.0; length = n))
+    l = fill(-1.0, m)
+    u = fill(2.0, m)
+    unwrapped = setup(M, q, A, l, u)
+    @test PureOSQP.backend_name(unwrapped.linsys) in (:sparse_kkt, :ldl_kkt)
+    base = solve!(unwrapped)
+    @test base.status == SOLVED
+
+    # A wrapper is not a `SparseMatrixCSC`, so the two sparse rungs decline it and the
+    # ladder carries it to a backend that reaches `P` only through the column traversals.
+    ws = setup(Symmetric(M), q, A, l, u)
+    @test PureOSQP.backend_name(ws.linsys) == :sparse_formed
+    wrapped = solve!(ws)
+    @test wrapped.status == SOLVED
+    # A different backend solves the same system in a different order, so the two agree to
+    # rounding rather than bit for bit.
+    @test wrapped.x ≈ base.x
+
+    dense = solve!(setup(Symmetric(Matrix(M)), q, A, l, u))
+    @test dense.status == SOLVED
+    # Both wrappers descend to the same backend and are walked entrywise by the same
+    # generic traversals, so these two agree exactly.
+    @test dense.x == wrapped.x
+
+    # A wrapper over a stored triangle is read through the wrapper's own mirroring
+    # `getindex`, so it describes the same matrix and solves to the same point.
+    triangle = solve!(setup(Symmetric(sparse(triu(M))), q, A, l, u))
+    @test triangle.status == SOLVED
+    @test triangle.x == wrapped.x
+end

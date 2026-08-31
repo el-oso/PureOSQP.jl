@@ -58,3 +58,31 @@ end
     wide_ws = setup(Diagonal(rand(n) .+ 1), q, wide, l, u)
     @test PureOSQP.backend_name(wide_ws.linsys) == :cholesky
 end
+
+@testitem "equilibration of a banded P matches the dense form" begin
+    using LinearAlgebra, BandedMatrices, Random
+    Random.seed!(34)
+    n, b = 40, 3
+    P = BandedMatrix{Float64}(undef, (n, n), (b, b))
+    fill!(P.data, 0.0)
+    P[band(0)] .= rand(n) .+ 2b
+    for k in 1:b
+        P[band(k)] .= rand(n - k) ./ (4b)
+        P[band(-k)] .= P[band(k)]
+    end
+    A = Diagonal(rand(n) .+ 0.5)
+    q, l, u = randn(n), -rand(n), rand(n)
+
+    banded = setup(P, q, A, l, u; scaling = 10)
+    dense = setup(Matrix(P), q, Matrix(A), l, u; scaling = 10)
+    @test PureOSQP.backend_name(banded.linsys) == :banded
+    @test PureOSQP.backend_name(dense.linsys) == :cholesky
+
+    # The band-restricted column walk skips only entries that are structurally zero, and a
+    # zero moves neither a running maximum nor a scaling factor. So the two forms must agree
+    # exactly, not approximately -- equilibration is what the libosqp iteration-count
+    # comparison rests on.
+    @test banded.D == dense.D
+    @test banded.E == dense.E
+    @test banded.c == dense.c
+end

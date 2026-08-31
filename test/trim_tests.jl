@@ -38,6 +38,15 @@
             )
         )
     )
+    push!(names, :solve_tridiagonal_unsym)
+    push!(
+        sigs,
+        :(
+            TrimEntry.solve_tridiagonal_unsym(
+                TrimEntry.TM, Vector{Float64}, TrimEntry.DM, Vector{Float64}, Vector{Float64}
+            )
+        )
+    )
     push!(names, :solve_banded)
     push!(
         sigs,
@@ -47,11 +56,94 @@
             )
         )
     )
+    push!(names, :solve_lowrank)
+    push!(
+        sigs,
+        :(
+            TrimEntry.solve_lowrank(
+                TrimEntry.DM, Vector{Float64}, TrimEntry.RC, Vector{Float64}, Vector{Float64}
+            )
+        )
+    )
+    push!(names, :solve_kronecker)
+    push!(
+        sigs,
+        :(
+            TrimEntry.solve_kronecker(
+                TrimEntry.DM, Vector{Float64}, TrimEntry.KO, Vector{Float64}, Vector{Float64}
+            )
+        )
+    )
+    # A keyword on a pair whose ladder backend is a fourth type is what merges past the union
+    # length cap, so a second such pair keeps the guard off any one backend.
+    push!(names, :solve_lowrank_scaled)
+    push!(
+        sigs,
+        :(
+            TrimEntry.solve_lowrank_scaled(
+                TrimEntry.DM, Vector{Float64}, TrimEntry.RC, Vector{Float64}, Vector{Float64}
+            )
+        )
+    )
+    push!(names, :setup_kronecker)
+    push!(
+        sigs,
+        :(
+            TrimEntry.setup_kronecker(
+                TrimEntry.DM, Vector{Float64}, TrimEntry.KO, Vector{Float64}, Vector{Float64}
+            )
+        )
+    )
+    push!(names, :solve_block)
+    push!(
+        sigs,
+        :(
+            TrimEntry.solve_block(
+                TrimEntry.BD, Vector{Float64}, TrimEntry.BD, Vector{Float64}, Vector{Float64}
+            )
+        )
+    )
+    push!(names, :solve_operator)
+    push!(
+        sigs,
+        :(
+            TrimEntry.solve_operator(
+                TrimEntry.PO, Vector{Float64}, TrimEntry.PO, Vector{Float64}, Vector{Float64}
+            )
+        )
+    )
+    # Sparse operands, which are compatible only with the backend named -- see the comment in
+    # `trim/entrypoints.jl` for why `:auto` on a doubly sparse pair is not.
+    for f in (:solve_sparse_kkt, :solve_sparse_dense)
+        push!(names, f)
+        push!(
+            sigs,
+            :(
+                TrimEntry.$f(
+                    TrimEntry.SPM, Vector{Float64}, TrimEntry.SPM, Vector{Float64}, Vector{Float64}
+                )
+            )
+        )
+    end
+    push!(names, :solve_sparse_diagonal)
+    push!(
+        sigs,
+        :(
+            TrimEntry.solve_sparse_diagonal(
+                TrimEntry.DM, Vector{Float64}, TrimEntry.SPM, Vector{Float64}, Vector{Float64}
+            )
+        )
+    )
     results = TrimCheck.validate(sigs...; init = :(include($entry); using .TrimEntry), progressbar = false)
     ok = Dict(
         String(f) => occursin("is trim compatible", sprint(show, r))
             for (f, r) in zip(names, results)
     )
+    # A bare failed assertion names the entry point but not what the trimmer objected to,
+    # which is the only part that says where to look.
+    for (f, r) in zip(names, results)
+        f === :not_trimmable || ok[String(f)] || println("$f:\n", sprint(show, r))
+    end
     for f in names
         f === :not_trimmable && continue
         @test ok[String(f)]

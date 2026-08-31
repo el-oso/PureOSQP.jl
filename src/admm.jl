@@ -287,12 +287,16 @@ function build_solution(ws::Workspace{T}) where {T}
     )
 end
 
+# `@constprop :aggressive` for the same reason [`setup`](@ref) carries it, at the second of two
+# barriers: without it the keyword values arrive at `setup`'s call site as runtime values, so
+# `setup`'s own annotation has no constants to propagate. Both are needed; either alone leaves
+# the widening in place.
 """
     solve(P, q, A, l, u; x0 = nothing, y0 = nothing, kwargs...) -> Solution
 
 Solve `min ½xᵀPx + qᵀx  s.t.  l ≤ Ax ≤ u` in one call.
 """
-function solve(
+Base.@constprop :aggressive function solve(
         P::AbstractMatrix, q::AbstractVector, A::AbstractMatrix,
         l::AbstractVector, u::AbstractVector;
         x0 = nothing, y0 = nothing, kwargs...

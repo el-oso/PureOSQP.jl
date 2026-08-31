@@ -10,22 +10,40 @@ The factorization backend is an interface, declared with
 [TypeContracts.jl](https://github.com/el-oso/TypeContracts.jl) and enforced at
 precompilation:
 
-```julia
-@contract LinearSystem begin
-    factorize!(::Self, ::Any)::Bool
-    solve_system!(::Self, ::Any, ::Any, ::Any)::Nothing
-end
+```@eval
+using PureOSQP, TypeContracts, Markdown
+Markdown.parse(replace(contract_md_string(PureOSQP.LinearSystem), r"\A# [^\n]*\n+" => ""))
 ```
 
-`@verify ReducedCholesky trim_compat=true` and the same for [`FullKKT`](@ref) run when the
-module precompiles, so a backend that is missing a method — or whose method infers to the
-wrong return type — fails to load rather than failing at solve time.
+[`PureOSQP.refactor_rho!`](@ref) is outside the contract: it refreshes the factorization when
+`ρ` alone has moved, and rebuilding from scratch is a correct answer, so its default is
+[`PureOSQP.factorize!`](@ref) and no backend has to implement it.
+
+`@verify` runs when the module precompiles, so a backend that is missing a method — or whose
+method infers to the wrong return type — fails to load rather than failing at solve time.
+The backends verified in the core module, which is what is loaded here (each extension
+verifies its own):
+
+```@eval
+using PureOSQP, TypeContracts, Markdown
+verified = String[]
+for m in methods(verified_trait)
+    m.sig isa DataType && length(m.sig.parameters) == 3 || continue
+    p = m.sig.parameters[3]
+    p isa DataType && p <: Type || continue
+    t = p.parameters[1]
+    t isa TypeVar && continue
+    push!(verified, string(nameof(t)))
+end
+Markdown.parse(join(("  - `" * v * "`" for v in sort!(verified)), "\n"))
+```
 
 The contract is covered by a test that gives it something to reject: a type that declares
 the supertype and implements none of it must be reported as unsatisfied. Without that, a
 contract can be satisfied vacuously and nobody notices.
 
-To add a backend, subtype `LinearSystem`, implement the two methods, and `@verify` it.
+To add a backend, subtype `LinearSystem`, implement the mandatory methods above, and
+`@verify` it.
 Note the backend is fixed when the workspace is built, so it is part of the workspace's
 type and every per-iteration call dispatches statically — there is no runtime branch on
 which backend is in use.
@@ -33,7 +51,7 @@ which backend is in use.
 ## No allocation, no type instability
 
 `bench/strictmode_audit.jl` uses [StrictMode.jl](https://github.com/el-oso/StrictMode.jl)
-to check, for **both** backends:
+to check, for every backend the audit can reach:
 
 | function | guarantees |
 |---|---|
@@ -42,7 +60,18 @@ to check, for **both** backends:
 | `solve_system!` | type-stable, allocation-free |
 | `check_termination` | type-stable |
 | `factorize!` | type-stable |
+| `refactor_rho!` | type-stable |
 | `solve!` | type-stable |
+
+Two qualifications the audit makes and this page inherits. A backend reaching sparse
+arithmetic gets no static allocation claim for its factorization, because the sparse
+libraries it calls carry allocation sites of their own. And the matrix-free backend's hot
+path is checked by **measurement** rather than statically: Krylov's `cg!` holds timing and
+buffer-allocation branches that are visible to a static analysis and never taken, so the
+static check reports them and a measured run reports zero bytes.
+
+An operator supplied by the caller is guaranteed only as far as its own `mul!` is: these
+properties are the solver's, and a product that allocates makes the iteration allocate.
 
 Run it with `cd bench && julia --project=. strictmode_audit.jl`.
 
@@ -65,14 +94,64 @@ make that a *proof* rather than an observation.
 
 ## `--trim` compatibility
 
-`juliac --trim` needs every call resolved statically. All public entry points are checked
-with [TrimCheck.jl](https://github.com/JuliaLang/TrimCheck.jl), in
-`test/trim_tests.jl`, so a dynamic dispatch or a reflective call cannot creep in unnoticed:
+`juliac --trim` needs every call resolved statically. Two things enforce that, and they cover
+different halves of the surface.
 
-- `solve` with default settings, with `polish = true`, with `linsys = :kkt`, and with
-  `scaling = 0`;
-- `setup` → `solve!` → `update!` → `solve!`;
-- `setup` → `solve!` → `warm_start!` → `solve!`.
+**Every backend, as a filter.** `src/PureOSQP.jl` carries
+
+```julia
+@verify LinearSystem subtypes = true trim_compat = true
+```
+
+which checks every [`PureOSQP.LinearSystem`](@ref) subtype at precompilation. An extension's
+backends load after that sweep and cannot be swept the same way (re-registering the core
+backends is method overwriting during precompilation), so `test/coverage_tests.jl` runs the
+same check over every subtype with all extensions loaded, with no exemption list.
+
+Be precise about what that buys, because it is less than it looks. The check scans each
+backend's declared method bodies and does not follow calls out of them, so it catches a
+backend that itself names something unresolvable and nothing deeper — the CHOLMOD backends
+pass it while reaching SuiteSparse through `ccall`. It also reports by warning rather than by
+raising, so it is the test that enforces it and not the load. The test pins both properties: it
+reads the returned verdict rather than waiting for an exception, and it checks a deliberately
+trim-unsafe backend is rejected, so a sweep that stopped discriminating would be caught.
+
+The load-bearing guarantee is the entry-point enumeration below, which runs the trimmer.
+
+**Entry points, per path.** `test/trim_tests.jl` validates a concrete call for each public
+path with [TrimCheck.jl](https://github.com/JuliaLang/TrimCheck.jl):
+
+- `solve` with default settings, with `polish = true`, `linsys = :kkt`, `linsys = :indirect`,
+  `scaling = 0`, `verbose = true`, `max_iter` and `time_limit`;
+- one per structured representation — diagonal, tridiagonal (both spellings), banded,
+  low-rank, block-diagonal, Kronecker, and a products-only operator;
+- sparse operands: `SparseMatrixCSC` on both sides with `linsys = :kkt` and with
+  `linsys = :dense`, and a sparse `A` under a diagonal `P` on `:auto`;
+- `setup` → `solve!` → `update!` → `solve!`, and the same with `warm_start!`;
+- `update_settings!`/`update_rho!`/`cold_start!`, and the derivatives.
+
+That list is an enumeration, so it proves what it names and no more. The backend sweep above
+is what makes coverage of the *backends* structural rather than remembered.
+
+**What a sparse problem needs to be AOT-compilable.** Two conditions, both about keeping
+SuiteSparse out of the binary rather than about the backends, which pass the sweep above like
+every other.
+
+*Name the backend.* `linsys` reaches [`setup`](@ref) as a type parameter, so `:kkt`, `:dense`
+and `:indirect` eliminate the selection ladder instead of leaving it unused. Left on `:auto`, a
+pair that is sparse on both sides is incompatible by construction, and for two independent
+reasons — removing either one leaves the other. That ladder has to consider the reduced rung,
+which factors with CHOLMOD, whose bindings reach their C structs through `getproperty` on
+pointer-backed wrappers that no static analysis resolves. And it reaches more backend types
+than inference will merge: `Base.Compiler.MAX_TYPEUNION_LENGTH` is 3, so the workspace type
+widens to `Workspace{…} where LS` and every later `solve!` becomes a dynamic dispatch. A sparse
+`A` under a structured `P` is compatible on `:auto`, because the rungs that pair descends reach
+neither a sparse factorization nor a fourth backend type.
+
+*Load LDLFactorizations.* [`PureOSQP.is_convex`](@ref) needs a factorization to answer for a
+sparse `P` that is not diagonal, and only a pure-Julia one is resolvable. With the extension
+loaded, dispatch settles which is used before the trimmer runs, so the CHOLMOD fallback is
+unreachable; without it, that fallback is the only answer and the path is not compatible.
 
 The same test includes a **negative control** — an entry point that calls
 `Base.return_types`, which the trimmer cannot resolve. It must be reported as *not*

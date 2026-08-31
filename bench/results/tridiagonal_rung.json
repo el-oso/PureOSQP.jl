@@ -1,0 +1,101 @@
+{
+  "budget_seconds": 0.3,
+  "cases": [
+    {
+      "n": 250,
+      "blas_threads": 1,
+      "backend": "tridiagonal",
+      "tri_setup": 0.00026499900000000003,
+      "cholesky_setup": 0.0012187220000000002,
+      "setup_ratio": 4.5989682979935775,
+      "tri_solve": 8.06918918918919e-7,
+      "cholesky_solve": 3.1893333333333335e-6,
+      "solve_ratio": 3.952483029653447
+    },
+    {
+      "n": 500,
+      "blas_threads": 1,
+      "backend": "tridiagonal",
+      "tri_setup": 0.001367127,
+      "cholesky_setup": 0.007110735000000001,
+      "setup_ratio": 5.2012249044894885,
+      "tri_solve": 1.540263157894737e-6,
+      "cholesky_solve": 1.0379500000000001e-5,
+      "solve_ratio": 6.738783529813771
+    },
+    {
+      "n": 1000,
+      "blas_threads": 1,
+      "backend": "tridiagonal",
+      "tri_setup": 0.009960367500000001,
+      "cholesky_setup": 0.0476911375,
+      "setup_ratio": 4.788090148280171,
+      "tri_solve": 3.1025555555555558e-6,
+      "cholesky_solve": 4.0196e-5,
+      "solve_ratio": 12.95577122801991
+    },
+    {
+      "n": 2000,
+      "blas_threads": 1,
+      "backend": "tridiagonal",
+      "tri_setup": 0.061387537000000006,
+      "cholesky_setup": 0.344081951,
+      "setup_ratio": 5.605078291380218,
+      "tri_solve": 6.322000000000001e-6,
+      "cholesky_solve": 0.00037347400000000005,
+      "solve_ratio": 59.0752926289149
+    },
+    {
+      "n": 250,
+      "blas_threads": 8,
+      "backend": "tridiagonal",
+      "tri_setup": 0.000210045,
+      "cholesky_setup": 0.0008425635000000001,
+      "setup_ratio": 4.011347568378205,
+      "tri_solve": 8.3676e-7,
+      "cholesky_solve": 3.429e-6,
+      "solve_ratio": 4.097949232754912
+    },
+    {
+      "n": 500,
+      "blas_threads": 8,
+      "backend": "tridiagonal",
+      "tri_setup": 0.000819205,
+      "cholesky_setup": 0.0029394020000000002,
+      "setup_ratio": 3.58811530691341,
+      "tri_solve": 1.5571666666666667e-6,
+      "cholesky_solve": 3.3884000000000005e-6,
+      "solve_ratio": 2.1760034250240823
+    },
+    {
+      "n": 1000,
+      "blas_threads": 8,
+      "backend": "tridiagonal",
+      "tri_setup": 0.0037486670000000002,
+      "cholesky_setup": 0.015326112000000001,
+      "setup_ratio": 4.088416495783702,
+      "tri_solve": 3.176e-6,
+      "cholesky_solve": 9.578e-6,
+      "solve_ratio": 3.015743073047859
+    },
+    {
+      "n": 2000,
+      "blas_threads": 8,
+      "backend": "tridiagonal",
+      "tri_setup": 0.023363765,
+      "cholesky_setup": 0.10206557200000001,
+      "setup_ratio": 4.368541286047005,
+      "tri_solve": 6.365333333333334e-6,
+      "cholesky_solve": 5.5916000000000005e-5,
+      "solve_ratio": 8.784457478005864
+    }
+  ],
+  "cpu_threads": 16,
+  "julia_version": "1.12.7",
+  "sizes": [
+    250,
+    500,
+    1000,
+    2000
+  ]
+}

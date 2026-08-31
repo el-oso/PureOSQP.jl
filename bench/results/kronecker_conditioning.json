@@ -1,0 +1,97 @@
+{
+  "blas_threads": 1,
+  "cases": [
+    {
+      "agree": "true",
+      "backend": "kronecker",
+      "dense_iter": "175",
+      "dense_status": "SOLVED",
+      "kappa": "100.0",
+      "kron_iter": "175",
+      "kron_status": "SOLVED",
+      "n": "30",
+      "sweep": "conditioning"
+    },
+    {
+      "agree": "true",
+      "backend": "kronecker",
+      "dense_iter": "175",
+      "dense_status": "SOLVED",
+      "kappa": "10000.000000000868",
+      "kron_iter": "175",
+      "kron_status": "SOLVED",
+      "n": "30",
+      "sweep": "conditioning"
+    },
+    {
+      "agree": "true",
+      "backend": "kronecker",
+      "dense_iter": "450",
+      "dense_status": "SOLVED",
+      "kappa": "9.999999996748127e7",
+      "kron_iter": "450",
+      "kron_status": "SOLVED",
+      "n": "30",
+      "sweep": "conditioning"
+    },
+    {
+      "agree": "true",
+      "backend": "kronecker",
+      "dense_iter": "1100",
+      "dense_status": "SOLVED",
+      "kappa": "9.999989643013632e11",
+      "kron_iter": "1100",
+      "kron_status": "SOLVED",
+      "n": "30",
+      "sweep": "conditioning"
+    },
+    {
+      "agree": "true",
+      "backend": "kronecker",
+      "dense_iter": "2525",
+      "dense_status": "SOLVED",
+      "kappa": "9.863660528178652e15",
+      "kron_iter": "2525",
+      "kron_status": "SOLVED",
+      "n": "30",
+      "sweep": "conditioning"
+    },
+    {
+      "backend": "kronecker",
+      "dense_iter": "300",
+      "dense_seconds": "0.000194636",
+      "dense_status": "SOLVED",
+      "kappa": "1.000001952458679e12",
+      "kron_iter": "175",
+      "kron_seconds": "0.00011182000000000001",
+      "kron_status": "SOLVED",
+      "n": "30",
+      "sweep": "against_equilibrated"
+    },
+    {
+      "backend": "kronecker",
+      "dense_iter": "575",
+      "dense_seconds": "0.003265734",
+      "dense_status": "SOLVED",
+      "kappa": "1.0000016507917158e12",
+      "kron_iter": "350",
+      "kron_seconds": "0.000609846",
+      "kron_status": "SOLVED",
+      "n": "168",
+      "sweep": "against_equilibrated"
+    },
+    {
+      "backend": "kronecker",
+      "dense_iter": "500",
+      "dense_seconds": "0.027245397",
+      "dense_status": "SOLVED",
+      "kappa": "1.0000008988472825e12",
+      "kron_iter": "875",
+      "kron_seconds": "0.0039750015",
+      "kron_status": "SOLVED",
+      "n": "480",
+      "sweep": "against_equilibrated"
+    }
+  ],
+  "julia_version": "1.12.7"
+}

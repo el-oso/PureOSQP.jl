@@ -1,0 +1,205 @@
+{
+  "budget_seconds": 0.3,
+  "cases": [
+    {
+      "case": "Random QP",
+      "n": 50,
+      "m": 500,
+      "nnz_A": 3782,
+      "blas_threads": 1,
+      "backend": "cholesky",
+      "scan": 1.2213e-6,
+      "setup": 0.00029001600000000004,
+      "two_scan_share": 0.008422293942403177
+    },
+    {
+      "case": "Eq QP",
+      "n": 200,
+      "m": 100,
+      "nnz_A": 2881,
+      "blas_threads": 1,
+      "backend": "cholesky",
+      "scan": 8.122142857142857e-7,
+      "setup": 0.00138093,
+      "two_scan_share": 0.0011763294094766362
+    },
+    {
+      "case": "Portfolio",
+      "n": 505,
+      "m": 506,
+      "nnz_A": 2294,
+      "blas_threads": 1,
+      "backend": "ldl_kkt",
+      "scan": 1.0591428571428573e-6,
+      "setup": 0.000303131,
+      "two_scan_share": 0.00698802073785167
+    },
+    {
+      "case": "Lasso",
+      "n": 816,
+      "m": 816,
+      "nnz_A": 1786,
+      "blas_threads": 1,
+      "backend": "ldlfactorizations",
+      "scan": 7.682631578947369e-7,
+      "setup": 0.00028334300000000003,
+      "two_scan_share": 0.005422849040877924
+    },
+    {
+      "case": "SVM",
+      "n": 808,
+      "m": 1600,
+      "nnz_A": 2549,
+      "blas_threads": 1,
+      "backend": "ldlfactorizations",
+      "scan": 1.181625e-6,
+      "setup": 0.00032440100000000004,
+      "two_scan_share": 0.007284965212807605
+    },
+    {
+      "case": "Huber",
+      "n": 1806,
+      "m": 1800,
+      "nnz_A": 3526,
+      "blas_threads": 1,
+      "backend": "ldlfactorizations",
+      "scan": 1.593e-6,
+      "setup": 0.0005182400000000001,
+      "two_scan_share": 0.006147730781105278
+    },
+    {
+      "case": "Control",
+      "n": 320,
+      "m": 540,
+      "nnz_A": 6540,
+      "blas_threads": 1,
+      "backend": "sparse_formed",
+      "scan": 1.9503333333333336e-6,
+      "setup": 0.001446473,
+      "two_scan_share": 0.0026966743704629585
+    },
+    {
+      "case": "Sparse 800",
+      "n": 800,
+      "m": 800,
+      "nnz_A": 12894,
+      "blas_threads": 1,
+      "backend": "sparse_formed",
+      "scan": 3.6830000000000006e-6,
+      "setup": 0.019556596500000002,
+      "two_scan_share": 0.0003766504054015739
+    },
+    {
+      "case": "Sparse 1600",
+      "n": 1600,
+      "m": 1600,
+      "nnz_A": 50925,
+      "blas_threads": 1,
+      "backend": "sparse_formed",
+      "scan": 1.2789e-5,
+      "setup": 0.12184096300000001,
+      "two_scan_share": 0.0002099293978823854
+    },
+    {
+      "case": "Random QP",
+      "n": 50,
+      "m": 500,
+      "nnz_A": 3782,
+      "blas_threads": 8,
+      "backend": "cholesky",
+      "scan": 1.286529411764706e-6,
+      "setup": 0.000305686,
+      "two_scan_share": 0.008417326352955033
+    },
+    {
+      "case": "Eq QP",
+      "n": 200,
+      "m": 100,
+      "nnz_A": 2881,
+      "blas_threads": 8,
+      "backend": "cholesky",
+      "scan": 8.31e-7,
+      "setup": 0.0017385030000000002,
+      "two_scan_share": 0.0009559948990597081
+    },
+    {
+      "case": "Portfolio",
+      "n": 505,
+      "m": 506,
+      "nnz_A": 2294,
+      "blas_threads": 8,
+      "backend": "ldl_kkt",
+      "scan": 1.0798333333333334e-6,
+      "setup": 0.00031346,
+      "two_scan_share": 0.006889767966141348
+    },
+    {
+      "case": "Lasso",
+      "n": 816,
+      "m": 816,
+      "nnz_A": 1786,
+      "blas_threads": 8,
+      "backend": "ldlfactorizations",
+      "scan": 8.650869565217393e-7,
+      "setup": 0.0002939685,
+      "two_scan_share": 0.0058855758798765125
+    },
+    {
+      "case": "SVM",
+      "n": 808,
+      "m": 1600,
+      "nnz_A": 2549,
+      "blas_threads": 8,
+      "backend": "ldlfactorizations",
+      "scan": 1.3086875e-6,
+      "setup": 0.00033361800000000004,
+      "two_scan_share": 0.007845425007043983
+    },
+    {
+      "case": "Huber",
+      "n": 1806,
+      "m": 1800,
+      "nnz_A": 3526,
+      "blas_threads": 8,
+      "backend": "ldlfactorizations",
+      "scan": 1.6305e-6,
+      "setup": 0.0005401170000000001,
+      "two_scan_share": 0.006037580746393836
+    },
+    {
+      "case": "Control",
+      "n": 320,
+      "m": 540,
+      "nnz_A": 6540,
+      "blas_threads": 8,
+      "backend": "sparse_formed",
+      "scan": 1.9069166666666668e-6,
+      "setup": 0.0010998405,
+      "two_scan_share": 0.0034676240176037647
+    },
+    {
+      "case": "Sparse 800",
+      "n": 800,
+      "m": 800,
+      "nnz_A": 12894,
+      "blas_threads": 8,
+      "backend": "sparse_formed",
+      "scan": 3.7872e-6,
+      "setup": 0.011201648000000002,
+      "two_scan_share": 0.0006761862183135909
+    },
+    {
+      "case": "Sparse 1600",
+      "n": 1600,
+      "m": 1600,
+      "nnz_A": 50925,
+      "blas_threads": 8,
+      "backend": "sparse_formed",
+      "scan": 1.3085000000000001e-5,
+      "setup": 0.04960742950000001,
+      "two_scan_share": 0.0005275419481269434
+    }
+  ],
+  "cpu_threads": 16,
+  "julia_version": "1.12.7"
+}
