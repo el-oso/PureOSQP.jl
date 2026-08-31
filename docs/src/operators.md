@@ -5,9 +5,18 @@ own structure keeps that structure all the way to the point where a backend is c
 page is how to bring one: a representation that stores less than `m×n`, computes its products
 from what it stores, and is solved by a backend that never forms an `n×n` object.
 
-Two examples ship, and both are worth reading as templates:
-[`PureOSQP.BlockDiagonal`](@ref) with [`PureOSQP.BlockReduced`](@ref), and
-[`PureOSQP.RowCoupled`](@ref) with [`PureOSQP.DiagonalLowRank`](@ref).
+Three examples ship, and each is worth reading as a template for a different shape:
+
+| representation | backend | what the structure buys |
+|---|---|---|
+| [`PureOSQP.BlockDiagonal`](@ref) | [`PureOSQP.BlockReduced`](@ref) | `R` decouples into `K` independent systems |
+| [`PureOSQP.RowCoupled`](@ref) | [`PureOSQP.DiagonalLowRank`](@ref) | `R` is a diagonal plus a rank-`k` correction, solved by Woodbury |
+| [`PureOSQP.KroneckerOperator`](@ref) | [`PureOSQP.KroneckerReduced`](@ref) | `R` is diagonal in the factors' eigenbasis |
+
+`docs/src/examples.md` runs all three. The Kronecker one is the cautionary case: its backend
+applies only when `P` is a scalar multiple of `I`, `ρ` is one number, and `scaling = 0`, so
+most of its design is the rung that declines. A backend that would return a wrong answer
+outside its conditions has to check them, and checking them is the work.
 
 ## What to implement, in order
 

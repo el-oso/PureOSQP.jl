@@ -572,6 +572,100 @@ operator's own `mul!` is: a broadcast in it, or a `DimensionMismatch` message bu
 type, is enough to lose both. `bench/lazy_operator.jl` is written to hold them, and
 `bench/strictmode_audit.jl` checks it.
 
+## Structured operators the package ships
+
+Three representations come with a backend that never forms the reduced matrix. Each is an
+ordinary argument to [`setup`](@ref) — the structure is declared by the type, and selection
+finds it by dispatch.
+
+### Block-diagonal
+
+[`PureOSQP.BlockDiagonal`](@ref) is a diagonal run of blocks, stored as the blocks. When `P`
+and `A` split their columns at the same places, the reduced matrix decouples into independent
+systems that are factored one at a time.
+
+```@example blocks
+using PureOSQP, LinearAlgebra
+
+blocks_P = [Matrix(Symmetric([2.0 0.3; 0.3 2.0])) for _ in 1:4]
+blocks_A = [[1.0 -1.0; 0.5 1.0] for _ in 1:4]
+P = PureOSQP.BlockDiagonal(blocks_P)
+A = PureOSQP.BlockDiagonal(blocks_A)
+
+n, m = size(P, 1), size(A, 1)
+q = collect(range(-1.0, 1.0; length = n))
+ws = setup(P, q, A, fill(-1.0, m), fill(1.0, m))
+PureOSQP.backend_name(ws.linsys)
+```
+
+The storage that buys, against forming the `n×n` reduced matrix:
+
+```@example blocks
+(blocks = PureOSQP.backend_info(ws.linsys).factor_nnz, dense = n * (n + 1) ÷ 2)
+```
+
+### Kronecker
+
+[`PureOSQP.KroneckerOperator`](@ref) is `A₁ ⊗ A₂` held as its two factors, and the backend
+solves through their eigenbases. It has the narrowest acceptance region in the package, and
+all three conditions are structural rather than tunable:
+
+| condition | why |
+|---|---|
+| `P` is a *scalar* multiple of `I` | `c·D·P·D` and `ρ·Ãᵀ diag(ρ) Ã` are simultaneously diagonalizable only then. A Kronecker `P` does **not** qualify. |
+| `ρ` is one number | true automatically when every constraint is an inequality; one equality row gives `ρ` a second value |
+| `scaling = 0` | `c·μ·D²` is diagonal but not scalar, so any equilibration breaks the diagonalization |
+
+```@example kron
+using PureOSQP, LinearAlgebra
+
+A1 = [1.0 0.5; -0.5 1.0]
+A2 = [2.0 0.0 1.0; 0.0 1.5 0.0; 1.0 0.0 2.0]
+A = PureOSQP.KroneckerOperator(A1, A2)      # 6×6, stored as 4 + 9 entries
+
+n = size(A, 2)
+P = Diagonal(fill(2.0, n))                  # μI, as the tier requires
+q = collect(range(-1.0, 1.0; length = n))
+ws = setup(P, q, A, fill(-1.0, n), fill(1.0, n); scaling = 0)
+PureOSQP.backend_name(ws.linsys)
+```
+
+Break any one condition and the rung declines — the problem is solved by the dense terminal
+instead, more slowly and just as correctly:
+
+```@example kron
+equilibrated = setup(P, q, A, fill(-1.0, n), fill(1.0, n))   # scaling left at its default
+nonscalar = setup(Diagonal(1.0:n), q, A, fill(-1.0, n), fill(1.0, n); scaling = 0)
+(equilibrated = PureOSQP.backend_name(equilibrated.linsys),
+ nonscalar = PureOSQP.backend_name(nonscalar.linsys))
+```
+
+Giving up equilibration is a real cost on a badly scaled problem, and it is the price of this
+tier. If your `P` is zero rather than `μI` the two are compatible in principle — a Kronecker
+product's row and column ∞-norms are exactly the Kronecker products of the factors' norms —
+but that route is not built.
+
+### Low-rank coupling
+
+[`PureOSQP.RowCoupled`](@ref) is a few dense rows above rows holding one entry each, which
+with a `Diagonal` `P` makes the reduced matrix a diagonal plus a rank-`k` correction, solved
+by Woodbury.
+
+```@example rowcoupled
+using PureOSQP, LinearAlgebra
+
+# The rung accepts while `10k <= n`, so two coupling rows need at least twenty variables:
+# below that the correction costs more than the dense solve it replaces.
+n = 24
+coupling = reshape(collect(range(0.1, 0.8; length = 2n)), 2, n)   # two dense rows
+A = PureOSQP.RowCoupled(coupling, ones(n), collect(1:n))          # then a bound per variable
+P = Diagonal(fill(1.5, n))
+q = collect(range(-1.0, 1.0; length = n))
+m = size(A, 1)
+ws = setup(P, q, A, fill(-1.0, m), fill(1.0, m))
+PureOSQP.backend_name(ws.linsys)
+```
+
 ## Building a workspace once
 
 `solve` builds a workspace, solves, and throws the workspace away. [`setup`](@ref) hands it
