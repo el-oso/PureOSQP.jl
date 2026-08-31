@@ -269,6 +269,63 @@ that reason. An `ldlt` is likewise no substitute for a Cholesky's failure report
 returns a negative pivot for an indefinite matrix and throws only on an exact zero — so the
 tridiagonal backend tests the pivots itself, where the banded one can rely on `issuccess`.
 
+## Block-diagonal structure
+
+A [`PureOSQP.BlockDiagonal`](@ref) `P` and `A` decouple the reduced matrix into `K`
+independent blocks, factored one at a time and never assembled whole. The factor cost falls
+from `n³` to `Σnᵢ³` and the storage from `n²` to `Σnᵢ²`, so both improve as the same `n`
+splits further. Each row is one problem solved twice, once in `BlockDiagonal` and once as a
+`Matrix`, so the iteration count is shared and the difference is the backend. Reproduce with
+`julia --project=bench bench/block_backend.jl`; samples in
+`bench/results/block_backend.json`, single-threaded BLAS, `n = 240`.
+
+| `K` | block | iters | `block` | dense | speedup | factor words | dense words | memory× |
+|---|---|---|---|---|---|---|---|---|
+| 2 | 120 | 50 | 4.28 ms | 4.79 ms | 1.12× | 14 520 | 28 920 | 2.0× |
+| 3 | 80 | 50 | 2.98 ms | 3.68 ms | 1.24× | 9 720 | 28 920 | 3.0× |
+| 4 | 60 | 50 | 2.44 ms | 3.23 ms | 1.32× | 7 320 | 28 920 | 4.0× |
+| 6 | 40 | 150 | 2.23 ms | 3.11 ms | 1.40× | 4 920 | 28 920 | 5.9× |
+| 8 | 30 | 100 | 1.86 ms | 2.68 ms | 1.44× | 3 720 | 28 920 | 7.8× |
+| 12 | 20 | 250 | 2.12 ms | 3.14 ms | 1.48× | 2 520 | 28 920 | 11.5× |
+| 20 | 12 | 100 | 1.66 ms | 3.18 ms | **1.91×** | 1 560 | 28 920 | **18.5×** |
+
+Read the two halves differently. The time column improves modestly, because at `n = 240` a
+dense factorization is already cheap and the per-iteration `symv` is what dominates. The
+storage column improves exactly as `Σnᵢ²/n²` predicts and does not depend on the size being
+small. Iteration counts vary down the table because each `K` is a different problem; the
+comparison that holds is across a row, not down a column.
+
+The matrix-free backend on the same problems takes 4.9 ms to 15.2 ms — worse than either
+direct path at every split, since the blocks are dense and CG gains nothing from a structure
+it cannot see.
+
+## Low-rank coupling
+
+A `Diagonal` `P` with a [`PureOSQP.RowCoupled`](@ref) `A` makes the reduced matrix a diagonal
+plus a rank-`k` correction, which Woodbury solves without forming it: two `gemv`s against a
+`k×n` block and one `k×k` solve, in `O(nk)` time and storage rather than `O(n²)`. Reproduce
+with `julia --project=bench bench/lowrank_backend.jl`; samples in
+`bench/results/lowrank_backend.json`, single-threaded BLAS.
+
+| n | k | iters | setup | dense setup | total | dense total | total× |
+|---|---|---|---|---|---|---|---|
+| 500 | 1 | 75 | 80.3 µs | 9.31 ms | 0.24 ms | 19.2 ms | **81×** |
+| 500 | 2 | 75 | 88.5 µs | 9.34 ms | 0.26 ms | 19.3 ms | **75×** |
+| 500 | 6 | 100 | 138 µs | 9.34 ms | 0.58 ms | 14.3 ms | **25×** |
+| 500 | 16 | 125 | 282 µs | 9.34 ms | 0.79 ms | 15.5 ms | **20×** |
+| 1000 | 1 | 75 | 154 µs | 57.7 ms | 0.45 ms | 119 ms | **267×** |
+| 1000 | 6 | 100 | 270 µs | 56.4 ms | 1.11 ms | 79.1 ms | **71×** |
+| 1000 | 16 | 150 | 557 µs | 55.8 ms | 1.64 ms | 98.2 ms | **60×** |
+| 2000 | 1 | 75 | 304 µs | 391 ms | 0.87 ms | 806 ms | **923×** |
+| 2000 | 6 | 100 | 533 µs | 385 ms | 2.16 ms | 559 ms | **259×** |
+| 2000 | 16 | 175 | 1.11 ms | 392 ms | 3.71 ms | 691 ms | **186×** |
+
+The ratio grows with `n` at fixed `k` and shrinks as `k` climbs, which is what `O(nk)` against
+`O(n²)` predicts. The rung declines once `10k > n`, below the measured crossing so the limit
+holds at any BLAS thread count — see the gate discussion in
+`bench/results/gate_crossover_lowrank.json`. Each row is a different problem, so read across
+a row rather than down a column.
+
 ## Sparse A
 
 `A` and `P` genuinely sparse, so OSQP's sparse LDLᵀ is playing to its strength. PureOSQP is
@@ -490,3 +547,71 @@ benchmark asserts the two objectives agree, which they do to about eight digits.
 numbers moved once already: before the direct backend formed `R` sparsely, matrix-free
 measured 3.61× at `n = 4000` rather than 1.90×, and 96× smaller rather than 33×. A sparse
 *factorization* of `R`, still open, would move them again.
+
+## An operator that is never materialized
+
+The sections above all hand the solver a matrix. This one hands it something that has no
+entries to hand over: an operator supplying only `mul!`, wrapped in
+[`PureOSQP.ProductOperator`](@ref). Nothing can be formed, so the density gates and the
+direct rungs are not merely slower — they do not apply, and the ladder lands on the
+matrix-free backend by elimination.
+
+The comparison is against the same operator materialized into a `Matrix`, which is the choice
+a caller has when the entries do exist. Reproduce with
+`julia --project=bench bench/operator_protocol.jl`; samples in
+`bench/results/operator_protocol.json`.
+
+| n | BLAS threads | lazy setup | dense setup | setup× | lazy step | dense step | step× |
+|---|---|---|---|---|---|---|---|
+| 500 | 1 | 167 µs | 8.99 ms | **54×** | 303 µs | 44.9 µs | 0.15× |
+| 1000 | 1 | 677 µs | 56.1 ms | **83×** | 1.08 ms | 259 µs | 0.24× |
+| 500 | 8 | 179 µs | 5.54 ms | **31×** | 310 µs | 42.2 µs | 0.14× |
+| 1000 | 8 | 682 µs | 25.1 ms | **37×** | 568 µs | 94.6 µs | 0.17× |
+
+The trade is the whole story and it points both ways. Setup is 31–83× cheaper because there
+is no `O(n³)` factorization to pay for — only the preconditioner. A step is 4–7× dearer,
+because a preconditioned CG solve against the operator replaces one `symv` against a stored
+inverse. Which wins is decided by how many iterations the problem takes, and the setup saving
+grows with `n` while the per-step penalty does not.
+
+Two things this measures that the matrix-free numbers above do not. The setup ratio narrows
+as BLAS threads go up (54× to 31× at `n = 500`), because the dense side is the half that
+threads. And the lazy step is essentially thread-independent, since the operator's `mul!`
+here is the caller's own code rather than a BLAS call.
+
+An operator supplied this way carries the solver's guarantees only as far as its own `mul!`
+does: a product that allocates makes the iteration allocate.
+
+## Ill-conditioned problems
+
+At `n = 300` with `κ(P) = κ(A) = 1e12`, taken from a real case. Reproduce with
+`julia --project=bench bench/illconditioned.jl`; samples in
+`bench/results/illconditioned.json`, single-threaded BLAS, `eps_abs = eps_rel = 1e-8`.
+
+**Read the statuses before the timings.** ADMM does not converge on these problems within
+`max_iter`: every row below stopped at `MAX_ITER_REACHED` after 4000 iterations. So the time
+column compares what four backends cost for the *same* number of iterations, not four
+answers, and the objective column is a consistency check between backends rather than
+evidence that any of them is near the optimum.
+
+| shape | `linsys` | backend | 4000 iterations | factor words | objective |
+|---|---|---|---|---|---|
+| dense | `:auto` | `cholesky` | 75.2 ms | 45 150 | 182 375.90 |
+| dense | `:kkt` | `bunchkaufman` | 320 ms | 180 300 | 182 375.34 |
+| dense | `:indirect` | `indirect` | 751 ms | 0 | 0.0169 |
+| blocks of 50 | `:auto` | `block` | **22.6 ms** | **7 650** | 27 139.9885 |
+| blocks of 50 | `:dense` | `cholesky` | 35.6 ms | 45 150 | 27 139.9926 |
+| blocks of 50 | `:kkt` | `bunchkaufman` | 330 ms | 180 300 | 27 140.019 |
+| blocks of 50 | `:indirect` | `indirect` | 381 ms | 0 | 1.25e9 |
+
+The finding that survives non-convergence is in the last column. The three direct backends
+track each other — six significant figures on the block problem, five on the dense one — so
+they are all in the same place after 4000 iterations, whatever place that is. The matrix-free
+backend is not with them, and not by a little: `0.0169` where the direct backends read
+`182 375`, and `1.25e9` where they read `27 140`. Conjugate gradients on a reduced matrix
+whose conditioning is `κ(A)²` is not solving the same problem to a looser tolerance; its
+iterates are somewhere else entirely.
+
+So `linsys = :indirect` is the one backend that ill-conditioning disqualifies rather than
+merely slows, and the declared structure is what pays here: the block backend is both the
+fastest per iteration and the smallest, on the problem whose structure it can see.

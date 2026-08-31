@@ -572,6 +572,60 @@ operator's own `mul!` is: a broadcast in it, or a `DimensionMismatch` message bu
 type, is enough to lose both. `bench/lazy_operator.jl` is written to hold them, and
 `bench/strictmode_audit.jl` checks it.
 
+### An operator from LinearMaps.jl
+
+Writing the protocol by hand is only worth it for an operator you own. For one already
+expressed as a `LinearMaps.LinearMap`, loading LinearMaps is enough: `setup` and `solve`
+accept a map wherever they accept a matrix, wrapping it in a
+[`PureOSQP.ProductOperator`](@ref) for you.
+
+A `LinearMap` is not an `AbstractMatrix`, so without the extension loaded it reaches neither
+entry point. With it, matrices and maps mix freely in one call.
+
+```@example linearmaps
+using PureOSQP, LinearMaps, LinearAlgebra, Krylov, Random
+Random.seed!(4)
+
+n, m = 60, 40
+# A constraint that is a product rather than a table: scale, take a running sum, keep the
+# first m entries. Nothing here is ever assembled into an m×n array.
+w = 0.5 .+ rand(n)
+forward(y, x) = (y .= cumsum(w .* x)[1:m])
+function adjoint_(x, y)
+    fill!(x, 0.0)
+    x[1:m] .= y
+    reverse!(x); cumsum!(x, x); reverse!(x)
+    x .*= w
+    return x
+end
+A = LinearMap{Float64}((y, x) -> forward(y, x), (x, y) -> adjoint_(x, y), m, n)
+
+# The traits are declared, not inferred -- see below.
+P = LinearMap(Diagonal(fill(2.0, n)); issymmetric = true, isposdef = true)
+q = randn(n)
+l, u = fill(-1.0, m), fill(1.0, m)
+
+sol = PureOSQP.solve(P, q, A, l, u; scaling = 0, linsys = :indirect)
+(sol.status, sol.iter, round(sol.obj_val; digits = 6))
+```
+
+Two things that call needs, and both are properties of operators rather than of LinearMaps.
+`scaling = 0`, because equilibration reads columns and a map has none to read — override
+`PureOSQP.structural_rows` for the map's type if you want equilibration back. And Krylov.jl
+loaded, since the matrix-free backend is the only one that can serve an operator; `:auto`
+reaches it on its own, and naming it makes the requirement explicit.
+
+What loading LinearMaps buys over hand-wrapping is the pair of declarations the wrapper cannot
+compute: `issymmetric` and `isposdef` travel with the map, and
+[`PureOSQP.is_convex`](@ref) is then answered by reading them rather than by factoring.
+
+**They are declarations, not deductions.** `LinearMap(Diagonal(fill(2.0, n)))` reports
+`isposdef == false` — LinearMaps records what its author asserted and infers nothing from the
+wrapped matrix — and [`setup`](@ref) refuses it as a non-convex objective. That refusal is
+correct: an operator that has not claimed positive-definiteness has not established it. State
+the traits at construction as above, or override the map with
+`ProductOperator{T}(map; symmetric, posdef)`.
+
 ## Structured operators the package ships
 
 Three representations come with a backend that never forms the reduced matrix. Each is an
