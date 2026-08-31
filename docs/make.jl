@@ -13,6 +13,7 @@ makedocs(;
         "Home" => "index.md",
         "Examples" => "examples.md",
         "Algorithm" => "algorithm.md",
+        "Structured operators" => "operators.md",
         "Guarantees" => "guarantees.md",
         "Benchmarks" => "benchmarks.md",
         "API" => "api.md",

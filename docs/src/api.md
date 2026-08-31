@@ -52,6 +52,7 @@ PureOSQP.ReducedCholesky
 PureOSQP.DiagonalReduced
 PureOSQP.TridiagonalReduced
 PureOSQP.DiagonalLowRank
+PureOSQP.BlockReduced
 PureOSQP.FullKKT
 PureOSQP.indirect_backend
 ```
@@ -61,11 +62,16 @@ PureOSQP.indirect_backend
 ```@docs
 PureOSQP.RowCoupled
 PureOSQP.coupling_rank
+PureOSQP.BlockDiagonal
+PureOSQP.nblocks
+PureOSQP.rowrange
+PureOSQP.colrange
 PureOSQP.structural_rows
 PureOSQP.is_convex
 PureOSQP.is_symmetric
 PureOSQP.is_materializable
 PureOSQP.reduced_diagonal!
+PureOSQP.reduced_rhs!
 PureOSQP.ProductOperator
 PureOSQP.unpreconditioned!
 PureOSQP.probe_column!
@@ -79,6 +85,7 @@ PureOSQP.select_backend
 PureOSQP.density_gate_rung
 PureOSQP.kkt_rung
 PureOSQP.reduced_rung
+PureOSQP.block_rung
 PureOSQP.lowrank_rung
 PureOSQP.formed_rung
 PureOSQP.dense_rung

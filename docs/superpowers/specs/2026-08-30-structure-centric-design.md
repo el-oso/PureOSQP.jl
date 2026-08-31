@@ -147,7 +147,7 @@ method specificity, and the type unions are currently disjoint by construction.
 |---|---|
 | S1 — explicit selection ladder, dense terminal | **done** |
 | S2 — one structure description | **dropped** — `structural_rows` already is the shared description, and each of the four terms it would replace is read only inside the extension that defines it |
-| S3 — unmaterialized structured backends | **done** for Woodbury over a diagonal core; block-diagonal and Kronecker unbuilt |
+| S3 — unmaterialized structured backends | **done** for Woodbury over a diagonal core and for block-diagonal; Kronecker open, and blocked on `ρ` (below) |
 | S4 — relax the `AbstractMatrix` bound | **done, by a different route** — the bound is unchanged; `ProductOperator` presents a foreign hierarchy as an `AbstractMatrix`, `ext/PureOSQPLinearMapsExt.jl` accepts a `LinearMap`, and `is_materializable` authorizes the refusals |
 | S5 — split the cheap update paths out of `factorize!` | **done** — `refactor_rho!`, defaulting to a full rebuild; `DiagonalLowRank` overrides it |
 | S6 — equilibration protocol for lazy operators | **done** — two seam levels for an operator that can answer its own norms, and column probing for one that cannot; no protocol addition was needed for either |
@@ -251,7 +251,15 @@ type.
 The new tier. No interface change needed; `IndirectCG` is the existence proof.
 
 - **block-diagonal** — disjoint column support decouples `R` into K independent systems; K small
-  solves, never an `n×n` object
+  solves, never an `n×n` object. **Built** as `BlockDiagonal` + `BlockReduced`;
+  `bench/results/block_backend.json` records 1.12–1.91× against forming the reduced matrix,
+  2.7–6.8× against matrix-free CG, and 2–18.5× less stored.
+- **Kronecker** — factored solves via small eigendecompositions. Open, and the obstacle is
+  `ρ`, not effort: `(A ⊗ B)ᵀ diag(ρ) (A ⊗ B)` is Kronecker only when `ρ` is uniform over the
+  factor's rows, and `set_rho_vec!` gives equality rows `10³ρ`. So the structure the backend
+  would exploit is destroyed by the solver's own `ρ` split on any problem with equality
+  constraints, and survives only where every constraint is an inequality. That case is worth
+  measuring before the backend is written, not after.
 - **low-rank + structured → Woodbury / Sherman–Morrison** — k coupling rows give
   `Ãᵀdiag(ρ)Ã = (structured part) + Uᵀdiag(ρ_k)U`; solve the structured part, correct through a
   k×k system, `O(n·k)` rather than `O(n³)`. **Built** as `RowCoupled` + `DiagonalLowRank`

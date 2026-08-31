@@ -232,6 +232,42 @@ Three readings, none of them the tidy one:
 So probing earns its place for a badly scaled problem with a cheap product, and costs
 otherwise, which is why it is a constructor flag rather than a default.
 
+## The block backend, and the baseline that was wrong
+
+An earlier reading of this item measured the suite's problems, found that the three with any
+block structure already select a sparse LDL storing 0.6% of what a dense-block factorization
+would, and concluded block-diagonal was subsumed by sparse. That is true for a **materialized**
+matrix and irrelevant to the case the tier exists for: an operator held as blocks and never
+assembled cannot be handed to a sparse factorization at all. The comparisons that exist for it
+are forming the whole reduced matrix, and matrix-free CG. Measured against those
+(`bench/results/block_backend.json`, `n = 240`, `K` from 2 to 20):
+
+| K | vs forming `R` | vs CG | stored vs dense |
+|---|---|---|---|
+| 2 | 1.12× | 3.4× | 2.0× |
+| 6 | 1.40× | 5.1× | 5.9× |
+| 20 | 1.91× | 6.8× | 18.5× |
+
+Two implementation findings, both of which cost more than the structure was worth until they
+were fixed:
+
+- **Assembling each block with a scalar triple loop lost to the dense path**, which uses
+  BLAS-3, even at 36× fewer flops. Scaling the block into `sqrt(ρ) ⊙ E ⊙ Aᵢ ⊙ D` first and
+  taking one `mul!` turned 0.76× at `K = 2` into 1.08×.
+- **Keeping a Cholesky factor and calling `ldiv!` lost per iteration.** The dense backend
+  inverts and uses `symv` for a reason the log already records for the banded tier: both cost
+  `2nᵢ²` flops, but a triangular solve is a serial recurrence and `symv` is not. Inverting each
+  block took `K = 6` from 1.11× to 1.40×, and the ill-conditioned case below from 45 ms to
+  23.5 ms.
+
+**At `κ = 10¹²`, `n = 300`, `K = 6`** — a real case rather than a swept one — the block backend
+agrees with both direct alternatives to six significant figures (44251.775 against dense's
+44251.797 and the KKT factorization's 44251.729) while storing 7650 words against 45 150 and
+180 300, and running in 23.5 ms against 36.5 and 1189. **Matrix-free CG on the same problem
+returns 1.86e9 against a true objective of 4.4e4** — not slow, wrong. That is the argument for
+a structured *direct* backend, and it is why the reduced form's squaring of `κ(A)` did not turn
+out to be the binding constraint it looked like.
+
 ## The plan's own reorderings
 
 - **S5 moved from before S3 to after it.** The phasing table put the update-path split ahead of
