@@ -74,11 +74,9 @@ function kronecker_rung(
         P, A::KroneckerOperator, proto::AbstractVector{T}, n::Integer, m::Integer,
         D, E, c, rho_vec, sigma
     ) where {T <: Real}
-    # `μ` is read here, where a `nothing` is a branch rather than a value flowing on, and the
-    # backend then carries it as a `T`. Leaving `Union{Nothing,T}` for `factorize!` to narrow
-    # is what `--trim` refuses to resolve.
-    mu = scalar_multiple(P)
-    isnothing(mu) && return nothing
+    # Predicate first, value second. A `Union{Nothing,T}` for the caller to narrow is a call
+    # `--trim` refuses to resolve, however plainly the check narrows it.
+    is_scalar_multiple(P) || return nothing
     # `ρ` enters as `ρ (G₁ ⊗ G₂)` only when it is one number. A single equality row or a free
     # row gives it two values and the eigenbasis stops diagonalizing.
     isempty(rho_vec) && return nothing
@@ -87,7 +85,7 @@ function kronecker_rung(
     # only unscaled data keeps the structure. `scaling = 0` is what produces this.
     (all(isone, D) && all(isone, E) && isone(c)) || return nothing
     n1, n2 = size(A.A1, 2), size(A.A2, 2)
-    return (KroneckerReduced(proto, n1, n2, T(mu)), false)
+    return (KroneckerReduced(proto, n1, n2, T(scalar_multiple(P))), false)
 end
 
 function factorize!(ls::KroneckerReduced{T}, ws)::Bool where {T}

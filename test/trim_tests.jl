@@ -65,9 +65,8 @@
             )
         )
     )
-    # The Kronecker backend has no entry point here, and `test/trim/entrypoints.jl` says why:
-    # its `setup` infers a workspace the verifier will not resolve. That is a gap in what this
-    # gate covers, recorded rather than hidden.
+    # No Kronecker entry point; `test/trim/entrypoints.jl` records the bisection and what is
+    # ruled out. This gate does not cover that backend, which is stated rather than hidden.
     push!(names, :solve_block)
     push!(
         sigs,

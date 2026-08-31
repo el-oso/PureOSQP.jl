@@ -313,15 +313,34 @@ one fully free row gives it two values.
 
 **The entry point does not pass `--trim`, and this is the one path in the package outside that
 gate.** The verifier reports `setup` on a `KroneckerOperator` as returning
-`Workspace{…, LS} where LS` and refuses the solve as an unresolved call. Four hypotheses were
-tested and falsified: the `scaling = 0` keyword (it constant-folds), the three-way backend
-union (`linsys = :dense` takes an early return with one backend type and fails identically),
-the operator's type-parameter count (collapsed from four to two, no change), and a
-`Union{Nothing,T}` the rung left for `factorize!` to narrow (moved into the backend as a
-field, no change). What remains is the operator itself on whichever path reads it, and it is
-not isolated. The backend's own methods are `typestable, noalloc`; a missing entry point is a
-gap in coverage, recorded in `test/trim_tests.jl` and `test/trim/entrypoints.jl` rather than
-left silent.
+`Workspace{…, LS} where LS` and refuses the solve as an unresolved call.
+
+The bisection that narrows it, each line measured:
+
+| path | verdict |
+|---|---|
+| `setup` alone on a `KroneckerOperator` | passes |
+| `solve` whose rung **declines** (default scaling, dense terminal) | passes |
+| `solve` whose rung **accepts** | **fails** |
+| the operator's `mul!`, adjoint `mul!`, `getindex` alone | all pass |
+
+So it is `solve!` on a workspace actually carrying a `KroneckerReduced`. Five explanations
+were tested and falsified: the `scaling = 0` keyword (it constant-folds to
+`Base.Pairs(:scaling => 0)`); the three-way backend union (identical member-for-member to
+`RowCoupled`'s and `BlockDiagonal`'s, both of which pass — and `linsys = :dense` does not
+avoid it, since `settings.linsys` is a runtime field and every branch stays live); the
+operator's type-parameter count, collapsed from four to two; a `Union{Nothing,T}` the rung
+left for its caller, now split into a predicate and a value; and the operator's own methods,
+which trim on their own.
+
+What is left untested is `factorize!`, the one method on this path the passing backends do not
+share, and the one that calls `eigen` — a far larger LAPACK surface than the `cholesky!` and
+`bunchkaufman!` they use. That is the next thing to read, and if it is the blocker the fix is
+an in-package symmetric eigensolver rather than a smaller change.
+
+The backend's own methods are `typestable, noalloc`, so this is a `--trim` resolution gap and
+not a type-stability one. The missing entry point is recorded in `test/trim_tests.jl` and
+`test/trim/entrypoints.jl` rather than left silent.
 
 One implementation note worth the same line the block tier got: `solve_system!` allocated at
 two sites, both from a single `ls.X .*= ls.dinv`. An in-place broadcast has `X` on both sides

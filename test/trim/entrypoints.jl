@@ -49,14 +49,17 @@ solve_block(P::BD, q::V, A::BD, l::V, u::V) = PureOSQP.solve(P, q, A, l, u)
 
 # The Kronecker backend. Its rung accepts only unscaled data with a scalar `P`, so the entry
 # point carries `scaling = 0` the way the caller would have to.
-# No Kronecker entry point. `setup` on a `KroneckerOperator` infers a workspace the verifier
-# reports as `Workspace{…, LS} where LS`, so the solve is an unresolved call and the path is
-# not `--trim` compatible. What is ruled out: the `scaling = 0` keyword (it constant-folds to
-# `Base.Pairs(:scaling => 0)`), the backend union (`linsys = :dense` takes an early return with
-# one backend type and fails the same way), the operator's type-parameter count, and the
-# `Union{Nothing,T}` the rung once left for `factorize!`. What is left is the operator itself
-# on whichever path reads it, and that is not isolated. `KroneckerReduced`'s own methods are
-# `typestable, noalloc` under StrictMode; it is the public entry that does not trim.
+# No Kronecker entry point yet: `solve!` on a workspace carrying a `KroneckerReduced` is an
+# unresolved call to the verifier, and the cause is not isolated. The bisection that narrows
+# it: `setup` alone on a `KroneckerOperator` passes, and so does a `solve` whose rung declines
+# (default scaling, which lands on the dense terminal) — only a `solve` whose rung *accepts*
+# fails. Ruled out along the way: the `scaling = 0` keyword (it constant-folds), the three-way
+# backend union (identical to `RowCoupled`'s and `BlockDiagonal`'s, which both pass), the
+# operator's type-parameter count, a `Union{Nothing,T}` in the rung (now split into a
+# predicate and a value), and the operator's own `mul!`, adjoint `mul!` and `getindex`, which
+# pass trim on their own. `KroneckerReduced`'s methods are `typestable, noalloc` under
+# StrictMode, so this is a `--trim` resolution gap rather than a type-stability one.
+const KO = PureOSQP.KroneckerOperator{Float64, Matrix{Float64}}
 
 const PO = PureOSQP.ProductOperator{Float64, Matrix{Float64}, Vector{Float64}}
 solve_operator(P::PO, q::V, A::PO, l::V, u::V) =

@@ -72,7 +72,10 @@ end
         setup(scalar, q, K, vcat(b[1], l[2:end]), vcat(b[1], u[2:end]); scaling = 0).linsys
     ) === :cholesky
 
+    # Predicate and value are separate so neither returns a union; the rung checks the first
+    # before reading the second.
+    @test PureOSQP.is_scalar_multiple(Diagonal(fill(3.0, 4)))
     @test PureOSQP.scalar_multiple(Diagonal(fill(3.0, 4))) == 3.0
-    @test isnothing(PureOSQP.scalar_multiple(Diagonal([1.0, 2.0])))
-    @test isnothing(PureOSQP.scalar_multiple(randn(3, 3)))
+    @test !PureOSQP.is_scalar_multiple(Diagonal([1.0, 2.0]))
+    @test !PureOSQP.is_scalar_multiple(randn(3, 3))
 end

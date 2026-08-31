@@ -93,22 +93,28 @@ function LinearAlgebra.mul!(
 end
 
 """
-    scalar_multiple(P) -> Real or nothing
+    is_scalar_multiple(P) -> Bool
 
-The `μ` for which `P == μI`, or `nothing` when `P` is not a multiple of the identity.
+Whether `P` is `μI` for some `μ`, which is what the Kronecker backend needs of it.
 
-The Kronecker backend needs this and not merely a structured `P`: `c·D·P·D` and
-`ρ·Ãᵀ diag(ρ) Ã` are simultaneously diagonalizable only when the first is a scalar multiple of
-the identity. A Kronecker `P` does not qualify, which is measured rather than assumed —
-see the log.
+Not merely a structured `P`: `c·D·P·D` and `ρ·Ãᵀ diag(ρ) Ã` are simultaneously diagonalizable
+only when the first is a scalar multiple of the identity. A Kronecker `P` does not qualify,
+which is measured rather than assumed — see the log.
 """
-scalar_multiple(P) = nothing
+is_scalar_multiple(P) = false
+is_scalar_multiple(P::Diagonal) = isempty(P.diag) || all(==(first(P.diag)), P.diag)
+is_scalar_multiple(::UniformScaling) = true
 
-function scalar_multiple(P::Diagonal{T}) where {T <: Real}
-    d = P.diag
-    isempty(d) && return zero(T)
-    all(==(first(d)), d) || return nothing
-    return first(d)
-end
+"""
+    scalar_multiple(P) -> Real
 
+The `μ` for which `P == μI`. Defined only where [`is_scalar_multiple`](@ref) holds, and the
+caller checks that first.
+
+Split from the predicate rather than returning `Union{Nothing,T}` for it: a union-typed `μ`
+flowing into the arithmetic below is a call `--trim` will not resolve, however obviously the
+`isnothing` check narrows it.
+"""
+scalar_multiple(P::Diagonal{T}) where {T <: Real} =
+    isempty(P.diag) ? zero(T) : first(P.diag)
 scalar_multiple(P::UniformScaling{T}) where {T <: Real} = P.λ
