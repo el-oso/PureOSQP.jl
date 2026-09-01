@@ -1,0 +1,60 @@
+{
+  "blas_threads": 1,
+  "cases": [
+    {
+      "case": "well conditioned",
+      "n": 40,
+      "kappa": 100.0,
+      "iter": 75,
+      "status": "SOLVED",
+      "trapezoid": 6.837511373772147e-6,
+      "logmean": 1.6806698129564582e-6,
+      "ratio": 0.2458013919221109,
+      "seconds_off": 9.4497e-5,
+      "seconds_on": 9.4767e-5,
+      "overhead_percent": 0.2857233562970185
+    },
+    {
+      "case": "moderate",
+      "n": 40,
+      "kappa": 1.0e6,
+      "iter": 175,
+      "status": "SOLVED",
+      "trapezoid": 4.63511136897512e-6,
+      "logmean": 3.1362923564652758e-6,
+      "ratio": 0.6766379719499056,
+      "seconds_off": 0.000187942,
+      "seconds_on": 0.000188102,
+      "overhead_percent": 0.08513264730607428
+    },
+    {
+      "case": "ill conditioned",
+      "n": 40,
+      "kappa": 1.0e9,
+      "iter": 50000,
+      "status": "MAX_ITER_REACHED",
+      "trapezoid": 1.979715166727969e-5,
+      "logmean": 1.519443322974455e-5,
+      "ratio": 0.7675060273876461,
+      "seconds_off": 0.025730981,
+      "seconds_on": 0.025780473,
+      "overhead_percent": 0.19234400740493207
+    },
+    {
+      "case": "larger",
+      "n": 150,
+      "kappa": 10000.0,
+      "iter": 150,
+      "status": "SOLVED",
+      "trapezoid": 0.0008718811214575483,
+      "logmean": 0.0005233808018936565,
+      "ratio": 0.6002891782066643,
+      "seconds_off": 0.002015664,
+      "seconds_on": 0.002030211,
+      "overhead_percent": 0.7216976638963812
+    }
+  ],
+  "eps": 1.0e-9,
+  "julia_version": "1.12.7",
+  "max_iter": 50000
+}

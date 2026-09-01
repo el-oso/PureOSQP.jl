@@ -11,7 +11,7 @@
         :solve_default, :solve_polish, :solve_kkt, :solve_unscaled, :solve_verbose, :solve_indirect,
         :settings_and_rho, :derivatives,
         :solve_interruptible,
-        :solve_time_limited,
+        :solve_time_limited, :solve_profiled,
         :setup_solve_update, :warm_started, :not_trimmable,
     ]
     sigs = [

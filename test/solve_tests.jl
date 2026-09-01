@@ -540,3 +540,66 @@ end
     # Claimed only where true: C code generation is a roadmap item still open.
     @test !c.codegen
 end
+
+@testitem "the primal-dual integral accumulates only when asked, and brackets itself" begin
+    using LinearAlgebra, Random
+    Random.seed!(19)
+    n = 30
+    M = randn(n, n)
+    P = Matrix(Symmetric(M'M)) + n * I
+    A = Matrix(1.0I, n, n)
+    q = randn(n)
+    l, u = fill(-0.5, n), fill(0.5, n)
+    opts = (eps_abs = 1.0e-8, eps_rel = 1.0e-8)
+
+    # There is no reference value to compare against: this is an integral over wall-clock
+    # time, so it is not reproducible across machines and not comparable between runs on a
+    # machine whose clock is not pinned. What is checkable is the set of properties the
+    # quantity must have, and that measuring it does not change the answer.
+    off = solve(P, q, A, l, u; opts...)
+    on = solve(P, q, A, l, u; opts..., profile_primdual = true)
+
+    @test off.primdual_int == 0.0
+    @test off.primdual_int_log == 0.0
+    @test on.primdual_int > 0.0
+    @test on.primdual_int_log > 0.0
+
+    # Profiling must not perturb the solve it measures.
+    @test on.iter == off.iter
+    @test on.obj_val ≈ off.obj_val rtol = 1.0e-12
+    @test on.x ≈ off.x rtol = 1.0e-12
+
+    # The logarithmic mean of two positive numbers never exceeds their arithmetic mean, and
+    # the gap here is positive and decaying, so the exponential rule sits under the trapezoid.
+    @test on.primdual_int_log <= on.primdual_int
+
+    # A solve that takes longer to reach the same tolerance accumulates more gap-time. The
+    # comparison is against a looser tolerance on the same problem, which stops earlier.
+    quick = solve(P, q, A, l, u; eps_abs = 1.0e-3, eps_rel = 1.0e-3, profile_primdual = true)
+    @test quick.iter < on.iter
+    @test quick.primdual_int <= on.primdual_int
+
+    # Per solve, not cumulative: a second run on the same workspace reports its own integral.
+    ws = setup(P, q, A, l, u; opts..., profile_primdual = true)
+    first = PureOSQP.solve!(ws).primdual_int
+    second = PureOSQP.solve!(ws).primdual_int
+    @test first > 0.0
+    @test second < first        # warm-started, so fewer iterations and less accumulated
+end
+
+@testitem "the log rule reduces to the trapezoid where the exponential does not apply" begin
+    # Both endpoints must be positive for the exponential through them to exist, and the
+    # difference quotient loses its digits before the two means separate. Either way the
+    # slice falls back to the trapezoid rather than returning a wrong number or a NaN.
+    trap = 7.5
+    @test PureOSQP.logmean_slice(0.0, 2.0, 1.0, trap) == trap      # a zero endpoint
+    @test PureOSQP.logmean_slice(-1.0, 2.0, 1.0, trap) == trap     # gap not yet sign-definite
+    @test PureOSQP.logmean_slice(2.0, 2.0, 1.0, trap) == trap      # equal endpoints
+    @test PureOSQP.logmean_slice(2.0, nextfloat(2.0), 1.0, trap) == trap
+
+    # Where it does apply it is the logarithmic mean, which is exact for an exponential and
+    # strictly under the arithmetic mean.
+    a, b, dt = 4.0, 1.0, 2.0
+    @test PureOSQP.logmean_slice(a, b, dt, dt * (a + b) / 2) ≈ dt * (a - b) / log(a / b)
+    @test PureOSQP.logmean_slice(a, b, dt, dt * (a + b) / 2) < dt * (a + b) / 2
+end

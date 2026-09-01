@@ -56,6 +56,10 @@ Algorithm parameters. Defaults follow libosqp 0.6.2 with two exceptions.
 the setup time, so iteration counts are reproducible across machines. And `check_dualgap`
 defaults on, following libosqp 1.x, so a run stops on the duality gap as well as on the
 two residuals.
+
+`profile_primdual` is off by default and is the only setting that makes the solve read a
+clock it would not otherwise read. Turning it on fills [`Solution`](@ref)'s `primdual_int`
+and `primdual_int_log`, at a measured cost under 1%.
 """
 struct Settings{T <: Real}
     rho::T
@@ -77,6 +81,7 @@ struct Settings{T <: Real}
     cg_tol_fraction::T
     cg_tol_reduction::Int
     check_dualgap::Bool
+    profile_primdual::Bool
     scaled_termination::Bool
     rho_is_vec::Bool
     polish::Bool
@@ -93,7 +98,8 @@ function Settings{T}(;
         scaling = 10, adaptive_rho = true, adaptive_rho_interval = 50,
         adaptive_rho_fraction = 0.4, adaptive_rho_tolerance = 5.0, check_termination = 25,
         cg_max_iter = 20, cg_tol_fraction = 0.15, cg_tol_reduction = 10,
-        check_dualgap = true, scaled_termination = false, rho_is_vec = true,
+        check_dualgap = true, profile_primdual = false,
+        scaled_termination = false, rho_is_vec = true,
         polish = false, polish_refine_iter = 3, delta = 1.0e-6,
         warm_starting = true, verbose = false, linsys = :auto,
     ) where {T <: Real}
@@ -136,7 +142,8 @@ function Settings{T}(;
         Int(scaling), rho_mode, Int(adaptive_rho_interval), T(adaptive_rho_fraction),
         T(adaptive_rho_tolerance), Int(check_termination),
         Int(cg_max_iter), T(cg_tol_fraction), Int(cg_tol_reduction),
-        Bool(check_dualgap), Bool(scaled_termination), Bool(rho_is_vec),
+        Bool(check_dualgap), Bool(profile_primdual),
+        Bool(scaled_termination), Bool(rho_is_vec),
         Bool(polish), Int(polish_refine_iter), T(delta),
         Bool(warm_starting), Bool(verbose), Symbol(linsys),
     )
@@ -154,6 +161,20 @@ is zero at an exact solution and is reported unscaled. `rel_kkt_error` is the la
 the two residuals and the gap, so one number bounds how far the point is from optimal.
 `rho_updates` counts adaptive-`ρ` changes only, unlike `Workspace.refactor_count`, which
 also counts refactorizations forced by new data.
+
+`primdual_int` and `primdual_int_log` are the primal-dual integral, `∫|gap| dt` over the
+solve, and are zero unless `profile_primdual` was set. They differ only in how the gap is
+interpolated between the iterations that sampled it: the first joins samples with a straight
+line, the second with an exponential, which is what a geometrically decaying gap does. The
+logarithmic mean never exceeds the arithmetic one, so the second is the lower of the two and
+the pair brackets the integral; measured, they differ by 1.3× to 4.2×
+(`bench/primdual_integral.jl`).
+
+**Both integrate against wall-clock time and neither is reproducible.** They cannot be
+compared across machines, or between runs on a machine whose clock is not pinned, and no
+test asserts a value for either — only that they are positive, ordered, and unaffected by
+the measuring. They exist to compare convergence *profiles*, not to be an output of the
+solve.
 
 Times are in seconds. `setup_time` belongs to the workspace and is reported by every solve
 that uses it, but `run_time` counts it only for the first solve — a re-solve did not pay
@@ -177,6 +198,10 @@ struct Solution{T <: Real}
     dual_res::T
     rel_kkt_error::T
     iter::Int
+    # Zero unless `profile_primdual` was set. Wall-clock quantities: not reproducible across
+    # machines, and not comparable between runs on a machine whose clock is not pinned.
+    primdual_int::Float64
+    primdual_int_log::Float64
     rho_estimate::T
     rho_updates::Int
     polished::Bool
@@ -254,6 +279,18 @@ mutable struct Workspace{
     SCy::T
     rel_kkt_error::T
     last_rel_kkt::T
+    # The primal-dual integral, accumulated only when `profile_primdual` is set. Two rules
+    # over the same samples: `primdual_int` interpolates the gap linearly between them, as a
+    # trapezoid; `primdual_int_log` interpolates it exponentially, which is what a
+    # geometrically decaying gap actually does between samples. `last_gap_time` and
+    # `last_gap` are the previous sample. Times are seconds since the loop started.
+    primdual_int::Float64
+    primdual_int_log::Float64
+    last_gap_time::Float64
+    last_gap::T
+    # `solve!` stamps this before the loop, so the integral's clock starts where the loop
+    # does rather than where the workspace was built.
+    loop_start::UInt64
     rho_estimate::T
     rho_updates::Int
     iter::Int
@@ -437,6 +474,7 @@ function setup_backend(
         ls, 0,
         zero(T), zero(T), zero(T), zero(T), zero(T),
         zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), INFTY(T),
+        0.0, 0.0, 0.0, zero(T), zero(UInt64),
         settings.rho, 0, 0, UNSOLVED, false, POLISH_NOT_PERFORMED,
         0.0, 0.0, true, 0.0, 0.0,
         settings,

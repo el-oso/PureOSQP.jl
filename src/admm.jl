@@ -159,6 +159,14 @@ function solve!(ws::Workspace{T}) where {T}
     limited = isfinite(s.time_limit)
     started = time_ns()
     budget = limited ? round(UInt64, Float64(s.time_limit) * 1.0e9) : typemax(UInt64)
+    # The integral is per solve, so a re-solve on the same workspace starts from zero rather
+    # than continuing the previous one's curve.
+    profiling = s.profile_primdual
+    ws.loop_start = started
+    ws.primdual_int = 0.0
+    ws.primdual_int_log = 0.0
+    ws.last_gap_time = 0.0
+    ws.last_gap = zero(T)
     try
         for iter in 1:s.max_iter
             ws.iter = iter
@@ -167,6 +175,7 @@ function solve!(ws::Workspace{T}) where {T}
                 # Report the residuals of the point actually reached, not the stale ones
                 # from the last scheduled check.
                 update_residuals!(ws)
+                profiling && accumulate_primdual!(ws)
                 ws.status = TIME_LIMIT_REACHED
                 s.verbose && print_row(ws)
                 break
@@ -176,6 +185,10 @@ function solve!(ws::Workspace{T}) where {T}
             checking = s.check_termination > 0 && iszero(iter % s.check_termination)
             (adapting || checking || isone(iter)) || continue
             update_residuals!(ws)
+            # The integral is sampled wherever the gap is refreshed, which is here and at the
+            # exits below. Its clock lives in this loop rather than in `update_residuals!`
+            # because `time_ns` costs that function its allocation-free guarantee.
+            profiling && accumulate_primdual!(ws)
             # Only on a termination check: the residuals and objective a row reports are
             # the ones that check just used, so a printed row always explains the decision
             # made alongside it.
@@ -203,10 +216,12 @@ function solve!(ws::Workspace{T}) where {T}
         # than lose the run. The residuals are refreshed because an interrupt lands
         # wherever it lands, not on a scheduled check.
         update_residuals!(ws)
+        profiling && accumulate_primdual!(ws)
         ws.status = INTERRUPTED
     end
     if ws.status == UNSOLVED
         update_residuals!(ws)
+        profiling && accumulate_primdual!(ws)
         st = check_termination(ws, false)
         if st == UNSOLVED
             st = check_termination(ws, true)
@@ -248,6 +263,7 @@ function solution_from(
     return Solution{T}(
         Vector{T}(x), Vector{T}(y), ws.status, obj, dual_obj, gap,
         ws.prim_res, ws.dual_res, ws.rel_kkt_error, ws.iter,
+        ws.primdual_int, ws.primdual_int_log,
         ws.rho_estimate, ws.rho_updates, ws.polished, ws.status_polish,
         ws.setup_time, ws.update_time, ws.solve_time, ws.polish_time,
         # Setup is charged to the first run only; a re-solve did not pay it again. The

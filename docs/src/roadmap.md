@@ -82,6 +82,10 @@ MKL Pardiso and CUDA backends, and embedded and GPU concerns. The counterpart he
 `linsys = :auto | :dense | :kkt | :indirect`, which selects a formulation; the library
 underneath is whatever BLAS is loaded, so `using MKL` is the whole of the MKL story.
 
+`profiler_level` gates upstream's timing annotations by level. The counterpart here is
+`profile_primdual`, a single switch over the one measurement that needs a clock the solver
+would not otherwise read — see [Benchmarks](@ref "The primal-dual integral").
+
 **`osqp_error_message`.** Exists to turn an error code into a string. This package throws
 exceptions carrying their own messages.
 

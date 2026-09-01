@@ -287,3 +287,60 @@ function check_termination(ws::Workspace{T}, approximate::Bool = false) where {T
     end
     return approximate ? SOLVED_INACCURATE : SOLVED
 end
+
+"""
+    accumulate_primdual!(ws) -> Nothing
+
+Add this iteration's slice to the primal-dual integral, `∫|gap| dt` over the solve.
+
+Two accumulators run over the same samples, because the rule matters and libosqp's is not
+readable from its published headers. `primdual_int` joins consecutive samples with a straight
+line, the trapezoid. `primdual_int_log` joins them with an exponential, which is what a
+geometrically decaying gap does between samples, and integrates that exactly: the slice is
+the interval times the *logarithmic* mean of the endpoints rather than their arithmetic mean.
+The logarithmic mean is the smaller of the two whenever the endpoints differ, so trapezoid
+overstates a convex decaying gap and the pair brackets the truth.
+
+The exponential model needs both endpoints strictly positive, and the gap is not sign-definite
+before convergence, so the log rule falls back to the trapezoid on any slice where it is
+undefined. Both are wall-clock quantities and neither is reproducible across machines.
+
+Called from [`solve!`](@ref) after [`update_residuals!`](@ref) rather than from inside it.
+`time_ns` compiles to a runtime call that AllocCheck counts as an allocation, and
+`update_residuals!` carries the allocation-free guarantee where `solve!` does not — the same
+reason the `time_limit` clock lives in the loop.
+"""
+function accumulate_primdual!(ws::Workspace{T})::Nothing where {T}
+    now = (time_ns() - ws.loop_start) / 1.0e9
+    gap = abs(ws.duality_gap)
+    # The first sample opens the interval and closes nothing.
+    if ws.iter > 0
+        dt = now - ws.last_gap_time
+        if dt > 0.0
+            prev = ws.last_gap
+            trap = 0.5 * (Float64(prev) + Float64(gap)) * dt
+            ws.primdual_int += trap
+            ws.primdual_int_log += logmean_slice(Float64(prev), Float64(gap), dt, trap)
+        end
+    end
+    ws.last_gap_time = now
+    ws.last_gap = gap
+    return nothing
+end
+
+"""
+    logmean_slice(a, b, dt, trap) -> Float64
+
+`dt` times the logarithmic mean of `a` and `b`, which is `∫` of the exponential through them.
+
+Returns `trap` where that model does not apply: a non-positive endpoint leaves the exponential
+undefined, and equal endpoints make the difference quotient `0/0` while the two means coincide.
+Near-equal endpoints are handled by the same branch, since the quotient loses its significant
+digits before the means differ enough to matter.
+"""
+function logmean_slice(a::Float64, b::Float64, dt::Float64, trap::Float64)
+    (a > 0.0 && b > 0.0) || return trap
+    r = a / b
+    (isfinite(r) && abs(r - 1.0) > 1.0e-8) || return trap
+    return dt * (a - b) / log(r)
+end

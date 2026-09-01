@@ -719,3 +719,43 @@ iterations — and its objective is not close: `559` against `301`, `2.6e5` agai
 reduced matrix it applies is conditioned as `κ(A)²`, so `1e4` already means `1e8` for CG.
 Where the direct backends agree with each other to every digit printed, `indirect` is
 somewhere else entirely. On badly conditioned problems it is the one backend to avoid.
+
+## The primal-dual integral
+
+`profile_primdual` accumulates `∫|gap| dt` over the solve — the area under the duality-gap
+curve, which rewards a solver that gets close early rather than only one that finishes.
+Reproduce with `julia --project=bench bench/primdual_integral.jl`; samples in
+`bench/results/primdual_integral.json`, single-threaded BLAS, `eps_abs = eps_rel = 1e-9`.
+
+The gap is sampled wherever the solver refreshes its residuals, so the nodes are whatever
+times the iterations landed on. Two rules run over those same samples: **trapezoid** joins
+consecutive samples with a straight line, **log-mean** joins them with an exponential and
+integrates that exactly, which is the interval times the logarithmic mean of the endpoints.
+
+| problem | iterations | trapezoid | log-mean | log/trap | overhead |
+|---|---|---|---|---|---|
+| well conditioned | 75 | 6.84e-6 | 1.68e-6 | 0.246 | 0.29% |
+| moderate | 175 | 4.64e-6 | 3.14e-6 | 0.677 | 0.09% |
+| ill conditioned | 50 000 | 1.98e-5 | 1.52e-5 | 0.768 | 0.19% |
+| larger | 150 | 8.72e-4 | 5.23e-4 | 0.600 | 0.72% |
+
+**The rules disagree by more than either costs to compute**, by 1.3× to 4.2×, so which one
+is used is part of what the number means. The logarithmic mean never exceeds the arithmetic
+one, so the trapezoid is an upper bound and the pair brackets the integral. They separate
+most on the well-conditioned problem, where the gap falls fastest per sample and a straight
+line is furthest from the exponential it is standing in for.
+
+Measuring costs under 1% and does not change what it measures: the benchmark asserts the
+iteration count and objective are identical with profiling on and off before reporting a
+time.
+
+**Neither number is reproducible.** Both integrate against wall-clock time, so they cannot
+be compared across machines, or between runs on a machine whose clock is not pinned. That is
+also why no test asserts a value for either — the tests check that they are positive,
+correctly ordered, per-solve rather than cumulative, and that measuring does not perturb the
+solve. It is the one quantity this package reports with no reference to compare against.
+
+Interpolatory rules at chosen nodes — Clenshaw–Curtis, Gauss — do not apply. They evaluate
+the integrand at abscissae the rule picks, and nothing can make an ADMM iteration land at a
+prescribed time; their accuracy also assumes a smooth integrand, where this one has kinks
+wherever `ρ` retunes.

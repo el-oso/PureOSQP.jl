@@ -88,6 +88,12 @@ solve_interruptible(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u
 # `time_limit` puts `time_ns` and the UInt64 budget arithmetic on the solve path.
 solve_time_limited(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u; time_limit = 10.0)
 
+# The primal-dual integral adds a `time_ns` and a `log` to the residual update. Both are
+# resolvable, but the branch reaching them is analysed whether or not the setting is on, so
+# this pins that the accumulator did not put anything unresolvable on the path.
+solve_profiled(P::M, q::V, A::M, l::V, u::V) =
+    PureOSQP.solve(P, q, A, l, u; profile_primdual = true)
+
 # The rest of the exported surface. `update_settings!` in particular compares settings
 # field by field rather than looping over a tuple of symbols, because `getfield` with a
 # symbol the compiler cannot see is a dynamic call -- this is what checks that reasoning.
