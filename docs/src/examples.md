@@ -626,6 +626,15 @@ correct: an operator that has not claimed positive-definiteness has not establis
 the traits at construction as above, or override the map with
 `ProductOperator{T}(map; symmetric, posdef)`.
 
+**A map runs unpreconditioned.** The matrix-free backend preconditions with the reduced
+diagonal, and a `LinearMap` has no entries to supply it, so `prec` stays at ones. Measured on
+the same operator written both ways, that makes setup cheaper — there is no preconditioner to
+build — and each iteration 1.36–1.52× dearer
+([Benchmarks](@ref "An operator that is never materialized")). `probe = true` does not change
+it: probing answers equilibration's column norms, not this seam. Give the map's type a
+`PureOSQP.structural_rows` method to get a preconditioner, which is the same override that
+restores equilibration and lets you drop `scaling = 0`.
+
 ## Structured operators the package ships
 
 Three representations come with a backend that never forms the reduced matrix. Each is an

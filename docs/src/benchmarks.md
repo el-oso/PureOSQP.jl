@@ -561,23 +561,39 @@ a caller has when the entries do exist. Reproduce with
 `julia --project=bench bench/operator_protocol.jl`; samples in
 `bench/results/operator_protocol.json`.
 
-| n | BLAS threads | lazy setup | dense setup | setup× | lazy step | dense step | step× |
-|---|---|---|---|---|---|---|---|
-| 500 | 1 | 167 µs | 8.99 ms | **54×** | 303 µs | 44.9 µs | 0.15× |
-| 1000 | 1 | 677 µs | 56.1 ms | **83×** | 1.08 ms | 259 µs | 0.24× |
-| 500 | 8 | 179 µs | 5.54 ms | **31×** | 310 µs | 42.2 µs | 0.14× |
-| 1000 | 8 | 682 µs | 25.1 ms | **37×** | 568 µs | 94.6 µs | 0.17× |
+Three spellings of one operator: implementing the protocol directly (`lazy`), expressing the
+same operator as a `LinearMaps.LinearMap` (`map`), and the `n×n` matrix it names (`dense`).
 
-The trade is the whole story and it points both ways. Setup is 31–83× cheaper because there
-is no `O(n³)` factorization to pay for — only the preconditioner. A step is 4–7× dearer,
-because a preconditioned CG solve against the operator replaces one `symv` against a stored
-inverse. Which wins is decided by how many iterations the problem takes, and the setup saving
-grows with `n` while the per-step penalty does not.
+| n | threads | lazy setup | map setup | dense setup | dense/lazy | lazy step | map step | dense step |
+|---|---|---|---|---|---|---|---|---|
+| 500 | 1 | 169 µs | 9 µs | 7.67 ms | **45×** | 286 µs | 395 µs | 48 µs |
+| 1000 | 1 | 655 µs | 14 µs | 50.6 ms | **77×** | 1055 µs | 1564 µs | 236 µs |
+| 500 | 8 | 169 µs | 9 µs | 4.18 ms | **25×** | 270 µs | 366 µs | 38 µs |
+| 1000 | 8 | 660 µs | 14 µs | 19.5 ms | **30×** | 494 µs | 751 µs | 82 µs |
 
-Two things this measures that the matrix-free numbers above do not. The setup ratio narrows
-as BLAS threads go up (54× to 31× at `n = 500`), because the dense side is the half that
-threads. And the lazy step is essentially thread-independent, since the operator's `mul!`
-here is the caller's own code rather than a BLAS call.
+Against the dense route the trade points both ways. Setup is 25–77× cheaper because there is
+no `O(n³)` factorization to pay for. A step is 4–7× dearer, because a CG solve against the
+operator replaces one `symv` against a stored inverse. Which wins is decided by how many
+iterations the problem takes, and the setup saving grows with `n` while the per-step penalty
+does not. The setup ratio narrows as BLAS threads go up — 45× to 25× at `n = 500` — because
+the dense side is the half that threads.
+
+**What LinearMaps costs, and it is not wrapper overhead.** The extension only wraps a map in a
+[`PureOSQP.ProductOperator`](@ref), and that costs nothing measurable. What the map column
+shows instead is a difference in *information*. Setup is another 19–47× cheaper than the
+hand-written operator's, and each step is 1.36–1.52× dearer, both for the same reason: a
+`LinearMap` runs **unpreconditioned**.
+
+The matrix-free backend preconditions with the reduced diagonal. An operator that implements
+the per-column seam answers it in closed form — here `P[j,j] = d[j] + α v[j]²`, which is what
+the `lazy` column's setup is buying. A `LinearMap` has no entries to answer it from, so `prec`
+stays at ones and CG works harder every iteration. Setting `probe = true` does not recover it:
+probing serves equilibration's column norms, not this seam.
+
+So the choice between the two operator columns is not about LinearMaps being slower. It is
+whether the problem runs enough iterations for a preconditioner to repay the setup that builds
+it. To get one on a map, give its type a `PureOSQP.structural_rows` method — the same override
+that restores equilibration.
 
 An operator supplied this way carries the solver's guarantees only as far as its own `mul!`
 does: a product that allocates makes the iteration allocate.
