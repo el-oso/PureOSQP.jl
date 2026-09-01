@@ -37,6 +37,11 @@ sharp = solve(P, q, A, l, u; eps_abs = 1e-9, eps_rel = 1e-9, polish = true)
 
 ## Least-squares
 
+Fit `Aₐx ≈ b` as closely as possible, but with bounds on `x` that a plain `\` cannot express.
+Unconstrained least-squares has a closed form and does not need a solver; the moment you add
+`0 ≤ x ≤ 1`, it does. The formulation below introduces `y = Aₐx - b` as its own variable, which
+keeps the objective diagonal and the constraint matrix sparse instead of forming `AₐᵀAₐ`.
+
 ```math
 \begin{array}{ll}
   \mbox{minimize}   & \tfrac12 \|A_d x - b\|_2^2 \\
@@ -69,6 +74,12 @@ x = sol.x[1:n]
 ```
 
 ## Lasso
+
+Least-squares with a preference for *simple* answers. The `‖x‖₁` term penalizes the total size
+of the coefficients in a way that drives most of them to exactly zero, so the fit selects a
+handful of predictors rather than using all of them a little. `γ` sets how aggressive that
+selection is. It becomes a QP by splitting each coefficient into positive and negative parts —
+that is what the extra variables below are doing.
 
 ```math
 \begin{array}{ll}
@@ -176,6 +187,12 @@ the lower recovery error on all twelve, with median error 0.19 against 0.95.
 
 ## Support vector machine
 
+Draw the dividing line between two labelled classes, as far from both as you can. The `xᵀx`
+term prefers a wide margin; the `max(0, ·)` hinge charges for every point on the wrong side of
+it, with `γ` setting how much a misclassification costs relative to margin width. The hinge is
+not quadratic, so it enters as a slack variable per data point — one extra variable and one
+extra row each.
+
 ```math
 \begin{array}{ll}
   \mbox{minimize} & \tfrac12 x^T x + \gamma \sum_{i=1}^m \max(0,\; b_i a_i^T x + 1)
@@ -217,6 +234,13 @@ accuracy = count(i -> sign((Ad*w)[i]) == -b[i], 1:m) / m
 ```
 
 ## Portfolio optimization
+
+Split a budget across assets to earn as much as possible without taking on more risk than you
+are willing to. `μ` is the expected return of each asset and `Σ` how they move together, so
+`xᵀΣx` is the variance of the whole portfolio and `γ` is how much return you demand per unit of
+risk. This is the textbook Markowitz problem, and it is a QP as written — no reformulation
+needed. The one below is the factor-model form, which keeps `Σ` as a small factor matrix plus a
+diagonal rather than a full covariance.
 
 ```math
 \begin{array}{ll}

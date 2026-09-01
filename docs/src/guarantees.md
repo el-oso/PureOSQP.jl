@@ -1,8 +1,25 @@
 # Guarantees
 
-Three properties of this package are machine-checked rather than asserted: the
-linear-system interface is a declared contract, the hot path is proven allocation-free and
-type-stable, and the public entry points compile under `juliac --trim`.
+**What this page is for.** Solver libraries routinely claim to be fast, allocation-free, and
+embeddable. This page is the evidence for three such claims here, and — as importantly — the
+boundaries of each. If you are deciding whether to depend on this package, this is the page
+that should decide it.
+
+The three claims, in plain terms:
+
+| claim | what it means for you | where it stops |
+|---|---|---|
+| **no allocation on the hot path** | the iteration does not allocate, so it will not trigger garbage collection mid-solve — which matters if you are solving inside a control loop with a deadline | proven for `Vector`-backed workspaces; not claimed for GPU arrays, and an operator you supply is only as good as its own `mul!` |
+| **type stability** | no hidden dynamic dispatch, so performance does not silently fall off a cliff for an unusual matrix type | checked for every backend the audit can reach |
+| **compiles under `juliac --trim`** | you can build a standalone binary with no Julia runtime, for embedding | entry points are enumerated, and sparse operands need a named backend — see below |
+
+All three are **machine-checked rather than asserted**: there is a script or a test that fails
+if the property stops holding. That is the point of the page — not the claims, which anyone can
+make, but the checks and their limits.
+
+In the package's own terms: the linear-system interface is a declared contract, the hot path is
+proven allocation-free and type-stable, and the public entry points compile under
+`juliac --trim`.
 
 ## The `LinearSystem` contract
 

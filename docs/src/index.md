@@ -13,6 +13,40 @@ programs:
 `P` is symmetric positive semidefinite, `A` is `m×n`, and `l`, `u` may contain `∓Inf`.
 Rows with `l == u` are equality constraints.
 
+## Your first solve
+
+Install it, describe the problem as those five arrays, and call [`solve`](@ref):
+
+```@example first
+using PureOSQP
+
+# minimize  x₁² + x₂² - x₁ - 2x₂     subject to   x₁ + x₂ ≤ 1,  x ≥ 0
+P = [2.0 0.0; 0.0 2.0]      # the quadratic term, as ½xᵀPx -- note the 2s
+q = [-1.0, -2.0]            # the linear term
+A = [1.0 1.0; 1.0 0.0; 0.0 1.0]
+l = [-Inf, 0.0, 0.0]        # lower bounds on each row of A*x
+u = [1.0, Inf, Inf]         # upper bounds
+
+sol = solve(P, q, A, l, u)
+(sol.status, round.(sol.x; digits = 4))
+```
+
+`sol.status` is `SOLVED`, and `sol.x` is the answer. That is the whole interface: there is no
+model object to build and nothing to configure.
+
+Three things worth knowing straight away:
+
+- **`P` is the matrix in `½xᵀPx`**, so a plain `x₁² + x₂²` objective has `2`s on the diagonal.
+  This trips everyone once.
+- **Every constraint is a row of `l ≤ Ax ≤ u`.** A one-sided constraint sets the other side to
+  `±Inf`; an equality sets `l == u`. There are no separate equality and inequality arguments.
+- **`solve` sets up and solves in one call.** If you are going to solve many similar problems,
+  build the workspace once with [`setup`](@ref) and reuse it — see
+  [Examples](@ref "Building a workspace once").
+
+From here: [Examples](@ref) for worked problems (Lasso, SVM, portfolios, model predictive
+control), or the section below for what this implementation does differently.
+
 ## What makes this different
 
 **The goal is to support every matrix representation** — dense, sparse, structured, lazy,

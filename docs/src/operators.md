@@ -1,9 +1,19 @@
 # Structured operators
 
-The solver holds `P` and `A` by reference and never copies them, so a matrix that knows its
-own structure keeps that structure all the way to the point where a backend is chosen. This
-page is how to bring one: a representation that stores less than `m×n`, computes its products
-from what it stores, and is solved by a backend that never forms an `n×n` object.
+**Who this page is for.** You have a matrix type of your own — or a shape the shipped types do
+not cover — and you want the solver to exploit it. If you only want to *use* the structured
+types that come with the package, [Examples](@ref "Structured operators the package ships") is
+the page you want; this one is about adding a new one.
+
+**The good news is that it is incremental.** There are four steps, each useful on its own, and
+you can stop after any of them. Step 1 makes your type work at all. Step 2 makes setup cheaper.
+Step 3 is where the large wins are. Step 4 makes the solver find it without being told. A type
+that stops after step 1 is already usable; it just leaves speed on the table.
+
+The solver holds `P` and `A` by reference and never copies them, so a matrix that knows its own
+structure keeps that structure all the way to the point where a backend is chosen. What you are
+building is a representation that stores less than `m×n`, computes its products from what it
+stores, and — by step 3 — is solved by a backend that never forms an `n×n` object.
 
 Three examples ship, and each is worth reading as a template for a different shape:
 

@@ -127,42 +127,6 @@ package's scope. The GPU paper is not: `linsys = :indirect` is the same matrix-f
 preconditioned-CG method, and that paper is also the source for what a GPU is worth on this
 algorithm — it targets problems with at least 1e4 nonzeros and reaches its peak near 1e8.
 
-## The name Cholesky
-
-The default dense backend is a Cholesky factorization, so the name appears throughout this
-manual. It is worth a paragraph, because the pronunciation most often heard in English is the
-one variant with no support from any of the languages involved.
-
-**André-Louis Cholesky** (born 15 October 1875 in Montguyon; died 31 August 1918 of wounds
-received in northern France) was a French army officer and geodesist who ended as head of the
-Topographical Service of Tunisia. He did not publish the method himself. It appeared
-posthumously in 1924, when a fellow officer, Commandant Benoît, wrote it up in the
-*Bulletin géodésique* as *"Note sur une méthode de résolution des équations normales…
-(Procédé du Commandant Cholesky)"*.
-
-**Say it `/ʃəˈlɛski/` — *shə-LES-kee*.** The first sound is the *sh* of *shoe*.
-
-The reason is that he was French, and French ⟨ch⟩ is /ʃ/. There is a second defensible reading
-from the family's origins: his paternal line descended from the **Cholewski** family, which
-left Poland during the Great Emigration, and Polish ⟨ch⟩ is /x/ — the fricative in *Bach*, in
-Greek χ, in Russian х, in Spanish *j*. That gives *kho-LES-kee*, and it has been argued for in
-the field's own literature: a 1990 NA Digest exchange set out three candidates and concluded
-that "all three current pronunciations seem acceptable" pending evidence of the name's origin,
-noting that a Polish origin would make *Kholesky* correct.
-
-**What has no basis is a hard English /k/ — "koh-LES-kee", the *k* of *kiosk*.** It is neither
-the French /ʃ/ nor the Polish /x/. The two are distinct sounds: /x/ is a fricative, air still
-flowing; /k/ is a plosive, stopped and released. The /k/ reading most likely comes from the
-English habit of pronouncing ⟨ch⟩ as /k/ in words taken from Greek — *chorus*, *chaos*,
-*character* — and this name is not Greek.
-
-References: the pronunciation `/ʃəˈlɛski/` is given by
-[Wikipedia's article on the decomposition](https://en.wikipedia.org/wiki/Cholesky_decomposition);
-the Cholewski descent by
-[its biography of Cholesky](https://en.wikipedia.org/wiki/Andr%C3%A9-Louis_Cholesky); the
-dates, rank and the Benoît publication by the
-[MacTutor biography](https://mathshistory.st-andrews.ac.uk/Biographies/Cholesky/); and the
-three-way discussion by [NA Digest, Volume 90 Issue 11 (18 March 1990)](https://www.netlib.org/na-digest-html/90/v90n11.html).
 
 ## Upstream
 

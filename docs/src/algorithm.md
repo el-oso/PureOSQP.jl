@@ -1,5 +1,31 @@
 # Algorithm
 
+This page is how the solver works inside. You do not need it to use the package — start at
+[Examples](@ref) for that — but it is what the tuning knobs, the backend names and the
+benchmark tables all refer back to.
+
+## The idea in one paragraph
+
+The problem is hard because two demands fight: minimize the objective, and stay inside the
+bounds. Either alone is easy. Minimizing a quadratic with no constraints is one linear solve;
+clipping a vector into a box is one `max` and one `min`. ADMM — *alternating direction method
+of multipliers* — exploits that by keeping **two copies** of the answer, letting each satisfy
+one demand, and adding a penalty that drags them together. Each iteration is: solve the
+unconstrained problem for `x`, clip the other copy `z` into the box, then update a multiplier
+`y` by however far apart they still are. When they agree, both demands hold at once and you
+have the solution.
+
+That gives the shape of everything below. The linear solve is the expensive half and gets most
+of this page. `ρ` is the weight on the disagreement penalty — too small and the copies drift,
+too large and progress stalls, which is why it is retuned as the solve proceeds. `σ` keeps the
+linear system solvable when `P` alone is not. `α` over-relaxes the update, a standard trick
+worth a modest constant factor.
+
+The one property that matters for performance: **the matrix in that linear solve does not
+change between iterations** unless `ρ` does. So it is factored once and reused hundreds of
+times, and nearly all the engineering here is about making that factorization and its reuse as
+cheap as the problem's structure allows.
+
 ## The ADMM iteration
 
 Each iteration solves one linear system and then does a projection:
@@ -242,3 +268,39 @@ resulting equality-constrained QP
 is factored with `bunchkaufman!` and corrected by three steps of iterative refinement
 against the unregularized operator, which removes the error introduced by `δ`. The polished
 point replaces the ADMM answer only if both residuals improve.
+
+## The name Cholesky
+
+The name appears throughout this manual, and the pronunciation most often heard in English is
+the one variant with no support from any of the languages involved. So, briefly.
+
+**André-Louis Cholesky** (born 15 October 1875 in Montguyon; died 31 August 1918 of wounds
+received in northern France) was a French army officer and geodesist who ended as head of the
+Topographical Service of Tunisia. He did not publish the method himself. It appeared
+posthumously in 1924, when a fellow officer, Commandant Benoît, wrote it up in the
+*Bulletin géodésique* as *"Note sur une méthode de résolution des équations normales…
+(Procédé du Commandant Cholesky)"*.
+
+**Say it `/ʃəˈlɛski/` — *shə-LES-kee*.** The first sound is the *sh* of *shoe*.
+
+The reason is that he was French, and French ⟨ch⟩ is /ʃ/. There is a second defensible reading
+from the family's origins: his paternal line descended from the **Cholewski** family, which
+left Poland during the Great Emigration, and Polish ⟨ch⟩ is /x/ — the fricative in *Bach*, in
+Greek χ, in Russian х, in Spanish *j*. That gives *kho-LES-kee*, and it has been argued for in
+the field's own literature: a 1990 NA Digest exchange set out three candidates and concluded
+that "all three current pronunciations seem acceptable" pending evidence of the name's origin,
+noting that a Polish origin would make *Kholesky* correct.
+
+**What has no basis is a hard English /k/ — "koh-LES-kee", the *k* of *kiosk*.** It is neither
+the French /ʃ/ nor the Polish /x/. The two are distinct sounds: /x/ is a fricative, air still
+flowing; /k/ is a plosive, stopped and released. The /k/ reading most likely comes from the
+English habit of pronouncing ⟨ch⟩ as /k/ in words taken from Greek — *chorus*, *chaos*,
+*character* — and this name is not Greek.
+
+References: the pronunciation `/ʃəˈlɛski/` is given by
+[Wikipedia's article on the decomposition](https://en.wikipedia.org/wiki/Cholesky_decomposition);
+the Cholewski descent by
+[its biography of Cholesky](https://en.wikipedia.org/wiki/Andr%C3%A9-Louis_Cholesky); the
+dates, rank and the Benoît publication by the
+[MacTutor biography](https://mathshistory.st-andrews.ac.uk/Biographies/Cholesky/); and the
+three-way discussion by [NA Digest, Volume 90 Issue 11 (18 March 1990)](https://www.netlib.org/na-digest-html/90/v90n11.html).
