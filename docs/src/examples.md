@@ -388,6 +388,69 @@ Two words are used throughout, so here they are once:
 So the workflow is always the same: pass a matrix type that describes your problem, then check
 which backend you got. If it is the one you expected, the structure was used.
 
+### Which representation, and why
+
+There are four answers, and which is right is a property of your problem rather than a
+preference. The short version:
+
+| your problem | use | because |
+|---|---|---|
+| small enough to sit in cache | **dense** | nothing beats a contiguous array the CPU can keep close. Structure costs indirection that buys nothing at this size. |
+| large, and mostly zeros | **sparse** | you pay for the nonzeros instead of `n²`. This is the familiar case and `SparseMatrixCSC` handles it. |
+| you know more about it than "where the zeros are" | **a structured type** | block-diagonal, low-rank, Kronecker. The solver can then skip work that no sparsity pattern reveals — a `BlockDiagonal` is solved as `K` small systems, never as one big one. |
+| few zeros, but a fast way to apply it, and too big for cache | **unmaterialized** | past cache the dense product is limited by memory bandwidth, not arithmetic. An operator that computes its product from `O(n)` stored numbers moves almost nothing and can win outright. |
+
+That last row is the one that is easy to miss, so it is worth being concrete about. The tables
+below come from `bench/representation_choice.jl`, single-threaded, statuses asserted — a run
+that stopped at `max_iter` is not a faster answer to the same question.
+
+**When being matrix-free does not pay.** An operator whose product costs what the dense product
+costs saves a factorization once and pays for it every iteration:
+
+| n | iterations | operator | dense | |
+|---|---|---|---|---|
+| 200 | 125/125 | 6.0 ms | 2.2 ms | 0.37× |
+| 500 | 150/125 | 56.1 ms | 20.8 ms | 0.37× |
+| 1000 | 175/175 | 220 ms | 131 ms | 0.60× |
+
+**When it does.** The same comparison, for an operator applied in `O(n)` whose dense form is
+`O(n²)`, at about a tenth of the entries nonzero — too dense for a sparse format to be the
+obvious answer:
+
+| n | fill | iterations | operator | dense | | dense `A` |
+|---|---|---|---|---|---|---|
+| 500 | 9.9% | 100/75 | 10.2 ms | 15.8 ms | **1.55×** | 1.9 MiB |
+| 1000 | 9.8% | 100/100 | 40.5 ms | 104 ms | **2.57×** | 7.6 MiB |
+| 2000 | 9.8% | 100/100 | 348 ms | 730 ms | **2.10×** | 30.5 MiB |
+| 4000 | 9.8% | 100/75 | 1761 ms | 4806 ms | **2.73×** | 122 MiB |
+
+Same solver, same tolerances, both converged. The difference between the two tables is not the
+size and not the sparsity — it is whether **applying** the operator is asymptotically cheaper
+than the dense product. If it is, the operator wins and wins by more as the matrix leaves
+cache. If it is not, no amount of size will save it.
+
+### Unmaterialized does not mean solved by CG
+
+One more distinction, because it decides what happens on badly conditioned problems.
+
+An operator with no exploitable structure can only be served by *conjugate gradients* —
+multiply, repeat — and CG is sensitive to conditioning. But an operator that carries its own
+**direct** backend is solved by factoring, and conditioning is then no worse than the structure
+implies.
+
+The Kronecker type is the clean example. `κ(A₁ ⊗ A₂) = κ(A₁)·κ(A₂)`, so an operator at
+`κ = 1e12` is built from two factors at `1e6` — and the backend eigendecomposes the *factors*,
+never forming or factoring the product:
+
+| n | κ(A) | iterations | Kronecker | dense | | conjugate gradients, same problem |
+|---|---|---|---|---|---|---|
+| 400 | 1e12 | 625/625 | 2.4 ms | 29.6 ms | **12×** | converges, but in 1025 iterations |
+| 1600 | 1e12 | 1100/1100 | 22.4 ms | 1560 ms | **70×** | `MAX_ITER_REACHED` at 20 000 |
+
+Both routes agree on the objective to six figures. CG on the same problem manages it at
+`n = 400` and fails outright at `n = 1600` — so on an ill-conditioned problem the useful move
+is a structured operator with a direct backend, not a generic one served iteratively.
+
 The problems below are all the same QP, written five ways.
 
 ```@example storage
@@ -628,25 +691,32 @@ Four situations, in rough order of how often they come up:
 
 #### When it is the wrong tool
 
-**If you can comfortably store the matrix, store it.** This is worth stating plainly because
-"matrix-free" sounds like an optimization and here it usually is not. The same problem solved
-both ways, the operator against its own materialized form:
+**If applying your operator costs about what the dense product costs, use the matrix.** Being
+matrix-free is not free: it trades a factorization you pay once for an iterative solve you pay
+every iteration. When the product itself is no cheaper, that trade only loses:
 
 | n | iterations | operator | matrix | |
 |---|---|---|---|---|
-| 200 | 175 | 11.0 ms | 2.4 ms | **4.6× slower** |
-| 500 | 175 | 79.8 ms | 26.8 ms | **3.0× slower** |
-| 1000 | 225 | 332 ms | 149 ms | **2.2× slower** |
+| 200 | 125/125 | 6.0 ms | 2.2 ms | **2.7× slower** |
+| 500 | 150/125 | 56.1 ms | 20.8 ms | **2.7× slower** |
+| 1000 | 175/175 | 220 ms | 131 ms | **1.7× slower** |
 
-The reason is a straight trade. Skipping the factorization makes setup 26–78× cheaper, but
-every iteration then costs 6–7× more, because a CG solve replaces one multiply against a stored
-inverse. Setup is paid once; iterations are paid hundreds of times. Break-even is
-**about 31 iterations at `n = 500` and 63 at `n = 1000`** — and ordinary QPs here run 175 to
-several thousand. You are almost always past it.
+That is an operator built from `O(n)` stored numbers — but sitting beside a dense `A` that both
+routes must multiply by, so the cheap part was never where the cost was.
 
-So the question is not "is matrix-free faster" — usually no — but **"can I hold the matrix at
-all, and is applying it cheaper than its size?"** If yes to storing and no to the fast
-algorithm, use a matrix and skip this section.
+Contrast it with the table in [Which representation, and why](@ref), where an operator applied
+in `O(n)` against an `O(n²)` dense form wins by 1.55–2.73× at the same sizes. **Size alone does
+not decide this, and neither does whether the matrix fits.** The question is whether applying
+your operator is asymptotically cheaper than multiplying by its dense form. If it is not, the
+matrix wins at every size.
+
+The second way to get this wrong is conditioning. A bare `LinearMap` has no structure the
+solver can exploit, so it is served by conjugate gradients, which struggles as conditioning
+worsens — and this is not a small effect: on the badly conditioned sweep in
+[Benchmarks](@ref "Conditioning") the matrix-free backend fails to converge at *every* κ tested,
+including mild ones. If your problem is ill-conditioned, a bare map is the wrong shape; give
+the solver a structured type with a direct backend instead
+([Unmaterialized does not mean solved by CG](@ref)).
 
 Building one takes two functions: how to apply it, and how to apply its transpose. The
 transpose is not optional; the solver needs both directions.

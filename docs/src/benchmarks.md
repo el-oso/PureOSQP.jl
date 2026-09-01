@@ -182,6 +182,63 @@ Solutions agree to `1e-4` across all four, the expected spread at `eps_abs = eps
 1e-6`: DAQP and Clarabel terminate on exact optimality conditions while ADMM stops at a
 residual tolerance.
 
+## Choosing a representation
+
+Dense, sparse, structured and unmaterialized are four answers to one question, and this is the
+measurement that separates them. Reproduce with
+`julia --project=bench bench/representation_choice.jl`; samples in
+`bench/results/representation_choice.json`, single-threaded BLAS, `eps_abs = eps_rel = 1e-6`.
+Every row asserts `SOLVED` before it is reported — a run that stopped at `max_iter` is not a
+faster answer to the same question.
+
+Three cases, each chosen so the answer is not the one a slogan would give.
+
+**An operator with no asymptotic advantage.** `P` is a diagonal plus a rank-one term, built
+from `O(n)` numbers, against the `n×n` matrix it names — but with a dense `A` in both arms, so
+the product that dominates is `O(n²)` either way.
+
+| n | iterations | operator | dense | |
+|---|---|---|---|---|
+| 200 | 125/125 | 6.0 ms | 2.2 ms | 0.37× |
+| 500 | 150/125 | 56.1 ms | 20.8 ms | 0.37× |
+| 1000 | 175/175 | 220 ms | 131 ms | 0.60× |
+
+Being matrix-free saves the factorization once and pays an iterative inner solve every
+iteration. Where the operator's cheapness does not reach the dominant cost, that trade only
+loses, and no size rescues it.
+
+**An operator applied in `O(n)` whose dense form is `O(n²)`.** A windowed average with a band
+of `n/20`, so about a tenth of the entries are nonzero — too dense for a sparse format to be
+the obvious answer — and diagonally dominant, so conditioning is not what is being measured.
+
+| n | band | fill | iterations | operator | dense | | dense `A` |
+|---|---|---|---|---|---|---|---|
+| 500 | 25 | 9.9% | 100/75 | 10.2 ms | 15.8 ms | **1.55×** | 1.9 MiB |
+| 1000 | 50 | 9.8% | 100/100 | 40.5 ms | 104 ms | **2.57×** | 7.6 MiB |
+| 2000 | 100 | 9.8% | 100/100 | 348 ms | 730 ms | **2.10×** | 30.5 MiB |
+| 4000 | 200 | 9.8% | 100/75 | 1761 ms | 4806 ms | **2.73×** | 122 MiB |
+
+Same solver, same tolerances, both converged. Against the table above it, the variable that
+changed is not size and not sparsity: it is whether **applying** the operator is asymptotically
+cheaper than multiplying by its dense form. Past cache the dense product is limited by memory
+bandwidth rather than arithmetic, which is why the margin holds up as `n` grows.
+
+**An ill-conditioned operator with a direct backend.** `κ(A₁ ⊗ A₂) = κ(A₁)·κ(A₂)`, so a
+Kronecker operator at `κ = 1e12` is two factors at `1e6`, and its backend eigendecomposes the
+factors rather than forming or factoring the product.
+
+| n | κ(A) | iterations | `kronecker` | dense | | conjugate gradients, same problem |
+|---|---|---|---|---|---|---|
+| 400 | 1e12 | 625/625 | 2.4 ms | 29.6 ms | **12×** | SOLVED, but 1 025 iterations |
+| 1600 | 1e12 | 1100/1100 | 22.4 ms | 1560 ms | **70×** | MAX_ITER at 20 000 |
+
+The two routes agree on the objective to six figures, and the benchmark asserts that before
+reporting a time. The contrast column is the point: **unmaterialized and solved iteratively are
+different choices.** An operator with no exploitable structure can only be served by conjugate
+gradients, which manages this problem at `n = 400` and fails at `n = 1600`; an operator that
+carries a direct backend is factored instead, and conditioning costs it nothing beyond what
+the structure implies.
+
 ## Matrix types
 
 PureOSQP holds the caller's `P` and `A` and applies equilibration lazily, so every
