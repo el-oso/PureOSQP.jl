@@ -16,6 +16,7 @@ makedocs(;
         "Home" => "index.md",
         "Guide" => [
             "Examples" => "examples.md",
+            "Matrix types" => "matrices.md",
             "Structured operators" => "operators.md",
             "Other packages" => "ecosystem.md",
         ],
