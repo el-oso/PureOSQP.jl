@@ -85,15 +85,21 @@ end
     end
 
     # The forward rule pushes a perturbation the other way. Along a direction in `q`, the
-    # directional derivative it returns must match what the reverse rule reports contracted
-    # with the same direction.
+    # derivative it reports must agree with the reverse rule's gradient contracted with the
+    # same direction.
+    #
+    # The contraction is against `gq`, the gradient of the *quadratic* loss, not of `sum(x)`.
+    # Row 1 is an equality, so `sum(x)` is pinned by the constraint and both sides of the
+    # comparison would be zero -- an agreement that holds for any pair of rules, including
+    # wrong ones, and one that `isapprox` cannot even confirm without an `atol`.
     v = [1.0, -0.5]
     _, tangent = ChainRulesCore.frule(
         (NoTangent(), ZeroTangent(), v, ZeroTangent(), ZeroTangent(), ZeroTangent()),
         solve, P, q, A, l, u; tol...
     )
-    gsum = only(Zygote.gradient(qq -> sum(solve(P, qq, A, l, u; tol...).x), q))
-    @test sum(tangent.x) ≈ dot(gsum, v) rtol = 1.0e-6
+    x = solve(P, q, A, l, u; tol...).x
+    @test dot(2 .* x, tangent.x) ≈ dot(gq, v) rtol = 1.0e-6
+    @test abs(dot(gq, v)) > 1.0e-3        # the quantity being compared is not zero
 end
 
 @testitem "differentiating an unconverged solve is refused" begin
