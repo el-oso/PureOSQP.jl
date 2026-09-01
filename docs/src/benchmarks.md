@@ -727,10 +727,43 @@ curve, which rewards a solver that gets close early rather than only one that fi
 Reproduce with `julia --project=bench bench/primdual_integral.jl`; samples in
 `bench/results/primdual_integral.json`, single-threaded BLAS, `eps_abs = eps_rel = 1e-9`.
 
-The gap is sampled wherever the solver refreshes its residuals, so the nodes are whatever
-times the iterations landed on. Two rules run over those same samples: **trapezoid** joins
-consecutive samples with a straight line, **log-mean** joins them with an exponential and
-integrates that exactly, which is the interval times the logarithmic mean of the endpoints.
+### How to read it
+
+**The number is an area, in gap × seconds.** On its own it means nothing — it is for
+comparing two runs of the *same* problem. Smaller is better: it says the gap shrank sooner,
+so the solver spent more of the run near optimal instead of arriving only at the end. Two
+solvers can take the same total time and differ here.
+
+**The two columns are two estimates of one quantity, not two quantities.** The solver knows
+the gap only at the iterations where it refreshes residuals — every 25 by default. What the
+gap did *between* two samples is unknown, so a rule has to assume something. **Trapezoid**
+assumes a straight line between them; **log-mean** assumes exponential decay, which is what a
+converging gap actually does, and integrates that exactly. A straight line drawn over a
+convex decaying curve lies above it, so the trapezoid over-estimates and the truth sits
+between the two.
+
+**The ratio tells you whether to trust the number.** Sampling the same problem more densely
+brings the rules together, which is what it means for the samples to resolve the curve:
+
+| sample every | iterations | trapezoid | log-mean | log/trap |
+|---|---|---|---|---|
+| 25 iterations | 75 | 7.11e-6 | 1.76e-6 | 0.247 |
+| 10 | 60 | 3.20e-6 | 1.50e-6 | 0.470 |
+| 5 | 55 | 1.96e-6 | 1.32e-6 | 0.674 |
+| 2 | 52 | 1.96e-6 | 1.72e-6 | 0.876 |
+| 1 | 51 | 2.28e-6 | 2.11e-6 | **0.927** |
+
+Both converge on about `2.1e-6`. A ratio near 1 means the sampling resolves the curve and
+either number is usable; a ratio far from 1 means it does not, and at the default interval
+the trapezoid is about 3.4× over while the log-mean is about 16% under. **Prefer the
+log-mean as the single number, and read the ratio as the error bar.** Lower
+`check_termination` to sample more densely, at the cost of checking termination more often.
+
+(`check_termination` moves both the sampling density and where the solve stops, so the table
+is not a single-variable experiment — the iteration count falls from 75 to 51 down the
+column. The trend is monotone and the mechanism is not in doubt, but it is not controlled.)
+
+### The rules on four problems
 
 | problem | iterations | trapezoid | log-mean | log/trap | overhead |
 |---|---|---|---|---|---|
@@ -740,10 +773,10 @@ integrates that exactly, which is the interval times the logarithmic mean of the
 | larger | 150 | 8.72e-4 | 5.23e-4 | 0.600 | 0.72% |
 
 **The rules disagree by more than either costs to compute**, by 1.3× to 4.2×, so which one
-is used is part of what the number means. The logarithmic mean never exceeds the arithmetic
-one, so the trapezoid is an upper bound and the pair brackets the integral. They separate
-most on the well-conditioned problem, where the gap falls fastest per sample and a straight
-line is furthest from the exponential it is standing in for.
+is used is part of what the number means. They separate most on the well-conditioned problem,
+where the gap falls fastest per sample and a straight line is furthest from the exponential
+it is standing in for — which is the same effect as the sampling table above, reached by
+making the curve steeper rather than the samples sparser.
 
 Measuring costs under 1% and does not change what it measures: the benchmark asserts the
 iteration count and objective are identical with profiling on and off before reporting a

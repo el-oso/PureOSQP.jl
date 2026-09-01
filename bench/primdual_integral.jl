@@ -87,13 +87,43 @@ println("The rules disagree by more than the overhead of computing either, so wh
 println("used is part of what the number means. Neither is reproducible across machines:")
 println("both integrate against wall-clock time.")
 
+# What the two rules disagree about is the curve between samples, so sampling the same
+# problem more densely has to bring them together. How near 1 the ratio gets is therefore a
+# reading on whether the samples resolve the gap at all.
+#
+# `check_termination` is the only handle on the sampling interval, and it also decides where
+# the solve stops, so the iteration count moves down the column too. The trend is not a
+# single-variable experiment; it is reported as the trend it is.
+println("\nThe same problem sampled more densely, which is what the ratio measures.\n")
+@printf("%-14s %7s %13s %13s %9s\n", "sample every", "iters", "trapezoid", "log-mean", "log/trap")
+println("-"^62)
+sampling = NamedTuple[]
+let (P, q, A, l, u) = problem(40, 1.0e2)
+    for ct in (25, 10, 5, 2, 1)
+        o = (OPTS..., check_termination = ct, profile_primdual = true)
+        PureOSQP.solve(P, q, A, l, u; o...)
+        r = PureOSQP.solve(P, q, A, l, u; o...)
+        push!(
+            sampling, (;
+                check_termination = ct, iter = r.iter, trapezoid = r.primdual_int,
+                logmean = r.primdual_int_log, ratio = r.primdual_int_log / r.primdual_int,
+            )
+        )
+        @printf(
+            "%-14d %7d %13.5g %13.5g %9.4f\n",
+            ct, r.iter, r.primdual_int, r.primdual_int_log, r.primdual_int_log / r.primdual_int
+        )
+        flush(stdout)
+    end
+end
+
 open(RESULTS, "w") do io
     JSON.print(
         io, Dict(
             "julia_version" => string(VERSION),
             "blas_threads" => BLAS.get_num_threads(),
             "eps" => OPTS.eps_abs, "max_iter" => OPTS.max_iter,
-            "cases" => rows,
+            "cases" => rows, "sampling" => sampling,
         ), 2
     )
 end
