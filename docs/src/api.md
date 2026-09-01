@@ -36,26 +36,45 @@ Defaults below are read from the reference library itself through `bench/osqp_v1
 than from its documentation, which is stale on one of them: the published table gives
 `adaptive_rho_interval` as `0`, where the library ships `50`.
 
-**Same name, same default.** `rho` `0.1`, `sigma` `1e-6`, `alpha` `1.6`, `scaling` `10`,
-`rho_is_vec` `true`, `max_iter` `4000`, `eps_abs` and `eps_rel` `1e-3`, `eps_prim_inf` and
-`eps_dual_inf` `1e-4`, `scaled_termination` `false`, `check_termination` `25`,
-`adaptive_rho_interval` `50`, `adaptive_rho_tolerance` `5`, `cg_max_iter` `20`,
-`cg_tol_fraction` `0.15`, `cg_tol_reduction` `10`, `delta` `1e-6`, `polish_refine_iter` `3`,
-`warm_starting` `true`, `check_dualgap` `true`.
+Every setting, in the reference implementation's order. A blank *note* means the name and the
+default are the same on both sides and there is nothing to know.
 
-`check_dualgap` is in the 1.x C header and in the library's defaults, but not on that settings
-page; this package follows the library.
+| upstream | default | here | default | note |
+|---|---|---|---|---|
+| `device` | `0` | — | | GPU device selection; no counterpart |
+| `osqp_linsys_solver_type` | direct | `linsys` | `:auto` | upstream picks a *library*, this picks a *formulation* — see [Algebra backends](@ref) |
+| `allocate_solution` | `true` | — | | an embedded-allocation concern; no counterpart |
+| `verbose` | `true` | `verbose` | `false` | a library that prints by default is the wrong default for a package |
+| `profiler_level` | `0` | `profile_primdual` | `false` | one switch over the one measurement that needs a clock |
+| `warm_starting` | `true` | `warm_starting` | `true` | |
+| `scaling` | `10` | `scaling` | `10` | |
+| `polishing` | `false` | `polish` | `false` | renamed only |
+| `rho` | `0.1` | `rho` | `0.1` | |
+| `rho_is_vec` | `true` | `rho_is_vec` | `true` | |
+| `sigma` | `1e-6` | `sigma` | `1e-6` | |
+| `alpha` | `1.6` | `alpha` | `1.6` | |
+| `cg_max_iter` | `20` | `cg_max_iter` | `20` | |
+| `cg_tol_reduction` | `10` | `cg_tol_reduction` | `10` | |
+| `cg_tol_fraction` | `0.15` | `cg_tol_fraction` | `0.15` | |
+| `cg_precond` | diagonal | — | | always diagonal here; nothing to select |
+| `adaptive_rho` | `true` | `adaptive_rho` | `:iterations` | a mode, not a flag; `true` is accepted and means `:iterations` |
+| `adaptive_rho_interval` | `50` | `adaptive_rho_interval` | `50` | the published table says `0`; the library ships `50` |
+| `adaptive_rho_fraction` | `0.4` | `adaptive_rho_fraction` | `0.4` | **same name, different meaning** — see below |
+| `adaptive_rho_tolerance` | `5` | `adaptive_rho_tolerance` | `5` | |
+| `max_iter` | `4000` | `max_iter` | `4000` | |
+| `eps_abs` | `1e-3` | `eps_abs` | `1e-3` | |
+| `eps_rel` | `1e-3` | `eps_rel` | `1e-3` | |
+| `eps_prim_inf` | `1e-4` | `eps_prim_inf` | `1e-4` | |
+| `eps_dual_inf` | `1e-4` | `eps_dual_inf` | `1e-4` | |
+| `scaled_termination` | `false` | `scaled_termination` | `false` | |
+| `check_termination` | `25` | `check_termination` | `25` | |
+| `check_dualgap` | `true` | `check_dualgap` | `true` | in the C header and the library's defaults, absent from the published table |
+| `time_limit` | `1e10` | `time_limit` | `Inf` | the same "no limit", spelled as the thing it means |
+| `delta` | `1e-6` | `delta` | `1e-6` | |
+| `polish_refine_iter` | `3` | `polish_refine_iter` | `3` | |
 
-**Renamed, or defaulted differently.**
-
-| upstream | here | why |
-|---|---|---|
-| `polishing` | `polish` | name only; both default off |
-| `verbose` = `true` | `verbose` = `false` | a library that prints by default is the wrong default for a package |
-| `time_limit` = `1e10` | `time_limit` = `Inf` | the same "no limit", spelled as the thing it means |
-| `profiler_level` | `profile_primdual` | one switch over the one measurement that needs a clock |
-| `osqp_linsys_solver_type` | `linsys` | upstream selects a *library*, this selects a *formulation* — see below |
-| `adaptive_rho` = `true` | `adaptive_rho` = `:iterations` | a mode rather than a flag; `true` is accepted and means `:iterations` |
+Of the thirty-one: twenty-one agree outright, three have no counterpart here, six are renamed
+or defaulted differently, and one is a trap.
 
 **Same name, different meaning — the one to watch.** `adaptive_rho_fraction` is `0.4` in both,
 and means different things. Upstream it is a fraction of *setup time*, feeding the wall-clock

@@ -179,35 +179,20 @@ global does not survive `--trim`. `redirect_stdout` still captures it.
 
 ## What a solve reports
 
-Beyond `x`, `y` and `status`, [`Solution`](@ref) carries:
+Beyond `x`, `y` and `status`, [`Solution`](@ref) carries the objectives and duality gap, both
+residuals, `rel_kkt_error` as one number for "how far from optimal", the iteration and `ρ`
+counts, the polishing outcome, and four timings. Its docstring lists every field.
 
-| field | meaning |
-|---|---|
-| `obj_val`, `dual_obj_val` | primal and dual objectives; equal at an exact solution |
-| `duality_gap` | `xᵀPx + qᵀx + SC(y)`, zero at an exact solution, reported unscaled |
-| `prim_res`, `dual_res` | the two residuals, in problem space |
-| `rel_kkt_error` | the largest of the residuals and the gap — one number for "how far from optimal" |
-| `iter`, `rho_estimate`, `rho_updates` | iterations, the last `ρ` the residuals implied, and how many times `ρ` actually moved |
-| `status_polish` | which of the five polishing outcomes occurred; `polished` is the narrower `POLISH_SUCCESS` |
-| `setup_time`, `solve_time`, `polish_time`, `run_time` | seconds |
-
-`rho_updates` counts only adaptive-`ρ` changes, where `ws.refactor_count` also counts
-refactorizations forced by new data — read the former to understand a solve, the latter to
-understand a workspace's whole life.
+One distinction worth knowing early: `rho_updates` counts only adaptive-`ρ` changes, where
+`ws.refactor_count` also counts refactorizations forced by new data — read the former to
+understand a solve, the latter to understand a workspace's whole life.
 
 ## Status values
 
-| status | meaning |
-|---|---|
-| `SOLVED` | primal and dual residuals are below tolerance |
-| `SOLVED_INACCURATE` | the iteration limit was hit, but the residuals meet ten times the requested tolerances |
-| `PRIMAL_INFEASIBLE` | a certificate of primal infeasibility was found; `sol.prim_inf_cert` holds it |
-| `DUAL_INFEASIBLE` | a certificate of dual infeasibility was found; `sol.dual_inf_cert` holds it |
-| `PRIMAL_INFEASIBLE_INACCURATE`, `DUAL_INFEASIBLE_INACCURATE` | as above, found only at ten times the requested tolerances |
-| `MAX_ITER_REACHED` | the iteration limit was hit and even the relaxed check failed |
-| `TIME_LIMIT_REACHED` | `time_limit` was spent before the residuals converged |
-| `INTERRUPTED` | a `Ctrl-C` landed inside the loop; the point reached is returned |
-| `NON_CONVEX` | residuals diverged |
+Eleven of them, listed and grouped in [`Status`](@ref PureOSQP.Status). Two facts are worth
+having before you read that list: an unconverged result is never reported as `SOLVED`, and
+wherever there is no meaningful primal-dual point, `x` and `y` are `NaN` rather than a
+plausible-looking number. [`has_solution`](@ref PureOSQP.has_solution) is the predicate.
 
 `time_limit` bounds the ADMM loop and defaults to `Inf`. It measures the loop only —
 equilibration and the first factorization happen in `setup` and are not counted — so a
@@ -217,10 +202,6 @@ re-testing the tolerances, so a run can report `TIME_LIMIT_REACHED` at a point t
 have passed. Setting it makes the iteration count depend on the machine, which is why it
 is off by default.
 
-An unconverged result is never reported as `SOLVED`. Whenever there is no meaningful
-primal-dual point — an infeasibility, or `NON_CONVEX` — `x` and `y` are filled with `NaN`
-rather than a plausible-looking number.
-
 ## What is rejected rather than accepted
 
 `setup` fails, rather than continuing, on: a non-symmetric `P`; an indefinite `P`, meaning
@@ -229,7 +210,7 @@ semidefinite `P` always passes); `NaN` or `Inf` in `q`; `NaN` in `l` or `u`; `l 
 elementwise; `l = +Inf` or `u = -Inf`; mismatched dimensions; and out-of-range settings
 such as `sigma ≤ 0`, `alpha ∉ (0, 2)` or `max_iter ≤ 0`.
 
-## Reference
+## Citation
 
 Stellato, Banjac, Goulart, Bemporad and Boyd, *OSQP: an operator splitting solver for
 quadratic programs*, Mathematical Programming Computation 12(4):637–672, 2020.
