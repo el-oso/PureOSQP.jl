@@ -1259,6 +1259,62 @@ multiplier of zero, or an active-set KKT matrix that is singular or nearly so, m
 solution map non-differentiable, and both throw rather than return a regularized number that
 would look like an answer.
 
+### A QP as a differentiable layer
+
+The derivatives above are called by hand. Loading
+[ChainRulesCore.jl](https://github.com/JuliaDiff/ChainRulesCore.jl) instead makes
+[`solve`](@ref) differentiable to any AD package that consumes ChainRules — Zygote among them
+— so a QP can sit inside a loss and be trained through with no gradient plumbing of your own.
+
+Here a QP is fitted to a target: `q` is the parameter, and the loss is how far the solution
+lands from where we want it.
+
+```@example layer
+using PureOSQP, ChainRulesCore, Zygote, LinearAlgebra
+
+P = [4.0 1.0; 1.0 2.0]
+A = [1.0 1.0; 1.0 0.0; 0.0 1.0]
+l = [-1.0, -0.6, -0.6]
+u = [1.0, 0.6, 0.6]
+target = [0.3, -0.2]
+
+# `q` is what we are fitting. Everything inside the loss is an ordinary solve.
+loss(q) = sum(abs2, solve(P, q, A, l, u; eps_abs = 1e-10, eps_rel = 1e-10).x .- target)
+
+q = foldl(1:60; init = [0.5, 0.5]) do qk, _
+    qk .- 0.5 .* only(Zygote.gradient(loss, qk))
+end
+(fitted_q = round.(q; digits = 5),
+ x = round.(solve(P, q, A, l, u; eps_abs = 1e-10, eps_rel = 1e-10).x; digits = 5),
+ target, loss = round(loss(q); digits = 12))
+```
+
+Gradient descent drives the solution onto the target, differentiating through the solver at
+every step.
+
+**This differentiates the solution, not the iteration.** The rules call
+[`adjoint_derivative`](@ref) and [`forward_derivative`](@ref), which differentiate the KKT
+conditions at the active set: one linear solve, reusing a factorization the solve already
+produced, independent of how many iterations it took. Taping the ADMM loop instead would cost
+memory in proportion to the iteration count and return the derivative of the iterate rather
+than of the solution.
+
+Two things follow, and both are refusals rather than approximations:
+
+- **The solve must converge.** The KKT conditions hold at the solution and nowhere else, so a
+  run that stopped at `max_iter` raises rather than returning the gradient of a point that is
+  not the answer.
+- **The active set must be non-degenerate**, which `adjoint_derivative` already requires. A
+  least-squares answer there would have the right shape and units while being a different
+  quantity, and nothing downstream could tell.
+
+`polish = true` is set for you unless you ask otherwise: the derivative is taken at the active
+set, and polishing is what identifies it exactly.
+
+One reach limit worth knowing: `rrule` and `frule` cover every AD backend that consumes
+ChainRules, which includes Zygote. Mooncake needs an explicit `Mooncake.@from_rrule`, and
+Enzyme its own `EnzymeRules` shim.
+
 ## Infeasible problems
 
 A problem with no feasible point stops with `PRIMAL_INFEASIBLE` and a certificate `v`
