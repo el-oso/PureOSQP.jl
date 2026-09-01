@@ -10,14 +10,22 @@
     #
     # `verified_trait` is not the signal: `@verify` seals it whether or not `trim_compat` was
     # asked for, so a backend that skipped the claim still looks verified. This runs the check.
+    #
     # Guards the guard. `check_trim_compat` scans the declared method bodies and does not
     # follow calls out of them, so it is a filter and not a proof -- a backend reaching a
     # `ccall` still passes, which is why `test/trim_tests.jl` validates whole entry points
     # with the trimmer itself. This pins the depth the sweep does have: a backend whose own
     # body holds something the trimmer cannot resolve must be reported.
+    #
+    # `TrimUnsafeProbe` exists to be rejected, and the `@warn` it draws is the rejection being
+    # reported. Matching that log is what keeps the warning out of the suite's output while
+    # asserting it was emitted: the check both returns `false` and says why.
     struct TrimUnsafeProbe <: PureOSQP.LinearSystem end
     PureOSQP.factorize!(::TrimUnsafeProbe, ws) = !isempty(Base.return_types(sin, (Float64,)))
-    @test !TypeContracts.check_trim_compat(TrimUnsafeProbe).passed
+    probe = @test_logs (:warn, r"trim-unsafe") match_mode = :any TypeContracts.check_trim_compat(
+        TrimUnsafeProbe
+    )
+    @test !probe.passed
 
     function concrete_subtypes!(out, T)
         for S in subtypes(T)
