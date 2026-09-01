@@ -2,13 +2,19 @@
 # materialized, and what expressing that operator through LinearMaps.jl costs over
 # implementing the protocol directly.
 #
-# `P` is `Diagonal(d) + α v vᵀ` in three spellings. As a `LazyPSD` it implements the protocol
-# itself and declines the dense terminal through `is_materializable`. As a `LinearMaps.
-# LinearMap` it reaches the same backend through `ProductOperator`, which is all the LinearMaps
-# extension does -- so the gap between those two columns is the wrapper's own cost, and the
-# claim that it adds nothing is a measurement here rather than an assertion. As the `n×n`
-# matrix the operator names, it stops at `ReducedCholesky`. All three are the same problem, so
-# the columns are a price for never forming the matrix rather than a comparison of problems.
+# One operator, `P = Diagonal(d) + α v vᵀ`, written three ways. The columns are named for the
+# three:
+#
+#   protocol   the `LazyPSD` in `lazy_operator.jl`, an `AbstractMatrix` that implements the
+#              products-only protocol itself -- `mul!`, `is_materializable`, `is_convex` and
+#              the per-column seam -- and so declines the dense terminal
+#   linearmap  the same operator as a `LinearMaps.LinearMap`, which reaches the same backend
+#              through `ProductOperator`; wrapping is all the LinearMaps extension does, so
+#              the gap between these two columns is what that route costs
+#   matrix     the `n×n` matrix the operator names, which stops at `ReducedCholesky`
+#
+# All three are the same problem, so the columns are a price for never forming the matrix
+# rather than a comparison of problems.
 #
 # Setup and one `admm_step!` are timed separately: setup is where the dense route pays its
 # `O(n³)` factorization and the lazy one pays nothing, and the step is where the lazy route
@@ -72,9 +78,9 @@ for nthreads in THREADS
     BLAS.set_num_threads(nthreads)
     @printf("\nBLAS threads = %d\n", nthreads)
     @printf(
-        "%6s | %10s %10s %10s %7s | %10s %10s %10s %7s\n",
-        "n", "lazy set", "map set", "dense set", "map/lazy",
-        "lazy step", "map step", "dense step", "map/lazy"
+        "%6s | %10s %10s %10s %8s | %10s %10s %10s %8s\n",
+        "n", "proto set", "lmap set", "matrix set", "lmap/pro",
+        "proto step", "lmap step", "matrix stp", "lmap/pro"
     )
     println("-"^96)
     for n in SIZES
@@ -113,13 +119,13 @@ for nthreads in THREADS
         tvl, tvm, tvd = med(vl), med(vm), med(vd)
         push!(
             rows, (;
-                n, blas_threads = nthreads, lazy_backend = ln, map_backend = mn,
-                dense_backend = dn,
-                lazy_setup = tsl, map_setup = tsm, dense_setup = tsd,
-                setup_ratio = tsd / tsl, map_setup_ratio = tsm / tsl,
-                lazy_step = tvl, map_step = tvm, dense_step = tvd,
-                step_ratio = tvd / tvl, map_step_ratio = tvm / tvl,
-                lazy_preconditioned = lazy_prec, map_preconditioned = map_prec,
+                n, blas_threads = nthreads,
+                protocol_backend = ln, linearmap_backend = mn, matrix_backend = dn,
+                protocol_setup = tsl, linearmap_setup = tsm, matrix_setup = tsd,
+                matrix_over_protocol_setup = tsd / tsl, linearmap_over_protocol_setup = tsm / tsl,
+                protocol_step = tvl, linearmap_step = tvm, matrix_step = tvd,
+                matrix_over_protocol_step = tvd / tvl, linearmap_over_protocol_step = tvm / tvl,
+                protocol_preconditioned = lazy_prec, linearmap_preconditioned = map_prec,
             )
         )
         @printf(

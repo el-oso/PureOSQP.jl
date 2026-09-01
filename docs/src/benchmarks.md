@@ -561,34 +561,41 @@ a caller has when the entries do exist. Reproduce with
 `julia --project=bench bench/operator_protocol.jl`; samples in
 `bench/results/operator_protocol.json`.
 
-Three spellings of one operator: implementing the protocol directly (`lazy`), expressing the
-same operator as a `LinearMaps.LinearMap` (`map`), and the `n×n` matrix it names (`dense`).
+One operator, `P = Diagonal(d) + α v vᵀ`, written three ways. The column names are these three
+and nothing else:
 
-| n | threads | lazy setup | map setup | dense setup | dense/lazy | lazy step | map step | dense step |
+- **protocol** — an `AbstractMatrix` implementing the products-only protocol itself: `mul!`,
+  `is_materializable`, `is_convex`, and the per-column seam. `bench/lazy_operator.jl`.
+- **linearmap** — the same operator as a `LinearMaps.LinearMap`, which reaches the same
+  backend through [`PureOSQP.ProductOperator`](@ref).
+- **matrix** — the same operator materialized into the `n×n` `Matrix` it names.
+
+| n | threads | protocol setup | linearmap setup | matrix setup | matrix/protocol | protocol step | linearmap step | matrix step |
 |---|---|---|---|---|---|---|---|---|
-| 500 | 1 | 169 µs | 9 µs | 7.67 ms | **45×** | 286 µs | 395 µs | 48 µs |
-| 1000 | 1 | 655 µs | 14 µs | 50.6 ms | **77×** | 1055 µs | 1564 µs | 236 µs |
-| 500 | 8 | 169 µs | 9 µs | 4.18 ms | **25×** | 270 µs | 366 µs | 38 µs |
-| 1000 | 8 | 660 µs | 14 µs | 19.5 ms | **30×** | 494 µs | 751 µs | 82 µs |
+| 500 | 1 | 167 µs | 9 µs | 7.66 ms | **46×** | 285 µs | 407 µs | 44 µs |
+| 1000 | 1 | 643 µs | 13 µs | 50.1 ms | **78×** | 1000 µs | 1505 µs | 209 µs |
+| 500 | 8 | 167 µs | 9 µs | 4.27 ms | **26×** | 265 µs | 359 µs | 37 µs |
+| 1000 | 8 | 647 µs | 13 µs | 20.0 ms | **31×** | 455 µs | 688 µs | 73 µs |
 
-Against the dense route the trade points both ways. Setup is 25–77× cheaper because there is
-no `O(n³)` factorization to pay for. A step is 4–7× dearer, because a CG solve against the
+Against the matrix the trade points both ways. Setup is 26–78× cheaper because there is no
+`O(n³)` factorization to pay for. A step is 6–7× dearer, because a CG solve against the
 operator replaces one `symv` against a stored inverse. Which wins is decided by how many
 iterations the problem takes, and the setup saving grows with `n` while the per-step penalty
-does not. The setup ratio narrows as BLAS threads go up — 45× to 25× at `n = 500` — because
-the dense side is the half that threads.
+does not. The setup ratio narrows as BLAS threads go up — 46× to 26× at `n = 500` — because
+the matrix side is the half that threads; the two operator setups are scalar work and do not
+move at all.
 
-**What LinearMaps costs, and it is not wrapper overhead.** The extension only wraps a map in a
-[`PureOSQP.ProductOperator`](@ref), and that costs nothing measurable. What the map column
-shows instead is a difference in *information*. Setup is another 19–47× cheaper than the
-hand-written operator's, and each step is 1.36–1.52× dearer, both for the same reason: a
-`LinearMap` runs **unpreconditioned**.
+**What the LinearMaps route costs, and it is not wrapper overhead.** The extension only wraps a
+map in a `ProductOperator`, and that costs nothing measurable. What that column shows instead
+is a difference in *information*. Its setup is another 19–48× cheaper than the protocol's, and
+each step is 1.36–1.51× dearer, both for the same reason: a `LinearMap` runs
+**unpreconditioned**.
 
 The matrix-free backend preconditions with the reduced diagonal. An operator that implements
 the per-column seam answers it in closed form — here `P[j,j] = d[j] + α v[j]²`, which is what
-the `lazy` column's setup is buying. A `LinearMap` has no entries to answer it from, so `prec`
-stays at ones and CG works harder every iteration. Setting `probe = true` does not recover it:
-probing serves equilibration's column norms, not this seam.
+the protocol column's setup is buying. A `LinearMap` has no entries to answer it from, so
+`prec` stays at ones and CG works harder every iteration. Setting `probe = true` does not
+recover it: probing serves equilibration's column norms, not this seam.
 
 So the choice between the two operator columns is not about LinearMaps being slower. It is
 whether the problem runs enough iterations for a preconditioner to repay the setup that builds
@@ -598,36 +605,53 @@ that restores equilibration.
 An operator supplied this way carries the solver's guarantees only as far as its own `mul!`
 does: a product that allocates makes the iteration allocate.
 
-## Ill-conditioned problems
+## Conditioning
 
-At `n = 300` with `κ(P) = κ(A) = 1e12`, taken from a real case. Reproduce with
+At `n = 300`, with `κ(P) = κ(A)` swept up to the `1e12` a real case carries. Reproduce with
 `julia --project=bench bench/illconditioned.jl`; samples in
-`bench/results/illconditioned.json`, single-threaded BLAS, `eps_abs = eps_rel = 1e-8`.
+`bench/results/illconditioned.json`, single-threaded BLAS, `eps_abs = eps_rel = 1e-6`,
+`max_iter = 20000`. Two shapes: a dense `P` and `A`, and the same size split into six
+`BlockDiagonal` blocks of 50, each block carrying the same `κ`.
 
-**Read the statuses before the timings.** ADMM does not converge on these problems within
-`max_iter`: every row below stopped at `MAX_ITER_REACHED` after 4000 iterations. So the time
-column compares what four backends cost for the *same* number of iterations, not four
-answers, and the objective column is a consistency check between backends rather than
-evidence that any of them is near the optimum.
+**Read the statuses first — the sweep spans two regimes.** Below the wall every direct backend
+converges, so iteration counts and objectives are comparable and the times are times to a
+solution. Above it nothing converges within `max_iter`, so the times are per-iteration costs
+and the objective is only a consistency check between backends.
 
-| shape | `linsys` | backend | 4000 iterations | factor words | objective |
-|---|---|---|---|---|---|
-| dense | `:auto` | `cholesky` | 75.2 ms | 45 150 | 182 375.90 |
-| dense | `:kkt` | `bunchkaufman` | 320 ms | 180 300 | 182 375.34 |
-| dense | `:indirect` | `indirect` | 751 ms | 0 | 0.0169 |
-| blocks of 50 | `:auto` | `block` | **22.6 ms** | **7 650** | 27 139.9885 |
-| blocks of 50 | `:dense` | `cholesky` | 35.6 ms | 45 150 | 27 139.9926 |
-| blocks of 50 | `:kkt` | `bunchkaufman` | 330 ms | 180 300 | 27 140.019 |
-| blocks of 50 | `:indirect` | `indirect` | 381 ms | 0 | 1.25e9 |
+| κ | shape | backend | status | iters | objective | words | time |
+|---|---|---|---|---|---|---|---|
+| 1e4 | dense | `cholesky` | SOLVED | 225 | 300.97 | 45 150 | 10.0 ms |
+| 1e4 | dense | `bunchkaufman` | SOLVED | 225 | 300.97 | 180 300 | 26.2 ms |
+| 1e4 | dense | `indirect` | MAX_ITER | 20 000 | 559.45 | 0 | 7483 ms |
+| 1e4 | blocks | `block` | SOLVED | 175 | 164.60 | 7 650 | **3.2 ms** |
+| 1e4 | blocks | `cholesky` | SOLVED | 175 | 164.60 | 45 150 | 8.1 ms |
+| 1e8 | dense | `cholesky` | SOLVED | 500 | 298.49 | 45 150 | 16.4 ms |
+| 1e8 | dense | `indirect` | MAX_ITER | 20 000 | 2.62e5 | 0 | 7655 ms |
+| 1e8 | blocks | `block` | SOLVED | 1 200 | 440.33 | 7 650 | **8.6 ms** |
+| 1e10 | dense | `cholesky` | **MAX_ITER** | 20 000 | 344.72 | 45 150 | 341 ms |
+| 1e10 | blocks | `block` | **SOLVED** | 13 975 | 616.87 | 7 650 | **71.4 ms** |
+| 1e10 | blocks | `cholesky` | SOLVED | 14 025 | 616.87 | 45 150 | 102.5 ms |
+| 1e12 | dense | `cholesky` | MAX_ITER | 20 000 | 1552.3 | 45 150 | 339 ms |
+| 1e12 | blocks | `block` | MAX_ITER | 20 000 | 1180.3 | 7 650 | 102.6 ms |
 
-The finding that survives non-convergence is in the last column. The three direct backends
-track each other — six significant figures on the block problem, five on the dense one — so
-they are all in the same place after 4000 iterations, whatever place that is. The matrix-free
-backend is not with them, and not by a little: `0.0169` where the direct backends read
-`182 375`, and `1.25e9` where they read `27 140`. Conjugate gradients on a reduced matrix
-whose conditioning is `κ(A)²` is not solving the same problem to a looser tolerance; its
-iterates are somewhere else entirely.
+Three things this shows.
 
-So `linsys = :indirect` is the one backend that ill-conditioning disqualifies rather than
-merely slows, and the declared structure is what pays here: the block backend is both the
-fastest per iteration and the smallest, on the problem whose structure it can see.
+**Where ADMM stops.** The dense pair solves to `κ = 1e8` and fails from `1e10`; the wall sits
+between, and narrowing it gives `SOLVED` at `1e9` in 5 900 iterations and
+`SOLVED_INACCURATE` at `3e9`. The cost climbs steeply before it: 225 iterations at `1e4`, 500
+at `1e8`, 5 900 at `1e9`. Nothing about that is a tolerance choice — at `κ = 1e12` the dense
+pair fails to converge at `eps = 1e-3` with 50 000 iterations.
+
+**Declared structure extends the reachable conditioning.** At `κ = 1e10` the block problem
+converges where the dense one does not. Read it carefully: these are two different problem
+families, not one problem in two spellings, so this is not "structure repairs conditioning."
+What it says is that a problem which decouples is solved as six 50×50 systems rather than one
+300×300, and that the smaller systems are still tractable at a `κ` where the large one is not.
+The block backend is also the cheapest row at every `κ` it reaches, at a sixth of the storage.
+
+**The matrix-free backend is disqualified here, not merely slowed.** `indirect` fails to
+converge at *every* `κ` in this sweep, including `1e4` where the direct backends need 225
+iterations — and its objective is not close: `559` against `301`, `2.6e5` against `298`. The
+reduced matrix it applies is conditioned as `κ(A)²`, so `1e4` already means `1e8` for CG.
+Where the direct backends agree with each other to every digit printed, `indirect` is
+somewhere else entirely. On badly conditioned problems it is the one backend to avoid.
