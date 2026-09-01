@@ -564,11 +564,17 @@ a caller has when the entries do exist. Reproduce with
 One operator, `P = Diagonal(d) + α v vᵀ`, written three ways. The column names are these three
 and nothing else:
 
-- **protocol** — an `AbstractMatrix` implementing the products-only protocol itself: `mul!`,
-  `is_materializable`, `is_convex`, and the per-column seam. `bench/lazy_operator.jl`.
-- **linearmap** — the same operator as a `LinearMaps.LinearMap`, which reaches the same
-  backend through [`PureOSQP.ProductOperator`](@ref).
-- **matrix** — the same operator materialized into the `n×n` `Matrix` it names.
+- **protocol** — a type implementing the
+  [operator protocol](@ref "What to implement, in order") itself: `size` and `mul!`,
+  `is_materializable` to decline being formed, `is_convex`, and `structural_rows` for the
+  per-column seam. Defined in `bench/lazy_operator.jl`; it stores a vector and a scalar and
+  never builds an `n×n` object.
+- **linearmap** — the same operator as a `LinearMaps.LinearMap`, which implements none of that
+  protocol and reaches the same backend by being wrapped in
+  [`PureOSQP.ProductOperator`](@ref), which does.
+- **matrix** — the same operator materialized into the `n×n` `Matrix` it names, which
+  implements no protocol because it needs none: every method above has an `AbstractMatrix`
+  fallback that reads entries.
 
 | n | threads | protocol setup | linearmap setup | matrix setup | matrix/protocol | protocol step | linearmap step | matrix step |
 |---|---|---|---|---|---|---|---|---|

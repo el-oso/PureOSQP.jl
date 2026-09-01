@@ -574,10 +574,10 @@ type, is enough to lose both. `bench/lazy_operator.jl` is written to hold them, 
 
 ### An operator from LinearMaps.jl
 
-Writing the protocol by hand is only worth it for an operator you own. For one already
-expressed as a `LinearMaps.LinearMap`, loading LinearMaps is enough: `setup` and `solve`
-accept a map wherever they accept a matrix, wrapping it in a
-[`PureOSQP.ProductOperator`](@ref) for you.
+Implementing the [operator protocol](@ref "What to implement, in order") by hand is only worth
+it for an operator you own. For one already expressed as a `LinearMaps.LinearMap`, loading
+LinearMaps is enough: `setup` and `solve` accept a map wherever they accept a matrix, wrapping
+it in a [`PureOSQP.ProductOperator`](@ref) for you.
 
 A `LinearMap` is not an `AbstractMatrix`, so without the extension loaded it reaches neither
 entry point. With it, matrices and maps mix freely in one call.

@@ -20,6 +20,12 @@ outside its conditions has to check them, and checking them is the work.
 
 ## What to implement, in order
 
+The methods below are the **operator protocol** — the set a type implements to be usable as a
+`P` or an `A`. The term is used throughout this manual and in the benchmarks, and it means
+exactly this list and nothing more. A type that implements it is an operator whether or not it
+stores any entries; nothing else about it is required, and no method here is inherited from
+`AbstractMatrix`.
+
 Each step buys something on its own, so a representation is usable before it is finished.
 
 ### 1. `size`, `mul!` and `getindex` — the operator works
