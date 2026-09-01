@@ -1,3 +1,41 @@
+"""
+    Status
+
+How a solve ended, reported as `Solution.status`. Eleven values, in three groups.
+
+**Converged.** [`has_solution`](@ref) is true and `x`, `y` are the answer.
+
+| status | meaning |
+|---|---|
+| `SOLVED` | primal and dual residuals are under the requested tolerances, and the duality gap too when `check_dualgap` is set |
+| `SOLVED_INACCURATE` | the run stopped without meeting those, but the residuals clear ten times them |
+
+**Stopped early.** [`has_solution`](@ref) is true: the iterates reached are a valid point,
+simply not a converged one, and are returned rather than discarded.
+
+| status | meaning |
+|---|---|
+| `MAX_ITER_REACHED` | `max_iter` was spent and even the ten-times check failed |
+| `TIME_LIMIT_REACHED` | `time_limit` was spent first; the budget is checked every iteration and the status returned without re-testing the tolerances, so a run can stop at a point that would have passed |
+| `INTERRUPTED` | a `Ctrl-C` landed inside the loop |
+
+**No point to return.** [`has_solution`](@ref) is false, and `x` and `y` are filled with
+`NaN` rather than a plausible-looking number.
+
+| status | meaning |
+|---|---|
+| `PRIMAL_INFEASIBLE` | a certificate was found; it is in `Solution.prim_inf_cert` |
+| `DUAL_INFEASIBLE` | a certificate was found; it is in `Solution.dual_inf_cert` |
+| `PRIMAL_INFEASIBLE_INACCURATE`, `DUAL_INFEASIBLE_INACCURATE` | the same certificates, established only at ten times the requested tolerances |
+| `NON_CONVEX` | the residuals diverged, which a convex problem's cannot |
+| `UNSOLVED` | the loop has not run. It is a workspace's state before its first [`solve!`](@ref) and never the status of a completed solve |
+
+An unconverged result is never reported as `SOLVED`.
+
+Failures that are not outcomes of the algorithm — a non-symmetric `P`, a bad setting, a
+dimension mismatch — raise instead of returning a status, so there is no error code to
+inspect and no way to miss one by not looking.
+"""
 @enum Status begin
     UNSOLVED
     SOLVED
@@ -16,8 +54,19 @@ end
     PolishStatus
 
 Outcome of the polishing step, reported as `Solution.status_polish`. Polishing guesses the
-active set, so it can decline for reasons that are not failures: `NO_ACTIVE_SET_FOUND`
-means there was nothing to polish, not that the attempt went wrong.
+active set, so it can decline for reasons that are not failures.
+
+| status | value | meaning |
+|---|---|---|
+| `POLISH_LINSYS_ERROR` | -2 | the active-set KKT matrix could not be factored |
+| `POLISH_FAILED` | -1 | the polished point did not improve both residuals, so it was discarded |
+| `POLISH_NOT_PERFORMED` | 0 | `polish` was off, which is the default |
+| `POLISH_SUCCESS` | 1 | the polished point was accepted and is what `Solution` carries |
+| `POLISH_NO_ACTIVE_SET_FOUND` | 2 | no constraint was active, so there was nothing to polish |
+
+Only `POLISH_SUCCESS` changes the answer. `Solution.polished` is the narrower question of
+whether that happened; the other four all leave the ADMM point in place, and only the first
+two describe something going wrong.
 """
 @enum PolishStatus begin
     POLISH_LINSYS_ERROR = -2
