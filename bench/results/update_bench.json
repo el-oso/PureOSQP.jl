@@ -1,67 +1,56 @@
 {
   "julia_version": "1.12.7",
-  "oracle": "libosqp 1.x, timed inside its own process",
-  "pureblas_commit": "ea79919",
+  "pureblas_commit": "absent",
   "results": [
     {
-      "dobj_pureblas": 9.314006759829484e-14,
+      "dobj_pureblas": null,
       "m": 20,
       "n": 10,
-      "objdiff": 6.083199508910981e-14,
       "refactorizations": 8,
       "steps": 20,
-      "t_fresh": 0.001404597,
-      "t_osqp_v1": 0.0018443679437041283,
-      "t_pureblas": 0.00081873,
-      "t_update": 0.000958467
+      "t_fresh": 0.00131733,
+      "t_pureblas": null,
+      "t_update": 0.000894915
     },
     {
-      "dobj_pureblas": 1.8125614944348256e-11,
+      "dobj_pureblas": null,
       "m": 50,
       "n": 25,
-      "objdiff": 1.7493730950572647e-12,
       "refactorizations": 14,
       "steps": 20,
-      "t_fresh": 0.006431096,
-      "t_osqp_v1": 0.009951330604963005,
-      "t_pureblas": 0.002700457,
-      "t_update": 0.003072144
+      "t_fresh": 0.005510835,
+      "t_pureblas": null,
+      "t_update": 0.002655259
     },
     {
-      "dobj_pureblas": 2.137179897981685e-15,
+      "dobj_pureblas": null,
       "m": 100,
       "n": 50,
-      "objdiff": 3.7983515459583905e-14,
       "refactorizations": 7,
       "steps": 20,
-      "t_fresh": 0.02387009,
-      "t_osqp_v1": 0.058733901008963585,
-      "t_pureblas": 0.015025295,
-      "t_update": 0.015805131
+      "t_fresh": 0.019234282,
+      "t_pureblas": null,
+      "t_update": 0.012709408
     },
     {
-      "dobj_pureblas": 1.4202986673636267e-13,
+      "dobj_pureblas": null,
       "m": 200,
       "n": 100,
-      "objdiff": 3.353210876741251e-13,
       "refactorizations": 3,
       "steps": 20,
-      "t_fresh": 0.081880663,
-      "t_osqp_v1": 0.4867674090201035,
-      "t_pureblas": 0.081984821,
-      "t_update": 0.089310231
+      "t_fresh": 0.068932028,
+      "t_pureblas": null,
+      "t_update": 0.074995453
     },
     {
-      "dobj_pureblas": 1.5287303698760207e-15,
+      "dobj_pureblas": null,
       "m": 400,
       "n": 200,
-      "objdiff": 2.8222714520788013e-15,
       "refactorizations": 1,
       "steps": 20,
-      "t_fresh": 0.359232041,
-      "t_osqp_v1": 2.3872698503546417,
-      "t_pureblas": 0.289563551,
-      "t_update": 0.343053679
+      "t_fresh": 0.321998164,
+      "t_pureblas": null,
+      "t_update": 0.307043298
     }
   ],
   "steps": 20

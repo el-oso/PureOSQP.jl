@@ -118,12 +118,13 @@ iteration counts are reproducible across machines.
 
 ## Correctness
 
-Validated against **libosqp 0.6.2** (OSQP.jl 0.8.1) and **libosqp 1.x**
-(`bench/headtohead_v1.jl`):
+Validated against **libosqp 0.6.2** (OSQP.jl 0.8.1). There is no check against libosqp 1.x:
+it has no Julia wrapper, and reaching it needs a `ccall` against the library `OSQP_jll`
+ships — see the roadmap.
 
 - the first 25 iterates match the C library to `1e-10`, across both linear-system backends
   and both scaled and unscaled space, with adaptive ρ disabled;
-- on dense random QPs the **iteration count is identical** to both 0.6.2 and 1.x, and the
+- on dense random QPs the **iteration count is identical** to 0.6.2, and the
   objective agrees to about `1e-15`. Note the count is quantized by `check_termination`, so
   it shows the termination and ρ logic track upstream — it is not iterate-level agreement,
   which the transcription test covers separately;
@@ -236,11 +237,10 @@ Two more benchmarks cover the rest:
   faster at `n = 10`; PureOSQP is 1.7× ahead by `n = 200, m = 400`. On one small dense QP,
   use DAQP. ADMM earns its place on sequences, through warm starts and cheap re-solves.
 
-Full tables, plus structured-storage and matrix-type results and the libosqp 1.x agreement
-check: `bench/headtohead.jl`, `bench/sparse_headtohead.jl`, `bench/solvers.jl`,
-`bench/matrix_types.jl`, `bench/osqp_suite.jl`, `bench/headtohead_v1.jl`,
-`bench/kkt_backend.jl` and `bench/indirect_backend.jl`, with every sample saved under
-`bench/results/`.
+Full tables, plus structured-storage and matrix-type results: `bench/headtohead.jl`,
+`bench/sparse_headtohead.jl`, `bench/solvers.jl`, `bench/matrix_types.jl`,
+`bench/osqp_suite.jl`, `bench/representation_choice.jl`, `bench/kkt_backend.jl` and
+`bench/indirect_backend.jl`, with every sample saved under `bench/results/`.
 ## Relationship to upstream OSQP
 
 A Julia implementation of the algorithm, written against the OSQP paper and against the

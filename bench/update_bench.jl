@@ -2,9 +2,9 @@
 # horizon loop does. Compares
 #   (1) PureOSQP with update!      -- setup once, then update! + solve! per step
 #   (2) PureOSQP without update!   -- a fresh setup + solve per step, the naive loop
-#   (3) libosqp 1.x                -- setup once, then update + solve per step
-# The libosqp timings are measured inside its own process (see bench/oracle_v1), so they
-# exclude interpreter startup and the JSON round trip.
+#
+# There is no libosqp 1.x column: it has no Julia wrapper, and reaching it needs a `ccall`
+# against the library `OSQP_jll` ships. See `docs/src/roadmap.md`.
 #
 # When PureBLAS is present, (1) is measured a second time with it activated. This loop is
 # where the BLAS choice is least predictable from the single-solve numbers: a re-solve
@@ -23,24 +23,8 @@ end
 
 BLAS.set_num_threads(1)
 
-const ORACLE = joinpath(@__DIR__, "oracle_v1", "osqp_v1_oracle.py")
 const STEPS = 20
 
-function find_interpreter()
-    cands = String[]
-    haskey(ENV, "PUREOSQP_PY") && push!(cands, ENV["PUREOSQP_PY"])
-    push!(cands, joinpath(@__DIR__, "oracle_v1", ".venv", "bin", "python3"))
-    for c in cands
-        isfile(c) || continue
-        try
-            success(pipeline(`$c -c "import osqp"`; stdout = devnull, stderr = devnull)) && return c
-        catch
-        end
-    end
-    return nothing
-end
-
-nullable(v) = [isfinite(x) ? x : nothing for x in v]
 
 function make_sequence(n, m; seed = 0, steps = STEPS)
     Random.seed!(seed)
@@ -58,11 +42,6 @@ function make_sequence(n, m; seed = 0, steps = STEPS)
 end
 
 const OPTS = (eps_abs = 1.0e-6, eps_rel = 1.0e-6, max_iter = 20_000)
-const PY_OPTS = Dict{String, Any}(
-    "eps_abs" => 1.0e-6, "eps_rel" => 1.0e-6, "max_iter" => 20_000,
-    "adaptive_rho_interval" => 50, "check_termination" => 25,
-)
-
 function pure_with_update(P, q0, A, l0, u0, seq)
     ws = setup(P, q0, A, l0, u0; OPTS...)
     objs = Float64[]
@@ -98,39 +77,16 @@ function pure_without_update(P, q0, A, l0, u0, seq)
     return (t, objs)
 end
 
-function osqp_sequence(py, P, q0, A, l0, u0, seq)
-    problem = Dict(
-        "P" => [collect(Float64, view(P, i, :)) for i in axes(P, 1)],
-        "q" => collect(Float64, q0),
-        "A" => [collect(Float64, view(A, i, :)) for i in axes(A, 1)],
-        "l" => nullable(l0), "u" => nullable(u0), "settings" => PY_OPTS,
-        "sequence" => [
-            Dict(
-                    "q" => collect(Float64, s.q), "l" => nullable(s.l),
-                    "u" => nullable(s.u)
-                ) for s in seq
-        ],
-    )
-    out = read(pipeline(IOBuffer(JSON.json(problem) * "\n"), `$py $ORACLE`), String)
-    r = JSON.parse(strip(out))
-    haskey(r, "error") && error("oracle failed: $(r["error"])")
-    t = sum(s -> s["update_time"] + s["solve_time"], r["solves"])
-    return (t, Float64[s["obj_val"] for s in r["solves"]])
-end
-
-py = find_interpreter()
-isnothing(py) && @info "No interpreter with `osqp` found; the libosqp 1.x column is skipped."
 HAVE_PUREBLAS || @info "PureBLAS not available; that column is skipped."
 
 const CASES = [(10, 20), (25, 50), (50, 100), (100, 200), (200, 400)]
 
 results = []
 @printf(
-    "%5s %6s | %11s %11s %8s | %11s %8s | %11s %8s | %5s %9s\n", "n", "m",
-    "update!", "fresh setup", "saved", "libosqp1x", "ratio", "+PureBLAS", "vs(pb)",
-    "refac", "obj Δ"
+    "%5s %6s | %11s %11s %8s | %11s %8s | %5s\n", "n", "m",
+    "update!", "fresh setup", "saved", "+PureBLAS", "vs(pb)", "refac"
 )
-println("-"^112)
+println("-"^80)
 for (n, m) in CASES
     P, q0, A, l0, u0, seq = make_sequence(n, m; seed = n + m)
     pure_with_update(P, q0, A, l0, u0, seq[1:2])          # warm up compilation
@@ -140,9 +96,6 @@ for (n, m) in CASES
     # warm-started sequence and a cold sequence stop at different points inside it.
     agree = maximum(abs, objs_upd .- objs_new) / max(1, maximum(abs, objs_new))
     @assert agree < 100 * OPTS.eps_abs "update! and fresh setup disagree by $agree"
-    t_c, objs_c = isnothing(py) ? (NaN, Float64[]) : osqp_sequence(py, P, q0, A, l0, u0, seq)
-    objdiff = isempty(objs_c) ? NaN :
-        maximum(abs, objs_upd .- objs_c) / max(1, maximum(abs, objs_c))
     t_pb, dx_pb = if HAVE_PUREBLAS
         tp, objs_pb, refac_pb = pureblas_with_update(P, q0, A, l0, u0, seq)
         # The BLAS must not change the path, only the speed.
@@ -154,14 +107,12 @@ for (n, m) in CASES
     push!(
         results, (;
             n, m, steps = STEPS, t_update = t_upd, t_fresh = t_new,
-            t_osqp_v1 = t_c, t_pureblas = t_pb, dobj_pureblas = dx_pb,
-            refactorizations = nrefac, objdiff,
+            t_pureblas = t_pb, dobj_pureblas = dx_pb, refactorizations = nrefac,
         )
     )
     @printf(
-        "%5d %6d | %9.2f ms %9.2f ms %7.2fx | %9.2f ms %7.2fx | %9.2f ms %7.2fx | %5d %9.1e\n",
-        n, m, 1.0e3t_upd, 1.0e3t_new, t_new / t_upd, 1.0e3t_c, t_c / t_upd,
-        1.0e3t_pb, t_upd / t_pb, nrefac, objdiff
+        "%5d %6d | %9.2f ms %9.2f ms %7.2fx | %9.2f ms %7.2fx | %5d\n",
+        n, m, 1.0e3t_upd, 1.0e3t_new, t_new / t_upd, 1.0e3t_pb, t_upd / t_pb, nrefac
     )
     flush(stdout)
 end
@@ -173,13 +124,19 @@ open(joinpath(@__DIR__, "results", "update_bench.json"), "w") do io
     JSON.print(
         io, Dict(
             "steps" => STEPS, "julia_version" => string(VERSION),
-            "oracle" => "libosqp 1.x, timed inside its own process",
             "pureblas_commit" => !HAVE_PUREBLAS ? "absent" : try
                     strip(read(`git -C $(pkgdir(PureBLAS)) rev-parse --short HEAD`, String))
             catch
                     "unknown"
             end,
-            "results" => [Dict(string(k) => v for (k, v) in pairs(r)) for r in results],
+            # A skipped column is `NaN` in the table and `null` here: JSON has no NaN, and
+            # `allownan` would write one this file's own readers could not parse back.
+            "results" => [
+                Dict(
+                        string(k) => (v isa AbstractFloat && isnan(v) ? nothing : v)
+                        for (k, v) in pairs(r)
+                    ) for r in results
+            ],
         ), 2
     )
 end

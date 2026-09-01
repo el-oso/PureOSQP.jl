@@ -13,10 +13,22 @@ them, [Algorithm](@ref) for how the solver works.
 | item | note |
 |---|---|
 | CUDA in practice | the GPU path is designed for it and tested only against JLArrays; nobody has run it on a device |
-| `primdual_int` | the primal-dual integral, a 1.x convergence diagnostic requiring per-iteration profiling |
+| agreement with libosqp 1.x | no check exists; it has no Julia wrapper, and `OSQP_jll` v100 ships the library and its headers, so the route is a `ccall` |
 | `polish` and derivatives on GPU | both build a dense `(n+k)×(n+k)` matrix and factor it with `bunchkaufman!`, so both stay on the host |
 | a pure-Julia factorization by default | the `LDLᵀ` backends need LDLFactorizations.jl loaded; without it the sparse path is CHOLMOD, which is C and GPL |
 | setup parity on the dense path | Control's `setup` is 0.33× libosqp's, against 1.20× on the run as a whole |
+
+**Agreement with libosqp 1.x.** Everything this package checks against a reference checks
+against 0.6.2, through OSQP.jl. 1.x has no Julia wrapper, so nothing here is evidence about
+it, and the duality-gap default this package follows is taken from its documented behaviour
+rather than from a measurement.
+
+The route is a `ccall`. `OSQP_jll` v100 is libosqp 1.0.0 and its artifact ships
+`libosqp_builtin_double.so` beside the full headers, so `OSQPSettings` — 65 fields — can be
+mirrored from the header rather than guessed, and the mirroring checked by comparing
+`sizeof` against the library. What that would buy is the iteration-count comparison the 0.6.2
+tests already make, against the version whose termination rules this package actually
+implements.
 
 **CUDA in practice.** GPU arrays solve through `linsys = :indirect` only — see
 [Guarantees](@ref) for why the other backends are refused at [`setup`](@ref).

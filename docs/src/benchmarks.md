@@ -41,10 +41,11 @@ changed the iteration count in 114 of 600 comparable runs. Everything here that 
 counts against 0.6.2 pins it — the oracle tests, the ported C-suite cases and every
 benchmark script.
 
-The same agreement holds against **libosqp 1.x**, which has no Julia wrapper and so is
-checked separately by `bench/headtohead_v1.jl` through a subprocess oracle: identical
-iteration counts on all seven of its cases, objectives to `1e-13`. It is left out of the
-timing table because timing a subprocess measures the subprocess.
+**Against libosqp 1.x there is currently no check.** It has no Julia wrapper, and the
+comparison this page previously reported ran through a subprocess oracle that is no longer
+part of the repository. Reaching 1.x now means a `ccall` against the library `OSQP_jll`
+ships; that is recorded in [Roadmap](@ref) and nothing here should be read as evidence about
+1.x until it exists. Everything in this section is against 0.6.2.
 
 PureOSQP is ahead of OSQP on every case in this table.
 
@@ -55,13 +56,13 @@ most used for. 20 solves per case. Reproduce with
 `julia --project=bench bench/update_bench.jl`, or `--project=bench/pureblas` to include the
 PureBLAS column.
 
-| n | m | `update!` | fresh `setup` each step | saved | libosqp 1.x | vs | `update!` + PureBLAS | vs | factorizations |
-|---|---|---|---|---|---|---|---|---|---|
-| 10 | 20 | 0.96 ms | 1.40 ms | 1.47× | 1.84 ms | 1.92× | 0.82 ms | 1.17× | 8 |
-| 25 | 50 | 3.07 ms | 6.43 ms | 2.09× | 9.95 ms | 3.24× | 2.70 ms | 1.14× | 14 |
-| 50 | 100 | 15.8 ms | 23.9 ms | 1.51× | 58.7 ms | 3.72× | 15.0 ms | 1.05× | 7 |
-| 100 | 200 | 89.3 ms | 81.9 ms | **0.92×** | 487 ms | 5.45× | 82.0 ms | 1.09× | 3 |
-| 200 | 400 | 343 ms | 359 ms | 1.05× | 2387 ms | 6.96× | 290 ms | 1.18× | 1 |
+| n | m | `update!` | fresh `setup` each step | saved | `update!` + PureBLAS | vs | factorizations |
+|---|---|---|---|---|---|---|---|
+| 10 | 20 | 0.96 ms | 1.40 ms | 1.47× | 0.82 ms | 1.17× | 8 |
+| 25 | 50 | 3.07 ms | 6.43 ms | 2.09× | 2.70 ms | 1.14× | 14 |
+| 50 | 100 | 15.8 ms | 23.9 ms | 1.51× | 15.0 ms | 1.05× | 7 |
+| 100 | 200 | 89.3 ms | 81.9 ms | **0.92×** | 82.0 ms | 1.09× | 3 |
+| 200 | 400 | 343 ms | 359 ms | 1.05× | 290 ms | 1.18× | 1 |
 
 "Factorizations" counts the whole 20-step sequence: one from `setup`, plus one per step
 whose constraint classification changed.
