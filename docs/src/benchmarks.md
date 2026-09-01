@@ -41,11 +41,31 @@ changed the iteration count in 114 of 600 comparable runs. Everything here that 
 counts against 0.6.2 pins it — the oracle tests, the ported C-suite cases and every
 benchmark script.
 
-**Against libosqp 1.x there is currently no check.** It has no Julia wrapper, and the
-comparison this page previously reported ran through a subprocess oracle that is no longer
-part of the repository. Reaching 1.x now means a `ccall` against the library `OSQP_jll`
-ships; that is recorded in [Roadmap](@ref) and nothing here should be read as evidence about
-1.x until it exists. Everything in this section is against 0.6.2.
+**The same agreement holds against libosqp 1.x**, which is the version whose termination rules
+this package follows — `check_dualgap` defaults on because 1.x does. It has no Julia wrapper,
+so `bench/osqp_v1.jl` reaches it by `ccall` against the library `OSQP_jll` v100 ships.
+Identical iteration counts on all seven cases, objectives agreeing to `1e-14`:
+
+| n | m | PureOSQP | libosqp 1.x | obj rel Δ | max \|Δx\| |
+|---|---|---|---|---|---|
+| 10 | 20 | 150 | 150 | 1.0e-15 | 1.7e-15 |
+| 25 | 50 | 250 | 250 | 6.3e-16 | 4.9e-15 |
+| 50 | 100 | 1775 | 1775 | 1.4e-16 | 3.6e-15 |
+| 100 | 200 | 1025 | 1025 | 1.4e-15 | 1.0e-14 |
+| 200 | 400 | 1800 | 1800 | 0.0 | 1.2e-14 |
+| 100 | 50 | 75 | 75 | 3.8e-16 | 8.0e-15 |
+| 100 | 1000 | 3825 | 3825 | 1.7e-14 | 4.1e-12 |
+
+`OSQP_jll` v100 conflicts with the v0.6 one OSQP.jl pins, so this runs in its own project:
+`julia --project=bench/osqpv1 bench/headtohead_v1.jl`; samples in
+`bench/results/headtohead_v1.json`.
+
+The wrapper does not trust the header it mirrors. One `osqp_configure.h` covers both the
+double and single builds and defines `OSQP_USE_FLOAT`, which is wrong for the double library;
+the scalar widths were determined from the library instead, by finding where
+`osqp_set_default_settings` writes its documented defaults. `verify_abi()` re-runs that check
+at load, so a rebuilt artifact that changed a width fails loudly rather than returning
+nonsense.
 
 PureOSQP is ahead of OSQP on every case in this table.
 

@@ -118,13 +118,13 @@ iteration counts are reproducible across machines.
 
 ## Correctness
 
-Validated against **libosqp 0.6.2** (OSQP.jl 0.8.1). There is no check against libosqp 1.x:
-it has no Julia wrapper, and reaching it needs a `ccall` against the library `OSQP_jll`
-ships — see the roadmap.
+Validated against **libosqp 0.6.2** (OSQP.jl 0.8.1) and **libosqp 1.x**, the latter reached by
+`ccall` against the library `OSQP_jll` v100 ships (`bench/osqp_v1.jl`, run through
+`bench/headtohead_v1.jl`):
 
 - the first 25 iterates match the C library to `1e-10`, across both linear-system backends
   and both scaled and unscaled space, with adaptive ρ disabled;
-- on dense random QPs the **iteration count is identical** to 0.6.2, and the
+- on dense random QPs the **iteration count is identical** to both 0.6.2 and 1.x, and the
   objective agrees to about `1e-15`. Note the count is quantized by `check_termination`, so
   it shows the termination and ρ logic track upstream — it is not iterate-level agreement,
   which the transcription test covers separately;

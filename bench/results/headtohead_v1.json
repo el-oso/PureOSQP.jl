@@ -1,70 +1,92 @@
 {
-  "julia_version": "1.12.7",
-  "note": "agreement check only; no timings, because each oracle call pays interpreter startup and a JSON round trip",
-  "oracle": "libosqp 1.x via the osqp Python wheel, run as a subprocess",
-  "results": [
+  "adaptive_rho_interval": 50,
+  "cases": [
     {
-      "iter_1x": 125,
-      "iter_pure": 125,
-      "m": 20,
       "n": 10,
-      "objdiff": 0.0,
-      "status_1x": "solved",
-      "status_pure": "SOLVED"
+      "m": 20,
+      "iter_pure": 150,
+      "iter_libosqp": 150,
+      "iters_match": true,
+      "obj_pure": 82.35415492531061,
+      "obj_libosqp": 82.3541549253107,
+      "obj_rel_diff": 1.0353470127711403e-15,
+      "max_dx": 1.6653345369377348e-15,
+      "primdual_int_libosqp": 99.50724928321253
     },
     {
-      "iter_1x": 300,
-      "iter_pure": 300,
-      "m": 50,
       "n": 25,
-      "objdiff": 2.0508583164495006e-15,
-      "status_1x": "solved",
-      "status_pure": "SOLVED"
-    },
-    {
-      "iter_1x": 1400,
-      "iter_pure": 1400,
-      "m": 100,
-      "n": 50,
-      "objdiff": 4.838054277983858e-16,
-      "status_1x": "solved",
-      "status_pure": "SOLVED"
-    },
-    {
-      "iter_1x": 2625,
-      "iter_pure": 2625,
-      "m": 200,
-      "n": 100,
-      "objdiff": 2.4915719362566712e-15,
-      "status_1x": "solved",
-      "status_pure": "SOLVED"
-    },
-    {
-      "iter_1x": 700,
-      "iter_pure": 700,
-      "m": 400,
-      "n": 200,
-      "objdiff": 3.579706119271783e-15,
-      "status_1x": "solved",
-      "status_pure": "SOLVED"
-    },
-    {
-      "iter_1x": 50,
-      "iter_pure": 50,
       "m": 50,
-      "n": 100,
-      "objdiff": 5.050270011152145e-16,
-      "status_1x": "solved",
-      "status_pure": "SOLVED"
+      "iter_pure": 250,
+      "iter_libosqp": 250,
+      "iters_match": true,
+      "obj_pure": 544.0085443474085,
+      "obj_libosqp": 544.0085443474088,
+      "obj_rel_diff": 6.269396256891214e-16,
+      "max_dx": 4.884981308350689e-15,
+      "primdual_int_libosqp": 1238.2831392759376
     },
     {
-      "iter_1x": 1875,
-      "iter_pure": 1875,
-      "m": 500,
       "n": 50,
-      "objdiff": 1.1296161041587875e-13,
-      "status_1x": "solved",
-      "status_pure": "SOLVED"
+      "m": 100,
+      "iter_pure": 1775,
+      "iter_libosqp": 1775,
+      "iters_match": true,
+      "obj_pure": 1651.30925228197,
+      "obj_libosqp": 1651.3092522819697,
+      "obj_rel_diff": 1.3769297006543193e-16,
+      "max_dx": 3.552713678800501e-15,
+      "primdual_int_libosqp": 6618.144604139816
+    },
+    {
+      "n": 100,
+      "m": 200,
+      "iter_pure": 1025,
+      "iter_libosqp": 1025,
+      "iters_match": true,
+      "obj_pure": 9330.33620282172,
+      "obj_libosqp": 9330.336202821733,
+      "obj_rel_diff": 1.3646802803279747e-15,
+      "max_dx": 1.021405182655144e-14,
+      "primdual_int_libosqp": 62033.72440438656
+    },
+    {
+      "n": 200,
+      "m": 400,
+      "iter_pure": 1800,
+      "iter_libosqp": 1800,
+      "iters_match": true,
+      "obj_pure": 31835.01205695132,
+      "obj_libosqp": 31835.01205695132,
+      "obj_rel_diff": 0.0,
+      "max_dx": 1.199040866595169e-14,
+      "primdual_int_libosqp": 276302.5543024656
+    },
+    {
+      "n": 100,
+      "m": 50,
+      "iter_pure": 75,
+      "iter_libosqp": 75,
+      "iters_match": true,
+      "obj_pure": 4759.816215807276,
+      "obj_libosqp": 4759.816215807275,
+      "obj_rel_diff": 3.821553860640713e-16,
+      "max_dx": 7.993605777301127e-15,
+      "primdual_int_libosqp": 15655.228781601676
+    },
+    {
+      "n": 100,
+      "m": 1000,
+      "iter_pure": 3825,
+      "iter_libosqp": 3825,
+      "iters_match": true,
+      "obj_pure": 15627.50082420591,
+      "obj_libosqp": 15627.500824205646,
+      "obj_rel_diff": 1.6877520371370797e-14,
+      "max_dx": 4.11537470768053e-12,
+      "primdual_int_libosqp": 345879.2416049361
     }
-  ]
+  ],
+  "eps": 1.0e-6,
+  "julia_version": "1.12.7",
+  "libosqp_version": "1.0.0"
 }
