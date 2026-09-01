@@ -217,6 +217,54 @@ copied. Which backend materializes anything depends on the rung: the dense termi
 structured backends store only what their structure needs — `n` reciprocals, two bands,
 `O(nb)`, or a `k×n` correction — and the matrix-free backend stores none of it.
 
+## Convergence
+
+The iteration stops on two residuals, and optionally a third quantity. At the optimum all
+three are zero; the tolerances say how close is close enough.
+
+```math
+r_{\rm prim} = \|Ax - z\|_\infty,
+\qquad
+r_{\rm dual} = \|Px + q + A^\top y\|_\infty
+```
+
+The primal residual measures how far the two copies of the answer have drifted apart — `Ax`
+against the `z` that was clipped into the box — and the dual residual measures how far the
+stationarity condition is from holding. Both are reported in **problem space**: the solver
+iterates on equilibrated data and divides the scaling back out before testing, so a tolerance
+means what the caller thinks it means.
+
+**Both tolerances are absolute plus relative**, against the largest term that went into the
+residual, so a problem whose numbers are `1e8` is not asked for the same absolute accuracy as
+one whose numbers are `1`:
+
+```math
+\epsilon_{\rm prim} = \epsilon_{\rm abs} + \epsilon_{\rm rel}\max\bigl(\|Ax\|_\infty,\|z\|_\infty\bigr),
+\qquad
+\epsilon_{\rm dual} = \epsilon_{\rm abs} + \epsilon_{\rm rel}\max\bigl(\|Px\|_\infty,\|q\|_\infty,\|A^\top y\|_\infty\bigr)
+```
+
+**The duality gap is a third test, and it can only delay convergence.** With
+`check_dualgap` — on by default, following libosqp 1.x — a point must additionally satisfy
+`|gap| < ε_gap` before it is called `SOLVED`. It is checked *after* the residuals pass, never
+instead of them, because a point with a small gap and a large residual is not a solution.
+
+Three more things decide what the caller sees:
+
+- **Checking is periodic.** The test runs every `check_termination` iterations, 25 by default,
+  so a reported iteration count is quantized to that. It is not a search for the first
+  iteration that would have passed.
+- **Failing the tolerances triggers the infeasibility certificates**, not just another
+  iteration — a large primal residual is what prompts the primal-infeasibility test below.
+- **A relaxed pass is reported as such.** When the loop ends without converging, the whole
+  test is repeated at ten times the tolerances; passing that gives `SOLVED_INACCURATE`, which
+  is a different answer from `SOLVED` and never presented as one. A residual above `INFTY`
+  gives `NON_CONVEX`: a convex problem's residuals cannot diverge.
+
+`scaled_termination` tests the equilibrated residuals instead of the unscaled ones. It is off
+by default, since the natural question is about your problem rather than the solver's internal
+one.
+
 ## Adaptive ρ
 
 `ρ` is re-estimated from the ratio of normalized primal and dual residuals,
