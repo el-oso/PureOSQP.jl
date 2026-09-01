@@ -9,17 +9,26 @@ makedocs(;
         devbranch = "main",
         devurl = "dev",
     ),
+    # Grouped rather than flat: every top-level entry becomes a navbar item, and ten of them
+    # overflow the bar into the sidebar. Four groups keep the bar short and put each page
+    # under the question it answers.
     pages = [
         "Home" => "index.md",
-        "Examples" => "examples.md",
-        "Algorithm" => "algorithm.md",
-        "Structured operators" => "operators.md",
-        "Other packages" => "ecosystem.md",
-        "Guarantees" => "guarantees.md",
-        "Benchmarks" => "benchmarks.md",
-        "API" => "api.md",
-        "Roadmap" => "roadmap.md",
-        "Attribution" => "attribution.md",
+        "Guide" => [
+            "Examples" => "examples.md",
+            "Structured operators" => "operators.md",
+            "Other packages" => "ecosystem.md",
+        ],
+        "Reference" => [
+            "API" => "api.md",
+            "Algorithm" => "algorithm.md",
+            "Benchmarks" => "benchmarks.md",
+            "Guarantees" => "guarantees.md",
+        ],
+        "Project" => [
+            "Roadmap" => "roadmap.md",
+            "Attribution" => "attribution.md",
+        ],
     ],
     # Not a blanket `true`: a failing @example block must fail the build, since the
     # examples page is the only thing checking that the documented code still runs.
