@@ -136,12 +136,36 @@ acting across two dimensions at once; the `6×6` below is stored as `4 + 9` numb
 A_1 \otimes A_2 = \begin{pmatrix} a_{11}A_2 & a_{12}A_2 \\ a_{21}A_2 & a_{22}A_2 \end{pmatrix}
 ```
 
-**[`PureOSQP.ProductOperator`](@ref), and `LinearMaps.LinearMap`.** No entries at all — a
-function that applies the matrix. There is no picture to draw, which is the point:
+**[`PureOSQP.ProductOperator`](@ref), and `LinearMaps.LinearMap`.** No entries at all. The
+matrix is a *program*: a chain of steps applied to `x`, each cheap, none of them assembled.
+The running-sum constraint used later on this page is three steps —
 
 ```math
-x \;\longmapsto\; Ax
+x \in \mathbb{R}^{n}
+\;\xrightarrow{\;\;\odot\, w\;\;}\;
+\;\xrightarrow{\;\;\mathrm{cumsum}\;\;}\;
+\;\xrightarrow{\;\;[\,1{:}m\,]\;\;}\;
+Ax \in \mathbb{R}^{m}
 ```
+
+— which as a matrix would be lower-triangular and `m×n`, and as a program is `O(n)` work and
+three lines. The composition is the representation:
+
+```math
+A \;=\; \underbrace{S}_{\text{keep } 1{:}m} \; \underbrace{C}_{\text{cumsum}} \; \underbrace{W}_{\mathrm{diag}(w)}
+\qquad \text{stored: } w \text{, and nothing else}
+```
+
+LinearMaps composes these lazily, so an operator can be built from others — `B*C`, `B + C`,
+`B'`, `kron(B, C)` — and no product in that expression is ever formed:
+
+```math
+\mathcal{A} \;=\; B\,C \;+\; D^{\top}E
+\qquad\Longrightarrow\qquad
+\mathcal{A}x \;=\; B(Cx) \;+\; D^{\top}(Ex)
+```
+
+Everything the solver needs it gets by evaluating that program at a vector.
 
 Views (`SubArray`), `Symmetric` wrappers and GPU arrays are all accepted too; they are storage
 decisions rather than shapes, and carry no backend of their own.
@@ -159,6 +183,53 @@ decisions rather than shapes, and carry no backend of their own.
 | an operator | never formed | `indirect` |
 
 `PureOSQP.backend_name(ws.linsys)` reports which one you got.
+
+### What the solver requires of `P`, and what conditioning costs
+
+Storage is one axis; the numerical properties are another, and three of them are checked
+before a solve begins rather than discovered inside one.
+
+**Symmetry — required, checked, and it must be the whole matrix.** `P` is the matrix in
+`½xᵀPx`, so only its symmetric part is meaningful, and [`setup`](@ref) throws if `issymmetric`
+fails. **Pass the full matrix or a `Symmetric` wrapper, never a stored triangle** — a triangle
+is a different matrix, silently worth half the off-diagonal terms:
+
+```math
+P = \begin{pmatrix} 2 & 1 \\ 1 & 2 \end{pmatrix}
+\quad\text{is not}\quad
+\begin{pmatrix} 2 & 1 \\ 0 & 2 \end{pmatrix}
+```
+
+**Positive definiteness — of `P + σI`, not of `P`.** The requirement is that `P + σI ≻ 0`,
+which is what makes the reduced matrix factorable. Since `σ > 0`, a merely positive
+*semi*definite `P` always passes — including `P = 0`, a feasibility problem — so this rejects
+only genuine indefiniteness. [`PureOSQP.is_convex`](@ref) is the test, and a type can answer
+it cheaply: a `Diagonal` scans its entries, a `SparseMatrixCSC` factors sparsely, an operator
+reports what it was told.
+
+**Indefiniteness — rejected at setup, not tolerated.** An indefinite `P` makes the problem
+non-convex, where a local answer is not a global one. `setup` throws and names the remedy
+(raise `σ` if `P + σI` can be made definite). Without the check the reduced matrix would often
+factor anyway and return a stationary point that is not a minimum. The `NON_CONVEX` status is
+a different event: residuals diverging *during* a solve.
+
+**Ill-conditioning — the one that is not a yes or no.** Eliminating `ν` forms
+`Ãᵀdiag(ρ)Ã`, which squares `A`'s conditioning, so the reduced matrix carries `κ(A)²`. Two
+things keep that usable, and one limit remains:
+
+- **Equilibration** (`scaling = 10` by default) is what makes the reduced form viable at all.
+  Without it the Cholesky loses all accuracy by `κ(A) = 1e8`; with it the inner solve holds
+  around `1e-8` across the whole range, and past `κ(A) = 1e10` it is *more* accurate than
+  factoring the full KKT matrix.
+- **`linsys = :kkt`** does not square the conditioning, and is the thing to reach for when a
+  result is in question — though on the sweep in [Benchmarks](@ref "Conditioning") it does not
+  extend the range over which ADMM converges.
+- **Past about `κ = 1e9` the algorithm, not the arithmetic, runs out.** More precision does not
+  help: the same problem takes the same iterations in `Float64` and in 256-bit `BigFloat`,
+  because the iteration count follows the problem's geometry. What does help is structure — a
+  block-diagonal problem converges at `κ = 1e10` where the dense one does not, and a Kronecker
+  operator at `κ = 1e12` in 900 iterations, because `κ(A₁ ⊗ A₂) = κ(A₁)·κ(A₂)` puts only the
+  square root of the conditioning in each factor it actually solves with.
 
 ### Unmaterialized does not mean solved by CG
 
