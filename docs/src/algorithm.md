@@ -30,7 +30,8 @@ is `n×n` and symmetric positive definite:
 \qquad \tilde z = A \tilde x
 ```
 
-PureOSQP factors that with `cholesky!`. The reason upstream avoids it is fill-in: `AᵀA` is
+PureOSQP factors that with `cholesky!` — *shə-LES-kee*, after a French officer, and
+[not with a hard `k`](@ref "The name Cholesky"). The reason upstream avoids it is fill-in: `AᵀA` is
 dense even when `A` is sparse. With sparsity off the table that objection disappears, and
 measurement shows the reduced form is faster in every dense regime — from 1.45× when
 `m < n` up to 43× when `m ≫ n`.
