@@ -299,7 +299,7 @@ The matrix-free backend on the same problems takes 4.9 ms to 15.2 ms — worse t
 direct path at every split, since the blocks are dense and CG gains nothing from a structure
 it cannot see.
 
-## Low-rank coupling
+## Low-rank structure
 
 A `Diagonal` `P` with a [`PureOSQP.RowCoupled`](@ref) `A` makes the reduced matrix a diagonal
 plus a rank-`k` correction, which Woodbury solves without forming it: two `gemv`s against a

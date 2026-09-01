@@ -365,9 +365,30 @@ but no row changes constraint class, so `ρ` is untouched and the factorization 
 
 ## Matrix representations
 
-The applications above build every matrix dense. The solver does not require that: `P` and
-`A` are held by reference and reached through `mul!` and four column traversals, so any
-`AbstractMatrix` will do. The problems below are all the same QP, written five ways.
+Everything above built `P` and `A` as ordinary dense matrices. That always works, and if your
+problems are small it is all you need — you can stop reading here and come back when one gets
+slow.
+
+The rest of this page is about what to do when they do get slow. The short version: **how you
+store `P` and `A` changes how much work the solver has to do**, sometimes by a factor of
+hundreds, and you get that by passing a different matrix type rather than by changing any
+setting.
+
+Two words are used throughout, so here they are once:
+
+- The **reduced matrix** is the `n×n` matrix the solver has to solve against on every
+  iteration. You never see it, but it is where nearly all the time goes. Its size and shape
+  come from `P` and `A`, and the whole point of the sections below is to keep it small or
+  cheap. (It is `R = cDPD + σI + Ãᵀdiag(ρ)Ã`, if you want the formula; you do not need it to
+  use any of this.)
+- A **backend** is the code that solves against that matrix. There are ten or so. You do not
+  choose one — `setup` looks at the types of `P` and `A` and picks. `PureOSQP.backend_name(ws.linsys)`
+  tells you which it picked, and every example below uses that to show the choice being made.
+
+So the workflow is always the same: pass a matrix type that describes your problem, then check
+which backend you got. If it is the one you expected, the structure was used.
+
+The problems below are all the same QP, written five ways.
 
 ```@example storage
 using PureOSQP, LinearAlgebra, SparseArrays
@@ -574,21 +595,28 @@ type, is enough to lose both. `bench/lazy_operator.jl` is written to hold them, 
 
 ### An operator from LinearMaps.jl
 
-Implementing the [operator protocol](@ref "What to implement, in order") by hand is only worth
-it for an operator you own. For one already expressed as a `LinearMaps.LinearMap`, loading
-LinearMaps is enough: `setup` and `solve` accept a map wherever they accept a matrix, wrapping
-it in a [`PureOSQP.ProductOperator`](@ref) for you.
+**Use this when your constraint is something you can *do* but would never want to *store*.**
 
-A `LinearMap` is not an `AbstractMatrix`, so without the extension loaded it reaches neither
-entry point. With it, matrices and maps mix freely in one call.
+The situation is common in signal and image work. "Take a running total." "Blur this." "Take a
+Fourier transform, keep the low frequencies." Each of those is a perfectly good linear
+constraint, and each has a matrix — but for a million-pixel image that matrix has `10¹²`
+entries and cannot exist. What you have instead is a function that applies it.
+
+[LinearMaps.jl](https://github.com/JuliaLinearAlgebra/LinearMaps.jl) is the standard Julia
+package for exactly that: an object you can multiply by, built from a function. Load it and
+this solver accepts one anywhere it accepts a matrix. Nothing else is needed — matrices and
+maps can even be mixed in the same call.
+
+Building one takes two functions: how to apply it, and how to apply its transpose. The
+transpose is not optional; the solver needs both directions.
 
 ```@example linearmaps
 using PureOSQP, LinearMaps, LinearAlgebra, Krylov, Random
 Random.seed!(4)
 
 n, m = 60, 40
-# A constraint that is a product rather than a table: scale, take a running sum, keep the
-# first m entries. Nothing here is ever assembled into an m×n array.
+# The constraint: scale each entry by w, take a running total, keep the first m.
+# `forward` applies it; `adjoint_` applies its transpose. No m×n array is ever built.
 w = 0.5 .+ rand(n)
 forward(y, x) = (y .= cumsum(w .* x)[1:m])
 function adjoint_(x, y)
@@ -609,43 +637,83 @@ sol = PureOSQP.solve(P, q, A, l, u; scaling = 0, linsys = :indirect)
 (sol.status, sol.iter, round(sol.obj_val; digits = 6))
 ```
 
-Two things that call needs, and both are properties of operators rather than of LinearMaps.
-`scaling = 0`, because equilibration reads columns and a map has none to read — override
-`PureOSQP.structural_rows` for the map's type if you want equilibration back. And Krylov.jl
-loaded, since the matrix-free backend is the only one that can serve an operator; `:auto`
-reaches it on its own, and naming it makes the requirement explicit.
+That call needed three things beyond the map itself. Each will bite you if you skip it, so
+here they are with what goes wrong.
 
-What loading LinearMaps buys over hand-wrapping is the pair of declarations the wrapper cannot
-compute: `issymmetric` and `isposdef` travel with the map, and
-[`PureOSQP.is_convex`](@ref) is then answered by reading them rather than by factoring.
+**1. `using Krylov`.** An operator has no entries, so none of the usual backends can factor
+anything. The only one that works is the matrix-free one, which multiplies instead of
+factoring — and it lives in Krylov.jl. Without it loaded you get an error naming the remedy.
+You do not have to pass `linsys = :indirect`; the solver finds it on its own. It is written
+above only to make the requirement visible.
 
-**They are declarations, not deductions.** `LinearMap(Diagonal(fill(2.0, n)))` reports
-`isposdef == false` — LinearMaps records what its author asserted and infers nothing from the
-wrapped matrix — and [`setup`](@ref) refuses it as a non-convex objective. That refusal is
-correct: an operator that has not claimed positive-definiteness has not established it. State
-the traits at construction as above, or override the map with
-`ProductOperator{T}(map; symmetric, posdef)`.
+**2. `scaling = 0`.** By default the solver rescales your problem for numerical health, which
+means reading down each column of `A` to find its largest entry. A map has no columns to read.
+Passing `scaling = 0` turns that step off. If you forget, `setup` throws and says so — it does
+not silently skip the rescaling.
 
-**A map runs unpreconditioned.** The matrix-free backend preconditions with the reduced
-diagonal, and a `LinearMap` has no entries to supply it, so `prec` stays at ones. Measured on
-the same operator written both ways, that makes setup cheaper — there is no preconditioner to
-build — and each iteration 1.36–1.52× dearer
-([Benchmarks](@ref "An operator that is never materialized")). `probe = true` does not change
-it: probing answers equilibration's column norms, not this seam. Give the map's type a
-`PureOSQP.structural_rows` method to get a preconditioner, which is the same override that
-restores equilibration and lets you drop `scaling = 0`.
+**3. Declaring `issymmetric` and `isposdef` on `P`.** This is the one that surprises people.
+Write `LinearMap(Diagonal(fill(2.0, n)))` — obviously a positive-definite matrix — and ask it,
+and it says `isposdef == false`. LinearMaps does not inspect what you gave it; it reports only
+what you *told* it. So the solver sees an objective not claiming to be convex and refuses it.
+
+That refusal is correct, not a bug: the solver cannot factor an operator to check, so an
+unclaimed property is an unknown one. Declare them at construction, as in the example. (Or
+build the wrapper yourself with `ProductOperator{T}(map; symmetric, posdef)` if you want to
+override what a map claims.)
+
+That third point is also what LinearMaps buys you over writing an operator by hand: those two
+declarations travel with the map, so [`PureOSQP.is_convex`](@ref) is answered by reading a flag
+instead of factoring a matrix.
+
+**One thing to expect: a map runs without a preconditioner.** A preconditioner is a cheap
+approximation of the problem that makes the iteration converge faster, and the one used here is
+built from the diagonal of the reduced matrix. A map has no entries, so there is no diagonal to
+read, and the solver proceeds without one. Concretely: setup gets *cheaper* (nothing to build)
+and each iteration gets **1.36–1.51× dearer**, measured on the same operator written both ways
+([Benchmarks](@ref "An operator that is never materialized")).
+
+Usually you just accept that. If the iteration count matters, give your map's type a
+`PureOSQP.structural_rows` method — one method, described under
+[Structured operators](@ref "2. `structural_rows` — setup stops paying for the zeros"), which
+recovers the preconditioner *and* lets you drop `scaling = 0`. Setting `probe = true` is not a
+substitute; probing answers the rescaling question, not this one.
 
 ## Structured operators the package ships
 
-Three representations come with a backend that never forms the reduced matrix. Each is an
-ordinary argument to [`setup`](@ref) — the structure is declared by the type, and selection
-finds it by dispatch.
+`Diagonal` and `Bidiagonal` above are LinearAlgebra's. This package ships three more matrix
+types of its own, for three shapes that come up constantly and that LinearAlgebra has no type
+for.
+
+**Start here: which one, if any, is yours?**
+
+| if your problem is… | use | typical source |
+|---|---|---|
+| many small independent sub-problems, side by side | [`PureOSQP.BlockDiagonal`](@ref) | one QP per time step, per asset, per scenario — anything that would be separate problems if they did not share a solve |
+| mostly independent, but with a *few* rows tying everything together | [`PureOSQP.RowCoupled`](@ref) | box constraints plus a handful of budget or total-mass rows |
+| a constraint applied across two dimensions at once | [`PureOSQP.KroneckerOperator`](@ref) | a 2-D grid, an image, space × time — where the constraint is "this in one direction, that in the other" |
+| none of these | nothing to do | pass ordinary matrices; the solver is still fast |
+
+If none of the rows fit, you have lost nothing by reading — these are optimizations, not
+requirements, and the dense path gives the same answers.
+
+Each one is used the same way: build it, pass it to [`setup`](@ref) exactly where you would
+have passed a matrix, and check `backend_name` to confirm it was picked up. You never
+configure anything.
 
 ### Block-diagonal
 
-[`PureOSQP.BlockDiagonal`](@ref) is a diagonal run of blocks, stored as the blocks. When `P`
-and `A` split their columns at the same places, the reduced matrix decouples into independent
-systems that are factored one at a time.
+**Use it when your problem is really several smaller problems side by side.** Four machines
+scheduled independently, twelve months priced independently, a hundred scenarios — anything
+where variable 3 never appears in a constraint with variable 40.
+
+The payoff is large and worth understanding, because it is why this type exists. Solving one
+`n×n` system costs about `n³`. Solving `K` systems of size `n/K` costs `K(n/K)³ = n³/K²`. At
+`K = 10` that is a hundred times less work, and a tenth of the memory. The solver gets that
+automatically once it can *see* the blocks — which is what [`PureOSQP.BlockDiagonal`](@ref) is
+for. Handed the same numbers as one big dense matrix, it cannot see them, and pays the `n³`.
+
+Store it as a vector of the blocks. `P` and `A` must split at the same places, since a block
+of the problem is only independent if both halves agree it is.
 
 ```@example blocks
 using PureOSQP, LinearAlgebra
@@ -661,23 +729,48 @@ ws = setup(P, q, A, fill(-1.0, m), fill(1.0, m))
 PureOSQP.backend_name(ws.linsys)
 ```
 
-The storage that buys, against forming the `n×n` reduced matrix:
+`backend_name` returned `:block`, so the blocks were found. Here is what that saved, counted in
+numbers stored:
 
 ```@example blocks
 (blocks = PureOSQP.backend_info(ws.linsys).factor_nnz, dense = n * (n + 1) ÷ 2)
 ```
 
+Four blocks of two variables each store 12 numbers where the dense route stores 36. The gap
+widens fast: at 20 blocks of 12 it is 1 560 against 28 920, and the timings are in
+[Benchmarks](@ref "Block-diagonal structure").
+
+**If `backend_name` comes back `:cholesky` instead**, the blocks were not used. The usual
+reason is that `P` and `A` split at different places, so the problem does not actually
+decouple; the answer is still correct, just computed the slow way.
+
 ### Kronecker
 
-[`PureOSQP.KroneckerOperator`](@ref) is `A₁ ⊗ A₂` held as its two factors, and the backend
-solves through their eigenbases. It has the narrowest acceptance region in the package, and
-all three conditions are structural rather than tunable:
+**Use it when a constraint acts on two dimensions at once.** The clearest case is a 2-D grid:
+you want something smoothed along rows *and* along columns. Written out, that constraint matrix
+is enormous and almost all zeros. Written as `A₁ ⊗ A₂` — "`A₁` across, `A₂` down" — it is two
+small matrices.
 
-| condition | why |
-|---|---|
-| `P` is a *scalar* multiple of `I` | `c·D·P·D` and `ρ·Ãᵀ diag(ρ) Ã` are simultaneously diagonalizable only then. A Kronecker `P` does **not** qualify. |
-| `ρ` is one number | true automatically when every constraint is an inequality; one equality row gives `ρ` a second value |
-| `scaling = 0` | `c·μ·D²` is diagonal but not scalar, so any equilibration breaks the diagonalization |
+The saving in storage is immediate: a `6×6` constraint below is stored as `4 + 9 = 13` numbers
+instead of 36, and that ratio grows as the square. The saving in time is larger, because the
+backend never builds the big matrix at all.
+
+**This one has conditions, and they are strict.** It is the fussiest type in the package, so
+check them before reaching for it. All three are properties of your problem, not settings you
+can turn on:
+
+| condition | in plain terms | how to check |
+|---|---|---|
+| `P` must be `μI` — a single number times the identity | your objective weights every variable equally, or there is no objective at all | `P isa Diagonal && allequal(P.diag)` |
+| `ρ` must be one number | every constraint is an inequality — no equalities | you passed no row with `l[i] == u[i]` |
+| `scaling = 0` | you turn equilibration off explicitly | pass `scaling = 0` to `setup` |
+
+The second is the one that catches people: **a single equality row disables this backend.** And
+a Kronecker *`P`* does not qualify for the first — it must be a multiple of the identity.
+
+If any condition fails the solver quietly uses the dense route instead, so you get the right
+answer either way. That is why every example here checks `backend_name`: it is the only way to
+tell whether you got what you asked for.
 
 ```@example kron
 using PureOSQP, LinearAlgebra
@@ -744,15 +837,28 @@ route is not built.
 
 ### Low-rank coupling
 
-[`PureOSQP.RowCoupled`](@ref) is a few dense rows above rows holding one entry each, which
-with a `Diagonal` `P` makes the reduced matrix a diagonal plus a rank-`k` correction, solved
-by Woodbury.
+**Use it when almost every constraint touches one variable, and only a handful touch many.**
+This is extremely common and easy to miss. A portfolio with a bound on each holding plus one
+row saying "the weights sum to 1". A schedule with a limit per machine plus two rows for total
+capacity. A design with a box on each parameter plus a budget.
+
+Written as an ordinary matrix, those few dense rows make the whole thing look dense, and the
+solver pays as if every constraint coupled everything. [`PureOSQP.RowCoupled`](@ref) separates
+the two kinds so it can charge you only for the coupling rows you actually have.
+
+It takes three arguments, in this order:
+
+1. `coupling` — the few dense rows, as a `k×n` matrix. These are the rows that touch many
+   variables.
+2. `weights` — one number per single-entry row.
+3. `cols` — which variable each of those rows refers to.
+
+So `RowCoupled(C, ones(n), 1:n)` means "these `k` dense rows, then a plain bound on each of the
+`n` variables".
 
 ```@example rowcoupled
 using PureOSQP, LinearAlgebra
 
-# The rung accepts while `10k <= n`, so two coupling rows need at least twenty variables:
-# below that the correction costs more than the dense solve it replaces.
 n = 24
 coupling = reshape(collect(range(0.1, 0.8; length = 2n)), 2, n)   # two dense rows
 A = PureOSQP.RowCoupled(coupling, ones(n), collect(1:n))          # then a bound per variable
@@ -762,6 +868,15 @@ m = size(A, 1)
 ws = setup(P, q, A, fill(-1.0, m), fill(1.0, m))
 PureOSQP.backend_name(ws.linsys)
 ```
+
+`:lowrank` means it worked. The cost is `O(nk)` instead of `O(n²)`, so it wins by more the
+fewer coupling rows you have: at one coupling row in 2000 variables it is
+[**923× faster**](@ref "Low-rank structure") than the dense route.
+
+**One condition:** the coupling rows have to be a small fraction of the variables — the backend
+declines once `10k > n`. Two coupling rows therefore need at least 20 variables, which is why
+`n = 24` above. Below that threshold the correction costs more than the dense solve it would
+replace, so declining is the right answer. `P` must also be `Diagonal`.
 
 ## Building a workspace once
 
