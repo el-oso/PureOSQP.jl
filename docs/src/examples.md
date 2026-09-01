@@ -607,6 +607,47 @@ package for exactly that: an object you can multiply by, built from a function. 
 this solver accepts one anywhere it accepts a matrix. Nothing else is needed — matrices and
 maps can even be mixed in the same call.
 
+#### When this is the right tool
+
+Four situations, in rough order of how often they come up:
+
+1. **The matrix will not fit.** Deblurring a 1000×1000 image is a million variables, so `A` is
+   a million by a million: `8` terabytes dense. There is no trade to weigh here — an operator
+   is the only way the problem exists at all. Same story for 3-D grids, large PDE-constrained
+   problems, and anything where `n` runs past `10⁵`.
+2. **Applying it is much cheaper than its size suggests.** A convolution or blur is a *dense*
+   matrix — every output touches every input — but applying it through an FFT costs
+   `O(n log n)` instead of `O(n²)`. Storing it throws that away. The same holds for any
+   transform with a fast algorithm: DCT, wavelets, a fast multipole method.
+3. **You already have the code, not the entries.** The operator is a simulator, an existing
+   forward model, a PDE solve, a linearization somebody else wrote. You can call it; nobody
+   ever assembled it, and assembling it would mean `n` separate calls.
+4. **Memory is the binding constraint, not time.** The matrix-free path stores vectors where
+   the direct path stores an `n×n` inverse — [33× less at `n = 4000`](@ref "The matrix-free
+   backend"). If the problem does not fit in RAM, being slower is not the issue.
+
+#### When it is the wrong tool
+
+**If you can comfortably store the matrix, store it.** This is worth stating plainly because
+"matrix-free" sounds like an optimization and here it usually is not. The same problem solved
+both ways, the operator against its own materialized form:
+
+| n | iterations | operator | matrix | |
+|---|---|---|---|---|
+| 200 | 175 | 11.0 ms | 2.4 ms | **4.6× slower** |
+| 500 | 175 | 79.8 ms | 26.8 ms | **3.0× slower** |
+| 1000 | 225 | 332 ms | 149 ms | **2.2× slower** |
+
+The reason is a straight trade. Skipping the factorization makes setup 26–78× cheaper, but
+every iteration then costs 6–7× more, because a CG solve replaces one multiply against a stored
+inverse. Setup is paid once; iterations are paid hundreds of times. Break-even is
+**about 31 iterations at `n = 500` and 63 at `n = 1000`** — and ordinary QPs here run 175 to
+several thousand. You are almost always past it.
+
+So the question is not "is matrix-free faster" — usually no — but **"can I hold the matrix at
+all, and is applying it cheaper than its size?"** If yes to storing and no to the fast
+algorithm, use a matrix and skip this section.
+
 Building one takes two functions: how to apply it, and how to apply its transpose. The
 transpose is not optional; the solver needs both directions.
 
