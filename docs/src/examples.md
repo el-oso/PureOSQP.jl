@@ -1129,6 +1129,57 @@ map(t -> round(t; digits = 6),
     (; polished.setup_time, polished.solve_time, polished.polish_time, polished.run_time))
 ```
 
+## Measuring how fast a solve converges
+
+`sol.iter` tells you how many iterations a solve took, but not *how* it got there. Two runs
+can take the same number of iterations while one spends most of them near the answer and the
+other only arrives at the end. `profile_primdual = true` measures that difference:
+
+```@example primdual
+using PureOSQP, LinearAlgebra
+
+n = 30
+M = randn(n, n)
+P = Matrix(Symmetric(M'M)) + n * I
+A = Matrix(1.0I, n, n)
+q = randn(n)
+l, u = fill(-0.5, n), fill(0.5, n)
+
+sol = solve(P, q, A, l, u; eps_abs = 1e-9, eps_rel = 1e-9, profile_primdual = true)
+(iter = sol.iter, trapezoid = sol.primdual_int, logmean = sol.primdual_int_log)
+```
+
+**What the number is.** The area under the duality-gap curve over the solve, in
+**gap × seconds**. Smaller means the gap shrank sooner. It is a *relative* measure: useful
+comparing two runs of the same problem, meaningless on its own, and not comparable across
+machines — it integrates against wall-clock time, so a different CPU gives a different number
+for the same solve.
+
+**Why there are two.** They are two estimates of one quantity. The solver knows the gap only
+where it refreshes residuals — every `check_termination` iterations, 25 by default — so a
+rule has to assume what the gap did in between. `primdual_int` assumes a straight line
+between samples; `primdual_int_log` assumes the exponential decay a converging gap actually
+follows. A straight line drawn over a decaying curve sits above it, so the trapezoid reads
+high and the truth lies between the two.
+
+**Which to use.** Take `primdual_int_log`, and read the ratio between them as its error bar.
+When the two are close the samples resolve the curve and either number is sound; when they
+are far apart they do not. At the default interval the trapezoid runs about 3.4× high and the
+log-mean about 16% low; sampling every iteration brings the ratio to 0.93
+([Benchmarks](@ref "The primal-dual integral")).
+
+```@example primdual
+dense = solve(
+    P, q, A, l, u; eps_abs = 1e-9, eps_rel = 1e-9,
+    profile_primdual = true, check_termination = 1,
+)
+(ratio_default = sol.primdual_int_log / sol.primdual_int,
+ ratio_dense = dense.primdual_int_log / dense.primdual_int)
+```
+
+Lower `check_termination` to sample more densely, at the cost of testing termination more
+often. Profiling itself costs under 1% and does not change the answer or the iteration count.
+
 ## Choosing the linear system
 
 `linsys = :auto` picks a backend from the representation of `P` and `A`, as above.

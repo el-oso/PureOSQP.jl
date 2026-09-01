@@ -722,28 +722,19 @@ somewhere else entirely. On badly conditioned problems it is the one backend to 
 
 ## The primal-dual integral
 
-`profile_primdual` accumulates `∫|gap| dt` over the solve — the area under the duality-gap
-curve, which rewards a solver that gets close early rather than only one that finishes.
+`∫|gap| dt` over the solve, under two quadrature rules, with `profile_primdual = true`. See
+[Measuring how fast a solve converges](@ref) for what the numbers mean and which to use.
 Reproduce with `julia --project=bench bench/primdual_integral.jl`; samples in
 `bench/results/primdual_integral.json`, single-threaded BLAS, `eps_abs = eps_rel = 1e-9`.
 
-### How to read it
+| problem | iterations | trapezoid | log-mean | log/trap | overhead |
+|---|---|---|---|---|---|
+| well conditioned | 75 | 6.84e-6 | 1.68e-6 | 0.246 | 0.29% |
+| moderate | 175 | 4.64e-6 | 3.14e-6 | 0.677 | 0.09% |
+| ill conditioned | 50 000 | 1.98e-5 | 1.52e-5 | 0.768 | 0.19% |
+| larger | 150 | 8.72e-4 | 5.23e-4 | 0.600 | 0.72% |
 
-**The number is an area, in gap × seconds.** On its own it means nothing — it is for
-comparing two runs of the *same* problem. Smaller is better: it says the gap shrank sooner,
-so the solver spent more of the run near optimal instead of arriving only at the end. Two
-solvers can take the same total time and differ here.
-
-**The two columns are two estimates of one quantity, not two quantities.** The solver knows
-the gap only at the iterations where it refreshes residuals — every 25 by default. What the
-gap did *between* two samples is unknown, so a rule has to assume something. **Trapezoid**
-assumes a straight line between them; **log-mean** assumes exponential decay, which is what a
-converging gap actually does, and integrates that exactly. A straight line drawn over a
-convex decaying curve lies above it, so the trapezoid over-estimates and the truth sits
-between the two.
-
-**The ratio tells you whether to trust the number.** Sampling the same problem more densely
-brings the rules together, which is what it means for the samples to resolve the curve:
+The same problem, sampled at five intervals:
 
 | sample every | iterations | trapezoid | log-mean | log/trap |
 |---|---|---|---|---|
@@ -753,42 +744,38 @@ brings the rules together, which is what it means for the samples to resolve the
 | 2 | 52 | 1.96e-6 | 1.72e-6 | 0.876 |
 | 1 | 51 | 2.28e-6 | 2.11e-6 | **0.927** |
 
-Both converge on about `2.1e-6`. A ratio near 1 means the sampling resolves the curve and
-either number is usable; a ratio far from 1 means it does not, and at the default interval
-the trapezoid is about 3.4× over while the log-mean is about 16% under. **Prefer the
-log-mean as the single number, and read the ratio as the error bar.** Lower
-`check_termination` to sample more densely, at the cost of checking termination more often.
+Both estimates converge on about `2.1e-6`. `check_termination` sets the sampling interval and
+also decides where the solve stops, so the iteration count moves down the column too: this is
+a trend, not a controlled single-variable sweep.
 
-(`check_termination` moves both the sampling density and where the solve stops, so the table
-is not a single-variable experiment — the iteration count falls from 75 to 51 down the
-column. The trend is monotone and the mechanism is not in doubt, but it is not controlled.)
+Measuring costs under 1% and does not change what it measures — the benchmark asserts the
+iteration count and objective are identical with profiling on and off before reporting a time.
 
-### The rules on four problems
+**Neither number is reproducible.** Both integrate against wall-clock time, so they cannot be
+compared across machines, or between runs on a machine whose clock is not pinned. No test
+asserts a value for either.
 
-| problem | iterations | trapezoid | log-mean | log/trap | overhead |
-|---|---|---|---|---|---|
-| well conditioned | 75 | 6.84e-6 | 1.68e-6 | 0.246 | 0.29% |
-| moderate | 175 | 4.64e-6 | 3.14e-6 | 0.677 | 0.09% |
-| ill conditioned | 50 000 | 1.98e-5 | 1.52e-5 | 0.768 | 0.19% |
-| larger | 150 | 8.72e-4 | 5.23e-4 | 0.600 | 0.72% |
+## The ρ schedule
 
-**The rules disagree by more than either costs to compute**, by 1.3× to 4.2×, so which one
-is used is part of what the number means. They separate most on the well-conditioned problem,
-where the gap falls fastest per sample and a straight line is furthest from the exponential
-it is standing in for — which is the same effect as the sampling table above, reached by
-making the curve steeper rather than the samples sparser.
+Iterations to `eps_abs = eps_rel = 1e-6` under the three `adaptive_rho` modes, on the OSQP
+benchmark classes. `:iterations` retunes on a fixed schedule; `:kkt_error` retunes only when
+the relative KKT error has fallen by `adaptive_rho_fraction` since the last look. Reproduce
+with `julia --project=bench bench/rho_schedule.jl`; samples in
+`bench/results/rho_schedule.json`, single-threaded BLAS.
 
-Measuring costs under 1% and does not change what it measures: the benchmark asserts the
-iteration count and objective are identical with profiling on and off before reporting a
-time.
+| class | `:disabled` | `:iterations` | `:kkt_error` | refactorizations |
+|---|---|---|---|---|
+| Random QP | 5200 | 1225 | 1225 | 1 / 2 / 2 |
+| Eq QP | 50 | 50 | 50 | 1 / 1 / 1 |
+| Portfolio | 2750 | 600 | 600 | 1 / 2 / 2 |
+| Lasso | 450 | 125 | 125 | 1 / 2 / 2 |
+| SVM | 1825 | 325 | 325 | 1 / 2 / 2 |
+| Huber | 175 | 125 | 125 | 1 / 2 / 2 |
+| Control | 450 | 450 | 450 | 1 / 1 / 1 |
+| **total** | **10 900** | **2 900** | **2 900** | |
 
-**Neither number is reproducible.** Both integrate against wall-clock time, so they cannot
-be compared across machines, or between runs on a machine whose clock is not pinned. That is
-also why no test asserts a value for either — the tests check that they are positive,
-correctly ordered, per-solve rather than cumulative, and that measuring does not perturb the
-solve. It is the one quantity this package reports with no reference to compare against.
+Adapting is worth **3.8×** across the corpus. The two triggers are indistinguishable: same
+iterations and same refactorizations on every class.
 
-Interpolatory rules at chosen nodes — Clenshaw–Curtis, Gauss — do not apply. They evaluate
-the integrand at abscissae the rule picks, and nothing can make an ADMM iteration land at a
-prescribed time; their accuracy also assumes a smooth integrand, where this one has kinks
-wherever `ρ` retunes.
+Iterations to a fixed tolerance, not wall clock, and not the regime in [Conditioning](@ref),
+where nothing converges on any schedule.

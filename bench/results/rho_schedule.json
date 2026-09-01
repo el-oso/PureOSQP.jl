@@ -1,0 +1,76 @@
+{
+  "blas_threads": 1,
+  "cases": [
+    {
+      "class": "Random QP",
+      "iter_disabled": 5200,
+      "iter_iterations": 1225,
+      "iter_kkt_error": 1225,
+      "refac_disabled": 1,
+      "refac_iterations": 2,
+      "refac_kkt_error": 2
+    },
+    {
+      "class": "Eq QP",
+      "iter_disabled": 50,
+      "iter_iterations": 50,
+      "iter_kkt_error": 50,
+      "refac_disabled": 1,
+      "refac_iterations": 1,
+      "refac_kkt_error": 1
+    },
+    {
+      "class": "Portfolio",
+      "iter_disabled": 2750,
+      "iter_iterations": 600,
+      "iter_kkt_error": 600,
+      "refac_disabled": 1,
+      "refac_iterations": 2,
+      "refac_kkt_error": 2
+    },
+    {
+      "class": "Lasso",
+      "iter_disabled": 450,
+      "iter_iterations": 125,
+      "iter_kkt_error": 125,
+      "refac_disabled": 1,
+      "refac_iterations": 2,
+      "refac_kkt_error": 2
+    },
+    {
+      "class": "SVM",
+      "iter_disabled": 1825,
+      "iter_iterations": 325,
+      "iter_kkt_error": 325,
+      "refac_disabled": 1,
+      "refac_iterations": 2,
+      "refac_kkt_error": 2
+    },
+    {
+      "class": "Huber",
+      "iter_disabled": 175,
+      "iter_iterations": 125,
+      "iter_kkt_error": 125,
+      "refac_disabled": 1,
+      "refac_iterations": 2,
+      "refac_kkt_error": 2
+    },
+    {
+      "class": "Control",
+      "iter_disabled": 450,
+      "iter_iterations": 450,
+      "iter_kkt_error": 450,
+      "refac_disabled": 1,
+      "refac_iterations": 1,
+      "refac_kkt_error": 1
+    }
+  ],
+  "eps": 1.0e-6,
+  "julia_version": "1.12.7",
+  "max_iter": 50000,
+  "totals": {
+    "disabled": 10900,
+    "iterations": 2900,
+    "kkt_error": 2900
+  }
+}

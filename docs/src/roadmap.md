@@ -86,6 +86,14 @@ underneath is whatever BLAS is loaded, so `using MKL` is the whole of the MKL st
 `profile_primdual`, a single switch over the one measurement that needs a clock the solver
 would not otherwise read — see [Benchmarks](@ref "The primal-dual integral").
 
+**Driving `ρ` from the gap's decay rate. Measured and rejected.** The primal-dual integral's
+log-mean rule computes `log(gₖ/gₖ₊₁)` — the duality gap's local decay rate — as a byproduct,
+which is a more direct measure of progress than the relative KKT error `adaptive_rho =
+:kkt_error` already triggers on. It buys nothing: on the seven benchmark classes that trigger
+reaches the same tolerance in the same iterations, with the same refactorization count, as
+retuning on a fixed interval ([Benchmarks](@ref "The ρ schedule")). Adapting `ρ` is worth
+3.8×; *when* it is adapted is worth zero, so a better progress signal has nothing to improve.
+
 **`osqp_error_message`.** Exists to turn an error code into a string. This package throws
 exceptions carrying their own messages.
 
