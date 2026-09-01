@@ -45,6 +45,44 @@ more in the loop; two `trsv` is the same flop count but serial; `trtri` with two
 the setup and doubles the loop. Equilibration is within 1.13× of libosqp's per sweep. The
 convexity test and the fill gate are fixed costs libosqp does not pay.
 
+## Settings, against libosqp 1.x
+
+Every upstream setting, and what it is called here. Defaults on the right are read from the
+library through `bench/osqp_v1.jl`, not from
+[the settings page](https://osqp.org/docs/interfaces/solver_settings.html), which is stale on
+one of them: it gives `adaptive_rho_interval` as `0`, where the library ships `50`.
+
+**Same name, same default.** `rho` `0.1`, `sigma` `1e-6`, `alpha` `1.6`, `scaling` `10`,
+`rho_is_vec` `true`, `max_iter` `4000`, `eps_abs` and `eps_rel` `1e-3`, `eps_prim_inf` and
+`eps_dual_inf` `1e-4`, `scaled_termination` `false`, `check_termination` `25`,
+`adaptive_rho_interval` `50`, `adaptive_rho_tolerance` `5`, `cg_max_iter` `20`,
+`cg_tol_fraction` `0.15`, `cg_tol_reduction` `10`, `delta` `1e-6`, `polish_refine_iter` `3`,
+`warm_starting` `true`, `check_dualgap` `true`.
+
+`check_dualgap` is in the 1.x C header and in the library's defaults, but not on that settings
+page; this package follows the library.
+
+**Renamed, or defaulted differently.**
+
+| upstream | here | why |
+|---|---|---|
+| `polishing` | `polish` | name only; both default off |
+| `verbose` = `true` | `verbose` = `false` | a library that prints by default is the wrong default for a package |
+| `time_limit` = `1e10` | `time_limit` = `Inf` | the same "no limit", spelled as the thing it means |
+| `profiler_level` | `profile_primdual` | one switch over the one measurement that needs a clock |
+| `osqp_linsys_solver_type` | `linsys` | upstream selects a *library*, this selects a *formulation* — see below |
+| `adaptive_rho` = `true` | `adaptive_rho` = `:iterations` | a mode rather than a flag; `true` is accepted and means `:iterations` |
+
+**Same name, different meaning — the one to watch.** `adaptive_rho_fraction` is `0.4` in both,
+and means different things. Upstream it is a fraction of *setup time*, feeding the wall-clock
+adaptation mode. Here it is a fraction of the *previous KKT error*: under
+`adaptive_rho = :kkt_error`, `ρ` is retuned only once `rel_kkt_error` has fallen to
+`adaptive_rho_fraction` of what it was at the last look. Porting a tuned value across without
+reading this will not error — it will quietly do something else.
+
+**Upstream only.** `device` and `allocate_solution` are GPU and embedded concerns;
+`cg_precond` selects a preconditioner where this package always uses the diagonal one.
+
 ## Deliberate differences
 
 **Code generation.** `osqp_codegen` emits C source with the settings, scaled data, `ρ` and
