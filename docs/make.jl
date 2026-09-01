@@ -14,6 +14,7 @@ makedocs(;
         "Examples" => "examples.md",
         "Algorithm" => "algorithm.md",
         "Structured operators" => "operators.md",
+        "Other packages" => "ecosystem.md",
         "Guarantees" => "guarantees.md",
         "Benchmarks" => "benchmarks.md",
         "API" => "api.md",
