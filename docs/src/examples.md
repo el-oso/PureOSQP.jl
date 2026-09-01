@@ -453,6 +453,93 @@ size and not the sparsity — it is whether **applying** the operator is asympto
 than the dense product. If it is, the operator wins and wins by more as the matrix leaves
 cache. If it is not, no amount of size will save it.
 
+### Every type the solver takes, and the shape it means
+
+The decision above is about categories. This is the catalogue: what each type looks like, what
+to call it, and what it buys. `•` marks a stored entry, blank is a structural zero.
+
+**Dense `Matrix`.** Every entry stored. The baseline, and the right answer whenever the
+problem is small or has no structure to declare.
+
+```math
+\begin{pmatrix} • & • & • & • \\ • & • & • & • \\ • & • & • & • \\ • & • & • & • \end{pmatrix}
+```
+
+**`Diagonal`** (LinearAlgebra). One entry per row. With a `Diagonal` `A` too, the reduced
+matrix is diagonal and a solve is `n` divisions — no factorization at all.
+
+```math
+\begin{pmatrix} • & & & \\ & • & & \\ & & • & \\ & & & • \end{pmatrix}
+```
+
+**`Bidiagonal`**, and **`SymTridiagonal`** / **`Tridiagonal`** (LinearAlgebra). Bandwidth 1.
+Smoothing, trend filtering and differencing constraints land here; the backend is an `ldlt` in
+`O(n)`.
+
+```math
+\begin{pmatrix} • & • & & \\ • & • & • & \\ & • & • & • \\ & & • & • \end{pmatrix}
+```
+
+**`BandedMatrix`** ([BandedMatrices.jl](https://github.com/JuliaLinearAlgebra/BandedMatrices.jl)).
+Bandwidth 2 and up, which LinearAlgebra has no symmetric type for. Factored as a banded
+Cholesky in `O(n b²)`.
+
+```math
+\begin{pmatrix} • & • & • & & \\ • & • & • & • & \\ • & • & • & • & • \\ & • & • & • & • \\ & & • & • & • \end{pmatrix}
+```
+
+**`SparseMatrixCSC`** (SparseArrays). Entries wherever you put them, stored by column. The
+right answer when the pattern is irregular and mostly empty.
+
+```math
+\begin{pmatrix} • & & • & \\ & • & & \\ • & & & • \\ & & • & • \end{pmatrix}
+```
+
+**[`PureOSQP.BlockDiagonal`](@ref).** A run of independent blocks, stored as the blocks. `K`
+systems of size `n/K` instead of one of size `n`: `n³/K²` work and `1/K` the memory.
+
+```math
+\begin{pmatrix} • & • & & & & \\ • & • & & & & \\ & & • & • & & \\ & & • & • & & \\ & & & & • & • \\ & & & & • & • \end{pmatrix}
+```
+
+**[`PureOSQP.RowCoupled`](@ref).** A few dense rows above rows holding one entry each — a bound
+per variable plus a budget or total. Solved by Woodbury in `O(nk)`, never forming the `n×n`.
+
+```math
+\begin{pmatrix} • & • & • & • \\ • & • & • & • \\ • & & & \\ & • & & \\ & & • & \\ & & & • \end{pmatrix}
+```
+
+**[`PureOSQP.KroneckerOperator`](@ref).** `A₁ ⊗ A₂`, held as its two factors. A constraint
+acting across two dimensions at once; the `6×6` below is stored as `4 + 9` numbers.
+
+```math
+A_1 \otimes A_2 = \begin{pmatrix} a_{11}A_2 & a_{12}A_2 \\ a_{21}A_2 & a_{22}A_2 \end{pmatrix}
+```
+
+**[`PureOSQP.ProductOperator`](@ref), and `LinearMaps.LinearMap`.** No entries at all — a
+function that applies the matrix. There is no picture to draw, which is the point:
+
+```math
+x \;\longmapsto\; Ax
+```
+
+Views (`SubArray`), `Symmetric` wrappers and GPU arrays are all accepted too; they are storage
+decisions rather than shapes, and carry no backend of their own.
+
+| type | reduced matrix | backend |
+|---|---|---|
+| `Matrix` | dense | `cholesky` |
+| `Diagonal` with `Diagonal` | diagonal | `diagonal` |
+| tri/bidiagonal with `Diagonal` | bandwidth 1 | `tridiagonal` |
+| banded with banded | bandwidth `2 ≤ b ≤ n/4` | `banded` |
+| `SparseMatrixCSC` | sparse, or dense once it fills | `cholmod`, `ldlfactorizations`, `sparse_formed` |
+| `BlockDiagonal` pair | `K` blocks | `block` |
+| `Diagonal` with `RowCoupled` | diagonal plus rank `k` | `lowrank` |
+| `μI` with `KroneckerOperator` | diagonal in the factors' eigenbasis | `kronecker` |
+| an operator | never formed | `indirect` |
+
+`PureOSQP.backend_name(ws.linsys)` reports which one you got.
+
 ### Unmaterialized does not mean solved by CG
 
 One more distinction, because it decides what happens on badly conditioned problems.
