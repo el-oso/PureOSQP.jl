@@ -134,6 +134,19 @@ algorithm — it targets problems with at least 1e4 nonzeros and reaches its pea
 - Source: <https://github.com/osqp/osqp> (Apache-2.0)
 - Copyright the OSQP authors.
 
+The C library is credited to Bartolomeo Stellato, Goran Banjac and Paul Goulart.
+
+**[OSQP.jl](https://github.com/osqp/OSQP.jl), by Twan Koolen, Benoît Legat and Bartolomeo
+Stellato**, deserves separate mention: it is the reference this package is measured against,
+not merely a package it resembles. Every correctness claim here — the transcription test on
+the first 25 iterates, the matching iteration counts on dense QPs, the benchmark-suite corpus
+— compares against libosqp 0.6.2 *through* OSQP.jl. Without a maintained Julia wrapper there
+would be nothing to check against without writing one first.
+
+libosqp 1.x has no Julia wrapper, which is why `bench/osqp_v1.jl` reaches it by `ccall`
+instead; that comparison exists because OSQP.jl set the standard for what the 0.6.2 one should
+look like.
+
 ## What is deliberately different
 
 These are changes from upstream, not omissions, and Apache-2.0 §4(b) asks that they be
