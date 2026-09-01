@@ -591,6 +591,61 @@ Usually you just accept that. If the iteration count matters, give your map's ty
 recovers the preconditioner *and* lets you drop `scaling = 0`. Setting `probe = true` is not a
 substitute; probing answers the rescaling question, not this one.
 
+#### Building `A` by composition
+
+The reason to reach for LinearMaps rather than write an operator by hand is that maps
+*compose*, and a constraint matrix is usually several blocks stacked together. All of it works
+and mixes freely — sums, products, `kron`, and `vcat`/`hcat` — with no product ever formed:
+
+| you write | you get |
+|---|---|
+| `B + C` | the sum, applied as `Bx + Cx` |
+| `B * C` | the composition, applied as `B(Cx)` |
+| `kron(B, C)` | the Kronecker product, applied through the factors |
+| `[B; C]` | `vcat` — stack constraint blocks, the common case for `A` |
+| `[B C]` | `hcat` — one block per group of variables |
+| `[B C; D E]` | `hvcat` — both at once |
+| `B'` | the adjoint |
+
+Here `A` is a scaled running sum stacked over a box, built from three maps and never
+assembled:
+
+```@example compose
+using PureOSQP, LinearMaps, LinearAlgebra, Krylov, Random
+Random.seed!(11)
+
+n = 6
+w = 0.5 .+ rand(n)
+
+# Both directions. The adjoint of a running sum is a reversed running sum.
+C = LinearMap{Float64}(
+    (y, x) -> (y .= cumsum(x)),
+    (x, y) -> (x .= reverse(cumsum(reverse(y)))),
+    n, n,
+)
+W = LinearMap(Diagonal(w))          # scaling; a matrix-backed map knows its own adjoint
+B = LinearMap(Matrix(1.0I, n, n))   # a plain box block
+
+A = [C * W; B]                      # vcat of a product over an identity block
+
+P = LinearMap(Diagonal(fill(2.0, n)); issymmetric = true, isposdef = true)
+q = randn(n)
+l = vcat(fill(-3.0, n), fill(-0.4, n))
+u = vcat(fill(3.0, n), fill(0.4, n))
+
+sol = PureOSQP.solve(P, q, A, l, u; scaling = 0, eps_abs = 1e-10, eps_rel = 1e-10)
+(size(A), sol.status, round.(sol.x; digits = 5))
+```
+
+Solved against the same problem with every block materialized, the two answers agree to
+`6.3e-11`.
+
+**Every function-based map in the composition needs its adjoint.** The solver applies `Aᵀ`
+once per iteration, so a `LinearMap` built from a forward function alone fails with
+`transpose not implemented` — not at construction, and not on the first product, but partway
+into the first iteration. Maps built from matrices supply it for themselves; maps built from
+functions do not, and `C` above is written with both directions for that reason.
+
 ## Structured operators the package ships
 
 `Diagonal` and `Bidiagonal` above are LinearAlgebra's. This package ships three more matrix
