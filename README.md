@@ -41,29 +41,29 @@ The inner system is reduced to an `n×n` symmetric positive-definite system by d
 
 OSQP is a sparse solver — it takes CSC input and factors sparsely, so it never sees denseness. Both solvers below are given the same problem in the same CSC form and stop after the same number of iterations, so the only thing that differs is the per-iteration solve. PureOSQP picks that solve per problem — a dense Cholesky where `P` is dense, a sparse factorization where it isn't — and on OSQP's own seven benchmark classes it leads all seven:
 
-| class | PureOSQP | OSQP | vs OSQP |
-|---|---|---|---|
-| Eq QP | 1.60 ms | 3.31 ms | **2.06×** |
-| Random QP | 3.58 ms | 6.66 ms | **1.86×** |
-| SVM | 2.69 ms | 3.95 ms | 1.47× |
-| Control | 4.46 ms | 5.33 ms | 1.20× |
-| Portfolio | 2.75 ms | 2.96 ms | 1.08× |
-| Lasso | 1.07 ms | 1.15 ms | 1.08× |
-| Huber | 2.52 ms | 2.62 ms | 1.04× |
+| class | n | m | nnz(`A`) | iterations | backend | PureOSQP | OSQP | vs OSQP |
+|---|---|---|---|---|---|---|---|---|
+| Eq QP | 200 | 100 | 2 881 | 50 | `cholesky` | 1.60 ms | 3.31 ms | **2.06×** |
+| Random QP | 50 | 500 | 3 782 | 925 | `cholesky` | 3.58 ms | 6.66 ms | **1.86×** |
+| SVM | 808 | 1600 | 2 549 | 300 | `ldlfactorizations` | 2.69 ms | 3.95 ms | 1.47× |
+| Control | 320 | 540 | 6 540 | 325 | `sparse_formed` | 4.46 ms | 5.33 ms | 1.20× |
+| Portfolio | 505 | 506 | 2 294 | 450 | `ldl_kkt` | 2.75 ms | 2.96 ms | 1.08× |
+| Lasso | 816 | 816 | 1 786 | 100 | `ldlfactorizations` | 1.07 ms | 1.15 ms | 1.08× |
+| Huber | 1806 | 1800 | 3 526 | 125 | `ldlfactorizations` | 2.52 ms | 2.62 ms | 1.04× |
 
-The two ~2× rows (Eq QP, Random QP) are where `P` is dense and PureOSQP uses a dense Cholesky; the rest are sparse on both sides. Full tables, plus the synthetic-sparse and dense cases: [Benchmarks](https://el-oso.github.io/PureOSQP.jl/dev/benchmarks).
+The iteration count is the same on both sides of every row, and the objectives agree to between `1e-16` and `1e-13`. The backend column is what PureOSQP chose without being told: the two ~2× rows are where `P` is dense and it picks a dense Cholesky, and the rest reach one sparse factorization or another. Full tables, plus the synthetic-sparse and dense cases: [Benchmarks](https://el-oso.github.io/PureOSQP.jl/dev/benchmarks).
 
 ### Structure a sparsity pattern cannot express
 
 Sparsity says where the zeros are. These problems say more — the blocks decouple, the band is a band, the coupling is rank 2, the matrix is a Kronecker product — and declaring it is worth something a sparse factorization cannot recover. Same problem both sides, OSQP given it as CSC, same settings, and every row runs the **same number of iterations** and agrees on the objective to `1e-9`:
 
-| structure | nnz(`A`) | PureOSQP | OSQP | vs OSQP |
-|---|---|---|---|---|
-| Kronecker `A₁ ⊗ A₂` | 100% | 1.10 ms | 121 ms | **110×** |
-| tridiagonal | 0.2% | 0.20 ms | 0.69 ms | **3.48×** |
-| low-rank coupling | 0.7% | 0.21 ms | 0.65 ms | **3.02×** |
-| block-diagonal | 12.5% | 1.26 ms | 2.61 ms | **2.07×** |
-| banded | 0.5% | 0.84 ms | 0.78 ms | 0.93× |
+| structure | n | nnz(`A`) | iterations | backend | PureOSQP | OSQP | vs OSQP |
+|---|---|---|---|---|---|---|---|
+| Kronecker `A₁ ⊗ A₂` | 400 | 100% | 250 | `kronecker` | 1.10 ms | 121 ms | **110×** |
+| tridiagonal | 400 | 0.2% | 75 | `tridiagonal` | 0.20 ms | 0.69 ms | **3.48×** |
+| low-rank coupling | 400 | 0.7% | 75 | `lowrank` | 0.21 ms | 0.65 ms | **3.02×** |
+| block-diagonal | 200 | 12.5% | 175 | `block` | 1.26 ms | 2.61 ms | **2.07×** |
+| banded | 400 | 0.5% | 75 | `banded` | 0.84 ms | 0.78 ms | 0.93× |
 
 The Kronecker row is the point in one line: that `A` has **no zeros at all**, so sparsity offers nothing, while the same matrix declared as its two 20×20 factors is solved through their eigenbases. The banded row is the honest other end — at bandwidth 3 a sparse factor is already banded, so there is nothing left to win.
 
