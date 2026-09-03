@@ -1,36 +1,18 @@
 # Algorithm
 
-This page is how the solver works inside. You do not need it to use the package — start at
-[Examples](@ref) for that — but it is what the tuning knobs, the backend names and the
-benchmark tables all refer back to.
+This page explains the internal working of the solver.
 
 ## The idea in one paragraph
 
-The problem is hard because two demands fight: minimize the objective, and stay inside the
-bounds. Either alone is easy. Minimizing a quadratic with no constraints is one linear solve;
-clipping a vector into a box is one `max` and one `min`. ADMM — *alternating direction method
-of multipliers* — exploits that by keeping **two copies** of the answer, letting each satisfy
-one demand, and adding a penalty that drags them together. Each iteration is: solve the
-unconstrained problem for `x`, clip the other copy `z` into the box, then update a multiplier
-`y` by however far apart they still are. When they agree, both demands hold at once and you
-have the solution.
+The problem involves minimizing an objective while staying within bounds. ADMM (*alternating direction method of multipliers*) solves this by maintaining two copies of the answer: one that minimizes the objective and one that satisfies the bounds. A penalty term is added to pull these two copies together. Each iteration consists of solving an unconstrained problem for $x$, clipping $z$ into the box, and updating a multiplier $y$. When they agree, you have the solution.
 
-That gives the shape of everything below. The linear solve is the expensive half and gets most
-of this page. `ρ` is the weight on the disagreement penalty — too small and the copies drift,
-too large and progress stalls, which is why it is retuned as the solve proceeds. `σ` keeps the
-linear system solvable when `P` alone is not. `α` over-relaxes the update, a standard trick
-worth a modest constant factor.
-
-The one property that matters for performance: **the matrix in that linear solve does not
-change between iterations** unless `ρ` does. So it is factored once and reused hundreds of
-times, and nearly all the engineering here is about making that factorization and its reuse as
-cheap as the problem's structure allows.
+The linear solve is the most expensive part. The matrix in the linear solve remains unchanged unless $\rho$ changes. The solver's efficiency comes from factoring this matrix once and reusing it.
 
 ## The ADMM iteration
 
-Each iteration solves one linear system and then does a projection:
+Each iteration solves one linear system and then performs a projection:
 
-```math
+$$
 \begin{aligned}
 \begin{bmatrix} P + \sigma I & A^\top \\ A & -\mathrm{diag}(\rho)^{-1} \end{bmatrix}
 \begin{bmatrix} \tilde x^{k+1} \\ \nu^{k+1} \end{bmatrix}
@@ -40,37 +22,24 @@ x^{k+1} &= \alpha \tilde x^{k+1} + (1-\alpha) x^k \\
 z^{k+1} &= \Pi_{[l,u]}\!\left(\alpha \tilde z^{k+1} + (1-\alpha) z^k + \rho^{-1} \odot y^k\right) \\
 y^{k+1} &= y^k + \rho \odot \left(\alpha \tilde z^{k+1} + (1-\alpha) z^k - z^{k+1}\right)
 \end{aligned}
-```
+$$
 
-`σ` regularizes the `(1,1)` block, `α` is the over-relaxation parameter, and `ρ` is a
-vector with a larger value on equality rows.
+$\sigma$ regularizes the $(1,1)$ block, $\alpha$ is the over-relaxation parameter, and $\rho$ is a vector with larger values on equality rows.
 
 ## The linear system
 
-The reference implementation forms the `(n+m)×(n+m)` quasi-definite matrix above and
-factors it with a sparse pivot-free LDLᵀ. Eliminating `ν` gives an equivalent system that
-is `n×n` and symmetric positive definite:
+The reference implementation factors the $(n+m) \times (n+m)$ quasi-definite matrix with a sparse pivot-free LDLᵀ. An equivalent $n \times n$ symmetric positive definite system can be used:
 
-```math
+$$
 (P + \sigma I + A^\top \mathrm{diag}(\rho) A)\, \tilde x = \mathrm{rhs}_x + A^\top(\rho \odot \mathrm{rhs}_z),
 \qquad \tilde z = A \tilde x
-```
+$$
 
-PureOSQP factors that with `cholesky!` — *shə-LES-kee*, after a French officer, and
-[not with a hard `k`](@ref "The name Cholesky"). The reason upstream avoids it is fill-in: `AᵀA` is
-dense even when `A` is sparse. With sparsity off the table that objection disappears, and
-measurement shows the reduced form is faster in every dense regime — from 1.45× when
-`m < n` up to 43× when `m ≫ n`.
+PureOSQP factors this with `cholesky!`. In dense regimes, this reduced form is faster.
 
-`Ãᵀ diag(ρ) Ã` is what fills in, and it fills in by a fixed amount: diagonal scaling
-preserves a bandwidth and squaring `A` doubles it, so
+$\mathrm{bandwidth}(R) = \max\bigl(\mathrm{bandwidth}(P),\; 2\,\mathrm{bandwidth}(A)\bigr)$
 
-```math
-\mathrm{bandwidth}(R) = \max\bigl(\mathrm{bandwidth}(P),\; 2\,\mathrm{bandwidth}(A)\bigr)
-```
-
-`choose_backend` dispatches on the pair of types, so a problem whose `R` stays narrow is
-solved as such without a setting:
+The `choose_backend` function selects a solver based on the problem's structure:
 
 | `P` | `A` | bandwidth of `R` | backend | solve |
 |---|---|---|---|---|
@@ -78,38 +47,13 @@ solved as such without a setting:
 | `SymTridiagonal` or `Tridiagonal` | `Diagonal` | 1 | [`TridiagonalReduced`](@ref PureOSQP.TridiagonalReduced) | `ldlt`, `O(n)` |
 | `Diagonal` | `Bidiagonal` | 1 | [`TridiagonalReduced`](@ref PureOSQP.TridiagonalReduced) | `ldlt`, `O(n)` |
 | `SymTridiagonal` or `Tridiagonal` | `Bidiagonal` | 1 | [`TridiagonalReduced`](@ref PureOSQP.TridiagonalReduced) | `ldlt`, `O(n)` |
-| banded | banded | `2 ≤ b ≤ n/4` | `BandedReduced`, with BandedMatrices.jl loaded | banded `cholesky`, `O(n b²)` |
+| banded | banded | $2 \leq b \leq n/4$ | `BandedReduced` | banded `cholesky`, `O(nb²)` |
 
-Against the dense path those are 1710×, 1270× and 699× on setup at `n = 2000`, and 1216×,
-725× and 252× end to end, on the same iterates — see
-[Structured backends](@ref "Structured backends"). A separable objective under box
-constraints is the first row; a tridiagonal one — smoothing, trend filtering — the second;
-differencing constraints, where a `Tridiagonal` `A` squares to bandwidth 2, the last.
+The banded backend is a package extension requiring `BandedMatrices.jl`.
 
-The same band spelled `Tridiagonal` selects the same backend as `SymTridiagonal`. Both name
-bandwidth 1, `setup` has already established that `P` is symmetric, and the backend reads
-only the diagonal and one superdiagonal — so the choice of spelling is the user's and does
-not change what solves the problem.
+A `Diagonal` `P` with a general `A` does not receive special treatment, and its reduced matrix is dense.
 
-The banded backend is a package extension, so it exists only once BandedMatrices.jl is
-loaded; without it those problems take the dense path, correctly but densely. It declines
-two ways: below bandwidth 2 the LinearAlgebra backends above are cheaper, and above a quarter
-of the matrix the dense path wins per iteration.
-
-Two things the arithmetic will not do for you here, both of which is why the bands are
-computed entry by entry rather than by forming the product. `D P D` on a `SymTridiagonal`
-returns a `Tridiagonal`, which `cholesky` rejects as not Hermitian though it is symmetric to
-`1e-17`; and a `Diagonal` `P` with a `Bidiagonal` `A` returns a dense `Array` despite having
-bandwidth 1. An `ldlt` also reports neither indefiniteness nor a zero pivot the way a
-Cholesky does — it returns a negative pivot for the first and throws for the second — so
-both are tested explicitly.
-
-A `Diagonal` `P` with a general `A` gets no treatment at all, and correctly: its reduced
-matrix is dense whatever `P` looked like.
-
-Fill-in is worth quantifying, because it also settles whether a sparse factorization would
-be worth adding. On random sparse `A`, the reduced matrix `R` is much sparser than `A`
-suggests it should be, but its Cholesky factor is not:
+Fill-in is a factor. On random sparse `A`, the reduced matrix `R` is much sparser than `A` suggests, but its Cholesky factor is not.
 
 | n | m | density(A) | density(R) | density of chol(R) | fill |
 |---|---|---|---|---|---|
@@ -118,17 +62,9 @@ suggests it should be, but its Cholesky factor is not:
 | 400 | 800 | 1% | 11.2% | 83.3% | 7.4× |
 | 400 | 800 | 5% | 95.4% | 100% | 1.1× |
 
-A uniformly random sparsity pattern is an expander: it has no small vertex separators, so
-elimination fills aggressively no matter how the matrix is ordered. By 5% density `R` is
-effectively dense. Structured problems — grids, chains, banded couplings — behave far
-better, but they are also the large problems where the dense path already wins.
+## Solving with the inverse
 
-### Solving with the inverse
-
-Once `R` is factored it is inverted in place, and each iteration solves by one `symv`
-against the stored inverse rather than by a Cholesky `ldiv!`. Both do `2n²` flops. The
-difference is that a triangular solve computes its entries in sequence, one depending on
-the last, while a symmetric matrix-vector product has no such chain:
+Once `R` is factored, it is inverted in place. This is faster than a Cholesky `ldiv!` because it uses a symmetric matrix-vector product (`symv`) instead of two triangular solves.
 
 | kernel | solve, n = 200 | relative error |
 |---|---|---|
@@ -202,47 +138,33 @@ implementation does, which makes it useful when a result is in question. The ent
 corpus runs through both backends.
 ## Equilibration
 
-Modified Ruiz equilibration on `[P Aᵀ; A 0]`, ten sweeps, each followed by a cost
-normalization step. It is stored as factors rather than applied to the matrices:
+Modified Ruiz equilibration is applied to the system. It is stored as factors rather than applied to the matrices:
 
-```math
+$$
 \tilde P = c\,D P D, \qquad \tilde A = E A D, \qquad \tilde q = c\,D q, \qquad
 \tilde l = E l, \qquad \tilde u = E u
-```
+$$
 
-Every per-iteration product runs `mul!` on the caller's original matrix with the factors
-applied around it, so a structured or lazy `A` keeps its fast product and nothing is
-copied. Which backend materializes anything depends on the rung: the dense terminal holds an
-`m×n` scaled copy of `A` and the `n×n` reduced matrix, rebuilt whenever `ρ` changes, while the
-structured backends store only what their structure needs — `n` reciprocals, two bands,
-`O(nb)`, or a `k×n` correction — and the matrix-free backend stores none of it.
+Every per-iteration product runs `mul!` on the caller's original matrix with the factors applied around it, so a structured or lazy `A` keeps its fast product and nothing is copied.
 
 ## Convergence
 
-The iteration stops on two residuals, and optionally a third quantity. At the optimum all
-three are zero; the tolerances say how close is close enough.
+The iteration stops when primal and dual residuals satisfy the given tolerances.
 
-```math
+$$
 r_{\rm prim} = \|Ax - z\|_\infty,
 \qquad
 r_{\rm dual} = \|Px + q + A^\top y\|_\infty
-```
+$$
 
-The primal residual measures how far the two copies of the answer have drifted apart — `Ax`
-against the `z` that was clipped into the box — and the dual residual measures how far the
-stationarity condition is from holding. Both are reported in **problem space**: the solver
-iterates on equilibrated data and divides the scaling back out before testing, so a tolerance
-means what the caller thinks it means.
+Both residuals are reported in **problem space**.
 
-**Both tolerances are absolute plus relative**, against the largest term that went into the
-residual, so a problem whose numbers are `1e8` is not asked for the same absolute accuracy as
-one whose numbers are `1`:
-
-```math
+Tolerances are absolute plus relative:
+$$
 \epsilon_{\rm prim} = \epsilon_{\rm abs} + \epsilon_{\rm rel}\max\bigl(\|Ax\|_\infty,\|z\|_\infty\bigr),
 \qquad
 \epsilon_{\rm dual} = \epsilon_{\rm abs} + \epsilon_{\rm rel}\max\bigl(\|Px\|_\infty,\|q\|_\infty,\|A^\top y\|_\infty\bigr)
-```
+$$
 
 **The duality gap is a third test, and it can only delay convergence.** With
 `check_dualgap` — on by default, following libosqp 1.x — a point must additionally satisfy
@@ -264,16 +186,15 @@ Three more things decide what the caller sees:
 `scaled_termination` tests the equilibrated residuals instead of the unscaled ones. It is off
 by default, since the natural question is about your problem rather than the solver's internal
 one.
+## Adaptive $\rho$
 
-## Adaptive ρ
+$\rho$ is re-estimated based on the ratio of primal and dual residuals:
 
-`ρ` is re-estimated from the ratio of normalized primal and dual residuals,
-
-```math
+$$
 \rho_{\text{new}} = \rho \sqrt{
   \frac{r_{\text{prim}} / \max(\|z\|_\infty, \|Ax\|_\infty)}
        {r_{\text{dual}} / \max(\|q\|_\infty, \|A^\top y\|_\infty, \|Px\|_\infty)}}
-```
+$$
 
 and adopted only when it moves by more than a factor of `adaptive_rho_tolerance`, since
 adopting it forces a refactorization.
@@ -284,22 +205,7 @@ that iteration counts do not depend on how fast the machine is.
 
 ## Infeasibility
 
-Both certificates come from the iterate differences `δx`, `δy`.
-
-The problem is primal infeasible when, after projecting `δy` onto the polar of the
-recession cone of `[l,u]`,
-
-```math
-u^\top \max(\delta y, 0) + l^\top \min(\delta y, 0) < \varepsilon \|\delta y\|,
-\qquad \|A^\top \delta y\|_\infty < \varepsilon \|\delta y\|_\infty
-```
-
-It is dual infeasible when
-
-```math
-q^\top \delta x < 0, \qquad \|P \delta x\|_\infty < \varepsilon\|\delta x\|_\infty,
-\qquad A \delta x \in \text{recession cone of } [l,u]
-```
+Infeasibility is detected using the differences in iterates $\delta x$ and $\delta y$.
 
 ## Polishing
 
