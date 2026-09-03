@@ -24,13 +24,12 @@ implementation as a Julia user gets it. PureOSQP is timed on OpenBLAS and again 
 | 100 | 1000 | 120 ms | 112 ms | 679 ms | 5.67× | 6.05× | 7475 | 1.7e-11 |
 | 200 | 2000 | 229 ms | 211 ms | 1302 ms | 5.69× | 6.16× | 3025 | 7.9e-15 |
 
-**The iteration count is identical to OSQP in every case**, measured with
-`check_dualgap = false` to match libosqp 0.6.2, which has no duality-gap termination test.
-PureOSQP defaults that test on, following libosqp 1.x. That is the result worth caring
-about: the equilibration, the ρ schedule and the termination tests reproduce the reference
-exactly, not approximately. The objective agrees to about `1e-15`, and switching BLAS
-changes neither — PureBLAS gives bit-comparable answers (`|Δx| ≈ 1e-14`) on the same
-iteration counts.
+The iteration count is identical to OSQP in every case, measured with `check_dualgap = false`
+to match libosqp 0.6.2, which has no duality-gap termination test. PureOSQP defaults that test
+on, following libosqp 1.x. That is the point: the equilibration, the ρ schedule and the
+termination tests reproduce the reference exactly, not approximately. The objective agrees to
+about `1e-15`, and switching BLAS changes neither — PureBLAS gives bit-comparable answers
+(`|Δx| ≈ 1e-14`) on the same iteration counts.
 
 
 **On `check_dualgap = false`.** PureOSQP defaults the duality-gap termination test *on*,
@@ -41,9 +40,9 @@ changed the iteration count in 114 of 600 comparable runs. Everything here that 
 counts against 0.6.2 pins it — the oracle tests, the ported C-suite cases and every
 benchmark script.
 
-**The same agreement holds against libosqp 1.x**, which is the version whose termination rules
-this package follows — `check_dualgap` defaults on because 1.x does. It has no Julia wrapper,
-so `bench/osqp_v1.jl` reaches it by `ccall` against the library `OSQP_jll` v100 ships.
+**The same agreement holds against libosqp 1.x**, the version whose termination rules this
+package follows — `check_dualgap` defaults on because 1.x does. It has no Julia wrapper, so
+`bench/osqp_v1.jl` reaches it by `ccall` against the library `OSQP_jll` v100 ships.
 Identical iteration counts on all seven cases, objectives agreeing to `1e-14`:
 
 | n | m | PureOSQP | libosqp 1.x | obj rel Δ | max \|Δx\| |
@@ -62,7 +61,7 @@ Identical iteration counts on all seven cases, objectives agreeing to `1e-14`:
 
 The wrapper does not trust the header it mirrors. One `osqp_configure.h` covers both the
 double and single builds and defines `OSQP_USE_FLOAT`, which is wrong for the double library;
-the scalar widths were determined from the library instead, by finding where
+the scalar widths were read from the library instead, by finding where
 `osqp_set_default_settings` writes its documented defaults. `verify_abi()` re-runs that check
 at load, so a rebuilt artifact that changed a width fails loudly rather than returning
 nonsense.
@@ -99,15 +98,15 @@ numbers.** A re-solve sequence refactorizes far more often per iteration than on
 solve does, and `potrf` and `potri` are where the two libraries differ most and in opposite
 directions — PureBLAS is 1.98× faster on the first and 0.67× on the second, so at `n = 200`
 it is about 1.15× *behind* on the combined factorization step while still ahead per
-iteration. It nonetheless comes out ahead on every row here, by 1.05–1.18×, so at these
+iteration. It still comes out ahead on every row here, by 1.05–1.18×, so at these
 factorization counts the per-iteration advantage still dominates. The margin does not track
-the factorization count cleanly, which is what you would expect when refactorization cost
-grows as `n³` and the loop's cost grows as iterations times `n²`.
+the factorization count cleanly, which is expected when refactorization cost grows as `n³`
+and the loop's cost grows as iterations times `n²`.
 
 The factorization count is not always 1: equilibration rescales the bounds, so a row whose
 scaled gap `ũ - l̃` falls under `RHO_TOL` is reclassified as an equality and its `ρ`
 changes. That is upstream's rule applied to the scaled bounds exactly as upstream applies
-it, and it means `update!` is not unconditionally factorization-free.
+it, so `update!` is not unconditionally factorization-free.
 
 ## Linear-system backend
 
@@ -175,8 +174,7 @@ the picture at these sizes: at n=200, m=400 it took 25.4 ms on 1 thread, 25.8 ms
 ## Against other solvers
 
 The tables above compare PureOSQP with OSQP. These are three other solvers on the same
-dense QPs, one per algorithm
-family. Reproduce with `julia --project=bench bench/solvers.jl`.
+dense QPs, one per algorithm family. Reproduce with `julia --project=bench bench/solvers.jl`.
 
 | n | m | PureOSQP | OSQP | DAQP | Clarabel |
 |---|---|---|---|---|---|
@@ -205,8 +203,8 @@ residual tolerance.
 
 ## Choosing a representation
 
-Dense, sparse, structured and unmaterialized are four answers to one question, and this is the
-measurement that separates them. Reproduce with
+Dense, sparse, structured and unmaterialized are four answers to one question, and this is
+the measurement that separates them. Reproduce with
 `julia --project=bench bench/representation_choice.jl`; samples in
 `bench/results/representation_choice.json`, single-threaded BLAS, `eps_abs = eps_rel = 1e-6`.
 Every row asserts `SOLVED` before it is reported — a run that stopped at `max_iter` is not a
@@ -275,22 +273,21 @@ product. Reproduce with `julia --project=bench bench/matrix_types.jl`.
 | tridiagonal `P` (vs `SymTridiagonal`) | 21.4 ms | 20.9 ms | 1.02× | 2550 |
 | `A` as a `SubArray` | 8.04 ms | 9.49 ms | 0.85× | 900 |
 
-**Structured storage helps, but only a little, and it is worth being precise about why.**
-The column traversals visit only the rows a band type can hold a nonzero in, which makes
-equilibration 2.3× faster on a `Diagonal` `P` (453 µs to 200 µs at `n = 150`) and 2.2× on a
-`SymTridiagonal`. End to end that is 1.06× and 1.02×, because equilibration is a modest share
-of a run: each iteration also does two products with `A`, which at `m = 2n` is four times the
-work of the `P` product, and `A` is dense in every row above.
+**Structured storage helps, but only a little.** The column traversals visit only the rows a
+band type can hold a nonzero in, which makes equilibration 2.3× faster on a `Diagonal` `P`
+(453 µs to 200 µs at `n = 150`) and 2.2× on a `SymTridiagonal`. End to end that is 1.06× and
+1.02×, because equilibration is a modest share of a run: each iteration also does two products
+with `A`, which at `m = 2n` is four times the work of the `P` product, and `A` is dense in
+every row above.
 
-Two earlier readings of this table were wrong and are worth recording. The diagonal row read
-0.80× — a genuine pessimisation — because the traversals walked every structural zero and
-each read was a branch returning zero where a dense array does a straight load. And the
-tridiagonal row measured `Symmetric` wrapped around a *dense* array, which is not a band type
-at all: it measured the wrapper's indexing overhead rather than the structure. It now uses
-`SymTridiagonal`.
+The diagonal row once read 0.80× — a genuine pessimisation — because the traversals walked
+every structural zero and each read was a branch returning zero where a dense array does a
+straight load. The tridiagonal row once measured `Symmetric` wrapped around a *dense* array,
+which is not a band type: it measured the wrapper's indexing overhead rather than the
+structure. It now uses `SymTridiagonal`.
 
-The `SubArray` row is unrelated to any of that: a view's indexing is simply dearer than its
-parent's, and nothing in the traversals changes that.
+The `SubArray` row is unrelated: a view's indexing is simply dearer than its parent's, and
+nothing in the traversals changes that.
 
 So the honest claim stays narrow: the caller's matrices are never copied or mutated, any
 `AbstractMatrix` works, a cheaper `mul!` is used when one exists, and a band type is no
@@ -500,16 +497,16 @@ factorization* and therefore flatters a solver that does not have one.
 Every figure here is a median over ten seconds of samples, and the two solvers are timed in
 the order pure, libosqp, libosqp, pure. Timing one solver to completion before starting the
 other charges any drift across the row — the clock ramping, the caches filling — entirely to
-whichever went second, which is precisely the bias a ratio cannot survive; interleaving puts
-each of them both early and late. The medians of the two turns are taken over the pooled
-samples rather than averaged, so a turn that ran under a transient does not get half the
-weight of a clean one.
+whichever went second, which is the bias a ratio cannot survive; interleaving puts each of
+them both early and late. The medians of the two turns are taken over the pooled samples
+rather than averaged, so a turn that ran under a transient does not get half the weight of a
+clean one.
 
 **Setup leads on four of the seven, and Portfolio and Huber sit on parity.** Control's 0.33×
 is the dense path, where the deficit is bought rather than suffered: forming and inverting `R`
 costs `O(n³)` once and makes every iteration a single `symv`, worth 1.60× per iteration over
-325 of them. Taking it sparse instead was measured and loses more in the loop than it recovers
-in setup.
+325 of them. A sparse `LDLᵀ` of the reduced matrix or of the KKT reaches setup parity and
+loses more in the loop, so the dense path stays.
 
 Within that factorization, forming `R` from the stored entries is the small part and the
 explicit inverse is the large one: `potrf` costs `n³/3` and the `potri` that follows a further
@@ -727,11 +724,11 @@ at `1e8`, 5 900 at `1e9`. Nothing about that is a tolerance choice — at `κ = 
 pair fails to converge at `eps = 1e-3` with 50 000 iterations.
 
 **Declared structure extends the reachable conditioning.** At `κ = 1e10` the block problem
-converges where the dense one does not. Read it carefully: these are two different problem
-families, not one problem in two spellings, so this is not "structure repairs conditioning."
-What it says is that a problem which decouples is solved as six 50×50 systems rather than one
-300×300, and that the smaller systems are still tractable at a `κ` where the large one is not.
-The block backend is also the cheapest row at every `κ` it reaches, at a sixth of the storage.
+converges where the dense one does not. These are two different problem families, not one
+problem in two spellings, so this is not "structure repairs conditioning." What it says is
+that a problem which decouples is solved as six 50×50 systems rather than one 300×300, and
+that the smaller systems are still tractable at a `κ` where the large one is not. The block
+backend is also the cheapest row at every `κ` it reaches, at a sixth of the storage.
 
 **The matrix-free backend is disqualified here, not merely slowed.** `indirect` fails to
 converge at *every* `κ` in this sweep, including `1e4` where the direct backends need 225
