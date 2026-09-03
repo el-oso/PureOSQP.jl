@@ -3,39 +3,31 @@
 How you store `P` and `A` decides how much work the solver does — sometimes by a factor of
 hundreds — and you choose it by passing a different matrix type, not by changing a setting.
 
-This page is the catalogue and the reasoning: which representation suits which problem, what
-each type looks like, what backend it reaches, and how to bring a type of your own. For worked
-problems see [Examples](@ref); for the measurements behind the advice, [Benchmarks](@ref).
+This page covers which representation suits which problem, what each type looks like, what
+backend it reaches, and how to bring a type of your own. For worked problems see
+[Examples](@ref); for the measurements behind the advice, [Benchmarks](@ref).
 
 ## Matrix representations
 
-Everything above built `P` and `A` as ordinary dense matrices. That always works, and if your
-problems are small it is all you need — you can stop reading here and come back when one gets
-slow.
+So far `P` and `A` were ordinary dense matrices. That always works, and if your problems are
+small it is all you need — stop here and return when one gets slow. The rest of the page is
+what to do when they get slow.
 
-The rest of this page is about what to do when they do get slow. The short version: **how you
-store `P` and `A` changes how much work the solver has to do**, sometimes by a factor of
-hundreds, and you get that by passing a different matrix type rather than by changing any
-setting.
+Two terms used throughout:
 
-Two words are used throughout, so here they are once:
+- The **reduced matrix** is the `n×n` matrix the solver solves against on every iteration. It
+  is where nearly all the time goes, and the sections below aim to keep it small or cheap.
+  The formula is `R = cDPD + σI + Ãᵀdiag(ρ)Ã`; you do not need it to use any of this.
+- A **backend** is the code that solves against that matrix. There are ten or so. `setup`
+  picks one from the types of `P` and `A`; you do not. `PureOSQP.backend_name(ws.linsys)`
+  reports the choice.
 
-- The **reduced matrix** is the `n×n` matrix the solver has to solve against on every
-  iteration. You never see it, but it is where nearly all the time goes. Its size and shape
-  come from `P` and `A`, and the whole point of the sections below is to keep it small or
-  cheap. (It is `R = cDPD + σI + Ãᵀdiag(ρ)Ã`, if you want the formula; you do not need it to
-  use any of this.)
-- A **backend** is the code that solves against that matrix. There are ten or so. You do not
-  choose one — `setup` looks at the types of `P` and `A` and picks. `PureOSQP.backend_name(ws.linsys)`
-  tells you which it picked, and every example below uses that to show the choice being made.
-
-So the workflow is always the same: pass a matrix type that describes your problem, then check
-which backend you got. If it is the one you expected, the structure was used.
+The workflow is always: pass a matrix type that describes your problem, then check which
+backend you got. If it is the one you expected, the structure was used.
 
 ### Which representation, and why
 
-There are four answers, and which is right is a property of your problem rather than a
-preference. The short version:
+There are four answers, and the right one is a property of the problem, not a preference:
 
 | your problem | use | because |
 |---|---|---|
@@ -44,12 +36,12 @@ preference. The short version:
 | you know more about it than "where the zeros are" | **a structured type** | block-diagonal, low-rank, Kronecker. The solver can then skip work that no sparsity pattern reveals — a `BlockDiagonal` is solved as `K` small systems, never as one big one. |
 | few zeros, but a fast way to apply it, and too big for cache | **unmaterialized** | past cache the dense product is limited by memory bandwidth, not arithmetic. An operator that computes its product from `O(n)` stored numbers moves almost nothing and can win outright. |
 
-That last row is the one that is easy to miss, so it is worth being concrete about. The tables
-below come from `bench/representation_choice.jl`, single-threaded, statuses asserted — a run
-that stopped at `max_iter` is not a faster answer to the same question.
+The last row is easy to miss, so here is the concrete case. The tables below come from
+`bench/representation_choice.jl`, single-threaded, statuses asserted — a run stopped at
+`max_iter` is not a faster answer to the same question.
 
-**When being matrix-free does not pay.** An operator whose product costs what the dense product
-costs saves a factorization once and pays for it every iteration:
+**When being matrix-free does not pay.** An operator whose product costs what the dense
+product costs saves a factorization once and pays for it every iteration:
 
 | n | iterations | operator | dense | |
 |---|---|---|---|---|
@@ -58,7 +50,7 @@ costs saves a factorization once and pays for it every iteration:
 | 1000 | 175/175 | 220 ms | 131 ms | 0.60× |
 
 **When it does.** The same comparison, for an operator applied in `O(n)` whose dense form is
-`O(n²)`, at about a tenth of the entries nonzero — too dense for a sparse format to be the
+`O(n²)`, with about a tenth of the entries nonzero — too dense for a sparse format to be the
 obvious answer:
 
 | n | fill | iterations | operator | dense | | dense `A` |
@@ -68,15 +60,14 @@ obvious answer:
 | 2000 | 9.8% | 100/100 | 348 ms | 730 ms | **2.10×** | 30.5 MiB |
 | 4000 | 9.8% | 100/75 | 1761 ms | 4806 ms | **2.73×** | 122 MiB |
 
-Same solver, same tolerances, both converged. The difference between the two tables is not the
-size and not the sparsity — it is whether **applying** the operator is asymptotically cheaper
-than the dense product. If it is, the operator wins and wins by more as the matrix leaves
-cache. If it is not, no amount of size will save it.
+Same solver, same tolerances, both converged. The difference is not size or sparsity — it is
+whether **applying** the operator is asymptotically cheaper than the dense product. If it is,
+the operator wins, by more as the matrix leaves cache; if not, no size saves it.
 
 ### Every type the solver takes, and the shape it means
 
-The decision above is about categories. This is the catalogue: what each type looks like, what
-to call it, and what it buys. `•` marks a stored entry, blank is a structural zero.
+The above is categories; this is the catalogue: what each type looks like, and what it buys.
+`•` marks a stored entry; blank is a structural zero.
 
 **Dense `Matrix`.** Every entry stored. The baseline, and the right answer whenever the
 problem is small or has no structure to declare.
@@ -186,8 +177,8 @@ decisions rather than shapes, and carry no backend of their own.
 
 ### What the solver requires of `P`, and what conditioning costs
 
-Storage is one axis; the numerical properties are another, and three of them are checked
-before a solve begins rather than discovered inside one.
+Storage is one axis; numerical properties are another. Three are checked before a solve
+begins rather than inside one.
 
 **Symmetry — required, checked, and it must be the whole matrix.** `P` is the matrix in
 `½xᵀPx`, so only its symmetric part is meaningful, and [`setup`](@ref) throws if `issymmetric`
@@ -200,12 +191,12 @@ P = \begin{pmatrix} 2 & 1 \\ 1 & 2 \end{pmatrix}
 \begin{pmatrix} 2 & 1 \\ 0 & 2 \end{pmatrix}
 ```
 
-**Positive definiteness — of `P + σI`, not of `P`.** The requirement is that `P + σI ≻ 0`,
-which is what makes the reduced matrix factorable. Since `σ > 0`, a merely positive
-*semi*definite `P` always passes — including `P = 0`, a feasibility problem — so this rejects
-only genuine indefiniteness. [`PureOSQP.is_convex`](@ref) is the test, and a type can answer
-it cheaply: a `Diagonal` scans its entries, a `SparseMatrixCSC` factors sparsely, an operator
-reports what it was told.
+**Positive definiteness — of `P + σI`, not of `P`.** The requirement is `P + σI ≻ 0`, which
+makes the reduced matrix factorable. Since `σ > 0`, a merely positive *semi*definite `P`
+always passes — including `P = 0`, a feasibility problem — so this rejects only genuine
+indefiniteness. [`PureOSQP.is_convex`](@ref) is the test, and a type can answer it cheaply: a
+`Diagonal` scans its entries, a `SparseMatrixCSC` factors sparsely, an operator reports what
+it was told.
 
 **Indefiniteness — rejected at setup, not tolerated.** An indefinite `P` makes the problem
 non-convex, where a local answer is not a global one. `setup` throws and names the remedy
@@ -233,12 +224,10 @@ things keep that usable, and one limit remains:
 
 ### Unmaterialized does not mean solved by CG
 
-One more distinction, because it decides what happens on badly conditioned problems.
-
 An operator with no exploitable structure can only be served by *conjugate gradients* —
-multiply, repeat — and CG is sensitive to conditioning. But an operator that carries its own
-**direct** backend is solved by factoring, and conditioning is then no worse than the structure
-implies.
+multiply, repeat — and CG is sensitive to conditioning. An operator that carries its own
+**direct** backend is solved by factoring, and conditioning is then no worse than the
+structure implies.
 
 The Kronecker type is the clean example. `κ(A₁ ⊗ A₂) = κ(A₁)·κ(A₂)`, so an operator at
 `κ = 1e12` is built from two factors at `1e6` — and the backend eigendecomposes the *factors*,
@@ -249,9 +238,9 @@ never forming or factoring the product:
 | 400 | 1e12 | 625/625 | 2.4 ms | 29.6 ms | **12×** | converges, but in 1025 iterations |
 | 1600 | 1e12 | 1100/1100 | 22.4 ms | 1560 ms | **70×** | `MAX_ITER_REACHED` at 20 000 |
 
-Both routes agree on the objective to six figures. CG on the same problem manages it at
-`n = 400` and fails outright at `n = 1600` — so on an ill-conditioned problem the useful move
-is a structured operator with a direct backend, not a generic one served iteratively.
+Both routes agree on the objective to six figures. CG manages it at `n = 400` and fails
+outright at `n = 1600` — so on an ill-conditioned problem the useful move is a structured
+operator with a direct backend, not a generic one served iteratively.
 
 The problems below are all the same QP, written five ways.
 
@@ -292,20 +281,20 @@ end
 @assert Pd == P_before && Ad == A_before        # the caller's arrays are never written to
 ```
 
-Two different things are on display here, and it is worth keeping them apart.
+Two different things are on display:
 
 **A representation that only changes how entries are reached gives bit-identical answers.**
 `Symmetric`, a `SubArray` and a `SparseMatrixCSC` all feed the same numbers into the same
 arithmetic, so `==` holds exactly against the dense reference.
 
 **A representation that changes which backend is chosen changes the arithmetic.** A
-`Diagonal` `P` with a `Bidiagonal` `A` makes the reduced matrix tridiagonal, and that is
-solved by an `ldlt` on two bands rather than by a dense inverse and a `symv` — a different
-factorization, agreeing to about `1e-16` rather than to the bit. The iteration count and the
-answer are the same; the last digits are not. See
+`Diagonal` `P` with a `Bidiagonal` `A` makes the reduced matrix tridiagonal, solved by an
+`ldlt` on two bands rather than a dense inverse and a `symv` — a different factorization,
+agreeing to about `1e-16` rather than to the bit. The iteration count and the answer are the
+same; the last digits are not. See
 [Which backend a structured matrix gets](@ref "Which backend a structured matrix gets").
 
-`P` has to be symmetric *as stored* — a lower triangle with the upper one left at zero is
+`P` has to be symmetric *as stored* — a lower triangle with the upper left at zero is
 rejected rather than mirrored, since that matrix is a different, non-symmetric problem. Wrap
 it in `Symmetric` to say which triangle is the real one.
 
@@ -373,13 +362,13 @@ smooth = setup(SymTridiagonal(fill(2.0, n), fill(0.3, n - 1)), q, Diagonal(ones(
 ```
 
 The first has nothing to factor at all — a solve is `n` divisions — and the second is an
-`ldlt` that costs `O(n)`. Against the dense path the same problems would otherwise take,
-that is worth a great deal at any size worth caring about; see
+`ldlt` that costs `O(n)`. Against the dense path the same problems would otherwise take, that
+is worth a great deal at any size; see
 [Structured backends](@ref "Structured backends") for the measurements.
 
-Widening `A` widens `R` faster than widening `P` does, which is the practical consequence of
-the rule above. A `Tridiagonal` `A` squares to bandwidth 2, past what `SymTridiagonal`
-stores, and is served by a banded Cholesky once BandedMatrices.jl is loaded:
+Widening `A` widens `R` faster than widening `P` does, the practical consequence of the rule
+above. A `Tridiagonal` `A` squares to bandwidth 2, past what `SymTridiagonal` stores, and is
+served by a banded Cholesky once BandedMatrices.jl is loaded:
 
 ```@example structured
 using BandedMatrices
@@ -390,10 +379,10 @@ diff = setup(
 (PureOSQP.backend_name(diff.linsys), diff.linsys.bw)
 ```
 
-Without BandedMatrices loaded that problem takes the dense path instead — correctly, just
-not cheaply. Structure in `P` alone never survives: `ÃᵀρÃ` is dense for a general `A`
-whatever `P` looked like, so a `Diagonal` `P` with a dense `A` is a dense reduced matrix and
-gets the dense backend.
+Without BandedMatrices loaded that problem takes the dense path instead — correctly, just not
+cheaply. Structure in `P` alone never survives: `ÃᵀρÃ` is dense for a general `A` whatever
+`P` looked like, so a `Diagonal` `P` with a dense `A` is a dense reduced matrix and gets the
+dense backend.
 
 ```@example structured
 using Random
@@ -406,9 +395,9 @@ PureOSQP.backend_name(setup(Diagonal(fill(2.0, 40)), q[1:40], randn(60, 40),
 
 `P` and `A` are held by reference and reached through a small set of functions, so a
 representation the package has never heard of works by declaring itself
-`<: AbstractMatrix{T}` and supplying `size`, `mul!`, and `mul!` against its adjoint. That
-much is enough to solve. Everything below is optional and each override replaces one generic
-walk over entries with whatever the representation can answer more cheaply.
+`<: AbstractMatrix{T}` and supplying `size`, `mul!`, and `mul!` against its adjoint. That much
+is enough to solve. Everything below is optional; each override replaces one generic walk over
+entries with whatever the representation can answer more cheaply.
 
 There are two seam levels, and which one a representation wants depends on whether it can
 enumerate a column.
@@ -463,9 +452,9 @@ type, is enough to lose both. `bench/lazy_operator.jl` is written to hold them, 
 **Use this when your constraint is something you can *do* but would never want to *store*.**
 
 The situation is common in signal and image work. "Take a running total." "Blur this." "Take a
-Fourier transform, keep the low frequencies." Each of those is a perfectly good linear
-constraint, and each has a matrix — but for a million-pixel image that matrix has `10¹²`
-entries and cannot exist. What you have instead is a function that applies it.
+Fourier transform, keep the low frequencies." Each is a perfectly good linear constraint, and
+each has a matrix — but for a million-pixel image that matrix has `10¹²` entries and cannot
+exist. What you have instead is a function that applies it.
 
 [LinearMaps.jl](https://github.com/JuliaLinearAlgebra/LinearMaps.jl) is the standard Julia
 package for exactly that: an object you can multiply by, built from a function. Load it and
@@ -477,7 +466,7 @@ maps can even be mixed in the same call.
 Four situations, in rough order of how often they come up:
 
 1. **The matrix will not fit.** Deblurring a 1000×1000 image is a million variables, so `A` is
-   a million by a million: `8` terabytes dense. There is no trade to weigh here — an operator
+   a million by a million: `8` terabytes dense. There is no trade to weigh — an operator
    is the only way the problem exists at all. Same story for 3-D grids, large PDE-constrained
    problems, and anything where `n` runs past `10⁵`.
 2. **Applying it is much cheaper than its size suggests.** A convolution or blur is a *dense*
@@ -503,7 +492,7 @@ every iteration. When the product itself is no cheaper, that trade only loses:
 | 500 | 150/125 | 56.1 ms | 20.8 ms | **2.7× slower** |
 | 1000 | 175/175 | 220 ms | 131 ms | **1.7× slower** |
 
-That is an operator built from `O(n)` stored numbers — but sitting beside a dense `A` that both
+That is an operator built from `O(n)` stored numbers — but beside a dense `A` that both
 routes must multiply by, so the cheap part was never where the cost was.
 
 Contrast it with the table in [Which representation, and why](@ref), where an operator applied
@@ -845,4 +834,3 @@ fewer coupling rows you have: at one coupling row in 2000 variables it is
 declines once `10k > n`. Two coupling rows therefore need at least 20 variables, which is why
 `n = 24` above. Below that threshold the correction costs more than the dense solve it would
 replace, so declining is the right answer. `P` must also be `Diagonal`.
-
