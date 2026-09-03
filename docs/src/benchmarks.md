@@ -802,35 +802,35 @@ where nothing converges on any schedule.
 
 ## Declared structure against a sparse factorization
 
-OSQP takes CSC and factors sparsely, so what it exploits is *where the zeros are*. The
-problems below carry more than that — blocks that decouple, a band, a low-rank coupling, a
-Kronecker product — and this is what declaring it is worth against discovering the sparsity.
+OSQP takes CSC and nothing else: `osqp_setup` accepts `P` and `A` only as sparse matrices, so
+what it can exploit is where the zeros are. PureOSQP accepts the same CSC *and* the structured
+type, so one problem run three ways separates two effects that a two-column table conflates —
+sparse against sparse is the implementation, structured against sparse is what declaring the
+structure buys.
 
-Both solvers get the same problem: PureOSQP the structured type, OSQP the same matrices as
-`SparseMatrixCSC`, which is its native input. Settings are pinned on both sides, so the two
-take the same path and the difference is the per-iteration solve. Reproduce with
-`julia --project=bench bench/structured_vs_osqp.jl`; samples in
-`bench/results/structured_vs_osqp.json`, single-threaded BLAS.
+Reproduce with `julia --project=bench bench/structured_vs_osqp.jl`; samples in
+`bench/results/structured_vs_osqp.json`, single-threaded BLAS, settings pinned on all three.
 
-| structure | backend | n | nnz(`A`) | iterations | PureOSQP | OSQP | vs OSQP |
+| structure | nnz(`A`) | iters | OSQP (sparse) | PureOSQP (sparse) | PureOSQP (structured) | sparse vs OSQP | structured vs sparse |
 |---|---|---|---|---|---|---|---|
-| block-diagonal | `block` | 200 | 12.5% | 175 | 1.26 ms | 2.61 ms | **2.07×** |
-| tridiagonal | `tridiagonal` | 400 | 0.2% | 75 | 0.20 ms | 0.69 ms | **3.48×** |
-| banded | `banded` | 400 | 0.5% | 75 | 0.84 ms | 0.78 ms | 0.93× |
-| low-rank | `lowrank` | 400 | 0.7% | 75 | 0.21 ms | 0.65 ms | **3.02×** |
-| Kronecker | `kronecker` | 400 | **100%** | 250 | 1.10 ms | 121 ms | **110×** |
+| Kronecker | 100% | 250 | 120 ms | 55.0 ms | 1.09 ms | 2.19× | **50.3×** |
+| tridiagonal | 0.2% | 75 | 0.69 ms | 0.49 ms | 0.20 ms | 1.41× | **2.45×** |
+| low-rank | 0.7% | 75 | 0.64 ms | 0.50 ms | 0.21 ms | 1.28× | **2.34×** |
+| block-diagonal | 12.5% | 175 | 2.62 ms | 2.41 ms | 1.27 ms | 1.09× | **1.90×** |
+| banded | 0.5% | 75 | 0.77 ms | 0.65 ms | 0.84 ms | 1.18× | 0.78× |
 
-Every row asserts agreement before it is reported: the same status, the **same iteration
-count**, and objectives within `1e-9`. A speed comparison against a solver that took a
-different number of steps would measure nothing.
+Every row asserts agreement across all three before it is reported: the same status, the
+**same iteration count**, and objectives within `1e-9`. A speed comparison against a solver
+that took a different number of steps would measure nothing.
 
-**The Kronecker row is the argument in one line.** `A₁ ⊗ A₂` has *no zeros at all*, so a
-sparse factorization has nothing to exploit and OSQP factors a dense 400×400 matrix. The same
-matrix declared as its two 20×20 factors is solved through their eigenbases. Sparsity and
+**The Kronecker row is the argument in one line.** `A₁ ⊗ A₂` has *no zeros at all*, so a sparse
+factorization has nothing to exploit and both sparse paths factor a dense 400×400 matrix. The
+same matrix declared as its two 20×20 factors is solved through their eigenbases. Sparsity and
 structure are not the same property, and this is a problem that has the second and none of the
 first.
 
-**The banded row goes the other way, and is kept for that reason.** At bandwidth 3 on `n = 400`
-a sparse factorization is already close to optimal — the factor stays banded whether or not
-anyone declared it — so the two are level and PureOSQP is 0.93×. Declaring structure pays when
-it tells the solver something the pattern does not.
+**The banded row goes the other way, and is kept for that reason.** At bandwidth 3 the banded
+backend is 0.78× — slower than PureOSQP's *own* sparse path on the same problem. The sparse
+factor of a banded matrix is already banded, so the declaration adds nothing and its bookkeeping
+costs a little. The rung's gate is set against the dense path rather than the sparse one, which
+is why it accepts here; that is a real limit and this row is the evidence for it.

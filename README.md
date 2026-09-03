@@ -55,17 +55,21 @@ The iteration count is the same on both sides of every row, and the objectives a
 
 ### Structure a sparsity pattern cannot express
 
-Sparsity says where the zeros are. These problems say more — the blocks decouple, the band is a band, the coupling is rank 2, the matrix is a Kronecker product — and declaring it is worth something a sparse factorization cannot recover. Same problem both sides, OSQP given it as CSC, same settings, and every row runs the **same number of iterations** and agrees on the objective to `1e-9`:
+OSQP takes CSC and nothing else — `osqp_setup` accepts `P` and `A` only as sparse matrices — so what it can exploit is *where the zeros are*. PureOSQP accepts the same CSC, and also the structured type. Running one problem all three ways separates the two effects: **sparse against sparse is the implementation, structured against sparse is what declaring the structure buys.**
 
-| structure | n | nnz(`A`) | iterations | backend | PureOSQP | OSQP | vs OSQP |
-|---|---|---|---|---|---|---|---|
-| Kronecker `A₁ ⊗ A₂` | 400 | 100% | 250 | `kronecker` | 1.10 ms | 121 ms | **110×** |
-| tridiagonal | 400 | 0.2% | 75 | `tridiagonal` | 0.20 ms | 0.69 ms | **3.48×** |
-| low-rank coupling | 400 | 0.7% | 75 | `lowrank` | 0.21 ms | 0.65 ms | **3.02×** |
-| block-diagonal | 200 | 12.5% | 175 | `block` | 1.26 ms | 2.61 ms | **2.07×** |
-| banded | 400 | 0.5% | 75 | `banded` | 0.84 ms | 0.78 ms | 0.93× |
+Same problem, same settings; every row runs the **same number of iterations** on all three and agrees on the objective to `1e-9`.
 
-The Kronecker row is the point in one line: that `A` has **no zeros at all**, so sparsity offers nothing, while the same matrix declared as its two 20×20 factors is solved through their eigenbases. The banded row is the honest other end — at bandwidth 3 a sparse factor is already banded, so there is nothing left to win.
+| structure | nnz(`A`) | OSQP (sparse) | PureOSQP (sparse) | PureOSQP (structured) | sparse vs OSQP | structured vs sparse |
+|---|---|---|---|---|---|---|
+| Kronecker `A₁ ⊗ A₂` | 100% | 120 ms | 55.0 ms | 1.09 ms | 2.19× | **50.3×** |
+| tridiagonal | 0.2% | 0.69 ms | 0.49 ms | 0.20 ms | 1.41× | **2.45×** |
+| low-rank coupling | 0.7% | 0.64 ms | 0.50 ms | 0.21 ms | 1.28× | **2.34×** |
+| block-diagonal | 12.5% | 2.62 ms | 2.41 ms | 1.27 ms | 1.09× | **1.90×** |
+| banded | 0.5% | 0.77 ms | 0.65 ms | 0.84 ms | 1.18× | 0.78× |
+
+Read the last two columns. The sparse path is 1.09–2.19× ahead of OSQP on the same input, which is implementation. Declaring the structure is worth 1.9–2.5× on top of that, and 50× on the Kronecker problem, whose `A` has **no zeros at all** — sparsity has nothing to work with there, while the same matrix given as its two 20×20 factors is solved through their eigenbases.
+
+The banded row is the counterexample, and is kept: at bandwidth 3 the banded backend is *slower than PureOSQP's own sparse path*. The sparse factor of a banded matrix is already banded, so there was nothing for the declaration to add.
 
 ## Correctness
 
