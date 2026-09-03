@@ -1,21 +1,19 @@
 # Structured operators
 
-**Who this page is for.** You have a matrix type of your own — or a shape the shipped types do
-not cover — and you want the solver to exploit it. If you only want to *use* the structured
-types that come with the package, [Examples](@ref "Structured operators the package ships") is
-the page you want; this one is about adding a new one.
+This page is for adding a matrix type the package does not ship. To *use* the shipped
+structured types, see [Examples](@ref "Structured operators the package ships").
 
-**The good news is that it is incremental.** There are four steps, each useful on its own, and
-you can stop after any of them. Step 1 makes your type work at all. Step 2 makes setup cheaper.
-Step 3 is where the large wins are. Step 4 makes the solver find it without being told. A type
-that stops after step 1 is already usable; it just leaves speed on the table.
+Integration is incremental across four steps; you can stop after any of them. Step 1 makes
+your type work. Step 2 makes setup cheaper. Step 3 is where the large wins are. Step 4 makes
+the solver find it automatically. A type that stops after step 1 is usable but leaves speed
+on the table.
 
-The solver holds `P` and `A` by reference and never copies them, so a matrix that knows its own
-structure keeps that structure all the way to the point where a backend is chosen. What you are
-building is a representation that stores less than `m×n`, computes its products from what it
-stores, and — by step 3 — is solved by a backend that never forms an `n×n` object.
+The solver holds `P` and `A` by reference and never copies them, so a matrix that knows its
+own structure keeps it until a backend is chosen. What you build is a representation that
+stores less than `m×n`, computes its products from what it stores, and — by step 3 — is solved
+by a backend that never forms an `n×n` object.
 
-Three examples ship, and each is worth reading as a template for a different shape:
+Three shipped examples serve as templates:
 
 | representation | backend | what the structure buys |
 |---|---|---|
@@ -23,20 +21,19 @@ Three examples ship, and each is worth reading as a template for a different sha
 | [`PureOSQP.RowCoupled`](@ref) | [`PureOSQP.DiagonalLowRank`](@ref) | `R` is a diagonal plus a rank-`k` correction, solved by Woodbury |
 | [`PureOSQP.KroneckerOperator`](@ref) | [`PureOSQP.KroneckerReduced`](@ref) | `R` is diagonal in the factors' eigenbasis |
 
-`docs/src/examples.md` runs all three. The Kronecker one is the cautionary case: its backend
+`docs/src/examples.md` runs all three. The Kronecker backend is the cautionary case: it
 applies only when `P` is a scalar multiple of `I`, `ρ` is one number, and `scaling = 0`, so
-most of its design is the rung that declines. A backend that would return a wrong answer
-outside its conditions has to check them, and checking them is the work.
+most of its design is the check that declines. A backend that would answer wrongly outside
+its conditions must check them.
 
 ## What to implement, in order
 
-The methods below are the **operator protocol** — the set a type implements to be usable as a
-`P` or an `A`. The term is used throughout this manual and in the benchmarks, and it means
-exactly this list and nothing more. A type that implements it is an operator whether or not it
-stores any entries; nothing else about it is required, and no method here is inherited from
-`AbstractMatrix`.
+The methods below are the **operator protocol** — the set a type implements to be usable as
+a `P` or an `A`. The term is used throughout this manual and in the benchmarks and means
+exactly this list. A type that implements it is an operator whether or not it stores entries;
+nothing else is required, and no method here is inherited from `AbstractMatrix`.
 
-Each step buys something on its own, so a representation is usable before it is finished.
+Each step is useful on its own, so a representation works before it is finished.
 
 ### 1. `size`, `mul!` and `getindex` — the operator works
 
@@ -62,13 +59,12 @@ function LinearAlgebra.mul!(y::AbstractVector, A::Blocks, x::AbstractVector)
 end
 ```
 
-`getindex` is needed too, and it is easy to miss why: `setup` tests `P` for symmetry and for
-`P + σI` being positive definite *before* any backend is chosen, and the generic methods for
-both read entries. An operator with `size` and `mul!` alone fails there with a
-`CanonicalIndexError`, not at solve time. Two ways past it — give the type a `getindex`, which
-for most structured representations is a cheap lookup, or override
-[`PureOSQP.is_symmetric`](@ref) and [`PureOSQP.is_convex`](@ref) block-wise and declare
-[`PureOSQP.is_materializable`](@ref) `false`.
+`getindex` is needed too: `setup` tests `P` for symmetry and for `P + σI` being positive
+definite *before* a backend is chosen, and the generic methods for both read entries. An
+operator with only `size` and `mul!` fails there with a `CanonicalIndexError`, not at solve
+time. Two fixes — give the type a `getindex` (a cheap lookup for most structured types), or
+override [`PureOSQP.is_symmetric`](@ref) and [`PureOSQP.is_convex`](@ref) block-wise and
+declare [`PureOSQP.is_materializable`](@ref) `false`.
 
 With that, the solver runs and the per-iteration products cost what the structure costs.
 Selection still reaches the dense terminal, so an `n×n` reduced matrix is still formed.
@@ -81,8 +77,9 @@ lets `setup` and `solve` take a `LinearMap` directly.
 ### 2. `structural_rows` — setup stops paying for the zeros
 
 [`PureOSQP.structural_rows`](@ref)`(M, j)` answers which rows column `j` can hold a nonzero
-in. Equilibration and the dense formation both walk columns through it, and its generic answer
-is *every* row — so without a method, setup costs `O(mn)` however little the type stores.
+in. Equilibration and the dense formation both walk columns through it, and its generic
+answer is *every* row — so without a method, setup costs `O(mn)` however little the type
+stores.
 
 ```julia
 PureOSQP.structural_rows(A::Blocks, j::Integer) = rowrange_of_the_block_holding(A, j)
@@ -109,16 +106,15 @@ mutable struct BlockSolve{T} <: PureOSQP.LinearSystem
 end
 ```
 
-`factorize!` builds whatever the structure implies — for blocks, one small factorization each;
-for a low-rank correction, a `k×k` capacitance. `solve_system!` calls
+`factorize!` builds whatever the structure implies — for blocks, one small factorization
+each; for a low-rank correction, a `k×k` capacitance. `solve_system!` calls
 [`PureOSQP.reduced_rhs!`](@ref) first, writes `ws.xtilde`, then `mul_A!` into `ws.ztilde`.
 
-Two things worth copying from the shipped backends rather than rediscovering. Invert each
-block and use `symv` instead of keeping a factor and calling `ldiv!`: both cost `2nᵢ²` flops,
-but a triangular solve computes its entries in sequence and `symv` does not, and the `σI` in
-the reduced matrix bounds the conditioning that would otherwise make inverting unwise. And
-assemble each block with one `mul!` rather than a scalar loop — the difference was 1.7× on the
-block backend.
+Two things the shipped backends do well. Invert each block and use `symv` instead of keeping
+a factor and calling `ldiv!`: both cost `2nᵢ²` flops, but a triangular solve computes its
+entries in sequence while `symv` does not, and the `σI` in the reduced matrix bounds the
+conditioning that would otherwise make inverting unwise. And assemble each block with one
+`mul!` rather than a scalar loop — the difference was 1.7× on the block backend.
 
 ### 4. `choose_backend` — selection finds it
 
@@ -134,10 +130,10 @@ function PureOSQP.choose_backend(
 end
 ```
 
-The ten arguments are the seam's signature, not decoration: `D`, `E`, `c` and `rho_vec` are
-there because two rungs decide by factoring the *equilibrated* matrix and handing that
-factorization on. Define a method with fewer and it silently never dispatches — the ladder
-proceeds to the dense terminal and nothing reports a problem.
+The ten arguments are the seam's signature: `D`, `E`, `c` and `rho_vec` are there because
+two rungs decide by factoring the *equilibrated* matrix and handing that factorization on.
+Define a method with fewer arguments and it never dispatches — the ladder proceeds to the
+dense terminal and nothing reports a problem.
 
 Return `(backend, false)` when the backend arrives unfactored, `(backend, true)` when it
 already carries a factorization of the current data. A rung inside the ladder instead returns
@@ -155,9 +151,8 @@ serves.
 
 The equilibration column is not the whole of `setup`. `is_symmetric` and `is_convex` run
 before a backend is chosen and their generic methods are `O(n²)` and `O(n³)` — a type that
-does not override them pays that on every `setup` however cheap the rest is.
-[`PureOSQP.BlockDiagonal`](@ref) overrides both block-wise, and is worth reading for the
-shape.
+does not override them pays that on every `setup`. [`PureOSQP.BlockDiagonal`](@ref) overrides
+both block-wise and is worth reading for the shape.
 
 ## Paths that need entries, and how they decline
 
@@ -168,7 +163,6 @@ remedy rather than a `MethodError` from inside the copy. The rungs that would fo
 decline it too, so `linsys = :auto` reaches the matrix-free backend instead of failing inside
 a factorization.
 
-Conjugate gradients is the fallback for an operator with no structure to exploit, and it is a
-real fallback rather than a good one: on an ill-conditioned problem it can return an answer
-that is wrong rather than merely slow. A structured direct backend is the reason this page
-exists.
+Conjugate gradients is the fallback for an operator with no structure to exploit, and it is
+a real fallback rather than a good one: on an ill-conditioned problem it can return a wrong
+answer rather than a merely slow one. A structured direct backend is the point of this page.
