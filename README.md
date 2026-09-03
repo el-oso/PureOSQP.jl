@@ -31,15 +31,15 @@ sol.x        # [0.3, 0.7]
 
 Modified Ruiz equilibration, vector-valued adaptive ρ with an equality/inequality split, primal and dual infeasibility certificates, warm starts, and active-set polishing — the parts of OSQP that change how it behaves, not just the ADMM recurrence. Duality-gap termination is on by default.
 
-Also shipped as an extension: a MathOptInterface wrapper (`Model(PureOSQP.Optimizer)` from JuMP, all of `MOI.Test` passes), solution derivatives by implicit differentiation of the KKT conditions (dual numbers run the solver directly), and a matrix-free backend over [Krylov.jl](https://github.com/JuliaSmoothOptimizers/Krylov.jl) that solves a product-only matrix with preconditioned conjugate gradients.
+Also shipped as extensions: a MathOptInterface wrapper, so `Model(PureOSQP.Optimizer)` works from JuMP (and all of `MOI.Test` passes); solution derivatives, by implicit differentiation of the KKT conditions, which dual numbers run directly; and a matrix-free backend over [Krylov.jl](https://github.com/JuliaSmoothOptimizers/Krylov.jl) that solves a product-only matrix with preconditioned conjugate gradients.
 
 ## How it differs
 
-The inner system is reduced to an `n×n` symmetric positive-definite system by default, instead of factoring the `(n+m)×(n+m)` quasi-definite one upstream uses, and that reduced matrix is inverted once per factorization so each iteration is a single `symv`. The form is chosen from the matrices — a dense row of `A` routes to a sparse factorization of the full system, which is upstream's own. The [Algorithm](https://el-oso.github.io/PureOSQP.jl/dev/algorithm) page has the full rationale.
+By default it reduces the inner system to an `n×n` symmetric positive-definite one, rather than factoring the `(n+m)×(n+m)` quasi-definite system upstream uses. That reduced matrix is inverted once per factorization, so each iteration is a single `symv`. Which form to use is chosen from the matrices — a dense row of `A` routes to a sparse factorization of the full system, which is upstream's own. The [Algorithm](https://el-oso.github.io/PureOSQP.jl/dev/algorithm) page has the rationale.
 
 ## Performance
 
-OSQP is a sparse solver — it takes CSC input and factors sparsely, so it never sees denseness. Both solvers below are given the same problem in the same CSC form and stop after the same number of iterations, so the only thing that differs is the per-iteration solve. PureOSQP picks that solve per problem — a dense Cholesky where `P` is dense, a sparse factorization where it isn't — and on OSQP's own seven benchmark classes it leads all seven:
+OSQP is a sparse solver: it takes CSC and factors sparsely, so it never sees denseness. Both solvers below get the same CSC problem and stop after the same number of iterations, so only the per-iteration solve differs. PureOSQP picks that solve per problem — a dense Cholesky where `P` is dense, a sparse factorization otherwise — and it leads all seven of OSQP's benchmark classes:
 
 | class | n | m | nnz(`A`) | iterations | backend | PureOSQP | OSQP | vs OSQP |
 |---|---|---|---|---|---|---|---|---|
@@ -51,7 +51,7 @@ OSQP is a sparse solver — it takes CSC input and factors sparsely, so it never
 | Lasso | 816 | 816 | 1 786 | 100 | `ldlfactorizations` | 1.07 ms | 1.15 ms | 1.08× |
 | Huber | 1806 | 1800 | 3 526 | 125 | `ldlfactorizations` | 2.52 ms | 2.62 ms | 1.04× |
 
-The iteration count is the same on both sides of every row, and the objectives agree to between `1e-16` and `1e-13`. The backend column is what PureOSQP chose without being told: the two ~2× rows are where `P` is dense and it picks a dense Cholesky, and the rest reach one sparse factorization or another. Full tables, plus the synthetic-sparse and dense cases: [Benchmarks](https://el-oso.github.io/PureOSQP.jl/dev/benchmarks).
+The objectives agree to between `1e-16` and `1e-13`. The backend column is what PureOSQP chose on its own: the two ~2× rows have a dense `P`, so it picks a dense Cholesky; the rest get a sparse factorization. Full tables, plus the synthetic-sparse and dense cases: [Benchmarks](https://el-oso.github.io/PureOSQP.jl/dev/benchmarks).
 
 ### Structure a sparsity pattern cannot express
 
@@ -69,7 +69,7 @@ Same problem, same settings; every row runs the **same number of iterations** on
 
 Read the last two columns. The sparse path is 1.09–2.19× ahead of OSQP on the same input, which is implementation. Declaring the structure is worth 1.9–2.5× on top of that, and 50× on the Kronecker problem, whose `A` has **no zeros at all** — sparsity has nothing to work with there, while the same matrix given as its two 20×20 factors is solved through their eigenbases.
 
-The banded row is the counterexample, and is kept: at bandwidth 3 the banded backend is *slower than PureOSQP's own sparse path*. The sparse factor of a banded matrix is already banded, so there was nothing for the declaration to add.
+The banded row is the counterexample, and it's kept: at this size and bandwidth the banded backend is *slower than PureOSQP's own sparse path* — CHOLMOD's factor of a banded matrix is already banded, so the declaration added nothing here. There may be cases where declaring the band is faster; the outcome moves with the band width and problem size.
 
 ## Correctness
 
