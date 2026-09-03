@@ -18,6 +18,7 @@ makedocs(;
             "Examples" => "examples.md",
             "Matrix types" => "matrices.md",
             "Structured operators" => "operators.md",
+            "Operators from functions" => "linearmaps.md",
             "Other packages" => "ecosystem.md",
         ],
         "Reference" => [

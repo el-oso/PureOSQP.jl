@@ -461,6 +461,10 @@ package for exactly that: an object you can multiply by, built from a function. 
 this solver accepts one anywhere it accepts a matrix. Nothing else is needed — matrices and
 maps can even be mixed in the same call.
 
+The rest of this section covers what a map needs to work. For complete problems solved this
+way — a measurement operator, a 2-D grid, and a model reused as-is — see
+[Operators from functions](@ref).
+
 #### When this is the right tool
 
 Four situations, in rough order of how often they come up:
