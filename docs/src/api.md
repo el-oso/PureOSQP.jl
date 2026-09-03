@@ -21,23 +21,13 @@ PureOSQP.Workspace
 
 ## Status values
 
-Every value [`Solution`](@ref) can report, and which of them carry a usable point.
-
 ```@docs
 PureOSQP.Status
 ```
 
 ## Settings
 
-[`Settings`](@ref) documents each field. This section is the correspondence with the
-reference implementation's settings, for anyone porting a tuned configuration across.
-
-Defaults below are read from the reference library itself through `bench/osqp_v1.jl` rather
-than from its documentation, which is stale on one of them: the published table gives
-`adaptive_rho_interval` as `0`, where the library ships `50`.
-
-Every setting, in the reference implementation's order. A blank *note* means the name and the
-default are the same on both sides and there is nothing to know.
+`Settings` documents each field. This section shows how the fields correspond to the reference implementation.
 
 | upstream | default | here | default | note |
 |---|---|---|---|---|
@@ -73,43 +63,24 @@ default are the same on both sides and there is nothing to know.
 | `delta` | `1e-6` | `delta` | `1e-6` | |
 | `polish_refine_iter` | `3` | `polish_refine_iter` | `3` | |
 
-Of the thirty-one: twenty-one agree outright, three have no counterpart here, six are renamed
-or defaulted differently, and one is a trap.
+Of the thirty-one settings: twenty-one match upstream, three have no counterpart, six are renamed or defaulted differently, and one is a trap.
 
-**Same name, different meaning — the one to watch.** `adaptive_rho_fraction` is `0.4` in both,
-and means different things. Upstream it is a fraction of *setup time*, feeding the wall-clock
-adaptation mode. Here it is a fraction of the *previous KKT error*: under
-`adaptive_rho = :kkt_error`, `ρ` is retuned only once `rel_kkt_error` has fallen to
-`adaptive_rho_fraction` of what it was at the last look. Porting a tuned value across without
-reading this will not error — it will quietly do something else.
+**Same name, different meaning — the one to watch.** `adaptive_rho_fraction` means different things in upstream and here. Upstream it is a fraction of *setup time*. Here it is a fraction of the *previous KKT error*. Under `adaptive_rho = :kkt_error`, $\rho$ is retuned only when the relative KKT error falls to `adaptive_rho_fraction` of its previous value. Porting tuned values without reading this will cause quiet errors.
 
-**Upstream only.** `device` and `allocate_solution` are GPU and embedded concerns;
-`cg_precond` selects a preconditioner where this package always uses the diagonal one.
-
+**Upstream only.** `device` and `allocate_solution` are for GPU and embedded systems. `cg_precond` always uses the diagonal preconditioner.
 
 ## Algebra backends
 
-The reference implementation selects an *algebra*: `builtin` for CPU, `mkl` for Intel's
-library, `cuda` for NVIDIA GPUs, each compiled as a separate library and chosen at build or
-load time.
+The reference implementation selects an *algebra* (`builtin` for CPU, `mkl` for Intel, `cuda` for NVIDIA GPUs).
 
-There is no counterpart here, because the axis does not exist. This package holds one
-implementation and gets its dense kernels from whatever BLAS the session has loaded, so
-`using MKL` is the whole of the MKL story — no separate build, no setting. A GPU array is a
-matrix type rather than a backend, and reaches the solver the same way any other array type
-does.
+In this package, the library is determined by what is loaded in the Julia session. A GPU array is a matrix type, and reaches the solver just like any other array.
 
-What `linsys` selects is a different axis: the *formulation* of the linear system, not the
-library underneath it.
+The `linsys` setting selects the *formulation* of the linear system:
 
 | | selects | values |
 |---|---|---|
-| upstream algebra | which compiled library does the arithmetic | `builtin`, `mkl`, `cuda` |
+| upstream algebra | which library does the arithmetic | `builtin`, `mkl`, `cuda` |
 | `linsys` here | which system is formed and how it is factored | `:auto`, `:dense`, `:kkt`, `:indirect` |
-
-Both axes exist here, but only one is a setting: the library is whatever is loaded, and the
-formulation is `linsys`. See [Choosing the linear system](@ref) for what each value does, and
-[Guarantees](@ref) for which of them a GPU array can reach.
 
 ## Internals
 
@@ -198,4 +169,3 @@ PureOSQP.backend_info
 PureOSQP.factor_fill
 PureOSQP.BackendInfo
 ```
-
