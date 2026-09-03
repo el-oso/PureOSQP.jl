@@ -4,9 +4,9 @@ What libosqp does that PureOSQP does not, derived from its public API — `osqp_
 `osqp_api_types.h` and `osqp_api_constants.h` for 1.x, plus the 0.6.2 `osqp.c` surface —
 against this package's exports, [`Settings`](@ref) and [`Solution`](@ref).
 
-Implemented capabilities are described where they are demonstrated rather than here:
-[Benchmarks](@ref) for what the backends cost, [Guarantees](@ref) for what is proven about
-them, [Algorithm](@ref) for how the solver works.
+Implemented capabilities are documented where they are demonstrated: [Benchmarks](@ref) for
+what the backends cost, [Guarantees](@ref) for what is proven, [Algorithm](@ref) for how the
+solver works.
 
 ## Open
 
@@ -20,30 +20,27 @@ them, [Algorithm](@ref) for how the solver works.
 **CUDA in practice.** GPU arrays solve through `linsys = :indirect` only — see
 [Guarantees](@ref) for why the other backends are refused at [`setup`](@ref).
 `test/gpu_tests.jl` runs against JLArrays, which gates no-scalar-indexing and nothing else:
-`JLArray <: StridedArray` is true, so `cholesky!` on one succeeds through CPU LAPACK. What a
-real device would exercise is streams, `Krylov.cg!`'s device behavior, and the per-iteration
+`JLArray <: StridedArray` is true, so `cholesky!` on one succeeds through CPU LAPACK. A real
+device would exercise streams, `Krylov.cg!`'s device behavior, and the per-iteration
 synchronizations in `check_termination`.
 
 cuOSQP, by the OSQP authors, targets `nnz ≥ 1e4` and peaks near `nnz ≈ 1e8`. Below that a
 single CPU core wins, which is why the direct backends were not ported.
 
 **A pure-Julia factorization by default.** A sparse problem is factored by CHOLMOD — C and
-GPL — unless LDLFactorizations.jl happens to be loaded. The `LDLᵀ` backends are also the
-faster path, 2.3–3.1× on the numeric factorization and allocating nothing, so the gap is which
-one a caller gets without asking.
-
-Closing it needs a sparse `LDLᵀ` this package can depend on outright; LDLFactorizations is
-LGPL-3, hence the weak dependency. PureSparse.jl was measured and does not fit: it is
-supernodal, built for dense panels, where these factors hold two to three nonzeros per column
-— `solve!` 4–13× slower than the substitutions here, factorization 1.5–2.7× slower. A
-simplicial path there would change that.
+GPL — unless LDLFactorizations.jl is loaded. The `LDLᵀ` backends are also the faster path,
+2.3–3.1× on the numeric factorization and allocating nothing. Closing the gap needs a sparse
+`LDLᵀ` this package can depend on outright; LDLFactorizations is LGPL-3, hence the weak
+dependency. PureSparse.jl does not fit: it is supernodal, built for dense panels, where these
+factors hold two to three nonzeros per column — `solve!` 4–13× slower than the substitutions
+here, factorization 1.5–2.7× slower. A simplicial path would change that.
 
 **Setup parity on the dense path.** Forming and inverting `R` costs `potrf` (`n³/3`) plus
-`potri` (`2n³/3`), and the inverse is what makes each iteration one `symv`. Measured and
-rejected: a sparse `LDLᵀ` of the reduced matrix or of the KKT reaches setup parity and loses
-more in the loop; two `trsv` is the same flop count but serial; `trtri` with two `trmv` halves
-the setup and doubles the loop. Equilibration is within 1.13× of libosqp's per sweep. The
-convexity test and the fill gate are fixed costs libosqp does not pay.
+`potri` (`2n³/3`), and the inverse is what makes each iteration one `symv`. Alternatives
+reach setup parity and lose more in the loop: a sparse `LDLᵀ` of the reduced matrix or of the
+KKT; two `trsv` at the same flop count but serial; `trtri` with two `trmv` halves setup but
+doubles the loop. Equilibration is within 1.13× of libosqp's per sweep. The convexity test
+and the fill gate are fixed costs libosqp does not pay.
 
 ## Deliberate differences
 
@@ -55,9 +52,10 @@ from a plain C `main` with no `jl_init` — but it needs about 89 MB of Julia ru
 and Julia does not exist for a Cortex-M part or a DO-178C toolchain. Matching it means a
 separate C library, not a generator here.
 
-The narrower target this package is shaped for: the dense reduced form with a pre-inverted `R`
-emits a baked `n×n` inverse, one `symv` and `O(n+m)` vector operations — a few hundred lines
-of dependency-free C, with none of the symbolic factorization that makes upstream's large.
+The narrower target this package is shaped for: the dense reduced form with a pre-inverted
+`R` emits a baked `n×n` inverse, one `symv` and `O(n+m)` vector operations — a few hundred
+lines of dependency-free C, with none of the symbolic factorization that makes upstream's
+large.
 
 **Wall-clock `ρ` adaptation.** Upstream has four modes; this package implements three, as
 `adaptive_rho = :disabled | :iterations | :kkt_error`. The wall-clock mode is omitted because
@@ -73,13 +71,12 @@ underneath is whatever BLAS is loaded, so `using MKL` is the whole of the MKL st
 `profile_primdual`, a single switch over the one measurement that needs a clock the solver
 would not otherwise read — see [Benchmarks](@ref "The primal-dual integral").
 
-**Driving `ρ` from the gap's decay rate. Measured and rejected.** The primal-dual integral's
-log-mean rule computes `log(gₖ/gₖ₊₁)` — the duality gap's local decay rate — as a byproduct,
-which is a more direct measure of progress than the relative KKT error `adaptive_rho =
-:kkt_error` already triggers on. It buys nothing: on the seven benchmark classes that trigger
-reaches the same tolerance in the same iterations, with the same refactorization count, as
-retuning on a fixed interval ([Benchmarks](@ref "The ρ schedule")). Adapting `ρ` is worth
-3.8×; *when* it is adapted is worth zero, so a better progress signal has nothing to improve.
+**Driving `ρ` from the gap's decay rate.** The primal-dual integral's log-mean rule computes
+`log(gₖ/gₖ₊₁)` — the duality gap's local decay rate — as a byproduct, a more direct progress
+measure than the relative KKT error `adaptive_rho = :kkt_error` triggers on. It buys nothing:
+on the seven benchmark classes that trigger reaches the same tolerance in the same iterations,
+with the same refactorization count, as a fixed interval ([Benchmarks](@ref "The ρ schedule")).
+Adapting `ρ` is worth 3.8×; *when* it is adapted is worth zero.
 
 **`osqp_error_message`.** Exists to turn an error code into a string. This package throws
 exceptions carrying their own messages.
