@@ -799,3 +799,38 @@ iterations and same refactorizations on every class.
 
 Iterations to a fixed tolerance, not wall clock, and not the regime in [Conditioning](@ref),
 where nothing converges on any schedule.
+
+## Declared structure against a sparse factorization
+
+OSQP takes CSC and factors sparsely, so what it exploits is *where the zeros are*. The
+problems below carry more than that — blocks that decouple, a band, a low-rank coupling, a
+Kronecker product — and this is what declaring it is worth against discovering the sparsity.
+
+Both solvers get the same problem: PureOSQP the structured type, OSQP the same matrices as
+`SparseMatrixCSC`, which is its native input. Settings are pinned on both sides, so the two
+take the same path and the difference is the per-iteration solve. Reproduce with
+`julia --project=bench bench/structured_vs_osqp.jl`; samples in
+`bench/results/structured_vs_osqp.json`, single-threaded BLAS.
+
+| structure | backend | n | nnz(`A`) | iterations | PureOSQP | OSQP | vs OSQP |
+|---|---|---|---|---|---|---|---|
+| block-diagonal | `block` | 200 | 12.5% | 175 | 1.26 ms | 2.61 ms | **2.07×** |
+| tridiagonal | `tridiagonal` | 400 | 0.2% | 75 | 0.20 ms | 0.69 ms | **3.48×** |
+| banded | `banded` | 400 | 0.5% | 75 | 0.84 ms | 0.78 ms | 0.93× |
+| low-rank | `lowrank` | 400 | 0.7% | 75 | 0.21 ms | 0.65 ms | **3.02×** |
+| Kronecker | `kronecker` | 400 | **100%** | 250 | 1.10 ms | 121 ms | **110×** |
+
+Every row asserts agreement before it is reported: the same status, the **same iteration
+count**, and objectives within `1e-9`. A speed comparison against a solver that took a
+different number of steps would measure nothing.
+
+**The Kronecker row is the argument in one line.** `A₁ ⊗ A₂` has *no zeros at all*, so a
+sparse factorization has nothing to exploit and OSQP factors a dense 400×400 matrix. The same
+matrix declared as its two 20×20 factors is solved through their eigenbases. Sparsity and
+structure are not the same property, and this is a problem that has the second and none of the
+first.
+
+**The banded row goes the other way, and is kept for that reason.** At bandwidth 3 on `n = 400`
+a sparse factorization is already close to optimal — the factor stays banded whether or not
+anyone declared it — so the two are level and PureOSQP is 0.93×. Declaring structure pays when
+it tells the solver something the pattern does not.

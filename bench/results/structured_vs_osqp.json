@@ -1,0 +1,63 @@
+{
+  "adaptive_rho_interval": 50,
+  "blas_threads": 1,
+  "cases": [
+    {
+      "case": "block-diagonal",
+      "n": 200,
+      "m": 200,
+      "backend": "block",
+      "iter": 175,
+      "density_percent": 12.5,
+      "pure_seconds": 0.001261725,
+      "osqp_seconds": 0.0026097620000000003,
+      "speedup": 2.068407933582992
+    },
+    {
+      "case": "tridiagonal",
+      "n": 400,
+      "m": 400,
+      "backend": "tridiagonal",
+      "iter": 75,
+      "density_percent": 0.25,
+      "pure_seconds": 0.000199556,
+      "osqp_seconds": 0.0006939215000000001,
+      "speedup": 3.4773271663092067
+    },
+    {
+      "case": "banded",
+      "n": 400,
+      "m": 400,
+      "backend": "banded",
+      "iter": 75,
+      "density_percent": 0.499375,
+      "pure_seconds": 0.000840062,
+      "osqp_seconds": 0.0007787255,
+      "speedup": 0.9269857462901547
+    },
+    {
+      "case": "low-rank",
+      "n": 400,
+      "m": 402,
+      "backend": "lowrank",
+      "iter": 75,
+      "density_percent": 0.746268656716418,
+      "pure_seconds": 0.00021385300000000001,
+      "osqp_seconds": 0.0006460760000000001,
+      "speedup": 3.0211219856630493
+    },
+    {
+      "case": "kronecker",
+      "n": 400,
+      "m": 400,
+      "backend": "kronecker",
+      "iter": 250,
+      "density_percent": 100.0,
+      "pure_seconds": 0.001099039,
+      "osqp_seconds": 0.12058067600000001,
+      "speedup": 109.71464706893933
+    }
+  ],
+  "eps": 1.0e-6,
+  "julia_version": "1.12.7"
+}
