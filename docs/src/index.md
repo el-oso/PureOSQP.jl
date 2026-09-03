@@ -1,7 +1,6 @@
 # PureOSQP.jl
 
-A pure-Julia implementation of the OSQP operator-splitting solver for convex quadratic
-programs:
+A pure-Julia implementation of the [OSQP](https://osqp.org) solver for convex quadratic programs:
 
 ```math
 \begin{aligned}
@@ -10,12 +9,11 @@ programs:
 \end{aligned}
 ```
 
-`P` is symmetric positive semidefinite, `A` is `m×n`, and `l`, `u` may contain `∓Inf`.
-Rows with `l == u` are equality constraints.
+`P` is symmetric positive semidefinite, `A` is `m×n`, and `l`, `u` may contain `∓Inf`. Rows where `l == u` are equality constraints.
 
 ## Your first solve
 
-Install it, describe the problem as those five arrays, and call [`solve`](@ref):
+Install it, describe the problem with five arrays, and call [`solve`](@ref):
 
 ```@example first
 using PureOSQP
@@ -24,34 +22,25 @@ using PureOSQP
 P = [2.0 0.0; 0.0 2.0]      # the quadratic term, as ½xᵀPx -- note the 2s
 q = [-1.0, -2.0]            # the linear term
 A = [1.0 1.0; 1.0 0.0; 0.0 1.0]
-l = [-Inf, 0.0, 0.0]        # lower bounds on each row of A*x
+l = [-Inf, 0.0, 0.0]        # lower bounds
 u = [1.0, Inf, Inf]         # upper bounds
 
 sol = solve(P, q, A, l, u)
 (sol.status, round.(sol.x; digits = 4))
 ```
 
-`sol.status` is `SOLVED`, and `sol.x` is the answer. That is the whole interface: there is no
-model object to build and nothing to configure.
+`sol.status` is `SOLVED`, and `sol.x` is the answer. The interface is minimal: there is no model object or configuration.
 
-Three things worth knowing straight away:
+Three things to know:
+* **The $P$ matrix:** It represents the $\frac{1}{2}x^\top P x$ term, so a plain $x_1^2 + x_2^2$ objective needs $2$s on the diagonal.
+* **Constraints:** Every constraint is a row of $l \leq Ax \leq u$. Use $l = u$ for equalities, and $\pm\infty$ for one-sided constraints.
+* **Setup:** `solve` handles everything at once. For many similar problems, use [`setup`](@ref) to build a workspace once and reuse it.
 
-- **`P` is the matrix in `½xᵀPx`**, so a plain `x₁² + x₂²` objective has `2`s on the diagonal.
-  This trips everyone once.
-- **Every constraint is a row of `l ≤ Ax ≤ u`.** A one-sided constraint sets the other side to
-  `±Inf`; an equality sets `l == u`. There are no separate equality and inequality arguments.
-- **`solve` sets up and solves in one call.** If you are going to solve many similar problems,
-  build the workspace once with [`setup`](@ref) and reuse it — see
-  [Examples](@ref "Building a workspace once").
-
-From here: [Examples](@ref) for worked problems (Lasso, SVM, portfolios, model predictive
-control), or the section below for what this implementation does differently.
+For more, see [Examples](@ref "Building a workspace once") or the implementation details below.
 
 ## What makes this different
 
-**The goal is to support every matrix representation** — dense, sparse, structured, lazy,
-and anything else satisfying the `AbstractMatrix` interface — over any `Real` element type.
-That is the design aim, not a caveat attached to one favoured format.
+We support any `AbstractMatrix` (dense, sparse, structured, or lazy) for any `Real` type. `P` and `A` are held by reference and never modified; every iteration calls `mul!` on your input. This means types like `Diagonal` or `SparseMatrixCSC` keep their fast product instead of being copied to a dense matrix.
 
 `P` and `A` are held by reference and never copied or modified. Every per-iteration product
 runs `mul!` on the matrix you passed, so a `Diagonal`, a `Tridiagonal`, a `SubArray` or a
@@ -59,13 +48,9 @@ runs `mul!` on the matrix you passed, so a `Diagonal`, a `Tridiagonal`, a `SubAr
 Equilibration reaches the entries through four overridable column traversals, and a
 `SparseArrays` weak dependency specialises them to walk only the stored entries.
 
-One matrix inside the solver is dense whatever you pass: the `n×n` reduced system it forms
-and factors, because eliminating `ν` fills in whatever sparsity `A` had. That is a property
-of the reduction, not a restriction on the input, and it is why a dense row in `A` routes to
-a sparse factorization of the full KKT instead, which does not square that row.
+One matrix in the solver is always dense: the $n \times n$ reduced system formed by eliminating $\nu$. This is a property of the reduction, not a limit on your input. If you have a dense row in $A$, the solver uses a sparse factorization of the full KKT system to avoid squaring the matrix.
 
-The numerics use `LinearAlgebra` alone; the only other dependency is TypeContracts.jl,
-which declares the linear-system backend interface and checks it at precompilation.
+The code uses `LinearAlgebra` and `TypeContracts.jl` for the linear-system backend interface.
 
 ## Quick start
 
@@ -94,7 +79,7 @@ sol = solve!(ws)
 sol = solve!(ws)     # warm started from the previous solution
 ```
 
-To seed from a solution you already have:
+To start from a known solution:
 
 ```julia
 warm_start!(ws; x = x0, y = y0)
@@ -103,10 +88,7 @@ solve!(ws)
 
 ## Re-solving with new data
 
-A receding-horizon or sequential-quadratic loop keeps `P` and `A` fixed and changes `q`,
-`l` and `u` every step. Use [`update!`](@ref) rather than building a new workspace: it
-reuses the equilibration factors, the buffers and the current iterates, and refactorizes
-only when it has to.
+For loops like Model Predictive Control, keep $P$ and $A$ fixed and update $q$, $l$, and $u$. Use [`update!`](@ref) to reuse the workspace; it reuses equilibration, buffers, and iterates, refactorizing only when necessary.
 
 ```julia
 ws = setup(P, q, A, l, u)
@@ -116,51 +98,27 @@ for step in 1:horizon
 end
 ```
 
-A change to `q` alone never refactorizes. A change to `l` or `u` refactorizes only if it
-moves a row between the equality, inequality and free classes, since that is what sets `ρ`.
-A change to `P` or `A` always does.
+Updating $q$ never requires a refactorization. Changing $l$ or $u$ only does if it moves a row between equality, inequality, or free classes. Changing $P$ or $A$ always does.
 
-`ws.refactor_count` reports how many factorizations the workspace has done over its whole
-life. Note that it counts factorizations from **adaptive ρ** as well, so it will keep
-growing across a loop even when every `update!` is factorization-free; read it immediately
-before and after a call to see what that call did.
+`ws.refactor_count` tracks total factorizations. This includes those from adaptive $\rho$, so the count grows even when using `update!` if $\rho$ changes.
 
-Equilibration is not recomputed — the factors from `setup` are reused, as upstream does.
-They stay appropriate while the data keeps roughly the same scale; after a large change in
-magnitude, build a fresh workspace.
+Equilibration is done once in `setup`. If your data changes magnitude significantly, build a new workspace.
 
 ## Accuracy
 
-The default tolerances are `eps_abs = eps_rel = 1e-3`, matching the reference
-implementation. That is loose for many uses. Two ways to tighten it:
+Default tolerances are `eps_abs = eps_rel = 1e-3`. To improve accuracy:
+* Lower `eps_abs`/`eps_rel` (more iterations).
+* Set `polish = true` to solve the resulting equality-constrained QP exactly. This brings KKT residuals to machine precision at the cost of one extra factorization.
 
-- lower `eps_abs`/`eps_rel`, which costs iterations;
-- set `polish = true`, which guesses the active set at the ADMM solution and solves the
-  resulting equality-constrained QP exactly. On a solution converged only to `1e-3`,
-  polishing typically brings the KKT residual to around machine precision at the cost of
-  one extra factorization.
+Polishing only runs if it improves both residuals, so it cannot make the solution worse.
 
-Polishing is only ever accepted when it improves both residuals, so it cannot make an
-answer worse.
+## Choosing a backend
 
-## Choosing a linear-system backend
-
-`linsys = :auto` (default) descends a ladder of backends and takes the first that serves the
-`P` and `A` it was given, which for a pair of dense matrices is an `n×n` Cholesky of the
-reduced system, inverted in place so each iteration's solve is one `symv`. A structured pair
-stops higher — diagonal, tridiagonal, banded, sparse, or a low-rank correction — and an
-operator that declares [`PureOSQP.is_materializable`](@ref) false reaches the matrix-free
-backend instead, since every rung that would form a matrix declines it. The dense Cholesky
-falls back to a Bunch-Kaufman factorization of the full `(n+m)×(n+m)` quasi-definite system
-if it reports the matrix is not positive definite. `linsys = :kkt` forces the full factorization: slower, but
-more accurate at moderate conditioning and closer to what the reference implementation
-does, which makes it useful when a result is in question.
+`linsys = :auto` picks the first compatible backend. For two dense matrices, this is an $n \times n$ Cholesky of the reduced system. Structured matrices (diagonal, banded, etc.) are caught earlier. Matrix-free operators use the matrix-free backend. If a dense Cholesky fails because the matrix isn't positive definite, it falls back to a Bunch-Kaufman factorization of the full $(n+m) \times (n+m)$ system. Use ``linsys = :kkt`` for a full factorization, which is more accurate for ill-conditioned problems.
 
 ## Watching a solve
 
-`verbose = true` prints a progress report: a header with the problem size and the settings
-that matter, one row per termination check, and a footer with the status, iteration count
-and final residuals.
+`verbose = true` prints progress: a header, one line per termination check, and a footer with status, iterations, and residuals.
 
 ```
  iter      objective      prim res      dual res           rho
@@ -170,45 +128,34 @@ and final residuals.
   125        1.46211      0.000374      0.000174         0.549
 ```
 
-The `rho` column is the useful one: a change there is an adaptive-ρ update, which is also
-a refactorization. Rows appear at the `check_termination` interval, so setting that to `0`
-disables them along with the termination tests themselves.
+The `rho` column shows adaptive $\rho$ updates, which trigger refactorizations.
 
-Output goes to `Core.stdout` rather than `Base.stdout`, because the abstractly typed
-global does not survive `--trim`. `redirect_stdout` still captures it.
+Output goes to `Core.stdout` rather than `Base.stdout` to support `--trim` compilation. Use `redirect_stdout` to capture it.
 
 ## What a solve reports
 
-Beyond `x`, `y` and `status`, [`Solution`](@ref) carries the objectives and duality gap, both
-residuals, `rel_kkt_error` as one number for "how far from optimal", the iteration and `ρ`
-counts, the polishing outcome, and four timings. Its docstring lists every field.
+The [`Solution`](@ref) object carries the objective, duality gap, both residuals, `rel_kkt_error`, iteration and $\rho$ counts, the polishing result, and four timings.
 
-One distinction worth knowing early: `rho_updates` counts only adaptive-`ρ` changes, where
-`ws.refactor_count` also counts refactorizations forced by new data — read the former to
-understand a solve, the latter to understand a workspace's whole life.
+`rho_updates` counts only adaptive $\rho$ changes; `ws.refactor_count` counts all refactorizations (including data changes).
 
 ## Status values
 
-Eleven of them, listed and grouped in [`Status`](@ref PureOSQP.Status). Two facts are worth
-having before you read that list: an unconverged result is never reported as `SOLVED`, and
-wherever there is no meaningful primal-dual point, `x` and `y` are `NaN` rather than a
-plausible-looking number. [`has_solution`](@ref PureOSQP.has_solution) is the predicate.
+There are eleven status values in [`Status`](@ref PureOSQP.Status). Key facts:
+1. An unconverged result is never marked `SOLVED`.
+2. If there is no meaningful primal-dual point, `x` and `y` are `NaN`.
 
-`time_limit` bounds the ADMM loop and defaults to `Inf`. It measures the loop only —
-equilibration and the first factorization happen in `setup` and are not counted — so a
-`solve` on fresh data takes longer than the limit by however long setup ran. The budget is
-checked every iteration, and the status is returned as soon as it is spent without
-re-testing the tolerances, so a run can report `TIME_LIMIT_REACHED` at a point that would
-have passed. Setting it makes the iteration count depend on the machine, which is why it
-is off by default.
+Use [`has_solution`](@ref PureOSQP.has_solution) to check.
 
-## What is rejected rather than accepted
+## What is rejected
 
-`setup` fails, rather than continuing, on: a non-symmetric `P`; an indefinite `P`, meaning
-`P + σI` is not positive definite (this is upstream's condition, and a positive
-semidefinite `P` always passes); `NaN` or `Inf` in `q`; `NaN` in `l` or `u`; `l > u`
-elementwise; `l = +Inf` or `u = -Inf`; mismatched dimensions; and out-of-range settings
-such as `sigma ≤ 0`, `alpha ∉ (0, 2)` or `max_iter ≤ 0`.
+`setup` fails if:
+* $P$ is not symmetric or is indefinite.
+* `q` contains `NaN` or `Inf`.
+* `l` or `u` contains `NaN`.
+* $l > u$ elementwise.
+* $l = +\infty$ or $u = -\infty$.
+* Mismatched dimensions.
+* Invalid settings (e.g., $\sigma \le 0$, $\alpha \notin (0, 2)$, or `max_iter` $\le 0$).
 
 ## Citation
 
