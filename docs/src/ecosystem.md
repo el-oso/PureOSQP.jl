@@ -1,36 +1,26 @@
 # Working with other packages
 
-PureOSQP has **no required dependencies**. Everything on this page is optional: load the
-package you want and the capability appears, through Julia's package-extension mechanism or
-through the solver simply being generic enough not to care.
+PureOSQP has **no required dependencies**. Capabilities appear as you load relevant packages via Julia's extension mechanism.
 
-Two mechanisms are at work, and it is worth knowing which is which.
+Two mechanisms are at work:
 
-**Extensions** are code this package ships that only loads when you load something else. There
-are seven, listed below. Nothing happens until the trigger package is present.
+**Extensions** are code that loads only when you load a trigger package. There are seven, listed below.
 
-**Genericity** needs no code at all. The solver is written over `T <: Real` and reaches `P` and
-`A` through `mul!`, so a number type or matrix type it has never heard of works if it behaves
-like a number or a matrix. The precision types below are in this category — there is no
-"DoubleFloats extension", and none is needed.
+**Genericity** allows the solver to handle any numeric or matrix type that behaves correctly. Precision types are handled this way, without needing extensions.
 
 ## Number types
 
-The element type comes from your arrays; the solver follows it. Everything here was checked by
-solving the same small QP at each type — identical iteration counts and objectives agreeing to
-eleven digits.
+The element type of your arrays determines the solver's precision. All types below were tested and show identical convergence behavior.
 
 | type | package | digits | cost vs `Float64` | note |
 |---|---|---|---|---|
 | `Float32` | — | ~7 | — | works; halves memory |
 | `Float64` | — | ~16 | 1× | the default |
-| `Double64` | [DoubleFloats.jl](https://github.com/JuliaMath/DoubleFloats.jl) | ~32 | ~22× | **the pick for extra precision** |
+| `Double64` | [DoubleFloats.jl](https://github.com/JuliaMath/DoubleFloats.jl) | ~32 | ~22× | best for extra precision |
 | `Float128` | [Quadmath.jl](https://github.com/JuliaMath/Quadmath.jl) | ~34 | ~85× | software-emulated |
 | `BigFloat` | stdlib | tunable | ~264× | arbitrary precision |
 
-`Double64` is roughly four times faster than `Float128` at the same precision, because it is
-double-double arithmetic — a pair of `Float64`s using hardware floating point — where
-`Float128` is emulated in software. If you want more than `Float64`, start there.
+`Double64` is roughly four times faster than `Float128` at the same precision.
 
 ```julia
 using PureOSQP, DoubleFloats
@@ -54,19 +44,17 @@ speed the descent toward it. If a badly conditioned problem is stopping at `max_
 |---|---|---|
 | `LinearAlgebra` (stdlib) | `Diagonal`, `Bidiagonal`, `SymTridiagonal`, `Tridiagonal`, `Symmetric`, views | genericity, plus dedicated backends |
 | [SparseArrays](https://github.com/JuliaSparse/SparseArrays.jl) (stdlib) | sparse `P` and `A`, walked by stored entry | extension |
-| [BandedMatrices.jl](https://github.com/JuliaLinearAlgebra/BandedMatrices.jl) | bandwidth ≥ 2, which LinearAlgebra has no symmetric type for | extension |
-| [LinearMaps.jl](https://github.com/JuliaLinearAlgebra/LinearMaps.jl) | an operator you can apply but never store | extension |
+| [BandedMatrices.jl](https://github.com/JuliaLinearAlgebra/BandedMatrices.jl) | bandwidth ≥ 2 | extension |
+| [LinearMaps.jl](https://github.com/JuliaLinearAlgebra/LinearMaps.jl) | an operator you can apply but not store | extension |
 | [Krylov.jl](https://github.com/JuliaSmoothOptimizers/Krylov.jl) | the matrix-free backend, needed for any operator | extension |
 | [LDLFactorizations.jl](https://github.com/JuliaSmoothOptimizers/LDLFactorizations.jl) | a pure-Julia sparse `LDLᵀ` instead of SuiteSparse | extension |
 | [GPUArraysCore.jl](https://github.com/JuliaGPU/GPUArrays.jl) | GPU arrays, matrix-free only | extension |
 
-Which of these to reach for is a question about your problem, answered with measurements in
-[Which representation, and why](@ref).
+[Which representation, and why](@ref) helps you choose.
 
-Two are worth singling out. **LDLFactorizations** is not only a speed choice: it is what makes
-a sparse problem `juliac --trim` compatible, because it replaces a SuiteSparse `ccall` no static
-analysis can resolve — see [Guarantees](@ref). **Krylov** is required, not optional, for any
-operator that cannot be materialized; without it there is no backend that can serve one.
+Two key extensions:
+- **LDLFactorizations**: Provides a pure-Julia sparse `LDLᵀ`, making the package compatible with `juliac --trim`.
+- **Krylov**: Required for any operator that cannot be materialized.
 
 ## Modelling and interfaces
 
@@ -83,16 +71,11 @@ hand-written.
 
 ## Differentiating a solve
 
-There are two ways, and they answer different questions.
+There are two ways to differentiate:
 
-**Built in, no dependency.** [`PureOSQP.adjoint_derivative`](@ref) and
-[`PureOSQP.forward_derivative`](@ref) differentiate the *solution* by implicit differentiation
-of the KKT conditions at the active set. One linear solve, independent of how many iterations
-the solve took, reusing a factorization the solver already has.
+1. **Built-in:** [`adjoint_derivative`](@ref) and [`forward_derivative`](@ref) differentiate the *solution* by implicitly differentiating the KKT conditions. This is efficient and works in one solve.
+2. **Through iterations:** Using `ForwardDiff.Dual` numbers differentiates the entire optimization loop. This is better for sensitivity analysis but is much more expensive.
 
-**Through the iterations, with ForwardDiff.** Because the solver is generic over `T <: Real`,
-`ForwardDiff.Dual` numbers pass straight through it and you can differentiate any function of
-the result:
 
 ```julia
 using PureOSQP, ForwardDiff
