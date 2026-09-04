@@ -110,6 +110,81 @@ and −1 below it:
 (Dv)_1 = v_1, \qquad (Dv)_i = v_i - v_{i-1} \quad (i = 2, \dots, 14)
 ```
 
+To see which pixels each block ties together, take a 4×4 image in place of the 14×14 one.
+`vec` stacks the columns, so `x` is column 1, then column 2, and so on: neighbors down a
+column sit next to each other in `x`, while neighbors along a row sit four places apart.
+The top row below is the image, with each pixel's position in `x` in its corner; the strip
+underneath is `x` itself, with the pairs each block couples drawn as arcs.
+
+```@example lm_grid_figure
+using CairoMakie
+
+fig = Figure(size = (900, 500))
+titles = ("vec order", "I ⊗ D: pairs down each column", "D ⊗ I: pairs along each row")
+axs = [Axis(fig[1, c]; title = titles[c], aspect = DataAspect()) for c in 1:3]
+
+# The image: cell (i, j) is pixel xᵢⱼ, entry i + 4(j - 1) of x.
+center(i, j) = Point2f(j - 0.5, 4.5 - i)
+for ax in axs, j in 1:4, i in 1:4
+    poly!(ax, Rect2f(j - 1, 4 - i, 1, 1); color = (:steelblue, 0.12), strokecolor = :black, strokewidth = 1)
+end
+lines!(axs[1], [center(i, j) for j in 1:4 for i in 1:4]; color = ("#CC79A7", 0.9), linewidth = 2)
+linesegments!(axs[2], [center(i, j) => center(i - 1, j) for j in 1:4 for i in 2:4]; color = ("#0072B2", 0.6), linewidth = 6)
+linesegments!(axs[3], [center(i, j) => center(i, j - 1) for j in 2:4 for i in 1:4]; color = ("#E69F00", 0.6), linewidth = 6)
+for ax in axs, j in 1:4, i in 1:4
+    text!(ax, center(i, j); text = L"x_{%$i%$j}", align = (:center, :center), fontsize = 16)
+    text!(ax, j - 0.95, 4.97 - i; text = string(i + 4(j - 1)), align = (:left, :top), fontsize = 10, color = :gray40)
+end
+foreach(ax -> (hidedecorations!(ax); hidespines!(ax)), axs)
+
+# The vector x = vec(X), one cell per entry, in the order the path above visits them.
+axv = Axis(fig[2, 1:3]; aspect = DataAspect())
+for k in 1:16
+    i, j = (k - 1) % 4 + 1, (k - 1) ÷ 4 + 1
+    poly!(axv, Rect2f(k - 1, 0, 1, 1); color = (:steelblue, 0.12), strokecolor = :black, strokewidth = 1)
+    text!(axv, k - 0.5, 0.5; text = L"x_{%$i%$j}", align = (:center, :center), fontsize = 14)
+    text!(axv, k - 0.95, 0.97; text = string(k), align = (:left, :top), fontsize = 9, color = :gray40)
+end
+for j in 1:4
+    linesegments!(axv, [Point2f(4j - 3.9, 1.7) => Point2f(4j - 0.1, 1.7)]; color = :black)
+    text!(axv, 4j - 2, 1.8; text = "column $j", align = (:center, :bottom), fontsize = 12)
+end
+arc(a, b, y0, s) = [Point2f((a + b) / 2 + (b - a) / 2 * cos(t), y0 + s * (b - a) / 2 * sin(t)) for t in range(0, π; length = 40)]
+for k in 2:16
+    (k - 1) % 4 == 0 || lines!(axv, arc(k - 1.5, k - 0.5, 1, 1); color = "#0072B2", linewidth = 2)
+end
+for k in 5:16
+    lines!(axv, arc(k - 4.5, k - 0.5, 0, -0.6); color = "#E69F00", linewidth = 2)
+end
+text!(axv, -0.3, 1.3; text = "I ⊗ D: adjacent entries", align = (:right, :center), fontsize = 13, color = "#0072B2")
+text!(axv, -0.3, -0.6; text = "D ⊗ I: entries 4 apart", align = (:right, :center), fontsize = 13, color = "#E69F00")
+hidedecorations!(axv); hidespines!(axv)
+limits!(axv, -6.5, 16.5, -1.5, 2.4)
+fig
+```
+
+Pixel ``x_{ij}`` is entry ``i + 4(j-1)`` of `x`. Written out on this ordering, the two
+Kronecker products are
+
+```math
+I_4 \otimes D = \begin{pmatrix} D & & & \\ & D & & \\ & & D & \\ & & & D \end{pmatrix}
+\qquad\qquad
+D \otimes I_4 = \begin{pmatrix} I & & & \\ -I & I & & \\ & -I & I & \\ & & -I & I \end{pmatrix}
+```
+
+Each `D` block in `I ⊗ D` acts on the four consecutive entries that make up one column, so it
+subtracts the pixel above. Each `−I, I` pair in `D ⊗ I` acts on entries four apart, so it
+subtracts the pixel to the left:
+
+```math
+\big((I \otimes D)\,x\big)_{i + 4(j-1)} = x_{ij} - x_{i-1,\,j}
+\qquad\qquad
+\big((D \otimes I)\,x\big)_{i + 4(j-1)} = x_{ij} - x_{i,\,j-1}
+```
+
+with the first row and first column passed through unchanged, as `D` does. On the 14×14
+image the blocks are 14×14 and the row neighbor sits 14 places back; nothing else changes.
+
 The trick is that a 2-D operation built from a 1-D one along each axis is a **Kronecker
 product**: `I ⊗ D` applies `D` down every column of `X`, and `D ⊗ I` applies it along every
 row.
