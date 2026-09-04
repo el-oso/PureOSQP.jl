@@ -6,7 +6,7 @@ This page explains the internal working of the solver.
 
 The problem involves minimizing an objective while staying within bounds. ADMM (*alternating direction method of multipliers*) solves this by maintaining two copies of the answer: one that minimizes the objective and one that satisfies the bounds. A penalty term is added to pull these two copies together. Each iteration consists of solving an unconstrained problem for `x`, clipping `z` into the box, and updating a multiplier `y`. When they agree, you have the solution.
 
-The linear solve is the most expensive part. The matrix in the linear solve remains unchanged unless `ρ` changes. The solver's efficiency comes from factoring this matrix once and reusing it.
+The linear solve is the most expensive part. The matrix in it changes only when `ρ` changes, so the solver factors it once and reuses the factor.
 
 ## The ADMM iteration
 
@@ -193,8 +193,8 @@ reduced solve holds around `1e-8` across the whole range, and past `cond(A) = 1e
 *more* accurate than the full KKT factorization, because equilibration bounds what the
 reduced matrix inherits while the quasi-definite matrix keeps the raw conditioning.
 
-That table is built from a family of `A` whose ill-conditioning is a spread of singular
-values, which is close to what equilibration is designed to fix. The harder case is
+The first table's `A` family is ill-conditioned by a spread of singular values, close to
+what equilibration is designed to fix. The harder case is
 ill-conditioning no diagonal scaling can remove — `A` with unit-norm columns and nearly
 parallel rows:
 
@@ -208,8 +208,8 @@ parallel rows:
 
 Here the Cholesky is around a hundred times less accurate than the full KKT factorization,
 but it still succeeds and still plateaus near `1e-8`; it degrades gradually rather than
-silently collapsing. Across every case measured, with equilibration enabled, the Cholesky
-was never observed to fail.
+silently collapsing. Across every case measured, with equilibration on, the Cholesky never
+failed.
 
 Both tables are reproduced by `bench/kkt_backend.jl`.
 
@@ -220,8 +220,8 @@ serves the given `P` and `A`; the reduced Cholesky is its terminal rung, reached
 that can be materialized and nothing cheaper fits. That Cholesky falls back to a
 `bunchkaufman!` factorization of the full quasi-definite system if it reports that the matrix
 is not positive definite. On the measurements above that fallback never
-triggers with equilibration on, so treat it as a safety net rather than as the mechanism
-that handles ill-conditioning.
+triggers with equilibration on, so treat it as a safety net, not the mechanism that handles
+ill-conditioning.
 
 The whole selection, top to bottom. A pair whose types name a backend outright takes it
 without descending; every other pair starts at rung 1 and stops at the first rung that
@@ -427,8 +427,6 @@ point replaces the ADMM answer only if both residuals improve.
 
 ## The name Cholesky
 
-The name appears throughout this manual, and the pronunciation most often heard in English is
-the one variant with no support from any of the languages involved. So, briefly.
 
 **André-Louis Cholesky** (born 15 October 1875 in Montguyon; died 31 August 1918 of wounds
 received in northern France) was a French army officer and geodesist who ended as head of the
@@ -442,8 +440,8 @@ posthumously in 1924, when a fellow officer, Commandant Benoît, wrote it up in 
 The reason is that he was French, and French ⟨ch⟩ is /ʃ/. There is a second defensible reading
 from the family's origins: his paternal line descended from the **Cholewski** family, which
 left Poland during the Great Emigration, and Polish ⟨ch⟩ is /x/ — the fricative in *Bach*, in
-Greek χ, in Russian х, in Spanish *j*. That gives *kho-LES-kee*, and it has been argued for in
-the field's own literature: a 1990 NA Digest exchange set out three candidates and concluded
+Greek χ, in Russian х, in Spanish *j*. That gives *kho-LES-kee*. This reading appears in the field's own literature: a 1990 NA
+Digest exchange set out three candidates and concluded
 that "all three current pronunciations seem acceptable" pending evidence of the name's origin,
 noting that a Polish origin would make *Kholesky* correct.
 
