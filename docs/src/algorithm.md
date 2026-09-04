@@ -223,8 +223,6 @@ is not positive definite. On the measurements above that fallback never
 triggers with equilibration on, so treat it as a safety net rather than as the mechanism
 that handles ill-conditioning.
 
-#### Backend selection as a decision tree
-
 The whole selection, top to bottom. A pair whose types name a backend outright takes it
 without descending; every other pair starts at rung 1 and stops at the first rung that
 accepts it. The two sparse factorization rungs decide by factoring and keep the factor they

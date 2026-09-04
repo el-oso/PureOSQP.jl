@@ -112,7 +112,7 @@ Default tolerances are `eps_abs = eps_rel = 1e-3`. To improve accuracy:
 
 Polishing only runs if it improves both residuals, so it cannot make the solution worse.
 
-## Choosing a backend
+## Which backend you get
 
 `linsys = :auto` picks the first compatible backend. For two dense matrices, this is an $n \times n$ Cholesky of the reduced system. Structured matrices (diagonal, banded, etc.) are caught earlier. Matrix-free operators use the matrix-free backend. If a dense Cholesky fails because the matrix isn't positive definite, it falls back to a Bunch-Kaufman factorization of the full $(n+m) \times (n+m)$ system. Use ``linsys = :kkt`` for a full factorization, which is more accurate for ill-conditioned problems.
 

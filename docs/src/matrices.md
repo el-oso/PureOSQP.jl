@@ -304,7 +304,7 @@ Eliminating `ν` from the ADMM subproblem gives an `n×n` reduced matrix, and wh
 matrix is worth keeping sparse depends on its pattern rather than on the input's density.
 `linsys = :auto` decides by asking CHOLMOD to factor the pattern and measuring the fill. Where
 that decision sits among the others is drawn in
-[Backend selection as a decision tree](@ref).
+[Choosing a backend](@ref).
 
 ```@example storage
 band = 200
@@ -348,7 +348,7 @@ R = c D P D + \sigma I + \tilde A^\top \mathrm{diag}(\rho) \tilde A
 Diagonal scaling preserves a bandwidth and `ÃᵀρÃ` doubles `A`'s, so
 `bandwidth(R) = max(bandwidth(P), 2 bandwidth(A))`. `linsys = :auto` dispatches on the pair
 of types, with no setting and no density gate involved; these pairs are the top of the
-ladder in [Backend selection as a decision tree](@ref).
+ladder in [Choosing a backend](@ref).
 
 ```@example structured
 using PureOSQP, LinearAlgebra
