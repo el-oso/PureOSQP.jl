@@ -1,16 +1,14 @@
 # Examples
 
 The first seven sections are the applications from the
-[OSQP documentation](https://osqp.org/docs/examples/), written against PureOSQP; the rest
-work through the solver's own interface. Every block is executed when these docs are built,
-so the numbers below are what the code actually produced.
+[OSQP documentation](https://osqp.org/docs/examples/), rewritten for PureOSQP; the rest
+cover the solver's own interface. Every block runs when these docs are built, so the
+numbers below are real output from the code.
 
-Two differences from the upstream versions are worth knowing before you read the
-applications. PureOSQP takes the **full symmetric** `P`, not an upper triangle. And every
-matrix in them is built dense — these particular problems are highly structured and sparse,
-which is where the reference implementation is strongest, so treat them as a guide to
-*formulating* problems rather than as a claim about which solver to use on them.
-[Matrix types](matrices.md) is the page on the other storage formats, and which to reach for.
+Two differences from the upstream versions. PureOSQP takes the **full symmetric** `P`, not
+an upper triangle. And every matrix is built dense — these problems are highly structured
+and sparse, so treat them as a guide to *formulating* problems, not a claim about which
+solver to use on them. [Matrix types](matrices.md) covers the other storage formats.
 
 ## Basic usage
 
@@ -37,10 +35,10 @@ sharp = solve(P, q, A, l, u; eps_abs = 1e-9, eps_rel = 1e-9, polish = true)
 
 ## Least-squares
 
-Fit `Aₐx ≈ b` as closely as possible, but with bounds on `x` that a plain `\` cannot express.
-Unconstrained least-squares has a closed form and does not need a solver; the moment you add
-`0 ≤ x ≤ 1`, it does. The formulation below introduces `y = Aₐx - b` as its own variable, which
-keeps the objective diagonal and the constraint matrix sparse instead of forming `AₐᵀAₐ`.
+Fit `Aₐx ≈ b` as closely as possible, with bounds on `x` that a plain `\` cannot express.
+Unconstrained least-squares has a closed form and needs no solver; adding `0 ≤ x ≤ 1`
+changes that. The formulation below introduces `y = Aₐx - b` as its own variable, which
+keeps the objective diagonal and the constraint matrix sparse.
 
 ```math
 \begin{array}{ll}
@@ -50,8 +48,8 @@ keeps the objective diagonal and the constraint matrix sparse instead of forming
 ```
 
 Introducing `y = A_d x - b` turns this into a QP in `(x, y)`. The residual carries the whole
-objective, and the constraint matrix has two row groups: `m` rows that define `y`, and `n`
-rows that carry the box on `x`.
+objective. The constraint matrix has two row groups: `m` rows that define `y`, and `n`
+rows that bound `x`.
 
 ::: details Code that draws the figure
 
@@ -145,10 +143,10 @@ x = sol.x[1:n]
 ## Lasso
 
 Least-squares with a preference for *simple* answers. The `‖x‖₁` term penalizes the total size
-of the coefficients in a way that drives most of them to exactly zero, so the fit selects a
-handful of predictors rather than using all of them a little. `γ` sets how aggressive that
-selection is. It becomes a QP by splitting each coefficient into positive and negative parts —
-that is what the extra variables below are doing.
+of the coefficients, driving most of them to exactly zero. The fit then selects a handful of
+predictors instead of using all of them a little. `γ` sets how strong that selection is.
+It becomes a QP by splitting each coefficient into positive and negative parts — that is
+what the extra variables below do.
 
 ```math
 \begin{array}{ll}
@@ -166,7 +164,7 @@ which becomes, in `(x, y, t)`,
 \end{array}
 ```
 
-`γ` enters only through `q`, which is the case [`update!`](@ref) exists for: the whole
+`γ` enters only through `q`, which is why [`update!`](@ref) exists: the whole
 regularization path reuses one workspace, and each solve warm starts from the last.
 
 Three variable groups and three row groups: the residual definition, then the two halves of
@@ -219,10 +217,10 @@ end
 Sparsity increases with `γ`, as it should.
 
 !!! note "Reading `refactor_count`"
-    `update!` with only `q` never refactorizes. `ws.refactor_count` will still grow across
-    this loop, because **adaptive ρ** refactorizes too — it is a total over the workspace's
-    life, not a count of what `update!` did. To see whether a particular `update!`
-    refactorized, read `refactor_count` immediately before and after that call.
+    `update!` with only `q` never refactorizes. `ws.refactor_count` still grows across
+    this loop, because **adaptive ρ** refactorizes too. It is a total over the workspace's
+    life, not a count of what `update!` did. To check a particular `update!`, read
+    `refactor_count` right before and after it.
 
 ## Huber fitting
 
@@ -243,9 +241,9 @@ The equivalent QP, in `(x, u, r, s)`:
 \end{array}
 ```
 
-`u` carries the quadratic part of the loss and `r − s` the linear part, so the first row
+`u` carries the quadratic part of the loss and `r − s` the linear part. The first row
 group is the residual `Ad x − u − r + s = b`; the second is the identity over `(r, s)`,
-carrying their nonnegativity.
+which enforces their nonnegativity.
 
 ::: details Code that draws the figure
 
@@ -289,17 +287,16 @@ x_lsq = Ad \ b
 (huber_error = norm(x_huber - x_true), least_squares_error = norm(x_lsq - x_true))
 ```
 
-The Huber fit recovers `x_true` several times more accurately than least-squares, which is
-the point of the formulation. Over twelve seeds at this outlier rate, the Huber estimate had
-the lower recovery error on all twelve, with median error 0.19 against 0.95.
+The Huber fit recovers `x_true` several times more accurately than least-squares. Over
+twelve seeds at this outlier rate, the Huber estimate had the lower error on all twelve,
+with median error 0.19 against 0.95.
 
 ## Support vector machine
 
 Draw the dividing line between two labelled classes, as far from both as you can. The `xᵀx`
-term prefers a wide margin; the `max(0, ·)` hinge charges for every point on the wrong side of
-it, with `γ` setting how much a misclassification costs relative to margin width. The hinge is
-not quadratic, so it enters as a slack variable per data point — one extra variable and one
-extra row each.
+term prefers a wide margin; the `max(0, ·)` hinge charges for every point on the wrong side,
+and `γ` sets how much a misclassification costs relative to margin width. The hinge is not
+quadratic, so each data point gets one slack variable and one extra row.
 
 ```math
 \begin{array}{ll}
@@ -362,11 +359,11 @@ accuracy = count(i -> sign((Ad*w)[i]) == -b[i], 1:m) / m
 ## Portfolio optimization
 
 Split a budget across assets to earn as much as possible without taking on more risk than you
-are willing to. `μ` is the expected return of each asset and `Σ` how they move together, so
-`xᵀΣx` is the variance of the whole portfolio and `γ` is how much return you demand per unit of
-risk. This is the textbook Markowitz problem, and it is a QP as written — no reformulation
-needed. The one below is the factor-model form, which keeps `Σ` as a small factor matrix plus a
-diagonal rather than a full covariance.
+want. `μ` is the expected return of each asset and `Σ` how they move together, so `xᵀΣx` is
+the variance of the whole portfolio and `γ` is how much return you demand per unit of risk.
+This is the textbook Markowitz problem, and it is a QP as written. The one below is the
+factor-model form, which keeps `Σ` as a small factor matrix plus a diagonal rather than a
+full covariance.
 
 ```math
 \begin{array}{ll}
@@ -376,8 +373,8 @@ diagonal rather than a full covariance.
 ```
 
 with a factor risk model `Σ = F Fᵀ + D`. Introducing `y = Fᵀ x` keeps the quadratic term
-diagonal. The constraint matrix stacks the definition of `y`, the single budget row, and a
-bound per asset.
+diagonal. The constraint matrix stacks the definition of `y`, the budget row, and a bound
+per asset.
 
 ::: details Code that draws the figure
 
@@ -420,14 +417,13 @@ x = sol.x[1:n]
 ```
 
 The budget constraint holds exactly and the most negative weight is on the order of
-`1e-20` — zero to machine precision, which is what a first-order method gives you on an
-active bound. If you need weights that are non-negative as a hard postcondition rather than
-to solver tolerance, clamp them.
+`1e-20` — zero to machine precision, as a first-order method gives on an active bound. If
+you need weights that are non-negative as a hard postcondition, clamp them.
 
 ## Model predictive control
 
 The problem [`update!`](@ref) is built for. A quadcopter is driven to a reference height by
-re-solving a finite-horizon optimal control problem at every step; only the initial-state
+re-solving a finite-horizon optimal control problem at every step. Only the initial-state
 rows of `l` and `u` change, so the factorization is computed once and reused.
 
 ```math
@@ -441,10 +437,10 @@ rows of `l` and `u` change, so the factorization is computed once and reused.
 
 Stacked over the horizon as `z = (x₀, …, x_N, u₀, …, u_{N−1})`, the dynamics rows are
 block-bidiagonal: row group `k` holds `Ad` under `x_{k−1}`, `−I` under `x_k`, and `Bd` under
-`u_{k−1}`, so the input columns sit one stage behind the state they produce. The first row
-group pins `x₀` to the measured state, and is the only part that changes between solves.
-Below these rows `A` stacks the identity, one bound per variable; it is not drawn. The `u`
-columns are drawn wider than their true four so the blocks can be labeled.
+`u_{k−1}`. The first row group pins `x₀` to the measured state, and is the only part that
+changes between solves. Below these rows `A` stacks the identity, one bound per variable;
+it is not drawn. The `u` columns are drawn wider than their true four so the blocks can
+be labeled.
 
 ::: details Code that draws the figure
 
@@ -555,12 +551,12 @@ end
 
 Fifteen closed-loop solves, **one factorization**. That is the whole reason to reach for
 `update!` rather than rebuilding the workspace: the initial-state bounds move every step,
-but no row changes constraint class, so `ρ` is untouched and the factorization stays valid.
+but no row changes constraint class, so the factorization stays valid.
 
 ## Building a workspace once
 
-`solve` builds a workspace, solves, and throws the workspace away. [`setup`](@ref) hands it
-back instead, so the equilibration factors, the buffers and the factorization survive to the
+`solve` builds a workspace, solves, and throws it away. [`setup`](@ref) hands it back
+instead, so the equilibration factors, the buffers and the factorization survive to the
 next [`solve!`](@ref) — and so do the iterates, which is what makes the second solve short.
 
 ```@example workspace
@@ -604,8 +600,8 @@ resolved = solve!(ws)
 (refactorizations = after - before, x = resolved.x)
 ```
 
-Settings can be replaced afterwards. `rho`, `sigma` and `rho_is_vec` are built into the
-factorization, so changing one of those refactorizes and the rest are free.
+Settings can be changed afterwards. `rho`, `sigma` and `rho_is_vec` are built into the
+factorization, so changing one of those refactorizes; the rest are free.
 
 ```@example workspace
 update_settings!(ws; eps_abs = 1e-6, polish = true)
@@ -614,8 +610,7 @@ update_rho!(ws, 1.0)
 ```
 
 `update_rho!` sets the value the solver is running with; `ws.settings.rho` keeps the one
-`setup` was given. Two keywords are refused rather than honored, because the workspace
-cannot act on them:
+`setup` was given. Two keywords are refused, because the workspace cannot act on them:
 
 ```@example workspace
 try
@@ -634,7 +629,7 @@ capabilities()
 ## What a solve reports
 
 The default tolerances leave a residual around `1e-3`. Polishing guesses the active set at
-the ADMM solution and solves the resulting equality-constrained QP exactly, which usually
+the ADMM solution and solves the resulting equality-constrained QP exactly. That usually
 takes the KKT error to machine precision for the price of one factorization.
 
 ```@example report
@@ -653,7 +648,7 @@ polished = solve(P, q, A, l, u; polish = true)
 
 `status_polish` distinguishes the five outcomes; `polished` is the narrower question of
 whether it was `POLISH_SUCCESS`. Polishing is accepted only when it improves both residuals,
-so `POLISH_FAILED` means the answer is the unpolished one, not that anything went wrong.
+so `POLISH_FAILED` means the answer is the unpolished one.
 
 Everything else a [`Solution`](@ref) carries:
 
@@ -696,20 +691,18 @@ sol = solve(P, q, A, l, u; eps_abs = 1e-9, eps_rel = 1e-9, profile_primdual = tr
 **What the number is.** The area under the duality-gap curve over the solve, in
 **gap × seconds**. Smaller means the gap shrank sooner. It is a *relative* measure: useful
 comparing two runs of the same problem, meaningless on its own, and not comparable across
-machines — it integrates against wall-clock time, so a different CPU gives a different number
-for the same solve.
+machines — a different CPU gives a different number for the same solve.
 
 **Why there are two.** They are two estimates of one quantity. The solver knows the gap only
-where it refreshes residuals — every `check_termination` iterations, 25 by default — so a
-rule has to assume what the gap did in between. `primdual_int` assumes a straight line
-between samples; `primdual_int_log` assumes the exponential decay a converging gap actually
-follows. A straight line drawn over a decaying curve sits above it, so the trapezoid reads
-high and the truth lies between the two.
+where it refreshes residuals — every `check_termination` iterations, 25 by default.
+`primdual_int` assumes a straight line between samples; `primdual_int_log` assumes the
+exponential decay a converging gap follows. A straight line drawn over a decaying curve sits
+above it, so the trapezoid reads high and the truth lies between the two.
 
 **Which to use.** Take `primdual_int_log`, and read the ratio between them as its error bar.
-When the two are close the samples resolve the curve and either number is sound; when they
-are far apart they do not. At the default interval the trapezoid runs about 3.4× high and the
-log-mean about 16% low; sampling every iteration brings the ratio to 0.93
+When the two are close, either number is sound; when they are far apart, they are not. At
+the default interval the trapezoid runs about 3.4× high and the log-mean about 16% low;
+sampling every iteration brings the ratio to 0.93
 ([Benchmarks](@ref "The primal-dual integral")).
 
 ```@example primdual
@@ -728,8 +721,8 @@ often. Profiling itself costs under 1% and does not change the answer or the ite
 
 `linsys = :auto` picks a backend from the representation of `P` and `A`, as above.
 `linsys = :kkt` overrides that and factors the full `(n+m)×(n+m)` quasi-definite system with
-Bunch-Kaufman, which is what the reference implementation does: slower, but it does not
-square the conditioning of `A`, so it is the one to reach for when a result is in question.
+Bunch-Kaufman, like the reference implementation. It is slower, but it does not square the
+conditioning of `A`, so use it when a result is in question.
 
 ```@example report
 kkt = setup(P, q, A, l, u; linsys = :kkt, eps_abs = 1e-9, eps_rel = 1e-9)
@@ -739,7 +732,7 @@ auto = setup(P, q, A, l, u; eps_abs = 1e-9, eps_rel = 1e-9)
 ```
 
 `linsys = :indirect` is the third: preconditioned conjugate gradients on the reduced system,
-which is never formed. It is for a matrix that can only supply products, or one large and
+which is never formed. Use it for a matrix that can only supply products, or one large and
 sparse enough that forming an `n×n` inverse is the dominant cost. It lives in a package
 extension over Krylov.jl, so it exists only once Krylov is loaded — without it, `setup` says
 so rather than falling back.
@@ -753,15 +746,15 @@ solve!(ws)
 ```
 
 The inner solve is inexact — its tolerance follows the ADMM residuals — so the iterates
-differ from the direct backends in the last digits even though both converge to the same
+differ from the direct backends in the last digits, even though both converge to the same
 point.
 
 ## Solution derivatives
 
-[`adjoint_derivative`](@ref) differentiates the KKT conditions at the solution the workspace
-holds, so it gives the gradients of a scalar loss with respect to all five pieces of problem
-data from one factorization. Given `∂L/∂x` and `∂L/∂y`, it returns `∂L/∂P`, `∂L/∂q`,
-`∂L/∂A`, `∂L/∂l` and `∂L/∂u`.
+[`adjoint_derivative`](@ref) differentiates the KKT conditions at the solution the
+workspace holds. From one factorization, it gives the gradients of a scalar loss with
+respect to all five pieces of problem data. Given `∂L/∂x` and `∂L/∂y`, it returns
+`∂L/∂P`, `∂L/∂q`, `∂L/∂A`, `∂L/∂l` and `∂L/∂u`.
 
 Here `L = x₁`, with the budget row `x₁ + x₂ = 1` the only active constraint:
 
@@ -789,8 +782,8 @@ fd = [(loss(q .+ h .* e) - loss(q .- h .* e)) / 2h for e in ([1.0, 0.0], [0.0, 1
 (grad.dq, fd)
 ```
 
-[`forward_derivative`](@ref) goes the other way, giving the derivative of the solution along
-a perturbation of the data. Widening the budget from `1` to `1 + t` moves both variables,
+[`forward_derivative`](@ref) goes the other way: the derivative of the solution along a
+perturbation of the data. Widening the budget from `1` to `1 + t` moves both variables,
 and the two moves sum to the extra budget:
 
 ```@example deriv
@@ -799,19 +792,20 @@ dx, dy = forward_derivative(ws; dl = [1.0, 0.0, 0.0], du = [1.0, 0.0, 0.0])
 ```
 
 The derivative exists only where the active set is stable. A row resting on its bound with a
-multiplier of zero, or an active-set KKT matrix that is singular or nearly so, makes the
-solution map non-differentiable, and both throw rather than return a regularized number that
-would look like an answer.
+zero multiplier, or an active-set KKT matrix that is singular or nearly so, makes the
+solution map non-differentiable. Both functions throw rather than return a regularized
+number that would look like an answer.
 
 ### A QP as a differentiable layer
 
 The derivatives above are called by hand. Loading
 [ChainRulesCore.jl](https://github.com/JuliaDiff/ChainRulesCore.jl) instead makes
-[`solve`](@ref) differentiable to any AD package that consumes ChainRules — Zygote among them
-— so a QP can sit inside a loss and be trained through with no gradient plumbing of your own.
+[`solve`](@ref) differentiable to any AD package that consumes ChainRules — Zygote among
+them. A QP can then sit inside a loss and be trained through, with no gradient plumbing of
+your own.
 
 Here a QP is fitted to a target: `q` is the parameter, and the loss is how far the solution
-lands from where we want it.
+lands from the target.
 
 ```@example layer
 using PureOSQP, ChainRulesCore, Zygote, LinearAlgebra
@@ -839,31 +833,29 @@ every step.
 **This differentiates the solution, not the iteration.** The rules call
 [`adjoint_derivative`](@ref) and [`forward_derivative`](@ref), which differentiate the KKT
 conditions at the active set: one linear solve, reusing a factorization the solve already
-produced, independent of how many iterations it took. Taping the ADMM loop instead would cost
-memory in proportion to the iteration count and return the derivative of the iterate rather
-than of the solution.
+produced, independent of how many iterations it took.
 
 Two things follow, and both are refusals rather than approximations:
 
-- **The solve must converge.** The KKT conditions hold at the solution and nowhere else, so a
-  run that stopped at `max_iter` raises rather than returning the gradient of a point that is
-  not the answer.
+- **The solve must converge.** The KKT conditions hold only at the solution, so a run that
+  stopped at `max_iter` raises rather than returning the gradient of a point that is not
+  the answer.
 - **The active set must be non-degenerate**, which `adjoint_derivative` already requires. A
-  least-squares answer there would have the right shape and units while being a different
+  least-squares answer there would have the right shape and units but be a different
   quantity, and nothing downstream could tell.
 
-`polish = true` is set for you unless you ask otherwise: the derivative is taken at the active
-set, and polishing is what identifies it exactly.
+`polish = true` is set for you unless you ask otherwise: the derivative is taken at the
+active set, and polishing identifies it exactly.
 
-One reach limit worth knowing: `rrule` and `frule` cover every AD backend that consumes
-ChainRules, which includes Zygote. Mooncake needs an explicit `Mooncake.@from_rrule`, and
-Enzyme its own `EnzymeRules` shim.
+One reach limit: `rrule` and `frule` cover every AD backend that consumes ChainRules,
+including Zygote. Mooncake needs an explicit `Mooncake.@from_rrule`, and Enzyme its own
+`EnzymeRules` shim.
 
 ## Infeasible problems
 
 A problem with no feasible point stops with `PRIMAL_INFEASIBLE` and a certificate `v`
-satisfying `Aᵀv = 0` with a negative support value, which proves it. Here the two rows ask
-for `x ≥ 1` and `x ≤ 0`:
+satisfying `Aᵀv = 0` with a negative support value. Here the two rows ask for `x ≥ 1`
+and `x ≤ 0`:
 
 ```@example infeasible
 using PureOSQP, LinearAlgebra
@@ -874,7 +866,7 @@ sol = solve([1.0;;], [0.0], A, [1.0, -Inf], [Inf, 0.0])
 ```
 
 An unbounded problem stops with `DUAL_INFEASIBLE` and a certificate `d` — a direction along
-which the objective falls without limit. Minimizing `-x` over the whole line:
+which the objective falls without limit. The example minimizes `-x` over the whole line:
 
 ```@example infeasible
 unbounded = solve(zeros(1, 1), [-1.0], [1.0;;], [-Inf], [Inf])
@@ -882,8 +874,8 @@ unbounded = solve(zeros(1, 1), [-1.0], [1.0;;], [-Inf], [Inf])
 ```
 
 Neither carries a primal-dual point, so `x` and `y` come back as `NaN` rather than as the
-last iterate, which is on a diverging ray. `obj_val` is `Inf` for a primal infeasibility and
-`-Inf` for a dual one. The certificate that does not apply is an empty vector:
+last iterate. `obj_val` is `Inf` for a primal infeasibility and `-Inf` for a dual one.
+The certificate that does not apply is an empty vector:
 
 ```@example infeasible
 (length(sol.dual_inf_cert), length(unbounded.prim_inf_cert))
@@ -892,8 +884,8 @@ last iterate, which is on a diverging ray. `obj_val` is `Inf` for a primal infea
 ## JuMP and MathOptInterface
 
 The MathOptInterface wrapper is a package extension, loaded when MathOptInterface is. Every
-field of [`Settings`](@ref) is a raw optimizer attribute of the same name. This block is not
-run here, since these docs do not depend on JuMP:
+field of [`Settings`](@ref) is a raw optimizer attribute of the same name. This block is
+not run here, since the docs do not depend on JuMP:
 
 ```julia
 using JuMP, PureOSQP
@@ -910,5 +902,5 @@ optimize!(model)
 value.(x)        # [0.3, 0.7]
 ```
 
-`PureOSQP.Optimizer` is the only name the core package owns; the wrapper itself lives in the
+`PureOSQP.Optimizer` is the only name the core package owns; the wrapper lives in the
 extension, so a caller who does not use MathOptInterface pays nothing for it.
