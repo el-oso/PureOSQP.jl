@@ -4,15 +4,15 @@ This page explains the internal working of the solver.
 
 ## The idea in one paragraph
 
-The problem involves minimizing an objective while staying within bounds. ADMM (*alternating direction method of multipliers*) solves this by maintaining two copies of the answer: one that minimizes the objective and one that satisfies the bounds. A penalty term is added to pull these two copies together. Each iteration consists of solving an unconstrained problem for $x$, clipping $z$ into the box, and updating a multiplier $y$. When they agree, you have the solution.
+The problem involves minimizing an objective while staying within bounds. ADMM (*alternating direction method of multipliers*) solves this by maintaining two copies of the answer: one that minimizes the objective and one that satisfies the bounds. A penalty term is added to pull these two copies together. Each iteration consists of solving an unconstrained problem for `x`, clipping `z` into the box, and updating a multiplier `y`. When they agree, you have the solution.
 
-The linear solve is the most expensive part. The matrix in the linear solve remains unchanged unless $\rho$ changes. The solver's efficiency comes from factoring this matrix once and reusing it.
+The linear solve is the most expensive part. The matrix in the linear solve remains unchanged unless `ρ` changes. The solver's efficiency comes from factoring this matrix once and reusing it.
 
 ## The ADMM iteration
 
 Each iteration solves one linear system and then performs a projection:
 
-$$
+```math
 \begin{aligned}
 \begin{bmatrix} P + \sigma I & A^\top \\ A & -\mathrm{diag}(\rho)^{-1} \end{bmatrix}
 \begin{bmatrix} \tilde x^{k+1} \\ \nu^{k+1} \end{bmatrix}
@@ -22,22 +22,24 @@ x^{k+1} &= \alpha \tilde x^{k+1} + (1-\alpha) x^k \\
 z^{k+1} &= \Pi_{[l,u]}\!\left(\alpha \tilde z^{k+1} + (1-\alpha) z^k + \rho^{-1} \odot y^k\right) \\
 y^{k+1} &= y^k + \rho \odot \left(\alpha \tilde z^{k+1} + (1-\alpha) z^k - z^{k+1}\right)
 \end{aligned}
-$$
+```
 
-$\sigma$ regularizes the $(1,1)$ block, $\alpha$ is the over-relaxation parameter, and $\rho$ is a vector with larger values on equality rows.
+`σ` regularizes the `(1,1)` block, `α` is the over-relaxation parameter, and `ρ` is a vector with larger values on equality rows.
 
 ## The linear system
 
-The reference implementation factors the $(n+m) \times (n+m)$ quasi-definite matrix with a sparse pivot-free LDLᵀ. An equivalent $n \times n$ symmetric positive definite system can be used:
+The reference implementation factors the `(n+m)×(n+m)` quasi-definite matrix with a sparse pivot-free LDLᵀ. An equivalent `n×n` symmetric positive definite system can be used:
 
-$$
+```math
 (P + \sigma I + A^\top \mathrm{diag}(\rho) A)\, \tilde x = \mathrm{rhs}_x + A^\top(\rho \odot \mathrm{rhs}_z),
 \qquad \tilde z = A \tilde x
-$$
+```
 
 PureOSQP factors this with `cholesky!`. In dense regimes, this reduced form is faster.
 
-$\mathrm{bandwidth}(R) = \max\bigl(\mathrm{bandwidth}(P),\; 2\,\mathrm{bandwidth}(A)\bigr)$
+```math
+\mathrm{bandwidth}(R) = \max\bigl(\mathrm{bandwidth}(P),\; 2\,\mathrm{bandwidth}(A)\bigr)
+```
 
 The `choose_backend` function selects a solver based on the problem's structure:
 
@@ -47,7 +49,7 @@ The `choose_backend` function selects a solver based on the problem's structure:
 | `SymTridiagonal` or `Tridiagonal` | `Diagonal` | 1 | [`TridiagonalReduced`](@ref PureOSQP.TridiagonalReduced) | `ldlt`, `O(n)` |
 | `Diagonal` | `Bidiagonal` | 1 | [`TridiagonalReduced`](@ref PureOSQP.TridiagonalReduced) | `ldlt`, `O(n)` |
 | `SymTridiagonal` or `Tridiagonal` | `Bidiagonal` | 1 | [`TridiagonalReduced`](@ref PureOSQP.TridiagonalReduced) | `ldlt`, `O(n)` |
-| banded | banded | $2 \leq b \leq n/4$ | `BandedReduced` | banded `cholesky`, `O(nb²)` |
+| banded | banded | ``2 \leq b \leq n/4`` | `BandedReduced` | banded `cholesky`, `O(nb²)` |
 
 The banded backend is a package extension requiring `BandedMatrices.jl`.
 
@@ -140,10 +142,10 @@ corpus runs through both backends.
 
 Modified Ruiz equilibration is applied to the system. It is stored as factors rather than applied to the matrices:
 
-$$
+```math
 \tilde P = c\,D P D, \qquad \tilde A = E A D, \qquad \tilde q = c\,D q, \qquad
 \tilde l = E l, \qquad \tilde u = E u
-$$
+```
 
 Every per-iteration product runs `mul!` on the caller's original matrix with the factors applied around it, so a structured or lazy `A` keeps its fast product and nothing is copied.
 
@@ -151,20 +153,21 @@ Every per-iteration product runs `mul!` on the caller's original matrix with the
 
 The iteration stops when primal and dual residuals satisfy the given tolerances.
 
-$$
+```math
 r_{\rm prim} = \|Ax - z\|_\infty,
 \qquad
 r_{\rm dual} = \|Px + q + A^\top y\|_\infty
-$$
+```
 
 Both residuals are reported in **problem space**.
 
 Tolerances are absolute plus relative:
-$$
+
+```math
 \epsilon_{\rm prim} = \epsilon_{\rm abs} + \epsilon_{\rm rel}\max\bigl(\|Ax\|_\infty,\|z\|_\infty\bigr),
 \qquad
 \epsilon_{\rm dual} = \epsilon_{\rm abs} + \epsilon_{\rm rel}\max\bigl(\|Px\|_\infty,\|q\|_\infty,\|A^\top y\|_\infty\bigr)
-$$
+```
 
 **The duality gap is a third test, and it can only delay convergence.** With
 `check_dualgap` — on by default, following libosqp 1.x — a point must additionally satisfy
@@ -186,15 +189,15 @@ Three more things decide what the caller sees:
 `scaled_termination` tests the equilibrated residuals instead of the unscaled ones. It is off
 by default, since the natural question is about your problem rather than the solver's internal
 one.
-## Adaptive $\rho$
+## Adaptive ρ
 
-$\rho$ is re-estimated based on the ratio of primal and dual residuals:
+`ρ` is re-estimated based on the ratio of primal and dual residuals:
 
-$$
+```math
 \rho_{\text{new}} = \rho \sqrt{
   \frac{r_{\text{prim}} / \max(\|z\|_\infty, \|Ax\|_\infty)}
        {r_{\text{dual}} / \max(\|q\|_\infty, \|A^\top y\|_\infty, \|Px\|_\infty)}}
-$$
+```
 
 and adopted only when it moves by more than a factor of `adaptive_rho_tolerance`, since
 adopting it forces a refactorization.
@@ -205,7 +208,7 @@ that iteration counts do not depend on how fast the machine is.
 
 ## Infeasibility
 
-Infeasibility is detected using the differences in iterates $\delta x$ and $\delta y$.
+Infeasibility is detected using the differences in iterates `δx` and `δy`.
 
 ## Polishing
 
