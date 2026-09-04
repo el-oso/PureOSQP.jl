@@ -116,6 +116,8 @@ column sit next to each other in `x`, while neighbors along a row sit four place
 The top row below is the image, with each pixel's position in `x` in its corner; the strip
 underneath is `x` itself, with the pairs each block couples drawn as arcs.
 
+::: details Code that draws the figure
+
 ```@example lm_grid_figure
 using CairoMakie
 
@@ -160,7 +162,13 @@ text!(axv, -0.3, 1.3; text = "I ⊗ D: adjacent entries", align = (:right, :cent
 text!(axv, -0.3, -0.6; text = "D ⊗ I: entries 4 apart", align = (:right, :center), fontsize = 13, color = "#E69F00")
 hidedecorations!(axv); hidespines!(axv)
 limits!(axv, -6.5, 16.5, -1.5, 2.4)
-fig
+nothing # hide
+```
+
+:::
+
+```@example lm_grid_figure
+fig # hide
 ```
 
 Pixel ``x_{ij}`` is entry ``i + 4(j-1)`` of `x`. Written out on this ordering, the two
