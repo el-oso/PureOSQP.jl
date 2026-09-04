@@ -9,17 +9,49 @@ simply never assembled, and each is solved without building it.
 
 All three need the same three things, covered in
 [An operator from LinearMaps.jl](@ref): load `Krylov`, pass `scaling = 0`, and declare
-`issymmetric` and `isposdef` on `P`. Every example below is checked against the same problem
-with every matrix materialized; the agreement is reported with each one.
+`issymmetric` and `isposdef` on `P`. Each example states the problem, draws the operator, solves
+with the map, and then solves the same problem with every matrix written out and prints the
+difference between the two answers.
 
 ## 1. Fitting to sensor readings
 
 You have a signal of 240 points but only measured every fifth one. You want the closest signal
 to a target that still agrees with all 48 readings to within 0.05.
 
-The constraint matrix picks out the measured entries. Written down it is a 48×240 array of
-almost entirely zeros. As a map it is a single indexing operation, and its transpose scatters
-the values back:
+```math
+\begin{array}{ll}
+  \mbox{minimize}   & \|x\|_2^2 + q^T x \\
+  \mbox{subject to} & b - 0.05 \le A x \le b + 0.05
+\end{array}
+```
+
+Here `q = -2t + noise` for the target `t`, so the objective is `‖x - x₀‖²` up to a constant,
+with `x₀ = -q/2` the noisy target; `b` holds the 48 readings. The constraint matrix picks out
+the measured entries, and its transpose puts them back where they came from:
+
+```math
+(Ax)_j = x_{5j-4},
+\qquad
+(A^{\top}y)_i = \begin{cases} y_j & i = 5j-4 \\ 0 & \text{otherwise} \end{cases}
+```
+
+Written down `A` is a 48×240 array with a single 1 in each row. As a program it is one
+indexing step in each direction, and the index range is all that is stored:
+
+```math
+x \in \mathbb{R}^{240}
+\;\xrightarrow{\;\;[\,1{:}5{:}240\,]\;\;}\;
+Ax \in \mathbb{R}^{48}
+\qquad\qquad
+y \in \mathbb{R}^{48}
+\;\xrightarrow{\;\;\text{scatter to } 1{:}5{:}240\;\;}\;
+A^{\top}y \in \mathbb{R}^{240}
+```
+
+```math
+A \;=\; \underbrace{I_{240}[\,1{:}5{:}240,\;:\,]}_{48 \times 240,\ \text{48 ones}}
+\qquad \text{stored: the range } 1{:}5{:}240 \text{, and nothing else}
+```
 
 ```@example lm_sensors
 using PureOSQP, LinearMaps, LinearAlgebra, Krylov, Random
@@ -44,7 +76,13 @@ sol = PureOSQP.solve(P, q, A, b .- 0.05, b .+ 0.05; scaling = 0, eps_abs = 1e-9,
 (sol.status, sol.iter, round(sol.obj_val; digits = 8))
 ```
 
-Agrees with the materialized problem to `1.8e-10`.
+The same problem with `A` written out as its 48×240 array, and `P` as a `Diagonal`:
+
+```@example lm_sensors
+Ad = Matrix(1.0I, n, n)[idx, :]
+dense = PureOSQP.solve(Diagonal(fill(2.0, n)), q, Ad, b .- 0.05, b .+ 0.05; eps_abs = 1e-9, eps_rel = 1e-9)
+(dense.status, maximum(abs, sol.x .- dense.x))
+```
 
 This is the easiest case to reach for: a measurement operator that selects, masks or reorders
 is pure bookkeeping, and storing it as a matrix buys nothing.
@@ -54,9 +92,48 @@ is pure bookkeeping, and storing it as a matrix buys nothing.
 A 14×14 image, with a limit on how fast it may change from one pixel to the next — in both
 directions at once. The image is 196 variables, so a constraint matrix would be 392×196.
 
+With `X` the image and `x = vec(X)` its columns stacked into one vector, the problem is to
+stay close to a target image `X₀` while keeping every neighbor difference within 0.25:
+
+```math
+\begin{array}{ll}
+  \mbox{minimize}   & \|x - \mathrm{vec}(X_0)\|_2^2 \\
+  \mbox{subject to} & -0.25 \le (I \otimes D)\,x \le 0.25 \\
+                    & -0.25 \le (D \otimes I)\,x \le 0.25
+\end{array}
+```
+
+`D` is the 14×14 difference operator along one axis, lower bidiagonal with 1 on the diagonal
+and −1 below it:
+
+```math
+(Dv)_1 = v_1, \qquad (Dv)_i = v_i - v_{i-1} \quad (i = 2, \dots, 14)
+```
+
 The trick is that a 2-D operation built from a 1-D one along each axis is a **Kronecker
-product**, and `kron` composes maps without forming anything. One small 14×14 difference
-operator serves both axes:
+product**: `I ⊗ D` applies `D` down every column of `X`, and `D ⊗ I` applies it along every
+row.
+
+```math
+X \in \mathbb{R}^{14 \times 14}
+\;\xrightarrow{\;\;D \text{ down each column}\;\;}\;
+DX = \mathrm{unvec}\big((I \otimes D)\,x\big)
+\qquad\qquad
+X
+\;\xrightarrow{\;\;D \text{ along each row}\;\;}\;
+XD^{\top} = \mathrm{unvec}\big((D \otimes I)\,x\big)
+```
+
+`kron` composes maps without forming anything, so the constraint matrix is the two blocks
+stacked, and only the 14×14 factors exist:
+
+```math
+A \;=\; \begin{pmatrix} I_{14} \otimes D \\ D \otimes I_{14} \end{pmatrix}
+\qquad 392 \times 196,
+\qquad \text{stored: } D \text{ and } I_{14} \text{, both } 14 \times 14
+```
+
+One small difference operator serves both axes:
 
 ```@example lm_grid
 using PureOSQP, LinearMaps, LinearAlgebra, Krylov, Random
@@ -86,7 +163,17 @@ sol = PureOSQP.solve(
 (size(A), sol.status, sol.iter, round(sol.obj_val; digits = 8))
 ```
 
-Agrees with the materialized problem to `3.5e-12`.
+The same problem with `D` written out and both Kronecker products formed as 196-column arrays:
+
+```@example lm_grid
+Dd = Bidiagonal(ones(k), -ones(k - 1), :L)
+Ad = [kron(I(k), Dd); kron(Dd, I(k))]
+dense = PureOSQP.solve(
+    Diagonal(fill(2.0, n)), q, Ad, fill(-0.25, 2n), fill(0.25, 2n);
+    eps_abs = 1e-9, eps_rel = 1e-9,
+)
+(size(Ad), dense.status, maximum(abs, sol.x .- dense.x))
+```
 
 Only the 14×14 factor is ever stored. The saving grows fast: the same construction on a
 256×256 image gives a constraint matrix with `2.1e10` entries, built from a 256×256 one.
@@ -98,7 +185,37 @@ model. You can call it, but nobody ever assembled it, and doing so would mean on
 column.
 
 Here it is a first-order recursion, `yₖ = 0.6·yₖ₋₁ + xₖ`, the discrete form of a system that
-carries part of its state forward. Its transpose is the same recursion run backwards:
+carries part of its state forward. The problem is to stay close to a random target `x₀` while
+keeping the system's output within ±1.5 at every step:
+
+```math
+\begin{array}{ll}
+  \mbox{minimize}   & \|x - x_0\|_2^2 \\
+  \mbox{subject to} & -1.5 \le A x \le 1.5
+\end{array}
+```
+
+Unrolling the recursion from `y₀ = 0` gives every output as a decaying sum of the inputs before
+it, which is what `A` is as a matrix — lower triangular, with `a = 0.6`:
+
+```math
+y_k = \sum_{j \le k} a^{\,k-j} x_j
+\qquad\Longrightarrow\qquad
+A = \begin{pmatrix} 1 & & & \\ a & 1 & & \\ a^2 & a & 1 & \\ \vdots & \ddots & \ddots & \ddots \end{pmatrix}
+\qquad \text{stored: } a \text{, and nothing else}
+```
+
+Its transpose is the same recursion run backwards, so both directions are one loop:
+
+```math
+x
+\;\xrightarrow{\;\;y_k = a\,y_{k-1} + x_k,\ \ k = 1, \dots, n\;\;}\;
+Ax
+\qquad\qquad
+y
+\;\xrightarrow{\;\;z_k = a\,z_{k+1} + y_k,\ \ k = n, \dots, 1\;\;}\;
+A^{\top}y
+```
 
 ```@example lm_model
 using PureOSQP, LinearMaps, LinearAlgebra, Krylov, Random
@@ -136,10 +253,19 @@ sol = PureOSQP.solve(
 (sol.status, sol.iter, round(sol.obj_val; digits = 8))
 ```
 
-Agrees with the materialized problem to `1.2e-9`.
+The same problem with `A` written out from its closed form, `Aᵢⱼ = aⁱ⁻ʲ` for `i ≥ j`:
 
-As a matrix this is dense and lower triangular — 11 250 nonzeros here, and `n²/2` in general.
-As a map it is two loops over `n` values.
+```@example lm_model
+Ad = [i >= j ? a^(i - j) : 0.0 for i in 1:n, j in 1:n]
+dense = PureOSQP.solve(
+    Diagonal(fill(2.0, n)), q, Ad, fill(-1.5, n), fill(1.5, n);
+    eps_abs = 1e-9, eps_rel = 1e-9,
+)
+(dense.status, maximum(abs, sol.x .- dense.x))
+```
+
+As a matrix this is dense and lower triangular — 11 325 nonzeros here, and `n(n+1)/2` in
+general. As a map it is two loops over `n` values.
 
 ## Choosing between a map and a matrix
 
