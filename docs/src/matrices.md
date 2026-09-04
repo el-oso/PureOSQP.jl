@@ -302,7 +302,9 @@ it in `Symmetric` to say which triangle is the real one.
 
 Eliminating `ν` from the ADMM subproblem gives an `n×n` reduced matrix, and whether that
 matrix is worth keeping sparse depends on its pattern rather than on the input's density.
-`linsys = :auto` decides by asking CHOLMOD to factor the pattern and measuring the fill.
+`linsys = :auto` decides by asking CHOLMOD to factor the pattern and measuring the fill. Where
+that decision sits among the others is drawn in
+[Backend selection as a decision tree](@ref).
 
 ```@example storage
 band = 200
@@ -345,7 +347,8 @@ R = c D P D + \sigma I + \tilde A^\top \mathrm{diag}(\rho) \tilde A
 
 Diagonal scaling preserves a bandwidth and `ÃᵀρÃ` doubles `A`'s, so
 `bandwidth(R) = max(bandwidth(P), 2 bandwidth(A))`. `linsys = :auto` dispatches on the pair
-of types, with no setting and no density gate involved.
+of types, with no setting and no density gate involved; these pairs are the top of the
+ladder in [Backend selection as a decision tree](@ref).
 
 ```@example structured
 using PureOSQP, LinearAlgebra
@@ -660,6 +663,85 @@ requirements, and the dense path gives the same answers.
 Each one is used the same way: build it, pass it to [`setup`](@ref) exactly where you would
 have passed a matrix, and check `backend_name` to confirm it was picked up. You never
 configure anything.
+
+What each shape does to the reduced matrix `R = cDPD + σI + ÃᵀρÃ`, the matrix every
+backend has to solve with, is why each gets a backend of its own:
+
+::: details Code that draws the figure
+
+```@example structured_figure
+using CairoMakie, LinearAlgebra
+
+# Draw the nonzero pattern of `M` as unit cells with its top-left corner at `(x0, y0)`,
+# rows running downward.
+function cells!(ax, M, x0, y0; color)
+    nr, nc = size(M)
+    rects = [Rect2f(x0 + j - 1, y0 - i, 1, 1) for i in 1:nr, j in 1:nc if !iszero(M[i, j])]
+    isempty(rects) || poly!(ax, rects; color)
+    lines!(ax, Rect2f(x0, y0 - nr, nc, nr); color = :black, linewidth = 1)
+    return nothing
+end
+blue, orange, purple = "#0072B2", "#E69F00", "#CC79A7"
+
+fig = Figure(size = (980, 560))
+ax = Axis(fig[1, 1]; aspect = DataAspect())
+hidedecorations!(ax); hidespines!(ax)
+title!(x, s) = text!(ax, x, 3.2; text = s, align = (:center, :bottom), fontsize = 15, font = :bold)
+label!(x, y, s) = text!(ax, x, y + 0.3; text = s, align = (:center, :bottom), fontsize = 12)
+caption!(x, y, s) = text!(ax, x, y; text = s, align = (:center, :top), fontsize = 11, color = :gray30)
+ytop, ybot, ycap = 0, -17, -30.5
+
+# Block-diagonal: P and A share the partition, so R is K small dense blocks.
+title!(6, "BlockDiagonal")
+Abd = kron(Matrix(1.0I, 4, 4), ones(3, 3))
+cells!(ax, Abd, 0, ytop; color = blue)
+label!(6, ytop, "A: four 3×3 blocks")
+cells!(ax, Abd, 0, ybot; color = purple)
+label!(6, ybot, "R: four 3×3 blocks")
+caption!(6, ycap, "each block is factored alone;\nR is never assembled whole")
+
+# Kronecker: R = μ′I + ρ (A₁ᵀA₁ ⊗ A₂ᵀA₂), diagonalized by the eigenvectors of the two Grams.
+x2 = 17
+title!(x2 + 6, "KroneckerOperator")
+A1 = [1 1 0; 1 1 1; 0 1 1]
+A2 = [1 1 0 0; 1 1 1 0; 0 1 1 1; 0 0 1 1]
+cells!(ax, kron(A1, A2), x2, ytop; color = blue)
+label!(x2 + 6, ytop, "A = A₁ ⊗ A₂, 3×3 and 4×4")
+cells!(ax, A1' * A1, x2 + 1, ybot; color = purple)
+text!(ax, x2 + 5, ybot - 2; text = "⊗", align = (:center, :center), fontsize = 18)
+cells!(ax, A2' * A2, x2 + 6, ybot; color = purple)
+label!(x2 + 6, ybot, "R = μ′I + ρ (A₁ᵀA₁ ⊗ A₂ᵀA₂)")
+caption!(x2 + 6, ycap, "eigendecompose the 3×3 and 4×4 factors;\nR is never formed")
+
+# Row-coupled: R = C + VᵀWV with C diagonal and V the k×n coupling rows. Woodbury solves
+# through V, so the diagonal and the k×n block are all that is stored.
+x3, n, k = 34, 12, 2
+title!(x3 + 12, "RowCoupled")
+cells!(ax, [ones(k, n); Matrix(1.0I, n, n)], x3, ytop; color = blue)
+label!(x3 + 6, ytop, "A: 2 coupling rows, then a bound per variable")
+cells!(ax, Matrix(1.0I, n, n), x3, ybot; color = purple)
+text!(ax, x3 + 13, ybot - 6; text = "+", align = (:center, :center), fontsize = 18)
+cells!(ax, ones(n, k), x3 + 14, ybot; color = orange)
+text!(ax, x3 + 17, ybot - 6; text = "W", align = (:center, :center), fontsize = 13)
+cells!(ax, ones(k, n), x3 + 18, ybot; color = orange)
+label!(x3 + 12, ybot, "R = C + VᵀWV: diagonal C, 2×12 V, 2×2 W")
+caption!(x3 + 12, ycap, "stored: the diagonal of C and the block V;\nWoodbury solves through V, and R is never formed")
+limits!(ax, -1, 65, -35, 6)
+nothing # hide
+```
+
+:::
+
+```@example structured_figure
+fig # hide
+```
+
+A block-diagonal pair keeps `R` block-diagonal, so it is factored one block at a time. A
+Kronecker `A` with `P = μI` makes `R` a Kronecker product of two small Gram matrices, and
+the eigenvectors of those factors diagonalize it. A row-coupled `A` makes `R` a diagonal
+plus a rank-`k` correction, which Woodbury's identity solves through the `k×n` coupling
+block alone. None of the three ever forms `R`, which is what a dense matrix carrying the
+same numbers would force.
 
 ### Block-diagonal
 

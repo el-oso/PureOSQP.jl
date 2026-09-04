@@ -37,6 +37,63 @@ The reference implementation factors the `(n+m)×(n+m)` quasi-definite matrix wi
 
 PureOSQP factors this with `cholesky!`. In dense regimes, this reduced form is faster.
 
+The two systems for a small sparse pair, with each entry colored by where it comes from. The
+reduced matrix is a fraction of the size, and `AᵀρA` fills it in wherever two rows of `A`
+share a column.
+
+::: details Code that draws the figure
+
+```@example alg_kkt_figure
+using CairoMakie, LinearAlgebra, SparseArrays, Random
+Random.seed!(1)
+
+n, m = 10, 16
+A = Matrix(sprand(Bool, m, n, 0.15) .| sparse(1:m, mod1.(1:m, n), true, m, n))  # no empty row
+Pn = [abs(i - j) <= 1 for i in 1:n, j in 1:n]                                  # tridiagonal P
+
+# Entry codes: 0 empty, 1 from P, 2 from A, 3 both (or the −diag(ρ)⁻¹ block).
+kkt = zeros(Int, n + m, n + m)
+kkt[1:n, 1:n] .= Pn
+kkt[1:n, (n + 1):end] .= 2 .* A'
+kkt[(n + 1):end, 1:n] .= 2 .* A
+for i in 1:m
+    kkt[n + i, n + i] = 3
+end
+red = Pn .+ 2 .* ((A' * A) .> 0)
+
+wong = cgrad([:white, "#0072B2", "#E69F00", "#CC79A7"]; categorical = true)
+pattern!(ax, codes) = heatmap!(ax, 1:size(codes, 2), 1:size(codes, 1), permutedims(codes);
+                               colormap = wong, colorrange = (-0.5, 3.5))
+
+fig = Figure(size = (820, 420))
+ax1 = Axis(fig[1, 1]; aspect = DataAspect(), yreversed = true,
+           title = "full KKT, (n+m)×(n+m) = $(n + m)×$(n + m), LDLᵀ")
+pattern!(ax1, kkt)
+lines!(ax1, [n + 0.5, n + 0.5], [0.5, n + m + 0.5]; color = :black, linewidth = 1)
+lines!(ax1, [0.5, n + m + 0.5], [n + 0.5, n + 0.5]; color = :black, linewidth = 1)
+text!(ax1, n / 2 + 0.5, -0.6; text = "P + σI", align = (:center, :bottom), color = "#0072B2", fontsize = 14)
+text!(ax1, n + m / 2 + 0.5, -0.6; text = "Aᵀ", align = (:center, :bottom), color = "#E69F00", fontsize = 14)
+text!(ax1, -0.5, n / 2 + 0.5; text = "P + σI", align = (:right, :center), color = "#0072B2", fontsize = 14)
+text!(ax1, -0.5, n + m / 2 + 0.5; text = "A", align = (:right, :center), color = "#E69F00", fontsize = 14)
+text!(ax1, n + m + 1, n + m / 2 + 0.5; text = "−diag(ρ)⁻¹", align = (:left, :center), color = "#CC79A7", fontsize = 14)
+ax2 = Axis(fig[1, 2]; aspect = DataAspect(), yreversed = true,
+           title = "reduced, n×n = $n×$n, Cholesky")
+pattern!(ax2, red)
+text!(ax2, n / 2 + 0.5, -0.6; text = "P + σI + Aᵀdiag(ρ)A", align = (:center, :bottom), fontsize = 14)
+Legend(fig[2, 1:2],
+    [PolyElement(color = c) for c in ("#0072B2", "#E69F00", "#CC79A7")],
+    ["from P", "from A", "both, or −diag(ρ)⁻¹"]; orientation = :horizontal, framevisible = false)
+foreach(ax -> (hidedecorations!(ax); hidespines!(ax)), (ax1, ax2))
+colsize!(fig.layout, 1, Relative(0.62))
+nothing # hide
+```
+
+:::
+
+```@example alg_kkt_figure
+fig # hide
+```
+
 ```math
 \mathrm{bandwidth}(R) = \max\bigl(\mathrm{bandwidth}(P),\; 2\,\mathrm{bandwidth}(A)\bigr)
 ```
@@ -63,6 +120,39 @@ Fill-in is a factor. On random sparse `A`, the reduced matrix `R` is much sparse
 | 200 | 400 | 5% | 78.9% | 100% | 1.3× |
 | 400 | 800 | 1% | 11.2% | 83.3% | 7.4× |
 | 400 | 800 | 5% | 95.4% | 100% | 1.1× |
+
+The first row, drawn. This is a fresh random pattern at the same `n`, `m` and density, so
+its percentages differ a little from the table's; the shape of the result does not. `R`
+keeps most of `A`'s sparsity, and its Cholesky factor keeps almost none of it.
+
+::: details Code that draws the figure
+
+```@example alg_fill_figure
+using CairoMakie, LinearAlgebra, SparseArrays, Random
+Random.seed!(1)
+
+n, m = 200, 400
+A = sprand(m, n, 0.01)
+R = sparse(1.0I, n, n) + A' * A
+L = cholesky(Matrix(Symmetric(R))).L
+density(M) = round(100 * count(!iszero, M) / length(M); digits = 1)
+
+fig = Figure(size = (900, 380))
+for (i, (name, M)) in enumerate(("A" => Matrix(A), "R = σI + AᵀρA" => Matrix(R), "chol(R)" => Matrix(L)))
+    axf = Axis(fig[1, i]; aspect = DataAspect(), yreversed = true,
+               title = "$name   $(size(M, 1))×$(size(M, 2)),  $(density(M))% nonzero")
+    heatmap!(axf, 1:size(M, 2), 1:size(M, 1), permutedims(M .!= 0);
+             colormap = [:white, "#0072B2"], colorrange = (0, 1))
+    hidedecorations!(axf); hidespines!(axf)
+end
+nothing # hide
+```
+
+:::
+
+```@example alg_fill_figure
+fig # hide
+```
 
 ## Solving with the inverse
 
@@ -133,6 +223,72 @@ is not positive definite. On the measurements above that fallback never
 triggers with equilibration on, so treat it as a safety net rather than as the mechanism
 that handles ill-conditioning.
 
+#### Backend selection as a decision tree
+
+The whole selection, top to bottom. A pair whose types name a backend outright takes it
+without descending; every other pair starts at rung 1 and stops at the first rung that
+accepts it. The two sparse factorization rungs decide by factoring and keep the factor they
+produce, so a `yes` there costs nothing extra.
+
+::: details Code that draws the figure
+
+```@example alg_ladder_figure
+using CairoMakie
+
+steps = [
+    ("Diagonal P and Diagonal A", ":diagonal — n divisions"),
+    ("SymTridiagonal/Tridiagonal P with Diagonal A,\nor Diagonal/tridiagonal P with Bidiagonal A", ":tridiagonal — ldlt, O(n)"),
+    ("banded P and A, 2 ≤ bandwidth(R) ≤ n/4\n(BandedMatrices loaded)", ":banded — banded Cholesky, O(nb²)"),
+    ("sparse A with more than 10% nonzeros", ":cholesky — dense reduced matrix"),
+    ("sparse A: factor the full KKT matrix;\nfactor under 5% of n² nonzeros?", ":sparse_kkt"),
+    ("sparse A: factor R sparsely;\nfactor under 5% of n² nonzeros?", ":cholmod"),
+    ("KroneckerOperator A, P = μI,\none ρ for all rows, scaling = 0", ":kronecker — eigenbases of the factors"),
+    ("BlockDiagonal P and A, same partition", ":block — one solve per block"),
+    ("Diagonal P and RowCoupled A, 10k ≤ n", ":lowrank — Woodbury, O(nk)"),
+    ("sparse A: form R from stored entries", ":sparse_formed — dense inverse"),
+    ("P and A can be materialized", ":cholesky — dense reduced matrix"),
+    ("neither can be (a LinearMap)", ":indirect — conjugate gradients"),
+]
+
+fig = Figure(size = (860, 760))
+ax = Axis(fig[1, 1])
+hidedecorations!(ax); hidespines!(ax)
+box!(x, y, w, h, txt; color, textcolor = :black) = begin
+    poly!(ax, Rect2f(x, y, w, h); color, strokecolor = :black, strokewidth = 1)
+    text!(ax, x + w / 2, y + h / 2; text = txt, align = (:center, :center), fontsize = 12, color = textcolor)
+end
+down!(x, y0, y1) = begin
+    lines!(ax, [x, x], [y0, y1]; color = :gray40)
+    scatter!(ax, [x], [y1]; marker = :dtriangle, color = :gray40, markersize = 10)
+end
+H = length(steps)
+for (i, (question, answer)) in enumerate(steps)
+    y = H - i
+    box!(0, y + 0.1, 5.2, 0.8, question; color = (:gray, 0.12))
+    box!(6.4, y + 0.1, 4.6, 0.8, answer; color = ("#0072B2", 0.15), textcolor = "#0072B2")
+    lines!(ax, [5.2, 6.4], [y + 0.5, y + 0.5]; color = :gray40)
+    scatter!(ax, [6.4], [y + 0.5]; marker = :rtriangle, color = :gray40, markersize = 10)
+    text!(ax, 5.8, y + 0.55; text = "yes", align = (:center, :bottom), fontsize = 10, color = :gray40)
+    i < H && down!(2.6, y + 0.1, y - 0.1)
+end
+text!(ax, 2.6, H + 0.25; text = "P, A   (linsys = :auto)", align = (:center, :bottom), fontsize = 13)
+down!(2.6, H + 0.2, H - 0.1)
+lines!(ax, [-0.25, -0.25], [H - 3 + 0.1, H - 0.1]; color = :gray50)
+text!(ax, -0.4, H - 1.5; text = "by type", align = (:center, :bottom), fontsize = 11, color = :gray50, rotation = pi / 2)
+lines!(ax, [-0.25, -0.25], [0.1, H - 3 - 0.1]; color = :gray50)
+text!(ax, -0.4, (H - 3) / 2; text = "the ladder, rungs 1–8", align = (:center, :bottom), fontsize = 11, color = :gray50, rotation = pi / 2)
+text!(ax, 5.0, -0.5; text = "a :cholesky that finds R not positive definite is rebuilt as :bunchkaufman (full KKT)",
+      align = (:center, :top), fontsize = 11, color = :gray30)
+limits!(ax, -1.2, 11.2, -1.2, H + 1)
+nothing # hide
+```
+
+:::
+
+```@example alg_ladder_figure
+fig # hide
+```
+
 `linsys = :kkt` forces the full quasi-definite factorization for every solve. It is
 slower — that is the whole point of the reduced form — but it is the more accurate
 factorization at moderate conditioning, and it is the closest match to what the reference
@@ -145,6 +301,51 @@ Modified Ruiz equilibration is applied to the system. It is stored as factors ra
 ```math
 \tilde P = c\,D P D, \qquad \tilde A = E A D, \qquad \tilde q = c\,D q, \qquad
 \tilde l = E l, \qquad \tilde u = E u
+```
+
+::: details Code that draws the figure
+
+```@example alg_equil_figure
+using CairoMakie
+
+fig = Figure(size = (760, 330))
+ax = Axis(fig[1, 1]; aspect = DataAspect())
+hidedecorations!(ax); hidespines!(ax)
+# A diagonal factor: an outlined square with its diagonal drawn.
+diagbox!(x, y, s, label, color) = begin
+    lines!(ax, Rect2f(x, y, s, s); color = :black, linewidth = 1)
+    lines!(ax, [x, x + s], [y + s, y]; color, linewidth = 3)
+    text!(ax, x + s / 2, y - 0.25; text = label, align = (:center, :top), fontsize = 14, color)
+end
+# The caller's matrix, held by reference.
+refbox!(x, y, w, h, label) = begin
+    poly!(ax, Rect2f(x, y, w, h); color = (:gray, 0.25), strokecolor = :black, strokewidth = 1)
+    text!(ax, x + w / 2, y + h / 2; text = label, align = (:center, :center), fontsize = 15)
+    text!(ax, x + w / 2, y - 0.3; text = "the caller's array, by reference",
+          align = (:center, :top), fontsize = 12, color = :gray30)
+end
+n, m = 3.0, 4.5
+y0, y1 = 6.5, 0.5
+text!(ax, 0, y0 + n / 2; text = L"\tilde{P} = c\,\cdot", align = (:right, :center), fontsize = 16)
+diagbox!(0.5, y0, n, "D", "#E69F00")
+refbox!(4.0, y0, n, n, "P")
+diagbox!(7.5, y0, n, "D", "#E69F00")
+text!(ax, 0, y1 + m / 2; text = L"\tilde{A} =", align = (:right, :center), fontsize = 16)
+diagbox!(0.5, y1, m, "E", "#CC79A7")
+refbox!(5.5, y1, n, m, "A")
+diagbox!(9.0, y1 + (m - n), n, "D", "#E69F00")
+text!(ax, 13.5, y0 + n / 2; text = "stored: c and the diagonal of D\n(a scalar and an n-vector)",
+      align = (:left, :center), fontsize = 13, color = :gray30)
+text!(ax, 13.5, y1 + m / 2; text = "stored: the diagonals of E and D\n(an m-vector, the same n-vector)",
+      align = (:left, :center), fontsize = 13, color = :gray30)
+limits!(ax, -2.5, 22, -1.2, 10.2)
+nothing # hide
+```
+
+:::
+
+```@example alg_equil_figure
+fig # hide
 ```
 
 Every per-iteration product runs `mul!` on the caller's original matrix with the factors applied around it, so a structured or lazy `A` keeps its fast product and nothing is copied.

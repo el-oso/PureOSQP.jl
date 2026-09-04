@@ -49,8 +49,77 @@ keeps the objective diagonal and the constraint matrix sparse instead of forming
 \end{array}
 ```
 
-Introducing `y = A_d x - b` turns this into a QP in `(x, y)`, with the residual carrying the
-whole objective:
+Introducing `y = A_d x - b` turns this into a QP in `(x, y)`. The residual carries the whole
+objective, and the constraint matrix has two row groups: `m` rows that define `y`, and `n`
+rows that carry the box on `x`.
+
+::: details Code that draws the figure
+
+```@example ex_blocks
+using CairoMakie
+
+# One block-outline drawing of a constraint matrix. `cols` and `rows` are `name => size`
+# pairs, one per variable group and per constraint-row group; a block is
+# `(rows, cols, label)` with ranges of group indices. Sizes are drawn in proportion, except
+# that a group thinner than `minsize` is widened to it so its blocks can hold a label;
+# `margin` is the room left for the row labels, as a fraction of the drawn width. A
+# label `I` or `−I` is drawn as the identity's diagonal, `0` as an empty cell, anything else
+# as a filled block.
+function blockfigure(cols, rows, blocks; minsize = 0, margin = 0.45, size = (640, 400), fontsize = 14)
+    w = [max(Float64(s), minsize) for (_, s) in cols]
+    h = [max(Float64(s), minsize) for (_, s) in rows]
+    x, y = [0.0; cumsum(w)], [0.0; cumsum(h)]
+    W, H = x[end], y[end]
+    fig = Figure(; size)
+    ax = Axis(fig[1, 1]; aspect = DataAspect())
+    # y runs downward so that row group 1 is on top, as in the matrix literal.
+    for (r, c, label) in blocks
+        x0, x1 = x[first(c)], x[last(c) + 1]
+        y0, y1 = y[first(r)], y[last(r) + 1]
+        if occursin(r"^[-−]?I$", label)
+            lines!(ax, [x0, x1], [-y0, -y1]; color = "#E69F00", linewidth = 3)
+            text!(ax, x0 + 0.72 * (x1 - x0), -(y0 + 0.3 * (y1 - y0)); text = label,
+                  align = (:center, :center), fontsize, color = "#E69F00")
+        elseif label == "0"
+            text!(ax, (x0 + x1) / 2, -(y0 + y1) / 2; text = "0",
+                  align = (:center, :center), fontsize, color = :gray60)
+        else
+            poly!(ax, Rect2f(x0, -y1, x1 - x0, y1 - y0); color = ("#0072B2", 0.25))
+            text!(ax, (x0 + x1) / 2, -(y0 + y1) / 2; text = label,
+                  align = (:center, :center), fontsize, color = "#0072B2")
+        end
+    end
+    for xi in x[2:(end - 1)]
+        lines!(ax, [xi, xi], [0, -H]; color = :gray70, linestyle = :dash, linewidth = 1)
+    end
+    for yi in y[2:(end - 1)]
+        lines!(ax, [0, W], [-yi, -yi]; color = :gray70, linestyle = :dash, linewidth = 1)
+    end
+    lines!(ax, Rect2f(0, -H, W, H); color = :black, linewidth = 1.5)
+    for (i, (name, _)) in enumerate(cols)
+        text!(ax, (x[i] + x[i + 1]) / 2, 0.015H; text = name,
+              align = (:center, :bottom), fontsize = fontsize - 2)
+    end
+    for (j, (name, _)) in enumerate(rows)
+        text!(ax, -0.015W, -(y[j] + y[j + 1]) / 2; text = name,
+              align = (:right, :center), fontsize = fontsize - 2)
+    end
+    hidedecorations!(ax); hidespines!(ax)
+    limits!(ax, -margin * W, 1.02W, -1.02H, 0.12H)
+    return fig
+end
+
+fig = blockfigure(["x  (n = 20)" => 20, "y  (m = 30)" => 30],
+                  ["y = Ad x − b" => 30, "0 ≤ x ≤ 1" => 20],
+                  [(1, 1, "Ad"), (1, 2, "−I"), (2, 1, "I"), (2, 2, "0")]; size = (520, 400))
+nothing # hide
+```
+
+:::
+
+```@example ex_blocks
+fig # hide
+```
 
 ```@example lsq
 using PureOSQP, LinearAlgebra, Random
@@ -99,6 +168,25 @@ which becomes, in `(x, y, t)`,
 
 `γ` enters only through `q`, which is the case [`update!`](@ref) exists for: the whole
 regularization path reuses one workspace, and each solve warm starts from the last.
+
+Three variable groups and three row groups: the residual definition, then the two halves of
+`−t ≤ x ≤ t`.
+
+::: details Code that draws the figure
+
+```@example ex_blocks
+fig = blockfigure(["x  (n = 10)" => 10, "y  (m = 200)" => 200, "t  (n)" => 10],
+                  ["y = Ad x − b" => 200, "x − t ≤ 0" => 10, "x + t ≥ 0" => 10],
+                  [(1, 1, "Ad"), (1, 2, "−I"), (1, 3, "0"), (2, 1, "I"), (2, 2, "0"), (2, 3, "−I"),
+                   (3, 1, "I"), (3, 2, "0"), (3, 3, "I")]; minsize = 40, size = (560, 480))
+nothing # hide
+```
+
+:::
+
+```@example ex_blocks
+fig # hide
+```
 
 ```@example lasso
 using PureOSQP, LinearAlgebra, Random
@@ -155,6 +243,26 @@ The equivalent QP, in `(x, u, r, s)`:
 \end{array}
 ```
 
+`u` carries the quadratic part of the loss and `r − s` the linear part, so the first row
+group is the residual `Ad x − u − r + s = b`; the second is the identity over `(r, s)`,
+carrying their nonnegativity.
+
+::: details Code that draws the figure
+
+```@example ex_blocks
+fig = blockfigure(["x  (n = 10)" => 10, "u  (m = 100)" => 100, "r  (m)" => 100, "s  (m)" => 100],
+                  ["Ad x − u − r + s = b" => 100, "r, s ≥ 0" => 200],
+                  [(1, 1, "Ad"), (1, 2, "−I"), (1, 3, "−I"), (1, 4, "I"), (2, 1:2, "0"), (2, 3:4, "I")];
+                  minsize = 30, size = (620, 520))
+nothing # hide
+```
+
+:::
+
+```@example ex_blocks
+fig # hide
+```
+
 ```@example huber
 using PureOSQP, LinearAlgebra, Random
 
@@ -208,6 +316,24 @@ with the hinge losses lifted into variables `t`:
 \end{array}
 ```
 
+One row group per inequality: the hinge, and the identity that keeps `t ≥ 0`.
+
+::: details Code that draws the figure
+
+```@example ex_blocks
+fig = blockfigure(["x  (n = 10)" => 10, "t  (m = 200)" => 200],
+                  ["diag(b) Ad x − t ≤ −1" => 200, "t ≥ 0" => 200],
+                  [(1, 1, "diag(b) Ad"), (1, 2, "−I"), (2, 1, "0"), (2, 2, "I")];
+                  minsize = 80, margin = 0.9, size = (600, 420), fontsize = 13)
+nothing # hide
+```
+
+:::
+
+```@example ex_blocks
+fig # hide
+```
+
 ```@example svm
 using PureOSQP, LinearAlgebra, Random
 
@@ -250,7 +376,24 @@ diagonal rather than a full covariance.
 ```
 
 with a factor risk model `Σ = F Fᵀ + D`. Introducing `y = Fᵀ x` keeps the quadratic term
-diagonal:
+diagonal. The constraint matrix stacks the definition of `y`, the single budget row, and a
+bound per asset.
+
+::: details Code that draws the figure
+
+```@example ex_blocks
+fig = blockfigure(["x  (n = 100)" => 100, "y  (k = 10)" => 10],
+                  ["y = Fᵀ x" => 10, "1ᵀ x = 1" => 1, "0 ≤ x ≤ 1" => 100],
+                  [(1, 1, "Fᵀ"), (1, 2, "−I"), (2, 1, "1ᵀ"), (2, 2, "0"), (3, 1, "I"), (3, 2, "0")];
+                  minsize = 14, size = (560, 560))
+nothing # hide
+```
+
+:::
+
+```@example ex_blocks
+fig # hide
+```
 
 ```@example portfolio
 using PureOSQP, LinearAlgebra, Random
@@ -294,6 +437,33 @@ rows of `l` and `u` change, so the factorization is computed once and reused.
                     & x_{\min} \le x_k \le x_{\max},\quad u_{\min} \le u_k \le u_{\max} \\
                     & x_0 = \bar x
 \end{array}
+```
+
+Stacked over the horizon as `z = (x₀, …, x_N, u₀, …, u_{N−1})`, the dynamics rows are
+block-bidiagonal: row group `k` holds `Ad` under `x_{k−1}`, `−I` under `x_k`, and `Bd` under
+`u_{k−1}`, so the input columns sit one stage behind the state they produce. The first row
+group pins `x₀` to the measured state, and is the only part that changes between solves.
+Below these rows `A` stacks the identity, one bound per variable; it is not drawn. The `u`
+columns are drawn wider than their true four so the blocks can be labeled.
+
+::: details Code that draws the figure
+
+```@example ex_blocks
+nx, nu, N = 12, 4, 10
+sub(k) = join(Char(0x2080 + d - '0') for d in string(k))
+cols = [["x$(sub(k))" => nx for k in 0:N]; ["u$(sub(k))" => nu for k in 0:N-1]]
+rows = [["x₀ = x̄" => nx]; ["k = $k" => nx for k in 1:N]]
+blocks = [[(k + 1, k + 1, "−I") for k in 0:N];
+          [(k + 1, k, "Ad") for k in 1:N];
+          [(k + 1, N + 1 + k, "Bd") for k in 1:N]]
+fig = blockfigure(cols, rows, blocks; minsize = 8, margin = 0.3, size = (720, 500), fontsize = 10)
+nothing # hide
+```
+
+:::
+
+```@example ex_blocks
+fig # hide
 ```
 
 ```@example mpc
