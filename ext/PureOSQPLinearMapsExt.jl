@@ -32,8 +32,9 @@ function PureOSQP.ProductOperator{T}(
     rows, cols = size(map)
     basis = zeros(T, probe ? cols : 0)
     column = zeros(T, probe ? rows : 0)
-    return PureOSQP.ProductOperator{T, typeof(map), typeof(basis)}(
-        map, rows, cols, symmetric, posdef, probe, basis, column
+    mapt = adjoint(map)
+    return PureOSQP.ProductOperator{T, typeof(map), typeof(mapt), typeof(basis)}(
+        map, mapt, rows, cols, symmetric, posdef, probe, basis, column
     )
 end
 

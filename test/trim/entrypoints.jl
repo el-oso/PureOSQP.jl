@@ -11,6 +11,9 @@ using SparseArrays
 # Sparse compatibility is conditional on this: `is_convex` reaches a factorization for a
 # sparse `P`, and only the one this supplies is resolvable statically.
 using LDLFactorizations
+# An operator hierarchy that is not this package's own, so the wrapper is checked against a
+# real `mul!` rather than against a `Matrix` standing in for one.
+using SciMLOperators
 
 const M = Matrix{Float64}
 const V = Vector{Float64}
@@ -73,8 +76,23 @@ end
 # An operator that supplies only products. Its `getindex` throws on a branch the trimmer
 # analyses whether or not it runs, which is what keeps that message free of the string
 # formatting `--trim` rejects.
-const PO = PureOSQP.ProductOperator{Float64, Matrix{Float64}, Vector{Float64}}
+const PO = PureOSQP.ProductOperator{
+    Float64, Matrix{Float64}, Adjoint{Float64, Matrix{Float64}}, Vector{Float64},
+}
 solve_operator(P::PO, q::V, A::PO, l::V, u::V) =
+    PureOSQP.solve(P, q, A, l, u; scaling = 0, linsys = :indirect)
+
+# A real operator library inside the wrapper, rather than the `Matrix` above: this is what
+# checks that an operator's own `mul!` and `adjoint` resolve statically.
+const SO = typeof(
+    PureOSQP.ProductOperator{Float64}(
+        FunctionOperator(
+            (w, v, u, p, t) -> (w .= v), zeros(Float64, 2), zeros(Float64, 2);
+            op_adjoint = (w, v, u, p, t) -> (w .= v), islinear = true,
+        )
+    )
+)
+solve_sciml(P::SO, q::V, A::SO, l::V, u::V) =
     PureOSQP.solve(P, q, A, l, u; scaling = 0, linsys = :indirect)
 
 # `verbose` prints through hand-written formatting precisely because `--trim` rejects

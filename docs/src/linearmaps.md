@@ -360,3 +360,92 @@ factor, so it is solved by conjugate gradients, which pays every iteration for a
 a matrix pays for once. The measured comparison is in
 [When it is the wrong tool](@ref), and the conditioning limit — where a bare map does not
 converge at all — is in [Unmaterialized does not mean solved by CG](@ref).
+
+## Two packages supply operators
+
+The examples above use [LinearMaps.jl](https://github.com/JuliaLinearAlgebra/LinearMaps.jl).
+[SciMLOperators.jl](https://github.com/SciML/SciMLOperators.jl) is the other option, and the
+solver takes either. They differ in one way that matters here.
+
+**A composed LinearMap allocates on every product.** Building `A` with `*` or by stacking
+makes each application allocate scratch for the intermediates. The solver applies `A` and `Aᵀ`
+every iteration, so that cost repeats. SciMLOperators asks for the scratch once, through
+`cache_operator`, and then applies for free:
+
+| operator, `n = 200` | LinearMaps | SciMLOperators |
+|---|---|---|
+| a single function operator | 0 B | 0 B |
+| sum, `L + D` | 0 B | 0 B |
+| composed, `L * D` | about 1.7 kB | **0 B** |
+| stacked, `[L; D]` | about 3.6 kB | **0 B** |
+
+Sums cost neither package anything. The difference is composition and stacking: if your `A` is
+one operator, or a sum, either package is fine and LinearMaps is simpler. If it is built with
+`*` or stacked from blocks and you want the allocation-free hot path, use SciMLOperators.
+
+### Writing one
+
+Two things differ from LinearMaps.
+
+**The in-place signature is `op(w, v, u, p, t)`** — `w` receives the result, `v` is the vector
+being multiplied, and `u`, `p`, `t` are the state, parameters and time that a differential
+equation would supply and a quadratic program does not use. A four-argument function is the
+*out-of-place* form, where the first argument is the input; writing into it silently
+overwrites the caller's vector.
+
+**An operator built with `*` needs `cache_operator` before it can multiply**, as do `kron` and
+`inv`. A single operator and a sum do not. `setup` refuses an uncached one and says so, rather
+than failing partway into a solve. It also refuses an operator with no transpose: `Aᵀ` runs
+every iteration, so a `FunctionOperator` needs either an `op_adjoint` or `issymmetric = true`.
+
+```@example sciml
+using PureOSQP, SciMLOperators, LinearAlgebra, Krylov, Random
+Random.seed!(3)
+
+n = 150
+
+# The recursion from example 3, as a SciMLOperator. Note the five arguments, and that the
+# decay travels as the operator's `p` rather than as a captured variable: a captured global
+# would make every product allocate.
+fwd!(w, v, a) = (acc = 0.0; for i in eachindex(v); acc = a * acc + v[i]; w[i] = acc; end; w)
+adj!(w, v, a) = (acc = 0.0; for i in Iterators.reverse(eachindex(v)); acc = a * acc + v[i]; w[i] = acc; end; w)
+
+A = FunctionOperator(
+    (w, v, u, p, t) -> fwd!(w, v, p), zeros(n), zeros(n);
+    op_adjoint = (w, v, u, p, t) -> adj!(w, v, p), islinear = true, p = 0.6,
+)
+P = FunctionOperator(
+    (w, v, u, p, t) -> (w .= 2 .* v), zeros(n), zeros(n);
+    op_adjoint = (w, v, u, p, t) -> (w .= 2 .* v),
+    islinear = true, issymmetric = true, isposdef = true,
+)
+
+q = -2 .* randn(n)
+sol = PureOSQP.solve(
+    P, q, A, fill(-1.5, n), fill(1.5, n);
+    scaling = 0, eps_abs = 1e-9, eps_rel = 1e-9,
+)
+(sol.status, sol.iter, round(sol.obj_val; digits = 8))
+```
+
+The same problem with every matrix written out:
+
+```@example sciml
+Ad = [i >= j ? 0.6^(i - j) : 0.0 for i in 1:n, j in 1:n]
+dense = PureOSQP.solve(
+    Diagonal(fill(2.0, n)), q, Ad, fill(-1.5, n), fill(1.5, n);
+    eps_abs = 1e-9, eps_rel = 1e-9,
+)
+(dense.status, maximum(abs, sol.x .- dense.x))
+```
+
+An operator that already holds a matrix — `MatrixOperator`, and the `DiagonalOperator` built
+from one — is unwrapped to that matrix instead of being wrapped. Its entries are what
+equilibration and the factoring backends need, and hiding them would force a matrix-free solve
+on a problem that does not need one. The type survives, so a `DiagonalOperator` still reaches
+the diagonal backend.
+
+`setup` takes the operator and its transpose once and holds both. Updating an operator in
+place afterwards — through `update_coefficients!`, or a `MatrixOperator`'s `update_func!` —
+reaches `A` but not `Aᵀ`, which is a wrong answer rather than an error. Build a new workspace
+after changing an operator.

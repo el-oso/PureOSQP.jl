@@ -1,5 +1,5 @@
 """
-    ProductOperator{T,L,V} <: AbstractMatrix{T}
+    ProductOperator{T,L,LT,V} <: AbstractMatrix{T}
 
 An operator that supplies products but no entries, presented as an `AbstractMatrix` so the
 solver's own seams reach it.
@@ -31,8 +31,11 @@ supply them, in the order they cost:
 An operator offering none of the three is refused by name rather than escaping as a
 `CanonicalIndexError` from inside a column walk.
 """
-struct ProductOperator{T <: Real, L, V <: AbstractVector{T}} <: AbstractMatrix{T}
+struct ProductOperator{T <: Real, L, LT, V <: AbstractVector{T}} <: AbstractMatrix{T}
     op::L
+    # `Aᵀy` runs every iteration. For an operator whose `adjoint` builds a new object -- a
+    # SciMLOperator's does -- rebuilding it per product allocates, so it is formed once here.
+    opt::LT
     rows::Int
     cols::Int
     symmetric::Bool
@@ -66,8 +69,9 @@ function ProductOperator{T}(
     rows, cols = size(op)
     basis = zeros(T, probe ? cols : 0)
     column = zeros(T, probe ? rows : 0)
-    return ProductOperator{T, typeof(op), typeof(basis)}(
-        op, rows, cols, symmetric, posdef, probe, basis, column
+    opt = adjoint(op)
+    return ProductOperator{T, typeof(op), typeof(opt), typeof(basis)}(
+        op, opt, rows, cols, symmetric, posdef, probe, basis, column
     )
 end
 
@@ -80,7 +84,7 @@ LinearAlgebra.mul!(y::AbstractVector, M::ProductOperator, x::AbstractVector) = m
 function LinearAlgebra.mul!(
         y::AbstractVector, Mt::Adjoint{<:Any, <:ProductOperator}, x::AbstractVector
     )
-    return mul!(y, parent(Mt).op', x)
+    return mul!(y, parent(Mt).opt, x)
 end
 
 # The message names no type: interpolating one goes through `show(::IO, ::Type)`, a runtime

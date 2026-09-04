@@ -17,7 +17,7 @@
         "linsys_tests.jl" => 28,
         "meta_tests.jl" => 1,
         "moi_tests.jl" => 2,
-        "operator_tests.jl" => 4,
+        "operator_tests.jl" => 6,
         "oracle_tests.jl" => 4,
         "polish_tests.jl" => 4,
         "scaling_tests.jl" => 8,

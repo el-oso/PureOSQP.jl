@@ -7,6 +7,7 @@ DocumenterVitepress = "4710194d-e776-4893-9690-8d956a29c365"
 Krylov = "ba0b0d4f-ebba-5204-a429-3ac8c609bfb7"
 LinearMaps = "7a12625a-238d-50fd-b39a-03d52299707e"
 PureOSQP = "cf5699a0-4369-4b2d-98bd-300948c5dc67"
+SciMLOperators = "c0aeaf25-5076-4817-a8d5-81caf7dfa961"
 TypeContracts = "c7a3f1e2-84b5-4d69-9e0a-1f2b3c4d5e6f"
 Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
 

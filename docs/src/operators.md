@@ -71,8 +71,9 @@ Selection still reaches the dense terminal, so an `n×n` reduced matrix is still
 
 An operator from a hierarchy that is not `AbstractMatrix` — `LinearMaps.LinearMap`,
 `SciMLOperators.AbstractSciMLOperator` — is wrapped rather than rewritten:
-[`PureOSQP.ProductOperator`](@ref) presents one as an `AbstractMatrix`, and loading LinearMaps
-lets `setup` and `solve` take a `LinearMap` directly.
+[`PureOSQP.ProductOperator`](@ref) presents one as an `AbstractMatrix`. Loading either package
+lets `setup` and `solve` take its operators directly; see
+[Operators from functions](@ref) for which of the two to reach for.
 
 ### 2. `structural_rows` — setup stops paying for the zeros
 

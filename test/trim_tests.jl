@@ -112,6 +112,15 @@
             )
         )
     )
+    push!(names, :solve_sciml)
+    push!(
+        sigs,
+        :(
+            TrimEntry.solve_sciml(
+                TrimEntry.SO, Vector{Float64}, TrimEntry.SO, Vector{Float64}, Vector{Float64}
+            )
+        )
+    )
     # Sparse operands, which are compatible only with the backend named -- see the comment in
     # `trim/entrypoints.jl` for why `:auto` on a doubly sparse pair is not.
     for f in (:solve_sparse_kkt, :solve_sparse_dense)
