@@ -367,21 +367,25 @@ The examples above use [LinearMaps.jl](https://github.com/JuliaLinearAlgebra/Lin
 [SciMLOperators.jl](https://github.com/SciML/SciMLOperators.jl) is the other option, and the
 solver takes either. They differ in one way that matters here.
 
-**A composed LinearMap allocates on every product.** Building `A` with `*` or by stacking
-makes each application allocate scratch for the intermediates. The solver applies `A` and `Aᵀ`
-every iteration, so that cost repeats. SciMLOperators asks for the scratch once, through
-`cache_operator`, and then applies for free:
+**A composed LinearMap allocates on every product.** Building `A` with `*` makes each
+application allocate scratch for the intermediate, and stacking blocks with `[L; D]` does the
+same. The solver applies `A` and `Aᵀ` every iteration, so that cost repeats. SciMLOperators
+asks for the scratch once, through `cache_operator`, and then applies for free:
 
 | operator, `n = 200` | LinearMaps | SciMLOperators |
 |---|---|---|
 | a single function operator | 0 B | 0 B |
 | sum, `L + D` | 0 B | 0 B |
 | composed, `L * D` | about 1.7 kB | **0 B** |
-| stacked, `[L; D]` | about 3.6 kB | **0 B** |
 
-Sums cost neither package anything. The difference is composition and stacking: if your `A` is
-one operator, or a sum, either package is fine and LinearMaps is simpler. If it is built with
-`*` or stacked from blocks and you want the allocation-free hot path, use SciMLOperators.
+Sums cost neither package anything. The difference is composition: if your `A` is one
+operator, or a sum, either package is fine and LinearMaps is simpler. If it is built with `*`
+and you want the allocation-free hot path, use SciMLOperators.
+
+Stacking is a LinearMaps feature. `[L; D]` on two SciMLOperators is a plain array holding
+them, not an operator, so a constraint made of stacked blocks is either a LinearMap, as in
+example 2, or a single `FunctionOperator` whose function fills each block's rows of `w`
+itself.
 
 ### Writing one
 
@@ -439,6 +443,133 @@ dense = PureOSQP.solve(
 (dense.status, maximum(abs, sol.x .- dense.x))
 ```
 
+### A composed operator
+
+The same system, observed only at every fifth step, as the sensors of example 1 would see it.
+The constraint is on what is observed: the output at the 30 sampled instants must stay within
+±1.5, and the other 120 are free.
+
+```math
+\begin{array}{ll}
+  \mbox{minimize}   & \|x - x_0\|_2^2 \\
+  \mbox{subject to} & -1.5 \le S L x \le 1.5
+\end{array}
+```
+
+`L` is the recursion and `S` the selection, so `A = S L` is 30×150 and a vector passes
+through the two in turn. Its transpose passes through them in reverse order. Either way the
+value in between has to live somewhere:
+
+```math
+x \in \mathbb{R}^{150}
+\;\xrightarrow{\;\;y_k = a\,y_{k-1} + x_k\;\;}\;
+Lx \in \mathbb{R}^{150}
+\;\xrightarrow{\;\;[\,1{:}5{:}150\,]\;\;}\;
+SLx \in \mathbb{R}^{30}
+```
+
+```math
+A \;=\; S L
+\qquad \text{stored: } a \text{, the range } 1{:}5{:}150 \text{, and one 150-vector for } Lx
+```
+
+That 150-vector is what `cache_operator` allocates. Until it has, the product cannot run, and
+`setup` says so rather than letting the first iteration fail:
+
+```@example sciml_composed
+using PureOSQP, SciMLOperators, LinearAlgebra, Krylov, Random
+Random.seed!(4)
+
+n, a = 150, 0.6
+idx = 1:5:n
+m = length(idx)
+
+fwd!(w, v, a) = (acc = 0.0; for i in eachindex(v); acc = a * acc + v[i]; w[i] = acc; end; w)
+adj!(w, v, a) = (acc = 0.0; for i in Iterators.reverse(eachindex(v)); acc = a * acc + v[i]; w[i] = acc; end; w)
+
+L = FunctionOperator(
+    (w, v, u, p, t) -> fwd!(w, v, p), zeros(n), zeros(n);
+    op_adjoint = (w, v, u, p, t) -> adj!(w, v, p), islinear = true, p = a,
+)
+# The range travels as `p` for the same reason the decay does above.
+S = FunctionOperator(
+    (w, v, u, p, t) -> (@views w .= v[p]), zeros(n), zeros(m);
+    op_adjoint = (w, v, u, p, t) -> (fill!(w, 0.0); @views w[p] .= v; w), islinear = true, p = idx,
+)
+A = S * L                                  # the system's output, where it is observed
+
+P = FunctionOperator(
+    (w, v, u, p, t) -> (w .= 2 .* v), zeros(n), zeros(n);
+    op_adjoint = (w, v, u, p, t) -> (w .= 2 .* v),
+    islinear = true, issymmetric = true, isposdef = true,
+)
+q = -2 .* randn(n)
+
+try
+    PureOSQP.setup(P, q, A, fill(-1.5, m), fill(1.5, m); scaling = 0)
+catch err
+    showerror(stdout, err)
+end
+```
+
+`cache_operator` takes a vector the length of the operator's input and returns the operator
+with its scratch attached:
+
+```@example sciml_composed
+A = cache_operator(A, zeros(n))
+sol = PureOSQP.solve(
+    P, q, A, fill(-1.5, m), fill(1.5, m);
+    scaling = 0, eps_abs = 1e-9, eps_rel = 1e-9,
+)
+(sol.status, sol.iter, round(sol.obj_val; digits = 8))
+```
+
+The same problem with the recursion written out and the 30 observed rows taken from it:
+
+```@example sciml_composed
+Ld = [i >= j ? a^(i - j) : 0.0 for i in 1:n, j in 1:n]
+Ad = Ld[idx, :]
+dense = PureOSQP.solve(
+    Diagonal(fill(2.0, n)), q, Ad, fill(-1.5, m), fill(1.5, m);
+    eps_abs = 1e-9, eps_rel = 1e-9,
+)
+(dense.status, maximum(abs, sol.x .- dense.x))
+```
+
+### One operator, several parameters
+
+The decay is a model parameter, and the operator `A` of the first example carries it as `p`.
+To solve for another value, ask for a copy of the operator with that `p`: the out-of-place
+`update_coefficients` returns one and leaves `A` as it was. Each copy gets its own `setup`,
+which takes the operator and its transpose together.
+
+The problem is the one the first example solves, for three decays:
+
+```@example sciml
+decays = (0.4, 0.6, 0.8)
+sols = map(decays) do a
+    Aa = update_coefficients(A, nothing, a, 0.0)      # a copy of `A` with `p = a`
+    PureOSQP.solve(
+        P, q, Aa, fill(-1.5, n), fill(1.5, n);
+        scaling = 0, eps_abs = 1e-9, eps_rel = 1e-9,
+    )
+end
+[(a, s.status, s.iter, round(s.obj_val; digits = 8)) for (a, s) in zip(decays, sols)]
+```
+
+The same three problems with each matrix written out from its closed form:
+
+```@example sciml
+map(decays, sols) do a, s
+    Ada = [i >= j ? a^(i - j) : 0.0 for i in 1:n, j in 1:n]
+    d = PureOSQP.solve(
+        Diagonal(fill(2.0, n)), q, Ada, fill(-1.5, n), fill(1.5, n);
+        eps_abs = 1e-9, eps_rel = 1e-9,
+    )
+    (a, d.status, maximum(abs, s.x .- d.x))
+end
+```
+
 An operator that already holds a matrix — `MatrixOperator`, and the `DiagonalOperator` built
 from one — is unwrapped to that matrix instead of being wrapped. Its entries are what
 equilibration and the factoring backends need, and hiding them would force a matrix-free solve
@@ -448,4 +579,5 @@ the diagonal backend.
 `setup` takes the operator and its transpose once and holds both. Updating an operator in
 place afterwards — through `update_coefficients!`, or a `MatrixOperator`'s `update_func!` —
 reaches `A` but not `Aᵀ`, which is a wrong answer rather than an error. Build a new workspace
-after changing an operator.
+after changing an operator; the out-of-place `update_coefficients` above does so by
+construction, since what it returns is a new operator.
