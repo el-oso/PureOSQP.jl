@@ -9,9 +9,8 @@ simply never assembled, and each is solved without building it.
 
 All three need the same three things, covered in
 [An operator from LinearMaps.jl](@ref): load `Krylov`, pass `scaling = 0`, and declare
-`issymmetric` and `isposdef` on `P`. Each example states the problem, draws the operator, solves
-with the map, and then solves the same problem with every matrix written out and prints the
-difference between the two answers.
+`issymmetric` and `isposdef` on `P`. Each example states the problem, draws the operator, and then solves it two ways — with the
+map and with every matrix written out — printing the difference between the two answers.
 
 ## 1. Fitting to sensor readings
 
@@ -193,9 +192,8 @@ subtracts the pixel to the left:
 with the first row and first column passed through unchanged, as `D` does. On the 14×14
 image the blocks are 14×14 and the row neighbor sits 14 places back; nothing else changes.
 
-The trick is that a 2-D operation built from a 1-D one along each axis is a **Kronecker
-product**: `I ⊗ D` applies `D` down every column of `X`, and `D ⊗ I` applies it along every
-row.
+A 2-D operation built from a 1-D one along each axis is a **Kronecker product**: `I ⊗ D`
+applies `D` down every column of `X`, and `D ⊗ I` applies it along every row.
 
 ```math
 X \in \mathbb{R}^{14 \times 14}
@@ -264,7 +262,7 @@ Only the 14×14 factor is ever stored. The saving grows fast: the same construct
 ## 3. Reusing a model you already have
 
 Sometimes the operator is code somebody already wrote — a filter, a simulator, a forward
-model. You can call it, but nobody ever assembled it, and doing so would mean one call per
+model. You can call it, but nobody ever assembled it; assembling it would mean one call per
 column.
 
 Here it is a first-order recursion, `yₖ = 0.6·yₖ₋₁ + xₖ`, the discrete form of a system that
@@ -279,7 +277,7 @@ keeping the system's output within ±1.5 at every step:
 ```
 
 Unrolling the recursion from `y₀ = 0` gives every output as a decaying sum of the inputs before
-it, which is what `A` is as a matrix — lower triangular, with `a = 0.6`:
+it; that is `A` as a matrix — lower triangular, with `a = 0.6`:
 
 ```math
 y_k = \sum_{j \le k} a^{\,k-j} x_j
@@ -380,14 +378,14 @@ solver takes either.
 | `issymmetric`, `isposdef` | declared at construction | declared at construction |
 | a transpose | required | required |
 
-**Reach for LinearMaps unless `A` is a composition.** It is the smaller idea: two functions and
-no preparation, and it stacks blocks, which SciMLOperators cannot. The one thing it does not do
-is apply a composition for free.
+**Reach for LinearMaps unless `A` is a composition.** It is simpler: two functions and no
+preparation, and it stacks blocks, which SciMLOperators cannot. The one thing it cannot do is
+apply a composition for free.
 
-The allocation rows are what decide it, and they are measured at `n = 200`. A composed
-LinearMap allocates scratch for the intermediate on every application, and stacking blocks does
-the same; the solver applies `A` and `Aᵀ` every iteration, so that cost repeats. SciMLOperators
-asks for the scratch once, through `cache_operator`, and then applies for free.
+The allocation rows decide it, measured at `n = 200`. A composed LinearMap allocates scratch
+for the intermediate on every application, and stacking blocks does the same; the solver applies
+`A` and `Aᵀ` every iteration, so that cost repeats. SciMLOperators asks for the scratch once,
+through `cache_operator`, and then applies for free.
 
 Stacking has no SciMLOperators equivalent: `[L; D]` on two of them is a plain array holding
 them, not an operator. A constraint made of stacked blocks is either a LinearMap, as in
