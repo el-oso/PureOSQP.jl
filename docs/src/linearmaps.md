@@ -365,25 +365,32 @@ converge at all — is in [Unmaterialized does not mean solved by CG](@ref).
 
 The examples above use [LinearMaps.jl](https://github.com/JuliaLinearAlgebra/LinearMaps.jl).
 [SciMLOperators.jl](https://github.com/SciML/SciMLOperators.jl) is the other option, and the
-solver takes either. They differ in one way that matters here.
+solver takes either.
 
-**A composed LinearMap allocates on every product.** Building `A` with `*` makes each
-application allocate scratch for the intermediate, and stacking blocks with `[L; D]` does the
-same. The solver applies `A` and `Aᵀ` every iteration, so that cost repeats. SciMLOperators
-asks for the scratch once, through `cache_operator`, and then applies for free:
-
-| operator, `n = 200` | LinearMaps | SciMLOperators |
+| | LinearMaps | SciMLOperators |
 |---|---|---|
-| a single function operator | 0 B | 0 B |
-| sum, `L + D` | 0 B | 0 B |
-| composed, `L * D` | about 1.7 kB | **0 B** |
+| how you build one | `LinearMap{T}(forward, adjoint, m, n)` | `FunctionOperator(op, input, output; op_adjoint)` |
+| the function you write | `f(y, x)`, output first | `op(w, v, u, p, t)`, output first, then input |
+| preparation before first use | none | `cache_operator` for one built with `*` or `inv` |
+| a single operator, per product | 0 B | 0 B |
+| a sum, `B + C` | 0 B | 0 B |
+| a composition, `B * C` | about 1.7 kB | **0 B** |
+| stacking, `[B; C]` | yes | not supported |
+| values carried with the operator | no | `p`, replaced by `update_coefficients` |
+| `issymmetric`, `isposdef` | declared at construction | declared at construction |
+| a transpose | required | required |
 
-Sums cost neither package anything. The difference is composition: if your `A` is one
-operator, or a sum, either package is fine and LinearMaps is simpler. If it is built with `*`
-and you want the allocation-free hot path, use SciMLOperators.
+**Reach for LinearMaps unless `A` is a composition.** It is the smaller idea: two functions and
+no preparation, and it stacks blocks, which SciMLOperators cannot. The one thing it does not do
+is apply a composition for free.
 
-Stacking is a LinearMaps feature. `[L; D]` on two SciMLOperators is a plain array holding
-them, not an operator, so a constraint made of stacked blocks is either a LinearMap, as in
+The allocation rows are what decide it, and they are measured at `n = 200`. A composed
+LinearMap allocates scratch for the intermediate on every application, and stacking blocks does
+the same; the solver applies `A` and `Aᵀ` every iteration, so that cost repeats. SciMLOperators
+asks for the scratch once, through `cache_operator`, and then applies for free.
+
+Stacking has no SciMLOperators equivalent: `[L; D]` on two of them is a plain array holding
+them, not an operator. A constraint made of stacked blocks is either a LinearMap, as in
 example 2, or a single `FunctionOperator` whose function fills each block's rows of `w`
 itself.
 
