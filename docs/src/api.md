@@ -11,6 +11,8 @@ PureOSQP.update_settings!
 PureOSQP.update_rho!
 PureOSQP.dimensions
 PureOSQP.capabilities
+PureOSQP.constraint_violation
+PureOSQP.constraint_violation!
 PureOSQP.Optimizer
 PureOSQP.adjoint_derivative
 PureOSQP.forward_derivative

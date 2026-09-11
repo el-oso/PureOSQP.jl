@@ -606,3 +606,42 @@ end
     @test PureOSQP.logmean_slice(a, b, dt, dt * (a + b) / 2) ≈ dt * (a - b) / log(a / b)
     @test PureOSQP.logmean_slice(a, b, dt, dt * (a + b) / 2) < dt * (a + b) / 2
 end
+
+@testitem "the per-row constraint violation agrees with the primal residual" begin
+    using LinearAlgebra, Random
+    Random.seed!(21)
+
+    n, m = 12, 20
+    P = let S = randn(n, n)
+        Symmetric(S'S ./ n + I)
+    end
+    A = randn(m, n)
+    b = A * randn(n)
+    l, u = b .- rand(m), b .+ rand(m)
+
+    ws = setup(P, randn(n), A, l, u; eps_abs = 1.0e-9, eps_rel = 1.0e-9)
+    sol = solve!(ws)
+    @test sol.status === PureOSQP.SOLVED
+
+    v = constraint_violation(ws)
+    @test length(v) == m
+    @test all(>=(0), v)
+    # The reported residual is this vector's largest entry, so the two cannot disagree.
+    @test maximum(v) ≈ sol.prim_res rtol = 1.0e-8
+
+    # Computed from the caller's own matrices, with no solver machinery in between.
+    Ax = A * sol.x
+    @test v ≈ max.(l .- Ax, Ax .- u, 0.0) atol = 1.0e-9
+
+    # The in-place form writes the same numbers and allocates nothing.
+    out = similar(v)
+    constraint_violation!(out, ws)
+    @test out == v
+    @test (@allocated constraint_violation!(out, ws)) == 0
+    @test_throws DimensionMismatch constraint_violation!(similar(v, m + 1), ws)
+
+    # A row held away from its bounds reports exactly zero, not a rounding-sized number.
+    slack = setup(P, randn(n), A, b .- 10, b .+ 10; eps_abs = 1.0e-9, eps_rel = 1.0e-9)
+    solve!(slack)
+    @test all(iszero, constraint_violation(slack))
+end

@@ -96,3 +96,46 @@ capabilities() = (
     update_matrices = true,
     derivatives = true,
 )
+
+"""
+    constraint_violation!(out, ws) -> out
+
+Write how far each row of `l ≤ Ax ≤ u` is from being satisfied, in the caller's units.
+
+`out[i]` is `max(l[i] - (Ax)[i], (Ax)[i] - u[i], 0)`: zero where the row holds, and the
+distance to the nearer bound where it does not. `‖out‖∞` is the primal residual
+[`solve!`](@ref) reports as `prim_res`, so this is that number broken out by row.
+
+The iterate `z` is projected into `[l, u]` every iteration and is feasible by construction;
+`Ax` is what can miss, and is what this measures. A row that was one-sided on input has a
+bound of `±1e30` here, far enough that it never reports a violation of its own.
+
+`out` must have one entry per constraint row. Nothing is allocated.
+"""
+function constraint_violation!(out::AbstractVector{T}, ws::Workspace{T}) where {T}
+    length(out) == ws.m || throw(
+        DimensionMismatch("out must have one entry per constraint row")
+    )
+    ws.m == 0 && return out
+    mul_A!(ws.Ax, ws, ws.x)
+    scaled = ws.settings.scaling > 0
+    for i in eachindex(out)
+        # `l`, `u` and `Ax` are all equilibrated by the same row factor, so the violation
+        # comes back to the caller's units by dividing it out once.
+        gap = max(ws.l[i] - ws.Ax[i], ws.Ax[i] - ws.u[i], zero(T))
+        out[i] = scaled ? gap / ws.E[i] : gap
+    end
+    return out
+end
+
+"""
+    constraint_violation(ws) -> Vector
+
+How far each row of `l ≤ Ax ≤ u` is from being satisfied, in the caller's units.
+
+Allocates the result; [`constraint_violation!`](@ref) writes into a vector you supply and
+carries the description of what the entries mean.
+"""
+function constraint_violation(ws::Workspace{T}) where {T}
+    return constraint_violation!(similar(ws.x, T, ws.m), ws)
+end

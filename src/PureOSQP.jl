@@ -17,7 +17,8 @@ using LinearAlgebra
 using TypeContracts: TypeContracts, @contract, @verify
 
 export setup, solve, solve!, update!, update_settings!, update_rho!, warm_start!, cold_start!
-export dimensions, capabilities, Optimizer, Settings, Solution, Status
+export dimensions, capabilities, constraint_violation, constraint_violation!
+export Optimizer, Settings, Solution, Status
 export adjoint_derivative, forward_derivative
 export LinearSystem, ReducedCholesky, FullKKT
 export SOLVED, PRIMAL_INFEASIBLE, DUAL_INFEASIBLE, MAX_ITER_REACHED, NON_CONVEX, UNSOLVED
