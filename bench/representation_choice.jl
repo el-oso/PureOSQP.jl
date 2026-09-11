@@ -35,8 +35,8 @@ const RESULTS = joinpath(@__DIR__, "results", "representation_choice.json")
 
 best(f, reps) = minimum(
     begin
-            f()
-        end for _ in 1:reps
+        f()
+    end for _ in 1:reps
 )
 
 """

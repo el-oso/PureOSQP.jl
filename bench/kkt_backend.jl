@@ -117,9 +117,9 @@ open(joinpath(@__DIR__, "results", "kkt_backend.json"), "w") do io
             "costs" => map(nt2d, costs),
             "accuracy" => [
                 Dict(
-                        "condA" => r.condA, "raw" => nt2d(r.raw),
-                        "equilibrated" => nt2d(r.equilibrated)
-                    ) for r in accs
+                    "condA" => r.condA, "raw" => nt2d(r.raw),
+                    "equilibrated" => nt2d(r.equilibrated)
+                ) for r in accs
             ]
         ), 2
     )

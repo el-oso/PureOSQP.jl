@@ -133,9 +133,9 @@ open(joinpath(@__DIR__, "results", "update_bench.json"), "w") do io
             # `allownan` would write one this file's own readers could not parse back.
             "results" => [
                 Dict(
-                        string(k) => (v isa AbstractFloat && isnan(v) ? nothing : v)
+                    string(k) => (v isa AbstractFloat && isnan(v) ? nothing : v)
                         for (k, v) in pairs(r)
-                    ) for r in results
+                ) for r in results
             ],
         ), 2
     )

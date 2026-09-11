@@ -121,9 +121,9 @@ open(joinpath(@__DIR__, "results", "headtohead.json"), "w") do io
             # JSON has no NaN, and a skipped PureBLAS column is recorded as one.
             "results" => [
                 Dict(
-                        string(k) => (v isa AbstractFloat && isnan(v) ? nothing : v)
+                    string(k) => (v isa AbstractFloat && isnan(v) ? nothing : v)
                         for (k, v) in pairs(r)
-                    ) for r in results
+                ) for r in results
             ],
         ), 2
     )

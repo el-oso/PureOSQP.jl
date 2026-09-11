@@ -5,12 +5,12 @@
     P = PureOSQP.BlockDiagonal(
         [
             Matrix(
-                    Symmetric(
-                        let S = randn(nb, nb)
-                            S'S ./ nb + 3I
+                Symmetric(
+                    let S = randn(nb, nb)
+                        S'S ./ nb + 3I
                     end
-                    )
-                ) for _ in 1:K
+                )
+            ) for _ in 1:K
         ]
     )
     A = PureOSQP.BlockDiagonal([randn(mb, nb) ./ sqrt(nb) for _ in 1:K])
