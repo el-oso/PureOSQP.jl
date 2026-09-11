@@ -1,10 +1,14 @@
 @testitem "the public entry points are --trim compatible" begin
     using TrimCheck
-    # TrimCheck reads juliac's trim scripts from `share/julia/juliac`. A Julia that keeps
-    # them elsewhere -- 1.13 moved them to `share/julia/test/trimming` -- gives it nothing
-    # to load, and the check cannot run at all. Marked broken rather than skipped, so a
-    # version without the gate is visible in the summary instead of reading as a pass.
-    have_juliac = isfile(
+    # TrimCheck drives the compiler through `Compiler.typeinf_ext_toplevel`, whose signature
+    # Julia 1.13 changed, so on 1.13 every call it makes raises a `MethodError` and no
+    # verdict is available. It also reads juliac's trim scripts from `share/julia/juliac`,
+    # which 1.13 moved; supplying those from their new location is not enough on its own.
+    # Their presence is what this tests for, since it is the cheaper of the two signals.
+    #
+    # Marked broken rather than skipped, so a run without the gate is visible in the summary
+    # instead of reading as a pass.
+    trimcheck_runs = isfile(
         joinpath(Sys.BINDIR, "..", "share", "julia", "juliac", "juliac-trim-base.jl")
     )
     # `juliac --trim` needs every call resolved statically. This is what stops the solver
@@ -150,9 +154,9 @@
             )
         )
     )
-    if !have_juliac
-        @warn "no juliac scripts where TrimCheck looks; the --trim gate did not run" VERSION
-        @test_broken have_juliac
+    if !trimcheck_runs
+        @warn "TrimCheck cannot drive this Julia; the --trim gate did not run" VERSION
+        @test_broken trimcheck_runs
     else
         results = TrimCheck.validate(
             sigs...; init = :(include($entry); using .TrimEntry), progressbar = false
