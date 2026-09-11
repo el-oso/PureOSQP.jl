@@ -101,6 +101,23 @@ end
     @test warm.x ≈ cold.x rtol = 1.0e-5
 end
 
+@testitem "warm_start! refuses non-finite seeds" begin
+    using LinearAlgebra, SparseArrays, OSQP, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    P, q, A, l, u = random_qp(4, 6; seed = 75)
+    ws = setup(P, q, A, l, u)
+    x = zeros(4)
+    x[1] = NaN
+    @test_throws "x must be finite" warm_start!(ws; x = x)
+    y = zeros(6)
+    y[2] = Inf
+    @test_throws "y must be finite" warm_start!(ws; y = y)
+    # A finite seed still works and is what the next solve starts from.
+    warm_start!(ws; x = zeros(4), y = zeros(6))
+    s = PureOSQP.solve!(ws)
+    @test s.status == SOLVED
+end
+
 @testitem "verbose prints a progress report, and is silent when off" begin
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
@@ -644,4 +661,69 @@ end
     slack = setup(P, randn(n), A, b .- 10, b .+ 10; eps_abs = 1.0e-9, eps_rel = 1.0e-9)
     solve!(slack)
     @test all(iszero, constraint_violation(slack))
+end
+
+@testitem "an accelerator reaches the same solution in fewer iterations" begin
+    using LinearAlgebra, COSMOAccelerators, Random
+    Random.seed!(22)
+
+    n, m = 80, 160
+    P = let S = randn(n, n)
+        Matrix(Symmetric(S'S ./ n + I))
+    end
+    A = randn(m, n)
+    b = A * randn(n)
+    l, u = b .- rand(m), b .+ rand(m)
+    q = randn(n)
+    opts = (eps_abs = 1.0e-9, eps_rel = 1.0e-9)
+
+    plain = solve(P, q, A, l, u; opts...)
+    accel = solve(P, q, A, l, u; accelerator = PureOSQP.anderson(Float64, n + m), opts...)
+
+    @test plain.status === PureOSQP.SOLVED
+    @test accel.status === PureOSQP.SOLVED
+    # Extrapolation changes the path, not the answer.
+    @test accel.x ≈ plain.x rtol = 1.0e-6
+    @test accel.obj_val ≈ plain.obj_val rtol = 1.0e-8
+    @test accel.iter < plain.iter
+
+    # The workspace carries the accelerator as a concrete type, so the hooks that read it
+    # resolve statically; without one the field is `nothing` and they compile away.
+    ws = setup(P, q, A, l, u; accelerator = PureOSQP.anderson(Float64, n + m), opts...)
+    @test isconcretetype(typeof(ws))
+    @test setup(P, q, A, l, u; opts...).accel === nothing
+
+    # An accelerator built for another problem is refused rather than read out of bounds.
+    @test_throws DimensionMismatch setup(P, q, A, l, u; accelerator = PureOSQP.anderson(Float64, n))
+end
+
+@testitem "the plain iteration is untouched by the accelerator hooks" begin
+    using LinearAlgebra, Random
+    Random.seed!(23)
+
+    # The hooks sit in the loop whether or not an accelerator exists. With none they must
+    # cost nothing, which a total that does not grow with the iteration count shows.
+    n, m = 40, 80
+    P = let S = randn(n, n)
+        Matrix(Symmetric(S'S ./ n + I))
+    end
+    A = randn(m, n)
+    b = A * randn(n)
+    l, u = b .- rand(m), b .+ rand(m)
+    q = randn(n)
+
+    counts = map((25, 100)) do iters
+        ws = setup(
+            P, q, A, l, u; max_iter = iters, eps_abs = 1.0e-14, eps_rel = 1.0e-14,
+            check_termination = 1,
+        )
+        solve!(ws)
+        warm_start!(ws; x = zeros(n), y = zeros(m))
+        taken = solve!(ws).iter
+        warm_start!(ws; x = zeros(n), y = zeros(m))
+        (@allocated(solve!(ws)), taken)
+    end
+    @test first(counts)[2] == 25
+    @test last(counts)[2] == 100
+    @test first(counts)[1] == last(counts)[1]
 end

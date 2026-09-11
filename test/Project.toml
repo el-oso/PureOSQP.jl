@@ -1,5 +1,6 @@
 [deps]
 BandedMatrices = "aae01518-5342-5314-be14-df237901396f"
+COSMOAccelerators = "bbd8fffe-5ad0-4d78-a55e-85575421b4ac"
 ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
 ChainRulesTestUtils = "cdddcdb0-9152-4a09-a978-84456f9df70a"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"

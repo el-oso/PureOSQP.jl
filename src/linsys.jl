@@ -386,9 +386,12 @@ throw that factorization away and pay for it twice.
 This ladder is not the whole of selection, and reading it alone will mislead. Three things sit
 outside it:
 
-- `linsys = :kkt`, `:dense` and `:indirect` are handled in [`setup`](@ref) before the ladder
-  is reached, so a caller who names a backend never descends it. `:indirect` in particular
-  reaches [`indirect_backend`](@ref) directly and not through rung 6.
+- `linsys = :kkt`, `:dense`, `:indirect` and the named kinds (`:sparse`, `:diagonal`,
+  `:tridiagonal`, `:block`, `:kronecker`, `:lowrank`) are handled in [`setup`](@ref) before
+  the ladder is reached, so a caller who names a backend never descends it. `:sparse`
+  descends rungs 2, 3 and 6 only, and the named kinds reach their own rung or the
+  [`choose_backend`](@ref) method for their pair rather than the whole ladder. `:indirect`
+  in particular reaches [`indirect_backend`](@ref) directly and not through rung 6.
 - A [`choose_backend`](@ref) method for a specific `(P, A)` pair wins over this ladder by
   dispatch, which is how the structured and banded backends are chosen. The ladder is the
   body of the *fallback* method.
@@ -568,9 +571,13 @@ function factorize!(ls::ReducedCholesky{T}, ws)::Bool where {T}
     # `scaled_col!` writes only the entries the matrix actually has, so W is zeroed first.
     fill!(ls.W, zero(T))
     rho, E, D = ws.rho_vec, ws.E, ws.D
+    # `m` square roots instead of `m*n`: the per-entry closure used to pay one for every
+    # entry of `W`, which is most of a refactorization's setup at the sizes the dense
+    # backend serves.
+    sr = sqrt.(rho) .* E
     for j in 1:n
         dj = D[j]
-        scaled_col!(T, ls.W, ws.A, j, (a, i) -> sqrt(rho[i]) * E[i] * a * dj)
+        scaled_col!(T, ls.W, ws.A, j, (a, i) -> sr[i] * a * dj)
     end
     if m > 0
         mul!(R, ls.W', ls.W)
@@ -651,6 +658,11 @@ end
 function factorize!(ls::FullKKT{T}, ws)::Bool where {T}
     n, m = ws.n, ws.m
     fill!(ls.K, zero(T))
+    # The P block is an indexed `n²` loop rather than the fused `c · (D ⊙ P) ⊙ Dᵀ` broadcast:
+    # measured at `n = m = 400` on this factorization, the broadcast costs two extra passes
+    # and two `n²` temporaries and runs 5.4 ms against 5.1 ms median for this form, which
+    # already writes each entry once. The A block scatters one entry into two transposed
+    # positions and stays indexed either way.
     for j in 1:n
         dj = ws.D[j]
         for i in 1:n

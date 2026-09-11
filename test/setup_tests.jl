@@ -12,6 +12,23 @@
     @test_throws "P must be symmetric" setup([1.0 2.0; 0.0 1.0], q, A, l, u)
     @test_throws "l may not be +Inf" setup(P, q, A, [Inf], [Inf])
     @test_throws "u contains NaN" setup(P, q, A, l, [NaN])
+    # The factorizations run with `check = false`, so a non-finite stored entry is refused
+    # here rather than answered with.
+    @test_throws "P is not finite at entry (2, 2)" setup([1.0 0.0; 0.0 NaN], q, A, l, u)
+    @test_throws "A is not finite at entry (1, 1)" setup(P, q, [Inf 0.0], l, u)
+end
+
+@testitem "Solution and Workspace render as one line" begin
+    ws = setup([4.0 1.0; 1.0 2.0], [1.0, 1.0], [1.0 1.0; 1.0 0.0], [0.0, 0.0], [1.0, 1.0])
+    s = PureOSQP.solve!(ws)
+    txt_ws = sprint(show, ws)
+    txt_sol = sprint(show, s)
+    @test occursin("PureOSQP Workspace", txt_ws)
+    @test occursin("backend", txt_ws)
+    @test occursin("PureOSQP Solution", txt_sol)
+    @test occursin("iterations", txt_sol)
+    @test iszero(count('\n', txt_ws))
+    @test iszero(count('\n', txt_sol))
 end
 
 @testitem "workspace fields are concrete" begin

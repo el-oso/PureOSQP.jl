@@ -18,7 +18,10 @@ using TypeContracts: TypeContracts, @contract, @verify
 
 export setup, solve, solve!, update!, update_settings!, update_rho!, warm_start!, cold_start!
 export dimensions, capabilities, constraint_violation, constraint_violation!
-export Optimizer, Settings, Solution, Status
+export Optimizer, Settings, Solution, Status, Workspace
+export has_solution, status_name
+export backend_info, backend_name, factor_fill, BackendInfo
+export PolishStatus
 export adjoint_derivative, forward_derivative
 export LinearSystem, ReducedCholesky, FullKKT
 export SOLVED, PRIMAL_INFEASIBLE, DUAL_INFEASIBLE, MAX_ITER_REACHED, NON_CONVEX, UNSOLVED
@@ -36,6 +39,7 @@ include("lowrank.jl")
 include("block.jl")
 include("kronsolve.jl")
 include("types.jl")
+include("accelerate.jl")
 include("elementwise.jl")
 include("scaling.jl")
 include("rho.jl")

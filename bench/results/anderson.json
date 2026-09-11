@@ -1,0 +1,43 @@
+{
+  "blas_threads": 1,
+  "cases": [
+    {
+      "case": "dense QP",
+      "plain_iters": 350,
+      "accel_iters": 150,
+      "plain_seconds": 0.001429242,
+      "accel_seconds": 0.001010884,
+      "status": "SOLVED",
+      "agreement": 3.993947452762825e-7
+    },
+    {
+      "case": "sparse-ish",
+      "plain_iters": 625,
+      "accel_iters": 250,
+      "plain_seconds": 0.025684762,
+      "accel_seconds": 0.013184074,
+      "status": "SOLVED",
+      "agreement": 1.3566289713828894e-7
+    },
+    {
+      "case": "equality-heavy",
+      "plain_iters": 75,
+      "accel_iters": 25,
+      "plain_seconds": 0.00036214300000000005,
+      "accel_seconds": 0.00027094,
+      "status": "SOLVED",
+      "agreement": 4.884981308350689e-14
+    },
+    {
+      "case": "ill-conditioned",
+      "plain_iters": 1350,
+      "accel_iters": 1725,
+      "plain_seconds": 0.0067234650000000005,
+      "accel_seconds": 0.011201870000000001,
+      "status": "SOLVED",
+      "agreement": 1.3597624062278157e-6
+    }
+  ],
+  "eps": 1.0e-8,
+  "julia_version": "1.13.0"
+}

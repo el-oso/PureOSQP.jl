@@ -39,7 +39,10 @@ end
 The `z` and `y` half of an ADMM step: relax, project onto `[l, u]`, and move the multiplier
 by the amount the projection removed.
 """
-function update_zy!(z::Vector, y, delta_y, ztilde, z_prev, rho_vec, rho_inv_vec, l, u, a)
+function update_zy!(
+        z::Vector, y, delta_y, ztilde, z_prev, rho_vec, rho_inv_vec, l, u, a, scratch
+    )
+    # The loop needs no scratch; the argument keeps the two schedules one call.
     for i in eachindex(z)
         relaxed = relax(a, ztilde[i], z_prev[i])
         zi = clamp(relaxed + rho_inv_vec[i] * y[i], l[i], u[i])
@@ -51,11 +54,21 @@ function update_zy!(z::Vector, y, delta_y, ztilde, z_prev, rho_vec, rho_inv_vec,
     return z
 end
 
-function update_zy!(z, y, delta_y, ztilde, z_prev, rho_vec, rho_inv_vec, l, u, a)
+function update_zy!(
+        z, y, delta_y, ztilde, z_prev, rho_vec, rho_inv_vec, l, u, a, scratch
+    )
     # `z_prev` is a distinct array from `z` after the step's swap, so writing `z` first and
-    # reading it back below gives the new iterate, not a partially updated one.
-    z .= clamp.(relax.(a, ztilde, z_prev) .+ rho_inv_vec .* y, l, u)
-    delta_y .= rho_vec .* (relax.(a, ztilde, z_prev) .- z)
+    # reading it back below gives the new iterate, not a partially updated one. The relaxed
+    # point is computed once into `scratch` — a workspace buffer — rather than as a fresh
+    # temporary twice, which is what this schedule is for on an array that forbids scalar
+    # indexing.
+    # `scratch` holds the relaxed point and is not written again: the dual update is
+    # `ρ ⊙ (relaxed - z)`, so adding `ρ⁻¹ ⊙ y` into it would carry `y` into its own update.
+    # That term belongs only to the projection, where it fuses into the `clamp` broadcast
+    # without a temporary of its own.
+    scratch .= relax.(a, ztilde, z_prev)
+    z .= clamp.(scratch .+ rho_inv_vec .* y, l, u)
+    delta_y .= rho_vec .* (scratch .- z)
     y .+= delta_y
     return z
 end

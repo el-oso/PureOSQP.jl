@@ -52,6 +52,23 @@ PureOSQP.choose_backend(
     D, E, c, rho_vec, sigma
 ) = unsupported_backend()
 
+"""
+    PureOSQP.check_finite(M::AbstractGPUMatrix, rows, cols, name)
+
+Establish that `M` holds no NaN or Inf, by reduction rather than by walking entries.
+
+The generic check reads `M[i, j]`, which a device array refuses; the refusal arrives as
+"scalar indexing is disallowed" from inside validation, in place of whatever the caller was
+being told. The offending entry cannot be named without reading one, so the message names
+the matrix instead.
+"""
+function PureOSQP.check_finite(
+        M::AbstractGPUMatrix, rows::Integer, cols::Integer, name::String
+    )
+    all(isfinite, M) || throw(ArgumentError("$name is not finite"))
+    return nothing
+end
+
 "`M`'s diagonal as a vector, without indexing it."
 diagonal_of(M::AbstractGPUMatrix) = vec(sum(M .* onehot(M); dims = 1))
 

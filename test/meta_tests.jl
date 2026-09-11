@@ -14,7 +14,7 @@
         "gpu_tests.jl" => 4,
         "indirect_tests.jl" => 4,
         "kronecker_tests.jl" => 3,
-        "linsys_tests.jl" => 28,
+        "linsys_tests.jl" => 29,
         "meta_tests.jl" => 1,
         "moi_tests.jl" => 2,
         "operator_tests.jl" => 6,
@@ -22,10 +22,10 @@
         "polish_tests.jl" => 4,
         "scaling_tests.jl" => 8,
         "selection_tests.jl" => 5,
-        "setup_tests.jl" => 12,
-        "solve_tests.jl" => 24,
+        "setup_tests.jl" => 13,
+        "solve_tests.jl" => 27,
         "trim_tests.jl" => 1,
-        "update_tests.jl" => 6,
+        "update_tests.jl" => 8,
     )
     dir = @__DIR__
     files = sort(filter(f -> endswith(f, "_tests.jl"), readdir(dir)))

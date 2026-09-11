@@ -49,7 +49,82 @@ end
 end
 
 @testitem "linsys rejects an unknown backend" begin
-    @test_throws "linsys must be :auto, :dense, :kkt or :indirect" setup([1.0;;], [0.0], [1.0;;], [0.0], [1.0]; linsys = :magic)
+    @test_throws "linsys must be one of" setup([1.0;;], [0.0], [1.0;;], [0.0], [1.0]; linsys = :magic)
+end
+
+@testitem "named linsys options reach their backend, and decline loudly" begin
+    using LinearAlgebra, SparseArrays, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    Random.seed!(74)
+    opts = (eps_abs = 1.0e-9, eps_rel = 1.0e-9)
+    sparse_names = (SPARSE_FACTOR_BACKENDS..., SPARSE_KKT_BACKENDS..., :sparse_formed)
+
+    # `:sparse` serves a CSC A through a sparse backend, and declines a dense pair.
+    P, q, A, l, u = random_qp(40, 60; seed = 74)
+    sp = setup(P, q, sparse(A), l, u; opts..., linsys = :sparse)
+    @test PureOSQP.backend_name(sp.linsys) in sparse_names
+    @test_throws "linsys = :sparse" setup(P, q, A, l, u; opts..., linsys = :sparse)
+
+    # `:diagonal` and `:tridiagonal` name their backends outright.
+    n = 20
+    Pd = Diagonal(rand(n) .+ 1)
+    Ad = Diagonal(rand(n))
+    qd = randn(n)
+    ld, ud = -rand(n), rand(n)
+    d = setup(Pd, qd, Ad, ld, ud; opts..., linsys = :diagonal)
+    @test PureOSQP.backend_name(d.linsys) === :diagonal
+    @test_throws "linsys = :diagonal" setup(Matrix(Pd), qd, Ad, ld, ud; opts..., linsys = :diagonal)
+    Pt = SymTridiagonal(rand(n) .+ 1, rand(n - 1) ./ 2)
+    t = setup(Pt, qd, Ad, ld, ud; opts..., linsys = :tridiagonal)
+    @test PureOSQP.backend_name(t.linsys) === :tridiagonal
+    @test_throws "linsys = :tridiagonal" setup(Pd, qd, Ad, ld, ud; opts..., linsys = :tridiagonal)
+
+    # `:block`, `:kronecker` and `:lowrank` reach their rung and state the condition
+    # when the pair does not admit it.
+    Kc, nb, mb = 3, 8, 5
+    Pb = PureOSQP.BlockDiagonal(
+        [
+            let S = randn(nb, nb)
+                Matrix(Symmetric(S'S ./ nb + 2I))
+            end for _ in 1:Kc
+        ]
+    )
+    Ab = PureOSQP.BlockDiagonal([randn(mb, nb) ./ sqrt(nb) for _ in 1:Kc])
+    qb = randn(Kc * nb)
+    bb = Ab * randn(Kc * nb)
+    lb, ub = bb .- rand(Kc * mb), bb .+ rand(Kc * mb)
+    blk = setup(Pb, qb, Ab, lb, ub; opts..., linsys = :block)
+    @test PureOSQP.backend_name(blk.linsys) === :block
+    @test_throws "linsys = :block" setup(Matrix(Pb), qb, Matrix(Ab), lb, ub; opts..., linsys = :block)
+
+    A1, A2 = randn(6, 6), randn(5, 5)
+    K = PureOSQP.KroneckerOperator(A1, A2)
+    nk = 30
+    Pk = Diagonal(fill(2.0, nk))
+    qk = randn(nk)
+    bk = kron(A1, A2) * randn(nk)
+    lk, uk = bk .- rand(nk), bk .+ rand(nk)
+    kr = setup(Pk, qk, K, lk, uk; scaling = 0, opts..., linsys = :kronecker)
+    @test PureOSQP.backend_name(kr.linsys) === :kronecker
+    # Equilibration in force is one of the conditions the diagonalization needs.
+    @test_throws "linsys = :kronecker" setup(Pk, qk, K, lk, uk; opts..., linsys = :kronecker)
+
+    nn, kk = 40, 3
+    Pn = Diagonal(rand(nn) .+ 1)
+    An = PureOSQP.RowCoupled(randn(kk, nn), nn - kk)
+    qn = randn(nn)
+    bn = An * randn(nn)
+    ln, un = bn .- rand(nn), bn .+ rand(nn)
+    lr = setup(Pn, qn, An, ln, un; opts..., linsys = :lowrank)
+    @test PureOSQP.backend_name(lr.linsys) === :lowrank
+    @test_throws "linsys = :lowrank" setup(Matrix(Pn), qn, Matrix(An), ln, un; opts..., linsys = :lowrank)
+
+    # A named option solves what `:auto` solves on the same pair.
+    sd = solve(Pd, qd, Ad, ld, ud; opts..., linsys = :diagonal, max_iter = 100_000)
+    sa = solve(Pd, qd, Ad, ld, ud; opts..., max_iter = 100_000)
+    @test sd.status == SOLVED
+    @test sd.iter == sa.iter
+    @test sd.x ≈ sa.x rtol = 1.0e-6
 end
 
 @testitem "the LinearSystem contract is enforced, not decorative" begin

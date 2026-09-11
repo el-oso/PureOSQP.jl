@@ -2,6 +2,31 @@
     return v < MIN_SCALING(T) ? one(T) : min(v, MAX_SCALING(T))
 end
 
+"How close to one the equilibration updates must be for [`equilibrate!`](@ref) to stop
+sweeping early. Below the resolution of a type's arithmetic the test never passes and the
+sweep count is exactly the requested one."
+@inline RUIZ_TOL(::Type{T}) where {T} = T(1.0e-12)
+
+"""
+    check_finite(M, rows, cols, name) -> nothing
+
+Throw unless every entry `M` can be read is finite, naming the first that is not.
+
+Walks [`structural_rows`](@ref) column by column, so a structured representation pays only
+its own entries and a `SparseMatrixCSC` pays its stored ones — which is where a stray `NaN`
+or `Inf` can sit, and where a factorization run with `check = false` would not reliably
+report it. A representation that cannot be indexed is the caller's to skip.
+"""
+function check_finite(M, rows::Integer, cols::Integer, name::String)
+    for j in 1:cols
+        for i in structural_rows(M, j)
+            v = M[i, j]
+            isfinite(v) || throw(ArgumentError("$name is not finite at entry ($i, $j)"))
+        end
+    end
+    return nothing
+end
+
 # ── column traversals ───────────────────────────────────────────────────────────────────
 # Equilibration and the dense formation both walk the caller's matrices one column at a
 # time. These four functions are the only places that do, so a matrix type that can
@@ -162,7 +187,7 @@ function equilibrate!(
     # Seeds `pcol` for the first sweep; every later one gets it from the cost normalization
     # at the end of the sweep before, which reads `P` with the same `D`.
     cost_norms!(pcol, T, P, D, c, n)
-    for _ in 1:sweeps
+    for sweep in 1:sweeps
         column_norms!(d, e, T, pcol, A, D, E, c)
         e .= limit_scaling.(E .* e)
         d .= inv.(sqrt.(d))
@@ -178,6 +203,18 @@ function equilibrate!(
         ct = inv(limit_scaling(ct))
         q .*= ct
         c *= ct
+        # Early exit: once the multiplicative updates and the cost factor all sit within
+        # RUIZ_TOL of one, the sweep has reached the fixed point and the remaining sweeps
+        # would move `D`, `E` and `c` by O(tol) at most. The factors then differ from the
+        # full-sweep result by less than that, which is what keeps the iterates inside the
+        # C-suite tolerance. For a type whose arithmetic cannot resolve the tolerance the
+        # test never passes and the sweep count is exactly the requested one.
+        moved = max(
+            maximum(abs, d .- one(T); init = zero(T)),
+            maximum(abs, e .- one(T); init = zero(T)),
+            abs(ct - one(T)),
+        )
+        sweep < sweeps && moved <= RUIZ_TOL(T) && break
     end
     l .= E .* l0
     u .= E .* u0

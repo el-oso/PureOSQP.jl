@@ -14,6 +14,7 @@ using LDLFactorizations
 # An operator hierarchy that is not this package's own, so the wrapper is checked against a
 # real `mul!` rather than against a `Matrix` standing in for one.
 using SciMLOperators
+using COSMOAccelerators
 
 const M = Matrix{Float64}
 const V = Vector{Float64}
@@ -94,6 +95,11 @@ const SO = typeof(
 )
 solve_sciml(P::SO, q::V, A::SO, l::V, u::V) =
     PureOSQP.solve(P, q, A, l, u; scaling = 0, linsys = :indirect)
+
+# An accelerated solve. The accelerator is built here rather than taken as an argument,
+# because its type is what puts the per-iteration hooks on the trimmed path at all.
+solve_accelerated(P::M, q::V, A::M, l::V, u::V) =
+    PureOSQP.solve(P, q, A, l, u; accelerator = PureOSQP.anderson(Float64, length(q) + length(l)))
 
 # `verbose` prints through hand-written formatting precisely because `--trim` rejects
 # Printf and `Base.stdout`. Pinned as its own entry point so that stays checked.

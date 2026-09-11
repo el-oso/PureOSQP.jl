@@ -100,6 +100,117 @@ end
     @test_throws "A must stay 2×2" update!(ws; A = ones(3, 2))
 end
 
+@testitem "update! keeps the representation the backend was built for" begin
+    using LinearAlgebra, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    Random.seed!(70)
+    # A dense workspace: a structured replacement would be solved through the structure the
+    # dense backend reads, so it is refused rather than answered wrongly.
+    P, q, A, l, u = random_qp(6, 10; seed = 70)
+    # Tight tolerances: the answer is compared against a fresh solve below, so both sides
+    # have to be converged to the same place for the comparison to mean anything.
+    tight = (eps_abs = 1.0e-9, eps_rel = 1.0e-9, max_iter = 100_000)
+    ws = setup(P, q, A, l, u; tight...)
+    @test_throws "keep the representation" update!(ws; P = Diagonal(diag(P)))
+    @test_throws "keep the representation" update!(ws; A = PureOSQP.RowCoupled(randn(4, 6), 6))
+    # A same-type replacement passes and still solves what a fresh setup solves.
+    P2 = P + 1.0e-3 * P
+    update!(ws; P = P2)
+    got = solve!(ws)
+    want = solve(P2, q, A, l, u; eps_abs = 1.0e-9, eps_rel = 1.0e-9, max_iter = 100_000)
+    @test got.status == SOLVED
+    @test got.x ≈ want.x rtol = 1.0e-5
+
+    # The structured backends: their storage reads only the structure they hold, so a
+    # denser replacement is exactly the silent wrong answer the check exists for.
+    n = 20
+    Pd = Diagonal(rand(n) .+ 1)
+    Ad = Diagonal(rand(n))
+    qd = randn(n)
+    ld, ud = -rand(n), rand(n)
+    ws = setup(Pd, qd, Ad, ld, ud)
+    @test PureOSQP.backend_name(ws.linsys) === :diagonal
+    @test_throws "keep the representation" update!(ws; A = randn(n, n))
+    X = randn(n, n)
+    @test_throws "keep the representation" update!(ws; P = X'X ./ n + 2I)
+end
+
+@testitem "update! re-checks the invariants the structured backends carry" begin
+    using LinearAlgebra, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    # Kronecker: a new scalar P refreshes μ and still matches a fresh setup; a general P,
+    # and bounds that split the ρ classes, are refused.
+    Random.seed!(71)
+    n1, n2 = 8, 6
+    A1, A2 = randn(n1, n1), randn(n2, n2)
+    K = PureOSQP.KroneckerOperator(A1, A2)
+    n = n1 * n2
+    P = Diagonal(fill(2.0, n))
+    q = randn(n)
+    b = kron(A1, A2) * randn(n)
+    l, u = b .- rand(n), b .+ rand(n)
+    opts = (scaling = 0, eps_abs = 1.0e-9, eps_rel = 1.0e-9, max_iter = 100_000)
+    ws = setup(P, q, K, l, u; opts...)
+    @test PureOSQP.backend_name(ws.linsys) === :kronecker
+    P2 = Diagonal(fill(5.0, n))
+    update!(ws; P = P2)
+    got = solve!(ws)
+    want = solve(P2, q, K, l, u; opts...)
+    @test got.status == SOLVED
+    @test got.x ≈ want.x rtol = 1.0e-6
+    # Still a `Diagonal`, so the representation check passes and the rung's own invariant is
+    # what refuses it: the Kronecker solve needs `P` to be `μI`, not merely diagonal.
+    @test_throws "scalar multiple of the identity" update!(ws; P = Diagonal(2.0 .+ rand(n)))
+    l2 = copy(l)
+    u2 = copy(u)
+    l2[1:5] .= u2[1:5]
+    @test_throws "uniform ρ" update!(ws; l = l2, u = u2)
+    # A refusal leaves the workspace exactly as it was: the next solve still solves the
+    # problem it held.
+    again = solve!(ws)
+    @test again.status == SOLVED
+    @test again.x ≈ want.x rtol = 1.0e-6
+
+    # Block: the partition and the block sizes are the invariant, not the type.
+    Random.seed!(72)
+    Kc, nb, mb = 4, 10, 6
+    Pb = PureOSQP.BlockDiagonal(
+        [
+            let S = randn(nb, nb)
+                Matrix(Symmetric(S'S ./ nb + 2I))
+            end for _ in 1:Kc
+        ]
+    )
+    Ab = PureOSQP.BlockDiagonal([randn(mb, nb) ./ sqrt(nb) for _ in 1:Kc])
+    qb = randn(Kc * nb)
+    bb = Ab * randn(Kc * nb)
+    lb, ub = bb .- rand(Kc * mb), bb .+ rand(Kc * mb)
+    ws = setup(Pb, qb, Ab, lb, ub)
+    @test PureOSQP.backend_name(ws.linsys) === :block
+    # Same type, different partition: the block runs do not line up with the storage.
+    Pc = PureOSQP.BlockDiagonal(
+        [
+            let S = randn(2 * nb, 2 * nb)
+                Matrix(Symmetric(S'S ./ (2 * nb) + 2I))
+            end for _ in 1:(Kc ÷ 2)
+        ]
+    )
+    @test_throws "block partition" update!(ws; P = Pc)
+
+    # Low rank: the coupling rank is the invariant.
+    Random.seed!(73)
+    nn, kk = 40, 3
+    Pn = Diagonal(rand(nn) .+ 1)
+    An = PureOSQP.RowCoupled(randn(kk, nn), nn - kk)
+    qn = randn(nn)
+    bn = An * randn(nn)
+    ln, un = bn .- rand(size(An, 1)), bn .+ rand(size(An, 1))
+    ws = setup(Pn, qn, An, ln, un)
+    @test PureOSQP.backend_name(ws.linsys) === :lowrank
+    An2 = PureOSQP.RowCoupled(randn(kk + 2, nn), nn - kk - 2)
+    @test_throws "coupling rows" update!(ws; A = An2)
+end
+
 @testitem "update! is timed and the time is charged to the next solve" begin
     using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))

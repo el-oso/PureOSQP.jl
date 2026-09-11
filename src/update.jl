@@ -22,27 +22,88 @@ same scale; after a large change in magnitude, build a fresh workspace instead.
 
 `P` and `A` must keep their dimensions, and `P` must stay symmetric with `P + σI` positive
 definite, which is checked.
+
+`P` and `A` must also keep the representation the workspace was built with. The backend is
+part of the workspace's type, and the structured backends in particular read only the
+structure they were selected on — a denser or differently structured replacement would be
+solved through a structure it does not have, which is a quiet wrong answer rather than an
+error. Rebuild the workspace with [`setup`](@ref) to change the representation. The
+structured backends' data-level invariants are re-checked as well: the Kronecker backend's
+scalar `P` (its `μ` is refreshed, not re-guessed), its uniform `ρ`, the block partition,
+and the coupling rank.
 """
 function update!(
-        ws::Workspace{T}; q = nothing, l = nothing, u = nothing,
+        ws::Workspace{T, MP, MA}; q = nothing, l = nothing, u = nothing,
         P = nothing, A = nothing
-    ) where {T}
+    ) where {T, MP, MA}
     t0 = time_ns()
     n, m = ws.n, ws.m
     refactor_needed = false
 
     if !isnothing(P)
         size(P) == (n, n) || throw(ArgumentError("P must stay $(n)×$(n), got $(size(P))"))
+        P isa MP || throw(
+            ArgumentError(
+                "P must keep the representation the workspace was built with: its linear-" *
+                    "system backend is built for that representation and would read only the " *
+                    "structure it implies. Rebuild the workspace with setup to change it."
+            )
+        )
         is_symmetric(P) || throw(ArgumentError("P must be symmetric"))
         is_convex(T, P, ws.settings.sigma) ||
             throw(ArgumentError("P + sigma*I is not positive definite: P is indefinite, so the problem is not convex."))
+        is_materializable(P) && check_finite(P, n, n, "P")
+        check_storage(P, n, n)
+        ws.linsys isa KroneckerReduced && !is_scalar_multiple(P) && throw(
+            ArgumentError(
+                "P must stay a scalar multiple of the identity: the kronecker backend " *
+                    "diagonalizes cμ + σ + ρ(G₁⊗G₂) and has no form for a general P. " *
+                    "Rebuild the workspace with setup."
+            )
+        )
         ws.P = P
+        ws.linsys isa KroneckerReduced && (ws.linsys.mu = T(scalar_multiple(P)))
         refactor_needed = true
     end
     if !isnothing(A)
         size(A) == (m, n) || throw(ArgumentError("A must stay $(m)×$(n), got $(size(A))"))
+        A isa MA || throw(
+            ArgumentError(
+                "A must keep the representation the workspace was built with: its linear-" *
+                    "system backend is built for that representation and would read only the " *
+                    "structure it implies. Rebuild the workspace with setup to change it."
+            )
+        )
+        is_materializable(A) && check_finite(A, m, n, "A")
+        check_storage(A, m, n)
+        ws.linsys isa DiagonalLowRank && coupling_rank(A) != size(ws.linsys.V, 1) && throw(
+            ArgumentError(
+                "the coupling rows of A must stay the number the workspace was built with: " *
+                    "the low-rank backend holds storage for that rank. Rebuild the " *
+                    "workspace with setup."
+            )
+        )
         ws.A = A
         refactor_needed = true
+    end
+    if (!isnothing(P) || !isnothing(A)) && ws.linsys isa BlockReduced
+        # The block backend factors over the partition it was built with; a new block run
+        # of the same type is a different partition and would read the wrong blocks.
+        Pcur = isnothing(P) ? ws.P : P
+        Acur = isnothing(A) ? ws.A : A
+        same_column_partition(Pcur, Acur) || throw(
+            ArgumentError(
+                "P and A must keep the block partition the workspace was built with: the " *
+                    "block backend factors the reduced matrix over that partition. Rebuild " *
+                    "the workspace with setup."
+            )
+        )
+        for i in eachindex(ws.linsys.blocks)
+            size(Pcur.blocks[i]) == (size(ws.linsys.blocks[i], 1), size(ws.linsys.blocks[i], 1)) ||
+                throw(ArgumentError("P and A must keep the block sizes the workspace was built with. Rebuild the workspace with setup."))
+            size(Acur.blocks[i]) == (size(ws.linsys.scaled[i], 1), size(ws.linsys.blocks[i], 1)) ||
+                throw(ArgumentError("P and A must keep the block sizes the workspace was built with. Rebuild the workspace with setup."))
+        end
     end
     if !isnothing(q)
         length(q) == n || throw(ArgumentError("length(q) must be $n, got $(length(q))"))
@@ -50,6 +111,26 @@ function update!(
         ws.q0 .= q
     end
     if !isnothing(l) || !isnothing(u)
+        # The kronecker backend requires a uniform ρ, which the classification of the
+        # proposed bounds must preserve. Evaluated against the arguments before anything is
+        # written, so a refusal leaves the workspace exactly as it was.
+        if ws.linsys isa KroneckerReduced && ws.m > 0
+            loose = INFTY(T) * MIN_SCALING(T)
+            split = ws.settings.rho_is_vec
+            lprop = isnothing(l) ? ws.l0 : max.(T.(l), -INFTY(T))
+            uprop = isnothing(u) ? ws.u0 : min.(T.(u), INFTY(T))
+            first_class = rho_class(ws.E[1] * lprop[1], ws.E[1] * uprop[1], loose, split)
+            for i in 2:ws.m
+                rho_class(ws.E[i] * lprop[i], ws.E[i] * uprop[i], loose, split) !=
+                    first_class && throw(
+                    ArgumentError(
+                        "the new bounds put constraint rows in different ρ classes: the " *
+                            "kronecker backend requires a uniform ρ and has no form for " *
+                            "a split one. Rebuild the workspace with setup."
+                    )
+                )
+            end
+        end
         inf = INFTY(T)
         if !isnothing(l)
             length(l) == m || throw(ArgumentError("length(l) must be $m, got $(length(l))"))

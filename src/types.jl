@@ -94,8 +94,18 @@ large bound would otherwise dominate the sum."
 @inline ZERO_DEADZONE(::Type{T}) where {T} = T(1.0e-10)
 
 "The backends `linsys` may name. [`setup`](@ref) rejects anything else before turning the
-choice into a type parameter, so an unusable name costs an error and not a specialization."
-const LINSYS_OPTIONS = (:auto, :dense, :kkt, :indirect)
+choice into a type parameter, so an unusable name costs an error and not a specialization.
+
+`:auto` descends the selection ladder. `:dense`, `:kkt` and `:indirect` name a backend
+outright. The rest name a *kind* the pair must admit — `:sparse` factors the reduced or
+KKT matrix sparsely, `:diagonal`, `:tridiagonal`, `:block`, `:kronecker` and `:lowrank`
+name their structured backends — and are refused, with the condition stated, when the pair
+does not admit one. They are the escape hatch for a pair the ladder's measured thresholds
+misjudge: the same backend the ladder would have chosen, chosen by the caller instead."
+const LINSYS_OPTIONS = (
+    :auto, :dense, :kkt, :indirect,
+    :sparse, :diagonal, :tridiagonal, :block, :kronecker, :lowrank,
+)
 
 """
     Settings{T}
@@ -164,7 +174,7 @@ function Settings{T}(;
         ArgumentError("adaptive_rho_fraction must lie in (0, 1], got $adaptive_rho_fraction")
     )
     linsys in LINSYS_OPTIONS || throw(
-        ArgumentError("linsys must be :auto, :dense, :kkt or :indirect, got :$linsys")
+        ArgumentError("linsys must be one of $(join(LINSYS_OPTIONS, ", ")), got :$linsys")
     )
     cg_max_iter > 0 || throw(ArgumentError("cg_max_iter must be positive, got $cg_max_iter"))
     0 < cg_tol_fraction <= 1 || throw(
@@ -276,6 +286,7 @@ type of the caller's data rather than always being `Vector`.
 mutable struct Workspace{
         T <: Real, MP <: AbstractMatrix, MA <: AbstractMatrix,
         V <: AbstractVector{T}, VI <: AbstractVector{Int8}, LS <: LinearSystem,
+        AC,
     }
     P::MP
     A::MA
@@ -313,6 +324,9 @@ mutable struct Workspace{
     rho_inv_vec::V
     constr_type::VI
     linsys::LS
+    # `nothing` unless the caller supplied an accelerator. Its type is a parameter so the
+    # per-iteration hooks dispatch statically and cost nothing when there is none.
+    accel::AC
     refactor_count::Int
     prim_res::T
     dual_res::T
@@ -352,6 +366,35 @@ mutable struct Workspace{
     solve_time::Float64
     polish_time::Float64
     settings::Settings{T}
+end
+
+"""
+    Solution show, in one line: the status, the iterations, and — when the run carries a
+    meaningful point — the objective and the residuals of it.
+"""
+function Base.show(io::IO, s::Solution{T}) where {T}
+    print(io, "PureOSQP Solution{", T, "}: ", status_name(s.status), ", ", s.iter, " iterations")
+    if has_solution(s.status)
+        print(io, ", objective ", s.obj_val, ", primal residual ", s.prim_res, ", dual residual ", s.dual_res)
+        s.polished && print(io, ", polished")
+    else
+        print(io, ", no point")
+    end
+    return nothing
+end
+
+"""
+    Workspace show, in one line: the shape, the backend the workspace is built on, and the
+    state of its last run.
+"""
+function Base.show(io::IO, ws::Workspace)
+    print(
+        io, "PureOSQP Workspace: ", ws.n, "×", ws.m,
+        ", backend ", backend_name(ws.linsys),
+        ", status ", status_name(ws.status),
+        ", rho ", ws.rho,
+    )
+    return nothing
 end
 
 """
@@ -395,6 +438,12 @@ function validate(P, q, A, l, u)
     length(q) == n || throw(ArgumentError("length(q) = $(length(q)) must equal size(P, 1) = $n"))
     length(l) == m || throw(ArgumentError("length(l) = $(length(l)) must equal size(A, 1) = $m"))
     length(u) == m || throw(ArgumentError("length(u) = $(length(u)) must equal size(A, 1) = $m"))
+    # The factorizations run with `check = false` and would not reliably report a non-finite
+    # entry, so a stray NaN or Inf is refused here rather than answered with. This precedes
+    # the symmetry test because `NaN != NaN`: a `P` holding one is not equal to its own
+    # transpose, and would otherwise be refused for the wrong reason.
+    is_materializable(P) && check_finite(P, n, n, "P")
+    is_materializable(A) && check_finite(A, m, n, "A")
     is_symmetric(P) || throw(ArgumentError("P must be symmetric. Pass the full matrix or a Symmetric wrapper, not a stored triangle."))
     all(isfinite, q) || throw(ArgumentError("q must be finite, found NaN or Inf"))
     any(isnan, l) && throw(ArgumentError("l contains NaN"))
@@ -469,14 +518,14 @@ Base.@constprop :aggressive function setup(
     # parameter, and an unusable one would specialize the whole of `setup_backend` before the
     # settings it cannot satisfy are ever built.
     linsys in LINSYS_OPTIONS || throw(
-        ArgumentError("linsys must be :auto, :dense, :kkt or :indirect, got :$linsys")
+        ArgumentError("linsys must be one of $(join(LINSYS_OPTIONS, ", ")), got :$linsys")
     )
     return setup_backend(Val(linsys), T, P, q, A, l, u; kwargs...)
 end
 
 function setup_backend(
         ::Val{LS}, ::Type{T}, P::AbstractMatrix, q::AbstractVector, A::AbstractMatrix,
-        l::AbstractVector, u::AbstractVector; kwargs...
+        l::AbstractVector, u::AbstractVector; accelerator = nothing, kwargs...
     ) where {LS, T <: Real}
     t0 = time_ns()
     n, m = validate(P, q, A, l, u)
@@ -511,7 +560,10 @@ function setup_backend(
         ctype, rho_vec, rho_inv_vec, l, u, rho,
         INFTY(T) * MIN_SCALING(T), settings.rho_is_vec
     )
-    make(ls) = Workspace{T, typeof(P), typeof(A), typeof(q0), typeof(ctype), typeof(ls)}(
+    ac = init_accelerator(accelerator, T, n, m)
+    make(ls) = Workspace{
+        T, typeof(P), typeof(A), typeof(q0), typeof(ctype), typeof(ls), typeof(ac),
+    }(
         P, A, n, m,
         q0, l0, u0,
         q, l, u,
@@ -520,7 +572,7 @@ function setup_backend(
         buf(m, z), buf(n, z), buf(n, z),
         buf(n, z), buf(m, z), tmp_n, tmp_m, work_n, buf(m, z),
         rho, rho_vec, rho_inv_vec, ctype,
-        ls, 0,
+        ls, ac, 0,
         zero(T), zero(T), zero(T), zero(T), zero(T),
         zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), INFTY(T),
         0.0, 0.0, 0.0, zero(T), zero(UInt64),
@@ -545,6 +597,79 @@ function setup_backend(
     elseif LS === :indirect
         ws = make(indirect_backend(q0, n, m))
         refactor!(ws)
+        return finish_setup!(ws, t0)
+    elseif LS === :sparse
+        rung = kkt_rung(P, A, q0, n, m, D, E, c, rho_vec, settings.sigma)
+        isnothing(rung) && (rung = reduced_rung(P, A, q0, n, m, D, E, c, rho_vec, settings.sigma))
+        isnothing(rung) && (rung = formed_rung(P, A, q0, n, m))
+        isnothing(rung) && throw(
+            ArgumentError(
+                "linsys = :sparse factors the reduced or KKT matrix sparsely and could not " *
+                    "serve this pair: it needs a SparseMatrixCSC A whose factor stays sparse " *
+                    "enough, and SparseArrays.jl loaded. Retry with linsys = :auto."
+            )
+        )
+        ls, factored = rung
+        ws = make(ls)
+        factored || refactor!(ws)
+        return finish_setup!(ws, t0)
+    elseif LS === :diagonal
+        (P isa Diagonal && A isa Diagonal) || throw(
+            ArgumentError("linsys = :diagonal needs P and A both diagonal")
+        )
+        ls, factored = choose_backend(P, A, q0, n, m, D, E, c, rho_vec, settings.sigma)
+        ws = make(ls)
+        factored || refactor!(ws)
+        return finish_setup!(ws, t0)
+    elseif LS === :tridiagonal
+        tridiag_pair =
+            (P isa Union{SymTridiagonal, Tridiagonal} && A isa Diagonal) ||
+            (P isa Union{Diagonal, SymTridiagonal, Tridiagonal} && A isa Bidiagonal)
+        tridiag_pair || throw(
+            ArgumentError(
+                "linsys = :tridiagonal needs a diagonal, symmetric-tridiagonal or tridiagonal " *
+                    "P with a diagonal A, or any of those P with a bidiagonal A"
+            )
+        )
+        ls, factored = choose_backend(P, A, q0, n, m, D, E, c, rho_vec, settings.sigma)
+        ws = make(ls)
+        factored || refactor!(ws)
+        return finish_setup!(ws, t0)
+    elseif LS === :kronecker
+        rung = kronecker_rung(P, A, q0, n, m, D, E, c, rho_vec, settings.sigma)
+        isnothing(rung) && throw(
+            ArgumentError(
+                "linsys = :kronecker needs A a KroneckerOperator, P a scalar multiple of the " *
+                    "identity, a uniform rho and scaling = 0, and declines this pair"
+            )
+        )
+        ls, factored = rung
+        ws = make(ls)
+        factored || refactor!(ws)
+        return finish_setup!(ws, t0)
+    elseif LS === :block
+        rung = block_rung(P, A, q0, n, m, D, E, c, rho_vec, settings.sigma)
+        isnothing(rung) && throw(
+            ArgumentError(
+                "linsys = :block needs P and A both block diagonal over the same column " *
+                    "partition, with more than one block, and declines this pair"
+            )
+        )
+        ls, factored = rung
+        ws = make(ls)
+        factored || refactor!(ws)
+        return finish_setup!(ws, t0)
+    elseif LS === :lowrank
+        rung = lowrank_rung(P, A, q0, n, m, D, E, c, rho_vec, settings.sigma)
+        isnothing(rung) && throw(
+            ArgumentError(
+                "linsys = :lowrank needs a diagonal P and a RowCoupled A whose coupling rank " *
+                    "is small relative to n, and declines this pair"
+            )
+        )
+        ls, factored = rung
+        ws = make(ls)
+        factored || refactor!(ws)
         return finish_setup!(ws, t0)
     end
     # `choose_backend` picks by representation; the choice is settled here, once. The backend
@@ -574,10 +699,12 @@ Seed the iterates in problem space. `z` is set to the scaled `Ax`.
 function warm_start!(ws::Workspace{T}; x = nothing, y = nothing) where {T}
     if !isnothing(x)
         length(x) == ws.n || throw(ArgumentError("length(x) must be $(ws.n)"))
+        all(isfinite, x) || throw(ArgumentError("x must be finite, found NaN or Inf"))
         ws.x .= T.(x) ./ ws.D
     end
     if !isnothing(y)
         length(y) == ws.m || throw(ArgumentError("length(y) must be $(ws.m)"))
+        all(isfinite, y) || throw(ArgumentError("y must be finite, found NaN or Inf"))
         ws.y .= ws.c .* T.(y) ./ ws.E
     end
     ws.m > 0 && mul_A!(ws.z, ws, ws.x)

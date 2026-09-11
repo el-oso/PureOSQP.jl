@@ -19,7 +19,7 @@ function admm_step!(ws::Workspace{T}) where {T}
     update_x!(ws.x, ws.delta_x, ws.xtilde, ws.x_prev, ws.settings.alpha)
     ws.m > 0 && update_zy!(
         ws.z, ws.y, ws.delta_y, ws.ztilde, ws.z_prev,
-        ws.rho_vec, ws.rho_inv_vec, ws.l, ws.u, ws.settings.alpha
+        ws.rho_vec, ws.rho_inv_vec, ws.l, ws.u, ws.settings.alpha, ws.work_m
     )
     return ws
 end
@@ -68,7 +68,7 @@ function print_header(ws::Workspace)
     print(Core.stdout, ", m = ")
     print(Core.stdout, ws.m)
     print(Core.stdout, ", backend = ")
-    println(Core.stdout, backend_name(ws.linsys) === :cholesky ? "cholesky" : "bunchkaufman")
+    println(Core.stdout, backend_name(ws.linsys))
     print(Core.stdout, "     eps_abs = ")
     print(Core.stdout, ws.settings.eps_abs)
     print(Core.stdout, ", eps_rel = ")
@@ -170,7 +170,9 @@ function solve!(ws::Workspace{T}) where {T}
     try
         for iter in 1:s.max_iter
             ws.iter = iter
+            accelerate_pre!(ws.accel, ws, iter)
             admm_step!(ws)
+            accelerate_post!(ws.accel, ws, iter)
             if limited && time_ns() - started >= budget
                 # Report the residuals of the point actually reached, not the stale ones
                 # from the last scheduled check.
@@ -310,7 +312,27 @@ end
 """
     solve(P, q, A, l, u; x0 = nothing, y0 = nothing, kwargs...) -> Solution
 
-Solve `min ½xᵀPx + qᵀx  s.t.  l ≤ Ax ≤ u` in one call.
+Solve `min ½xᵀPx + qᵀx  s.t.  l ≤ Ax ≤ u` in one call: build the workspace, warm-start
+from `x0` and `y0` when given, and run the loop.
+
+`P` must be symmetric with `P + sigma*I` positive definite, and the five inputs are
+validated exactly as in [`setup`](@ref): `q` finite, `l ≤ u` elementwise, `l` free of `+Inf`
+and `u` free of `-Inf` (which spell an unbounded row), and every stored entry of `P` and `A`
+finite. `P` and `A` may be any `AbstractMatrix` and are never modified; the solve runs in
+the promotion of the five inputs' element types.
+
+The keyword arguments are the fields of [`Settings`](@ref) — `rho`, `sigma`, `alpha`,
+`max_iter`, `time_limit`, the tolerances, `scaling`, `adaptive_rho`, `check_dualgap`,
+`polish`, `warm_starting`, `verbose`, `linsys`, and `accelerator` — and [`setup`](@ref)
+describes what each does and what the defaults are.
+
+`x0` and `y0` seed the iteration in problem space. With `warm_starting = true` (the
+default), a later [`solve!`](@ref) on the same workspace starts from its last point instead.
+
+Returns a [`Solution`](@ref). Its `status` says how the run ended and
+[`has_solution`](@ref) says whether its `x` and `y` are a meaningful point; failures that
+are not outcomes of the algorithm — a non-symmetric `P`, a dimension mismatch, a bad
+setting — raise rather than returning a status.
 """
 Base.@constprop :aggressive function solve(
         P::AbstractMatrix, q::AbstractVector, A::AbstractMatrix,

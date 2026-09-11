@@ -9,6 +9,7 @@
     entry = joinpath(@__DIR__, "trim", "entrypoints.jl")
     names = [
         :solve_default, :solve_polish, :solve_kkt, :solve_unscaled, :solve_verbose, :solve_indirect,
+        :solve_accelerated,
         :settings_and_rho, :derivatives,
         :solve_interruptible,
         :solve_time_limited, :solve_profiled,

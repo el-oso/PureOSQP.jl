@@ -97,7 +97,7 @@ function polish!(ws::Workspace{T}) where {T}
     yv = view(sol, (n + 1):(n + k))
     for _ in 1:ws.settings.polish_refine_iter
         copyto!(res, rhs)
-        mul_P!(ws.work_n, ws, collect(xv))
+        mul_P!(ws.work_n, ws, xv)
         for j in 1:n
             res[j] -= ws.work_n[j]
         end
