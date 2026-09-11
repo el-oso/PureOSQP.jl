@@ -23,3 +23,6 @@ TestItems = "1c621080-faea-4a02-84b6-bbd5e436b8fe"
 TrimCheck = "f940d764-e397-4179-96e0-76ce55cfe39b"
 TypeContracts = "c7a3f1e2-84b5-4d69-9e0a-1f2b3c4d5e6f"
 Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
+
+[sources]
+TrimCheck = {rev = "julia-1.13", url = "https://github.com/el-oso/TrimCheck.jl.git"}

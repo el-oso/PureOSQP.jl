@@ -1,16 +1,5 @@
 @testitem "the public entry points are --trim compatible" begin
     using TrimCheck
-    # TrimCheck drives the compiler through `Compiler.typeinf_ext_toplevel`, whose signature
-    # Julia 1.13 changed, so on 1.13 every call it makes raises a `MethodError` and no
-    # verdict is available. It also reads juliac's trim scripts from `share/julia/juliac`,
-    # which 1.13 moved; supplying those from their new location is not enough on its own.
-    # Their presence is what this tests for, since it is the cheaper of the two signals.
-    #
-    # Marked broken rather than skipped, so a run without the gate is visible in the summary
-    # instead of reading as a pass.
-    trimcheck_runs = isfile(
-        joinpath(Sys.BINDIR, "..", "share", "julia", "juliac", "juliac-trim-base.jl")
-    )
     # `juliac --trim` needs every call resolved statically. This is what stops the solver
     # from silently acquiring a dynamic dispatch or a reflective call.
     #
@@ -154,26 +143,21 @@
             )
         )
     )
-    if !trimcheck_runs
-        @warn "TrimCheck cannot drive this Julia; the --trim gate did not run" VERSION
-        @test_broken trimcheck_runs
-    else
-        results = TrimCheck.validate(
-            sigs...; init = :(include($entry); using .TrimEntry), progressbar = false
-        )
-        ok = Dict(
-            String(f) => occursin("is trim compatible", sprint(show, r))
-                for (f, r) in zip(names, results)
-        )
-        # A bare failed assertion names the entry point but not what the trimmer objected
-        # to, which is the only part that says where to look.
-        for (f, r) in zip(names, results)
-            f === :not_trimmable || ok[String(f)] || println("$f:\n", sprint(show, r))
-        end
-        for f in names
-            f === :not_trimmable && continue
-            @test ok[String(f)]
-        end
-        @test !ok["not_trimmable"]
+    results = TrimCheck.validate(
+        sigs...; init = :(include($entry); using .TrimEntry), progressbar = false
+    )
+    ok = Dict(
+        String(f) => occursin("is trim compatible", sprint(show, r))
+            for (f, r) in zip(names, results)
+    )
+    # A bare failed assertion names the entry point but not what the trimmer objected to,
+    # which is the only part that says where to look.
+    for (f, r) in zip(names, results)
+        f === :not_trimmable || ok[String(f)] || println("$f:\n", sprint(show, r))
     end
+    for f in names
+        f === :not_trimmable && continue
+        @test ok[String(f)]
+    end
+    @test !ok["not_trimmable"]
 end

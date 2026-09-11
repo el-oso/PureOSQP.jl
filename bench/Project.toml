@@ -2,6 +2,7 @@
 AllocCheck = "9b6a8646-10ed-4001-bbdc-1d2f46dfbb1a"
 BandedMatrices = "aae01518-5342-5314-be14-df237901396f"
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+COSMOAccelerators = "bbd8fffe-5ad0-4d78-a55e-85575421b4ac"
 Chairmarks = "0ca39b1e-fe0b-4e98-acfc-b1656634c4de"
 Clarabel = "61c947e1-3e6d-4ee4-985a-eec8c727bd6e"
 DAQP = "c47d62df-3981-49c8-9651-128b1cd08617"
@@ -21,6 +22,9 @@ Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 StrictMode = "0e98b4f4-d0e6-42ac-af0a-707c24852f32"
+
+[sources]
+PureOSQP = {path = ".."}
 
 [compat]
 Chairmarks = "1"
