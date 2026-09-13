@@ -89,20 +89,28 @@ MOI.supports(::Optimizer, ::MOI.Silent) = true
 MOI.set(o::Optimizer, ::MOI.Silent, v::Bool) = (o.silent = v; nothing)
 MOI.get(o::Optimizer, ::MOI.Silent) = o.silent
 
+# Sets `time_limit`, which bounds the ADMM iterations only: setup, polishing and the copy
+# from the model are not counted against it.
 MOI.supports(::Optimizer, ::MOI.TimeLimitSec) = true
 MOI.set(o::Optimizer, ::MOI.TimeLimitSec, v::Real) = (o.settings[:time_limit] = Float64(v); nothing)
 MOI.set(o::Optimizer, ::MOI.TimeLimitSec, ::Nothing) = (delete!(o.settings, :time_limit); nothing)
 MOI.get(o::Optimizer, ::MOI.TimeLimitSec) = get(o.settings, :time_limit, nothing)
 
 MOI.supports(::Optimizer, a::MOI.RawOptimizerAttribute) = Symbol(a.name) in fieldnames(PureOSQP.Settings)
-function MOI.set(o::Optimizer, a::MOI.RawOptimizerAttribute, v)
+# A value is checked by building `Settings` from it when it is set, so a bad one throws here
+# rather than at `optimize!`. Settings that take a Symbol also accept its name as a String.
+function MOI.set(o::Optimizer{T}, a::MOI.RawOptimizerAttribute, v) where {T}
     MOI.supports(o, a) || throw(MOI.UnsupportedAttribute(a))
-    o.settings[Symbol(a.name)] = v
+    name = Symbol(a.name)
+    v isa AbstractString && fieldtype(PureOSQP.Settings{T}, name) === Symbol && (v = Symbol(v))
+    PureOSQP.Settings{T}(; o.settings..., name => v)
+    o.settings[name] = v
     return
 end
-function MOI.get(o::Optimizer, a::MOI.RawOptimizerAttribute)
-    haskey(o.settings, Symbol(a.name)) || throw(MOI.GetAttributeNotAllowed(a))
-    return o.settings[Symbol(a.name)]
+function MOI.get(o::Optimizer{T}, a::MOI.RawOptimizerAttribute) where {T}
+    MOI.supports(o, a) || throw(MOI.UnsupportedAttribute(a))
+    name = Symbol(a.name)
+    return haskey(o.settings, name) ? o.settings[name] : getfield(PureOSQP.Settings{T}(), name)
 end
 
 _csc(A::MOI.Utilities.MutableSparseMatrixCSC{T, Int, MOI.Utilities.OneBasedIndexing}) where {T} =

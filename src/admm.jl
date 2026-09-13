@@ -148,6 +148,8 @@ function solve!(ws::Workspace{T}) where {T}
     # rather than the sum of both. `refactor_count` is deliberately not reset: it is a
     # property of the workspace's whole life.
     ws.rho_updates = 0
+    # The accelerator counts over its whole life; this solve reports only its own share.
+    declined_before = accelerator_declined(ws.accel)
     ws.last_rel_kkt = INFTY(T)
     ws.solve_time = 0.0
     ws.polish_time = 0.0
@@ -231,6 +233,7 @@ function solve!(ws::Workspace{T}) where {T}
         ws.status = st == UNSOLVED ? MAX_ITER_REACHED : st
     end
     ws.solve_time = (time_ns() - started) / 1.0e9
+    ws.accel_declined = accelerator_declined(ws.accel) - declined_before
     if (ws.status == SOLVED || ws.status == SOLVED_INACCURATE) && s.polishing
         t_polish = time_ns()
         ws.status_polish = polish!(ws)
@@ -266,7 +269,7 @@ function solution_from(
         Vector{T}(x), Vector{T}(y), ws.status, obj, dual_obj, gap,
         ws.prim_res, ws.dual_res, ws.rel_kkt_error, ws.iter,
         ws.primdual_int, ws.primdual_int_log,
-        ws.rho_estimate, ws.rho_updates, ws.polished, ws.status_polish,
+        ws.rho_estimate, ws.rho_updates, ws.accel_declined, ws.polished, ws.status_polish,
         ws.setup_time, ws.update_time, ws.solve_time, ws.polish_time,
         # Setup is charged to the first run only; a re-solve did not pay it again. The
         # updates since the previous solve are charged here, because they are what this

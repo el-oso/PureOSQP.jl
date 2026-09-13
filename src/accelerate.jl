@@ -114,3 +114,11 @@ iteration a fixed point of a different map and a window spanning both describes 
 With no accelerator this is `nothing`.
 """
 accelerator_reset!(::Nothing) = nothing
+
+"""
+    accelerator_declined(accel) -> Int
+
+How many accelerated steps `accel` has discarded over its life. `solve!` reports the
+difference across one solve as `Solution.accel_declined`. Zero with no accelerator.
+"""
+accelerator_declined(::Nothing) = 0

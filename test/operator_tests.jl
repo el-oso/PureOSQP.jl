@@ -276,3 +276,23 @@ end
     @test last(results)[2] == 100
     @test first(results)[1] == last(results)[1]
 end
+
+@testitem "an operator declared symmetric is checked against its products" begin
+    using LinearAlgebra, Krylov, Random
+    Random.seed!(32)
+    n, m = 20, 10
+    S = randn(n, n)
+    A = PureOSQP.ProductOperator{Float64}(randn(m, n))
+    q, l, u = randn(n), fill(-1.0, m), fill(1.0, m)
+    opts = (scaling = 0, linsys = :indirect)
+
+    # Entries are never read, so the declaration is the only symmetry the solver has; a false
+    # one would make CG iterate on a matrix that is not the problem's.
+    lie = PureOSQP.ProductOperator{Float64}(S'S + triu(S); symmetric = true, posdef = true)
+    @test_throws "P is declared symmetric but is not" setup(lie, q, A, l, u; opts...)
+
+    truth = PureOSQP.ProductOperator{Float64}(S'S + I; symmetric = true, posdef = true)
+    ws = setup(truth, q, A, l, u; opts...)
+    @test solve!(ws).status === PureOSQP.SOLVED
+    @test_throws "P is declared symmetric but is not" update!(ws; P = lie)
+end

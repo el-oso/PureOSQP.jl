@@ -73,3 +73,21 @@ end
     MOI.set(o, MOI.TimeLimitSec(), 5.0)
     @test MOI.get(o, MOI.TimeLimitSec()) == 5.0
 end
+
+@testitem "raw settings are checked when set and read back their defaults" begin
+    using MathOptInterface
+    const MOI = MathOptInterface
+
+    o = PureOSQP.Optimizer()
+    @test MOI.get(o, MOI.RawOptimizerAttribute("max_iter")) == 4000
+    @test MOI.get(o, MOI.RawOptimizerAttribute("linsys")) === :auto
+    @test_throws MOI.UnsupportedAttribute MOI.get(o, MOI.RawOptimizerAttribute("not_a_setting"))
+
+    @test_throws "linsys must be one of" MOI.set(o, MOI.RawOptimizerAttribute("linsys"), :nope)
+    @test_throws "alpha must lie in (0, 2)" MOI.set(o, MOI.RawOptimizerAttribute("alpha"), 3.0)
+    # A refused value leaves the setting as it was.
+    @test MOI.get(o, MOI.RawOptimizerAttribute("alpha")) == 1.6
+
+    MOI.set(o, MOI.RawOptimizerAttribute("linsys"), "kkt")
+    @test MOI.get(o, MOI.RawOptimizerAttribute("linsys")) === :kkt
+end

@@ -87,6 +87,8 @@ function PureOSQP.init_accelerator(
     return state
 end
 
+PureOSQP.accelerator_declined(state::AndersonState) = state.declined
+
 function PureOSQP.accelerator_reset!(state::AndersonState)
     CA.restart!(state.accel)
     state.guarding = false

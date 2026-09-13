@@ -15,9 +15,10 @@ matrix-free backend — but it does need three answers no product can give:
   - whether the operator is symmetric, which [`setup`](@ref) requires of `P`;
   - whether `P + σI` is positive definite, which [`is_convex`](@ref) answers.
 
-The last two are declared by the author rather than computed: verifying either from products
-alone costs more than the solve. `symmetric` and `posdef` are ignored for a `ProductOperator`
-standing in for `A`, which is neither.
+The last two are declared by the author rather than computed, since proving either from products
+alone costs more than the solve. [`setup`](@ref) does spot-check a symmetric declaration with two
+products ([`check_symmetric_products`](@ref)). `symmetric` and `posdef` are ignored for a
+`ProductOperator` standing in for `A`, which is neither.
 
 Equilibration needs column and row ∞-norms, which products do not give directly. Three ways to
 supply them, in the order they cost:
@@ -52,8 +53,9 @@ Wrap `op`, which must answer `size`, `mul!` against a vector, and `mul!` against
 `adjoint(op)` — so `op` has to be adjoint-able. `LinearMap`, `AbstractSciMLOperator` and
 `AbstractOperator` all are.
 
-`symmetric` and `posdef` are the author's declaration about the operator, checked by nothing.
-They are required of a `P` and irrelevant to an `A`.
+`symmetric` and `posdef` are the author's declaration about the operator. They are required of
+a `P` and irrelevant to an `A`. `setup` checks a symmetric declaration with two products and
+throws if it is wrong; `posdef` is not checked.
 
 `probe` decides what happens at equilibration, which needs column and row maxima that products
 do not give. With it, [`probe_column!`](@ref) recovers column `j` as `op * eⱼ` and the maxima
@@ -128,6 +130,33 @@ Base.show(io::IO, M::ProductOperator) = show(io, MIME"text/plain"(), M)
 is_materializable(::ProductOperator) = false
 is_symmetric(M::ProductOperator) = M.symmetric
 is_convex(::Type{T}, P::ProductOperator, sigma) where {T} = P.posdef
+
+"""
+    check_symmetric_products(P, proto)
+
+Throw unless `dot(v, P w) ≈ dot(P v, w)` for two fixed vectors `v` and `w`.
+
+An operator's symmetry is declared, not read from entries, so nothing else checks it. For a symmetric `P` the two products
+agree to rounding; for one that is not, they differ by the size of the products themselves. The
+vectors are fixed rather than random so that `setup` stays reproducible. They are built on the
+host and copied into buffers `similar` to `proto`, so a device operator is checked on the device.
+"""
+function check_symmetric_products(P, proto::AbstractVector)
+    T = float(eltype(proto))
+    n = size(P, 2)
+    v = copyto!(similar(proto, T, n), T[sin(T(0.7) * i + T(0.3)) for i in 1:n])
+    w = copyto!(similar(proto, T, n), T[cos(T(1.3) * i + T(0.1)) for i in 1:n])
+    Pv, Pw = similar(v), similar(w)
+    mul!(Pv, P, v)
+    mul!(Pw, P, w)
+    a, b = dot(v, Pw), dot(Pv, w)
+    abs(a - b) <= sqrt(eps(T)) * max(abs(a), abs(b), eps(T)) || throw(
+        ArgumentError(
+            lazy"P is declared symmetric but is not: dot(v, P*w) = $a and dot(P*v, w) = $b for the same v and w. Correct the declaration on the operator."
+        )
+    )
+    return nothing
+end
 
 """
     probe_column!(M::ProductOperator, j) -> AbstractVector

@@ -68,7 +68,14 @@ model = Model(PureOSQP.Optimizer)
 ```
 
 The wrapper passes `MOI.Test`, which is a far more thorough conformance suite than anything
-hand-written.
+hand-written. Three attributes are excluded from it: `ConstraintBasisStatus`,
+`VariableBasisStatus` and `ObjectiveBound`. ADMM does not produce a basis or a bound.
+
+Settings are passed by name, for example `set_attribute(model, "linsys", :kkt)`. A setting
+that takes a symbol also accepts its name as a string. A bad value throws when it is set.
+Reading a setting you have not set returns its default. `MOI.TimeLimitSec` sets
+`time_limit`, which limits only the ADMM iterations. Setup and polishing are not counted
+against it.
 
 ## Differentiating a solve
 

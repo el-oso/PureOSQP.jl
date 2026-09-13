@@ -757,6 +757,31 @@ end
     @test ws.accel.restarted
 end
 
+@testitem "each solve reports the accelerated steps it discarded" begin
+    using LinearAlgebra, COSMOAccelerators, Random
+    Random.seed!(22)
+    n, m = 80, 160
+    P = let S = randn(n, n)
+        Matrix(Symmetric(S'S ./ n + I))
+    end
+    A = randn(m, n)
+    b = A * randn(n)
+    l, u, q = b .- rand(m), b .+ rand(m), randn(n)
+    opts = (eps_abs = 1.0e-9, eps_rel = 1.0e-9)
+
+    @test iszero(solve(P, q, A, l, u; opts...).accel_declined)
+
+    # A tight safeguard discards many proposals.
+    ws = setup(P, q, A, l, u; accelerator = PureOSQP.anderson(Float64, n + m; safeguard_tol = 1.0e-3), opts...)
+    first_solve = solve!(ws)
+    @test first_solve.status === SOLVED
+    @test 0 < first_solve.accel_declined <= first_solve.iter
+    warm_start!(ws; x = zeros(n), y = zeros(m))
+    second = solve!(ws)
+    # The count is per solve, not the accelerator's running total.
+    @test first_solve.accel_declined + second.accel_declined == ws.accel.declined
+end
+
 @testitem "a NaN residual is reported as divergence, not as a usable point" begin
     P = [4.0 1.0; 1.0 2.0]
     A = [1.0 1.0; 1.0 0.0; 0.0 1.0]

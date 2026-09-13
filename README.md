@@ -31,7 +31,7 @@ sol.x        # [0.3, 0.7]
 
 Modified Ruiz equilibration, vector-valued adaptive ρ with an equality/inequality split, primal and dual infeasibility certificates, warm starts, and active-set polishing — the parts of OSQP that change how it behaves, not just the ADMM recurrence. Duality-gap termination is on by default.
 
-Also shipped as extensions: a MathOptInterface wrapper, so `Model(PureOSQP.Optimizer)` works from JuMP (and all of `MOI.Test` passes); solution derivatives, by implicit differentiation of the KKT conditions, which dual numbers run directly; and a matrix-free backend over [Krylov.jl](https://github.com/JuliaSmoothOptimizers/Krylov.jl) that solves a product-only matrix with preconditioned conjugate gradients.
+Also shipped as extensions: a MathOptInterface wrapper, so `Model(PureOSQP.Optimizer)` works from JuMP (and `MOI.Test` passes, except for basis statuses and objective bounds, which an ADMM solver does not produce); solution derivatives, by implicit differentiation of the KKT conditions, which dual numbers run directly; and a matrix-free backend over [Krylov.jl](https://github.com/JuliaSmoothOptimizers/Krylov.jl) that solves a product-only matrix with preconditioned conjugate gradients.
 
 ## How it differs
 

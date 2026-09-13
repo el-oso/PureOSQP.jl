@@ -15,7 +15,7 @@
     @test ws.ztilde ≈ A * ws.xtilde rtol = 1.0e-9
 end
 
-@testitem "an ill-conditioned A falls back to the full KKT backend at setup" begin
+@testitem "an ill-conditioned A is refused at setup, and solved with linsys = :kkt" begin
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     Random.seed!(6)
@@ -24,7 +24,11 @@ end
     V = Matrix(qr(randn(n, n)).Q)
     A = U * Diagonal(exp10.(range(0, 11; length = n))) * V'
     P = zeros(n, n)
-    ws = setup(P, randn(n), A, -ones(m), ones(m); scaling = 0)
+    q = randn(n)
+    # The reduced matrix squares `cond(A)` and its Cholesky fails. Setup names the backend
+    # that does not square it instead of switching to it.
+    @test_throws "Rebuild the workspace with linsys = :kkt" setup(P, q, A, -ones(m), ones(m); scaling = 0)
+    ws = setup(P, q, A, -ones(m), ones(m); scaling = 0, linsys = :kkt)
     @test ws.linsys isa PureOSQP.FullKKT
     bx, bz = randn(n), randn(m)
     PureOSQP.solve_system!(ws.linsys, ws, bx, bz)

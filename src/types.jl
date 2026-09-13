@@ -223,6 +223,11 @@ the two residuals and the gap, so one number bounds how far the point is from op
 `rho_updates` counts adaptive-`ρ` changes only, unlike `Workspace.refactor_count`, which
 also counts refactorizations forced by new data.
 
+`accel_declined` counts the accelerated steps this solve discarded because they did worse than
+the plain step allowed (see `safeguard_tol` in `PureOSQP.anderson`). It is zero without
+an accelerator. A count close to `iter` means nearly every proposal was discarded and the
+accelerator is only adding work.
+
 `primdual_int` and `primdual_int_log` are the primal-dual integral, `∫|gap| dt` over the
 solve, and are zero unless `profile_primdual` was set. They differ only in how the gap is
 interpolated between the iterations that sampled it: the first joins samples with a straight
@@ -265,6 +270,7 @@ struct Solution{T <: Real}
     primdual_int_log::Float64
     rho_estimate::T
     rho_updates::Int
+    accel_declined::Int
     polished::Bool
     status_polish::PolishStatus
     setup_time::Float64
@@ -358,6 +364,7 @@ mutable struct Workspace{
     loop_start::UInt64
     rho_estimate::T
     rho_updates::Int
+    accel_declined::Int
     iter::Int
     status::Status
     polished::Bool
@@ -455,6 +462,7 @@ function validate(P, q, A, l, u)
                 "P must be symmetric, and an operator reports only what it was told: build it with `issymmetric = true`, or wrap it with `ProductOperator{T}(op; symmetric = true)`."
         )
     )
+    is_materializable(P) || check_symmetric_products(P, q)
     all(isfinite, q) || throw(ArgumentError("q must be finite, found NaN or Inf"))
     any(isnan, l) && throw(ArgumentError("l contains NaN"))
     any(isnan, u) && throw(ArgumentError("u contains NaN"))
@@ -507,11 +515,8 @@ end
 # non-default keyword — `scaling = 0`, `linsys = :kkt` — otherwise arrives as a non-singleton
 # `Pairs`, the compiler's size heuristic refuses to propagate it into a method this large, and
 # `settings.scaling` stays unknown, leaving every branch below live. The return then merges one
-# `Workspace` per reachable backend: `ReducedCholesky`, `FullKKT`, `IndirectCG` once Krylov is
-# loaded, and whichever the ladder chose. That is three for a pair the ladder sends to
-# `ReducedCholesky` anyway, and four for a pair with a backend of its own.
-# `Base.Compiler.MAX_TYPEUNION_LENGTH` is 3, so the fourth widens the union to
-# `Workspace{…} where LS` and every later `solve!` is a dynamic dispatch, which `--trim`
+# `Workspace` per reachable backend, and past `Base.Compiler.MAX_TYPEUNION_LENGTH` (3) the union
+# widens to `Workspace{…} where LS`: every later `solve!` is a dynamic dispatch, which `--trim`
 # rejects. An absent keyword leaves the empty `Pairs`, a singleton that folds without help.
 #
 # `linsys` is lifted out of the keywords and into a `Val` because constant propagation is not
@@ -586,7 +591,7 @@ function setup_backend(
         zero(T), zero(T), zero(T), zero(T), zero(T),
         zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), INFTY(T),
         0.0, 0.0, 0.0, zero(T), zero(UInt64),
-        settings.rho, 0, 0, UNSOLVED, false, POLISH_NOT_PERFORMED,
+        settings.rho, 0, 0, 0, UNSOLVED, false, POLISH_NOT_PERFORMED,
         0.0, 0.0, true, 0.0, 0.0,
         settings,
     )
@@ -686,13 +691,10 @@ function setup_backend(
     # is then part of the workspace's type, so the per-iteration solve dispatches statically.
     ls, factored = choose_backend(P, A, q0, n, m, D, E, c, rho_vec, settings.sigma)
     ws = make(ls)
-    if factored || factorize!(ws.linsys, ws)
-        ws.refactor_count += 1
-        return finish_setup!(ws, t0)
-    end
-    kkt = make(FullKKT(q0, n, m))
-    refactor!(kkt)
-    return finish_setup!(kkt, t0)
+    # A factorization that fails here throws, as it does at every later refactorization, and
+    # names `linsys = :kkt` as the remedy rather than switching backends unannounced.
+    factored ? (ws.refactor_count += 1) : refactored!(ws, factorize!(ws.linsys, ws))
+    return finish_setup!(ws, t0)
 end
 
 "Record how long `setup` took. Called on each of its return paths."

@@ -16,6 +16,13 @@ what is true now; this file is where the history lives.
   setting means in libosqp, and its floor is `eps(T)` relative to the right-hand side instead of
   a fixed `sqrt(eps)`. A problem that ran to `max_iter` at `eps = 1e-9` now converges, and the
   matrix-free backend now solves the `κ = 1e4` case in the conditioning benchmark.
+- **`setup` throws when the backend it chose cannot factorize the problem.** The error names
+  `linsys = :kkt` as the fix. Before, `setup` switched to the full KKT backend without saying so,
+  while a later refactorization of the same problem threw.
+- **The MathOptInterface wrapper checks a raw setting when it is set.** A bad value throws
+  from `MOI.set` instead of from `optimize!`. A setting that takes a symbol also accepts a
+  string, so `"kkt"` works for `linsys`. Reading a setting that was never set returns its
+  default instead of throwing.
 - **The GPU tests are excluded from the test run.** They are tagged `:gpu` in
   `test/gpu_tests.jl`, and `test/runtests.jl` filters them out: compiling the JLArrays path
   crashes Julia 1.13.0 inside LLVM on AVX-512 targets.
@@ -40,12 +47,18 @@ what is true now; this file is where the history lives.
   be discarded.
 - A failed factorization on the full KKT backend no longer suggests switching to it.
 - A non-finite Kronecker factor is reported by factor, and checked without reading the product.
+- `setup` and `update!` check a `ProductOperator` `P` declared symmetric by comparing
+  `dot(v, P*w)` with `dot(P*v, w)`, and throw if they differ. A false declaration had been
+  accepted.
 - The finiteness check in `setup` reads a `SparseMatrixCSC`'s stored entries only. It had read
   every position, one search each, which made `setup` 13× slower on the suite's Huber class
   (6.9 ms against 0.52 ms) and the whole solve 3.4× slower.
 
 ### Added
 
+- **`Solution.accel_declined`**, how many accelerated steps the solve discarded because they
+  did worse than the plain step allows. A count close to `iter` means the accelerator is only
+  adding work.
 - **`DiagonalReduced`**, the backend for a `Diagonal` `P` with a `Diagonal` `A` — a
   separable objective under box constraints. Both diagonal leaves
   `R = c D P D + σI + Ãᵀ diag(ρ) Ã` diagonal, so there is nothing to factor and a solve is

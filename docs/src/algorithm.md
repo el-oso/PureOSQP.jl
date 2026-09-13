@@ -217,11 +217,10 @@ Both tables are reproduced by `bench/kkt_backend.jl`.
 
 `linsys = :auto` (the default) descends the selection ladder and takes the first rung that
 serves the given `P` and `A`; the reduced Cholesky is its terminal rung, reached by any pair
-that can be materialized and nothing cheaper fits. That Cholesky falls back to a
-`bunchkaufman!` factorization of the full quasi-definite system if it reports that the matrix
-is not positive definite. On the measurements above that fallback never
-triggers with equilibration on, so treat it as a safety net, not the mechanism that handles
-ill-conditioning.
+that can be materialized and nothing cheaper fits. If that Cholesky reports that the matrix is
+not positive definite, `setup` throws and names `linsys = :kkt`, which factors the full
+quasi-definite system with `bunchkaufman!` and does not square the conditioning of `A`. On the
+measurements above this does not happen with equilibration on.
 
 The whole selection, top to bottom. A pair whose types name a backend outright takes it
 without descending; every other pair starts at rung 1 and stops at the first rung that
@@ -275,7 +274,7 @@ lines!(ax, [-0.25, -0.25], [H - 3 + 0.1, H - 0.1]; color = :gray50)
 text!(ax, -0.4, H - 1.5; text = "by type", align = (:center, :bottom), fontsize = 11, color = :gray50, rotation = pi / 2)
 lines!(ax, [-0.25, -0.25], [0.1, H - 3 - 0.1]; color = :gray50)
 text!(ax, -0.4, (H - 3) / 2; text = "the ladder, rungs 1–8", align = (:center, :bottom), fontsize = 11, color = :gray50, rotation = pi / 2)
-text!(ax, 5.0, -0.5; text = "a :cholesky that finds R not positive definite is rebuilt as :bunchkaufman (full KKT)",
+text!(ax, 5.0, -0.5; text = "a :cholesky that finds R not positive definite throws and names linsys = :kkt",
       align = (:center, :top), fontsize = 11, color = :gray30)
 limits!(ax, -1.2, 11.2, -1.2, H + 1)
 nothing # hide

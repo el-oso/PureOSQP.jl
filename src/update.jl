@@ -50,6 +50,7 @@ function update!(
             )
         )
         is_symmetric(P) || throw(ArgumentError("P must be symmetric"))
+        is_materializable(P) || check_symmetric_products(P, ws.q0)
         is_convex(T, P, ws.settings.sigma) ||
             throw(ArgumentError("P + sigma*I is not positive definite: P is indefinite, so the problem is not convex."))
         is_materializable(P) && check_finite(P, n, n, "P")

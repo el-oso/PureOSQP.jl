@@ -146,6 +146,7 @@ PureOSQP.ProductOperator
 PureOSQP.unpreconditioned!
 PureOSQP.probe_column!
 PureOSQP.no_entries
+PureOSQP.check_symmetric_products
 ```
 
 ## The selection ladder
