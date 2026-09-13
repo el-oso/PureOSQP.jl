@@ -33,10 +33,18 @@ If you use PureOSQP in published work, please cite the OSQP papers.
 
 ## Key differences from upstream
 
+libosqp 1.0 is the reference: its settings, its defaults, and its termination and
+certificate tests. These are the differences from it.
+
 - The inner KKT system is reduced to an $n \times n$ positive definite system.
 - The factored matrix is inverted in place for the dense case, making solves faster.
-- Equilibration is stored as factors and applied lazily.
-- $\rho$ adapts on a fixed iteration interval.
-- The duality-gap termination test is enabled by default, following libosqp 1.x.
-- Solution derivatives can be computed via implicit differentiation.
+- Equilibration is stored as factors and applied lazily, so `P` and `A` are never copied.
+- A backend is chosen from the declared types of `P` and `A`, so a structured matrix is
+  solved through its structure rather than through its sparsity pattern.
+- $\rho$ has no wall-clock adaptation mode. Deciding when to refactorize by reading a clock
+  makes the iteration count a property of the machine; the other three modes are all here.
+- Solution derivatives can be computed via implicit differentiation, and the element type is
+  `Real` rather than a float, so dual numbers run the solver.
+- Errors are thrown, carrying their own messages, rather than returned as codes to look up
+  with `osqp_error_message`.
 - There is no code generation.

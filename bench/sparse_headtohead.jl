@@ -7,28 +7,24 @@
 # PureOSQP factors it with CHOLMOD, which is the regime OSQP's own sparse LDLᵀ is built for.
 #
 # Both solvers get `SparseMatrixCSC`. Neither is handed a dense copy of anything.
-using PureOSQP, OSQP, LinearAlgebra, SparseArrays, BenchmarkTools, Random, Printf, JSON
+using PureOSQP, LinearAlgebra, SparseArrays, BenchmarkTools, Random, Printf, JSON
+
+include(joinpath(@__DIR__, "osqp_v1.jl"))
 
 BLAS.set_num_threads(1)
 
-const OPTS = (eps_abs = 1.0e-6, eps_rel = 1.0e-6, max_iter = 20_000)
+# `check_dualgap` is off on both. Both default it on and the two compute the gap at different
+# points, so with it on the iteration counts below would be comparing the stopping rules
+# rather than the algorithms.
+const OPTS = (eps_abs = 1.0e-6, eps_rel = 1.0e-6, max_iter = 20_000, check_dualgap = false)
 
-# libosqp 0.6.2 has no duality-gap test and would reject the setting. With it on the two
-# solvers stop on different criteria, and the iteration counts below would be comparing the
-# criteria rather than the algorithms.
-const PURE_ONLY = (check_dualgap = false,)
+solve_pure(P, q, A, l, u) = PureOSQP.solve(P, q, A, l, u; OPTS...)
 
-solve_pure(P, q, A, l, u) = PureOSQP.solve(P, q, A, l, u; OPTS..., PURE_ONLY...)
-
-function solve_osqp(P, q, A, l, u)
-    model = OSQP.Model()
-    OSQP.setup!(
-        model; P = sparse(Symmetric(P)), q = collect(q), A = sparse(A),
-        l = collect(l), u = collect(u), verbose = false,
-        adaptive_rho_interval = 50, check_termination = 25, OPTS...
-    )
-    return OSQP.solve!(model)
-end
+# libosqp is timed on setup and solve from CSC it already holds, as a C caller would.
+solve_osqp(data, q, l, u) = solve_v1(
+    data, q, l, u;
+    verbose = false, adaptive_rho_interval = 50, check_termination = 25, OPTS...
+)
 
 """
     banded_qp(n, m; band) -> (P, q, A, l, u)
@@ -71,21 +67,23 @@ timed(f) = minimum(@benchmark($f(), samples = 5, evals = 1, seconds = 60)).time 
 
 function compare(name, P, q, A, l, u)
     sp = solve_pure(P, q, A, l, u)
-    so = solve_osqp(P, q, A, l, u)
-    (sp.status == PureOSQP.SOLVED && so.info.status == :Solved) ||
-        error("$name: PureOSQP $(sp.status), OSQP $(so.info.status)")
+    data = CSCData(P, A)
+    so = solve_osqp(data, q, l, u)
+    # `1` is `OSQP_SOLVED`.
+    (sp.status == PureOSQP.SOLVED && so.status_val == 1) ||
+        error("$name: PureOSQP $(sp.status), OSQP status $(so.status_val)")
     # The referee judges both from the original data, so neither solver's own scaling can
     # flatter it. A large gap here would mean the times below are comparing different
     # answers.
-    obj_gap = abs(sp.obj_val - so.info.obj_val) / max(1, abs(so.info.obj_val))
+    obj_gap = abs(sp.obj_val - so.obj_val) / max(1, abs(so.obj_val))
     obj_gap < 1.0e-6 || error("$name: objectives disagree by $obj_gap")
-    ws = PureOSQP.setup(P, q, A, l, u; OPTS..., PURE_ONLY...)
+    ws = PureOSQP.setup(P, q, A, l, u; OPTS...)
     tp = timed(() -> solve_pure(P, q, A, l, u))
-    to = timed(() -> solve_osqp(P, q, A, l, u))
+    to = timed(() -> solve_osqp(data, q, l, u))
     return (;
         name, n = size(A, 2), m = size(A, 1), nnz_A = nnz(A), nnz_P = nnz(P),
         backend = PureOSQP.backend_name(ws.linsys), t_pure = tp, t_osqp = to,
-        ratio = to / tp, iter_pure = sp.iter, iter_osqp = so.info.iter, obj_gap,
+        ratio = to / tp, iter_pure = sp.iter, iter_osqp = so.iter, obj_gap,
     )
 end
 

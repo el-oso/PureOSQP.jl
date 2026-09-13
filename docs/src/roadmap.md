@@ -12,14 +12,16 @@ solver works.
 
 | item | note |
 |---|---|
-| CUDA in practice | the GPU path is designed for it and tested only against JLArrays; nobody has run it on a device |
-| `polish` and derivatives on GPU | both build a dense `(n+k)×(n+k)` matrix and factor it with `bunchkaufman!`, so both stay on the host |
+| CUDA in practice | the GPU path is designed for it but not tested: the JLArrays tests are excluded from the test run, and nobody has run it on a device |
+| `polishing` and derivatives on GPU | both build a dense `(n+k)×(n+k)` matrix and factor it with `bunchkaufman!`, so both stay on the host |
 | a pure-Julia factorization by default | the `LDLᵀ` backends need LDLFactorizations.jl loaded; without it the sparse path is CHOLMOD, which is C and GPL |
-| setup parity on the dense path | Control's `setup` is 0.33× libosqp's, against 1.20× on the run as a whole |
+| setup parity on the dense path | Control's `setup` is 0.30× libosqp's, against 1.20× on the run as a whole |
 
 **CUDA in practice.** GPU arrays solve through `linsys = :indirect` only — see
 [Guarantees](@ref) for why the other backends are refused at [`setup`](@ref).
-`test/gpu_tests.jl` runs against JLArrays, which gates no-scalar-indexing and nothing else:
+`test/gpu_tests.jl` exercises the GPU path with JLArrays, but its items are tagged `:gpu` and
+`test/runtests.jl` excludes them: compiling that path crashes Julia 1.13.0 inside LLVM on
+AVX-512 targets. Even when run, JLArrays checks that nothing indexes a scalar and nothing else:
 `JLArray <: StridedArray` is true, so `cholesky!` on one succeeds through CPU LAPACK. A real
 device would exercise streams, `Krylov.cg!`'s device behavior, and the per-iteration
 synchronizations in `check_termination`.
@@ -92,7 +94,7 @@ fail there; `verbose` is the worked example, writing through `Core.stdout` by ha
 `bunchkaufman!` is LAPACK-only for BLAS floats, with no generic fallback in `LinearAlgebra`,
 and it is reached from `polish!`, from the `FullKKT` backend and from
 [`adjoint_derivative`](@ref). So dual numbers run the solver on the reduced backend with
-`polish = false`. `INFTY` is not a blocker despite calling `prevfloat(typemax(T))`:
+`polishing = false`. `INFTY` is not a blocker despite calling `prevfloat(typemax(T))`:
 ForwardDiff defines both for `Dual`.
 
 An AD integration would be a `ChainRulesCore` extension supplying `rrule` and `frule` over

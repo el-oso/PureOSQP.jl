@@ -1,4 +1,2 @@
 [StrictMode]
-analysis = "full"
 checks_enabled = true
-fail_mode = "error"

@@ -5,15 +5,18 @@
 # iteration does. The two solvers take the same number of iterations on these problems, so
 # splitting the total at the end of setup gives a per-iteration cost that is directly
 # comparable.
-using PureOSQP, OSQP, LinearAlgebra, SparseArrays, Chairmarks, LDLFactorizations, Printf
+using PureOSQP, LinearAlgebra, SparseArrays, Chairmarks, LDLFactorizations, Printf
 using Statistics
 
 BLAS.set_num_threads(1)
 
 include(joinpath(@__DIR__, "suite_problems.jl"))
+include(joinpath(@__DIR__, "osqp_v1.jl"))
 
-const OPTS = (eps_abs = 1.0e-5, eps_rel = 1.0e-5, max_iter = 20_000)
-const PURE_ONLY = (check_dualgap = false,)
+# `check_dualgap` is off on both, as in `bench/osqp_suite.jl`: it is the one termination test
+# the two compute at different points, and leaving it on makes the iteration counts
+# incomparable, which is what splitting the total at the end of setup relies on.
+const OPTS = (eps_abs = 1.0e-5, eps_rel = 1.0e-5, max_iter = 20_000, check_dualgap = false)
 
 # Seconds given to each measurement.
 const BUDGET = 5
@@ -34,15 +37,11 @@ end
 
 pooled_median(x, y) = median(s.time for s in Iterators.flatten((x.samples, y.samples)))
 
-function osqp_model(P, q, A, l, u)
-    model = OSQP.Model()
-    OSQP.setup!(
-        model; P = sparse(Symmetric(P)), q = collect(q), A = sparse(A),
-        l = collect(l), u = collect(u), verbose = false,
-        adaptive_rho_interval = 50, check_termination = 25, OPTS...
-    )
-    return model
-end
+# libosqp's setup is timed from CSC it already holds, as a C caller would.
+osqp_model(data, q, l, u) = setup_v1(
+    data, q, l, u;
+    verbose = false, adaptive_rho_interval = 50, check_termination = 25, OPTS...
+)
 
 println("\nSetup and iteration, split. Per-iteration figures are µs.\n")
 @printf(
@@ -53,20 +52,28 @@ println("\nSetup and iteration, split. Per-iteration figures are µs.\n")
 println("-"^104)
 for (name, build) in CASES
     P, q, A, l, u = build()
-    sp = PureOSQP.solve(P, q, A, l, u; OPTS..., PURE_ONLY...)
+    sp = PureOSQP.solve(P, q, A, l, u; OPTS...)
     iter = sp.iter
     # Both `solve!`s consume the object they are handed, so each sample gets a fresh one
-    # from the setup expression, which Chairmarks runs untimed.
+    # from the setup expression, which Chairmarks runs untimed. libosqp's solver holds C
+    # memory that Julia's collector cannot see, so every sample that builds one frees it in
+    # the teardown slot, which Chairmarks also leaves untimed.
+    # `0` is a dummy setup value: Chairmarks reads `nothing` in that slot as "no setup" and
+    # then calls the benchmarked function with no arguments, leaving nothing for the
+    # teardown to free.
+    data = CSCData(sparse(P), sparse(A))
+    build_osqp = _ -> osqp_model(data, q, l, u)
+    solve_osqp = m -> (solve_v1!(m); m)
     ps, ls = abba(
-        () -> @be(PureOSQP.setup(P, q, A, l, u; OPTS..., PURE_ONLY...), seconds = BUDGET),
-        () -> @be(osqp_model(P, q, A, l, u), seconds = BUDGET),
+        () -> @be(PureOSQP.setup(P, q, A, l, u; OPTS...), seconds = BUDGET),
+        () -> @be(0, build_osqp, cleanup!, seconds = BUDGET),
     )
     po, lo = abba(
         () -> @be(
-            PureOSQP.setup(P, q, A, l, u; OPTS..., PURE_ONLY...),
+            PureOSQP.setup(P, q, A, l, u; OPTS...),
             PureOSQP.solve!(_), seconds = BUDGET
         ),
-        () -> @be(osqp_model(P, q, A, l, u), OSQP.solve!(_), seconds = BUDGET),
+        () -> @be(osqp_model(data, q, l, u), solve_osqp, cleanup!, seconds = BUDGET),
     )
     @printf(
         "%-12s %5d | %6.2fms %6.2fms %8.2f | %6.2fms %6.2fms %8.2f | %6.2fx %6.2fx\n",

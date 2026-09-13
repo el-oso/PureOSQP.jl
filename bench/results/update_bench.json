@@ -1,56 +1,66 @@
 {
-  "julia_version": "1.12.7",
-  "pureblas_commit": "absent",
+  "julia_version": "1.13.0",
+  "pureblas_commit": "unknown",
   "results": [
     {
-      "dobj_pureblas": null,
+      "dobj_osqp": 6.083199508910981e-14,
+      "dobj_pureblas": 9.314006759829484e-14,
       "m": 20,
       "n": 10,
       "refactorizations": 8,
       "steps": 20,
-      "t_fresh": 0.00131733,
-      "t_pureblas": null,
-      "t_update": 0.000894915
+      "t_fresh": 0.001372307,
+      "t_osqp": 0.001740691,
+      "t_pureblas": 0.000744935,
+      "t_update": 0.000963917
     },
     {
-      "dobj_pureblas": null,
+      "dobj_osqp": 1.7493730950572647e-12,
+      "dobj_pureblas": 1.8125614944348256e-11,
       "m": 50,
       "n": 25,
       "refactorizations": 14,
       "steps": 20,
-      "t_fresh": 0.005510835,
-      "t_pureblas": null,
-      "t_update": 0.002655259
+      "t_fresh": 0.00529962,
+      "t_osqp": 0.010243911,
+      "t_pureblas": 0.002183326,
+      "t_update": 0.002562912
     },
     {
-      "dobj_pureblas": null,
+      "dobj_osqp": 3.7983515459583905e-14,
+      "dobj_pureblas": 2.137179897981685e-15,
       "m": 100,
       "n": 50,
       "refactorizations": 7,
       "steps": 20,
-      "t_fresh": 0.019234282,
-      "t_pureblas": null,
-      "t_update": 0.012709408
+      "t_fresh": 0.019435359,
+      "t_osqp": 0.060066574,
+      "t_pureblas": 0.011745442,
+      "t_update": 0.012725389
     },
     {
-      "dobj_pureblas": null,
+      "dobj_osqp": 3.353210876741251e-13,
+      "dobj_pureblas": 1.4202986673636267e-13,
       "m": 200,
       "n": 100,
       "refactorizations": 3,
       "steps": 20,
-      "t_fresh": 0.068932028,
-      "t_pureblas": null,
-      "t_update": 0.074995453
+      "t_fresh": 0.069086959,
+      "t_osqp": 0.523520972,
+      "t_pureblas": 0.068510613,
+      "t_update": 0.074987442
     },
     {
-      "dobj_pureblas": null,
+      "dobj_osqp": 2.8222714520788013e-15,
+      "dobj_pureblas": 1.5287303698760207e-15,
       "m": 400,
       "n": 200,
       "refactorizations": 1,
       "steps": 20,
-      "t_fresh": 0.321998164,
-      "t_pureblas": null,
-      "t_update": 0.307043298
+      "t_fresh": 0.322859286,
+      "t_osqp": 2.602862588,
+      "t_pureblas": 0.289003333,
+      "t_update": 0.311163548
     }
   ],
   "steps": 20

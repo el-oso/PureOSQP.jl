@@ -2,9 +2,7 @@
 # horizon loop does. Compares
 #   (1) PureOSQP with update!      -- setup once, then update! + solve! per step
 #   (2) PureOSQP without update!   -- a fresh setup + solve per step, the naive loop
-#
-# There is no libosqp 1.x column: it has no Julia wrapper, and reaching it needs a `ccall`
-# against the library `OSQP_jll` ships. See `docs/src/roadmap.md`.
+#   (3) libosqp 1.0                -- setup once, then osqp_update_data_vec + osqp_solve
 #
 # When PureBLAS is present, (1) is measured a second time with it activated. This loop is
 # where the BLAS choice is least predictable from the single-solve numbers: a re-solve
@@ -12,7 +10,9 @@
 # weights `potrf` and `potri` — where the two libraries differ most, and in opposite
 # directions — much more heavily. Run it with `--project=bench/pureblas`; the column is
 # skipped otherwise.
-using PureOSQP, LinearAlgebra, Random, Printf, JSON
+using PureOSQP, LinearAlgebra, SparseArrays, Random, Printf, JSON
+
+include(joinpath(@__DIR__, "osqp_v1.jl"))
 
 const HAVE_PUREBLAS = try
     @eval using PureBLAS
@@ -41,7 +41,27 @@ function make_sequence(n, m; seed = 0, steps = STEPS)
     return (P, q0, A, l0, u0, seq)
 end
 
-const OPTS = (eps_abs = 1.0e-6, eps_rel = 1.0e-6, max_iter = 20_000)
+# `check_dualgap` is off on both, as in the other comparisons against libosqp: the two compute
+# the gap at different points, and with it on they stop on different criteria.
+const OPTS = (eps_abs = 1.0e-6, eps_rel = 1.0e-6, max_iter = 20_000, check_dualgap = false)
+
+function osqp_with_update(P, q0, A, l0, u0, seq)
+    model = setup_v1(
+        sparse(Symmetric(Matrix(P))), q0, sparse(A), l0, u0;
+        verbose = false, adaptive_rho_interval = 50, check_termination = 25, OPTS...
+    )
+    objs = Float64[]
+    try
+        t = @elapsed for s in seq
+            update_v1!(model; q = s.q, l = s.l, u = s.u)
+            push!(objs, solve_v1!(model).obj_val)
+        end
+        return (t, objs)
+    finally
+        cleanup!(model)
+    end
+end
+
 function pure_with_update(P, q0, A, l0, u0, seq)
     ws = setup(P, q0, A, l0, u0; OPTS...)
     objs = Float64[]
@@ -83,15 +103,19 @@ const CASES = [(10, 20), (25, 50), (50, 100), (100, 200), (200, 400)]
 
 results = []
 @printf(
-    "%5s %6s | %11s %11s %8s | %11s %8s | %5s\n", "n", "m",
-    "update!", "fresh setup", "saved", "+PureBLAS", "vs(pb)", "refac"
+    "%5s %6s | %11s %11s %8s | %11s %8s | %11s %8s | %5s\n", "n", "m",
+    "update!", "fresh setup", "saved", "libosqp", "vs", "+PureBLAS", "vs(pb)", "refac"
 )
-println("-"^80)
+println("-"^102)
 for (n, m) in CASES
     P, q0, A, l0, u0, seq = make_sequence(n, m; seed = n + m)
     pure_with_update(P, q0, A, l0, u0, seq[1:2])          # warm up compilation
+    osqp_with_update(P, q0, A, l0, u0, seq[1:2])
     t_upd, objs_upd, nrefac = pure_with_update(P, q0, A, l0, u0, seq)
     t_new, objs_new = pure_without_update(P, q0, A, l0, u0, seq)
+    t_os, objs_os = osqp_with_update(P, q0, A, l0, u0, seq)
+    agree_os = maximum(abs, objs_upd .- objs_os) / max(1, maximum(abs, objs_os))
+    @assert agree_os < 100 * OPTS.eps_abs "update! and libosqp disagree by $agree_os"
     # Two runs converged to the same tolerance need only agree to that tolerance; a
     # warm-started sequence and a cold sequence stop at different points inside it.
     agree = maximum(abs, objs_upd .- objs_new) / max(1, maximum(abs, objs_new))
@@ -106,13 +130,15 @@ for (n, m) in CASES
     end
     push!(
         results, (;
-            n, m, steps = STEPS, t_update = t_upd, t_fresh = t_new,
-            t_pureblas = t_pb, dobj_pureblas = dx_pb, refactorizations = nrefac,
+            n, m, steps = STEPS, t_update = t_upd, t_fresh = t_new, t_osqp = t_os,
+            dobj_osqp = agree_os, t_pureblas = t_pb, dobj_pureblas = dx_pb,
+            refactorizations = nrefac,
         )
     )
     @printf(
-        "%5d %6d | %9.2f ms %9.2f ms %7.2fx | %9.2f ms %7.2fx | %5d\n",
-        n, m, 1.0e3t_upd, 1.0e3t_new, t_new / t_upd, 1.0e3t_pb, t_upd / t_pb, nrefac
+        "%5d %6d | %9.2f ms %9.2f ms %7.2fx | %9.2f ms %7.2fx | %9.2f ms %7.2fx | %5d\n",
+        n, m, 1.0e3t_upd, 1.0e3t_new, t_new / t_upd, 1.0e3t_os, t_os / t_upd,
+        1.0e3t_pb, t_upd / t_pb, nrefac
     )
     flush(stdout)
 end

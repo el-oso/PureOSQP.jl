@@ -39,37 +39,37 @@ By default it reduces the inner system to an `n×n` symmetric positive-definite 
 
 ## Performance
 
-OSQP is a sparse solver: it takes CSC and factors sparsely, so it never sees denseness. Both solvers below get the same CSC problem and stop after the same number of iterations, so only the per-iteration solve differs. PureOSQP picks that solve per problem — a dense Cholesky where `P` is dense, a sparse factorization otherwise — and it leads all seven of OSQP's benchmark classes:
+These are the seven problem classes from OSQP's own benchmark suite, compared with libosqp 1.0, OSQP's C library. Both solvers get the same sparse (CSC) problem and stop after the same number of iterations. libosqp always factors sparsely. PureOSQP picks the linear-system solve for each problem: a dense Cholesky where `P` is dense, a sparse factorization otherwise. It is faster in all seven classes:
 
-| class | n | m | nnz(`A`) | iterations | backend | PureOSQP | OSQP | vs OSQP |
+| class | n | m | nnz(`A`) | iterations | backend | PureOSQP | libosqp 1.0 | vs libosqp |
 |---|---|---|---|---|---|---|---|---|
-| Eq QP | 200 | 100 | 2 881 | 50 | `cholesky` | 1.60 ms | 3.31 ms | **2.06×** |
-| Random QP | 50 | 500 | 3 782 | 925 | `cholesky` | 3.58 ms | 6.66 ms | **1.86×** |
-| SVM | 808 | 1600 | 2 549 | 300 | `ldlfactorizations` | 2.69 ms | 3.95 ms | 1.47× |
-| Control | 320 | 540 | 6 540 | 325 | `sparse_formed` | 4.46 ms | 5.33 ms | 1.20× |
-| Portfolio | 505 | 506 | 2 294 | 450 | `ldl_kkt` | 2.75 ms | 2.96 ms | 1.08× |
-| Lasso | 816 | 816 | 1 786 | 100 | `ldlfactorizations` | 1.07 ms | 1.15 ms | 1.08× |
-| Huber | 1806 | 1800 | 3 526 | 125 | `ldlfactorizations` | 2.52 ms | 2.62 ms | 1.04× |
+| Random QP | 50 | 500 | 3 782 | 925 | `cholesky` | 3.55 ms | 6.86 ms | **1.93×** |
+| Eq QP | 200 | 100 | 2 881 | 50 | `cholesky` | 1.72 ms | 2.98 ms | **1.73×** |
+| SVM | 808 | 1600 | 2 549 | 300 | `ldlfactorizations` | 2.63 ms | 4.23 ms | **1.61×** |
+| Control | 320 | 540 | 6 540 | 325 | `sparse_formed` | 4.46 ms | 5.37 ms | 1.20× |
+| Portfolio | 505 | 506 | 2 294 | 450 | `ldl_kkt` | 2.68 ms | 3.12 ms | 1.17× |
+| Lasso | 816 | 816 | 1 786 | 100 | `ldlfactorizations` | 1.05 ms | 1.20 ms | 1.15× |
+| Huber | 1806 | 1800 | 3 526 | 125 | `ldlfactorizations` | 2.51 ms | 2.75 ms | 1.09× |
 
-The objectives agree to between `1e-16` and `1e-13`. The backend column is what PureOSQP chose on its own: the two ~2× rows have a dense `P`, so it picks a dense Cholesky; the rest get a sparse factorization. Full tables, plus the synthetic-sparse and dense cases: [Benchmarks](https://el-oso.github.io/PureOSQP.jl/dev/benchmarks).
+The objectives agree to `1e-13` or better in six classes and to `1e-9` in the seventh. Both solvers run with the duality-gap test (`check_dualgap`) off, because each computes the gap at a different point in the iteration. libosqp is timed on its setup and solve calls, from CSC arrays built beforehand. The backend column is what PureOSQP chose on its own. Each iteration is 1.16× to 5.46× faster; libosqp's setup is faster in five classes. Full tables, including sparse and dense families: [Benchmarks](https://el-oso.github.io/PureOSQP.jl/dev/benchmarks).
 
 ### Structure a sparsity pattern cannot express
 
-OSQP takes CSC and nothing else — `osqp_setup` accepts `P` and `A` only as sparse matrices — so what it can exploit is *where the zeros are*. PureOSQP accepts the same CSC, and also the structured type. Running one problem all three ways separates the two effects: **sparse against sparse is the implementation, structured against sparse is what declaring the structure buys.**
+libosqp accepts `P` and `A` only as sparse matrices, so the only structure it can use is where the zeros are. PureOSQP accepts the same sparse matrices and also structured types. Running one problem three ways separates two effects: PureOSQP sparse against libosqp compares the implementations, and PureOSQP structured against PureOSQP sparse shows what passing the structure is worth.
 
-Same problem, same settings; every row runs the **same number of iterations** on all three and agrees on the objective to `1e-9`.
+All three use the same settings, take the same number of iterations, and agree on the objective to `1e-9`.
 
-| structure | nnz(`A`) | OSQP (sparse) | PureOSQP (sparse) | PureOSQP (structured) | sparse vs OSQP | structured vs sparse |
+| structure | nnz(`A`) | libosqp 1.0 (sparse) | PureOSQP (sparse) | PureOSQP (structured) | sparse vs libosqp | structured vs sparse |
 |---|---|---|---|---|---|---|
-| Kronecker `A₁ ⊗ A₂` | 100% | 120 ms | 55.0 ms | 1.09 ms | 2.19× | **50.3×** |
-| tridiagonal | 0.2% | 0.69 ms | 0.49 ms | 0.20 ms | 1.41× | **2.45×** |
-| low-rank coupling | 0.7% | 0.64 ms | 0.50 ms | 0.21 ms | 1.28× | **2.34×** |
-| block-diagonal | 12.5% | 2.62 ms | 2.41 ms | 1.27 ms | 1.09× | **1.90×** |
-| banded | 0.5% | 0.77 ms | 0.65 ms | 0.84 ms | 1.18× | 0.78× |
+| Kronecker `A₁ ⊗ A₂` | 100% | 120 ms | 54.6 ms | 1.06 ms | 2.19× | **51.6×** |
+| tridiagonal | 0.2% | 0.58 ms | 0.47 ms | 0.19 ms | 1.26× | **2.49×** |
+| low-rank coupling | 0.7% | 0.53 ms | 0.51 ms | 0.22 ms | 1.04× | **2.29×** |
+| block-diagonal | 12.5% | 2.55 ms | 2.24 ms | 1.34 ms | 1.14× | **1.67×** |
+| banded | 0.5% | 0.66 ms | 0.66 ms | 0.86 ms | 1.00× | 0.77× |
 
-Read the last two columns. The sparse path is 1.09–2.19× ahead of OSQP on the same input, which is implementation. Declaring the structure is worth 1.9–2.5× on top of that, and 50× on the Kronecker problem, whose `A` has **no zeros at all** — sparsity has nothing to work with there, while the same matrix given as its two 20×20 factors is solved through their eigenbases.
+With sparse input, PureOSQP is 1.0× to 2.2× faster than libosqp. Passing the structure makes it another 1.7× to 2.5× faster, and 52× faster on the Kronecker problem. That `A` has no zeros, so a sparse factorization has nothing to skip, while the same matrix passed as its two 20×20 factors is solved through their eigenvectors.
 
-The banded row is the counterexample, and it's kept: at this size and bandwidth the banded backend is *slower than PureOSQP's own sparse path* — CHOLMOD's factor of a banded matrix is already banded, so the declaration added nothing here. There may be cases where declaring the band is faster; the outcome moves with the band width and problem size.
+The banded row is slower with the structure passed. The sparse factor of a banded matrix is already banded, so declaring the band gains nothing at this size and bandwidth. The result can change with the bandwidth and the problem size.
 
 ## Correctness
 

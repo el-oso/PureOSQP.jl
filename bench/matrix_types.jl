@@ -9,28 +9,24 @@
 # The second half is the case the rest of this repository's benchmarks deliberately avoid:
 # a genuinely sparse `A`, where OSQP's sparse LDLᵀ is playing to its strength and PureOSQP
 # has no answer but to treat it as dense.
-using PureOSQP, OSQP, LinearAlgebra, SparseArrays, BenchmarkTools, Random, Printf, JSON
+using PureOSQP, LinearAlgebra, SparseArrays, BenchmarkTools, Random, Printf, JSON
+
+include(joinpath(@__DIR__, "osqp_v1.jl"))
 
 BLAS.set_num_threads(1)
 
-const OPTS = (eps_abs = 1.0e-6, eps_rel = 1.0e-6, max_iter = 20_000)
+# `check_dualgap` is off on both. Both default it on and the two compute the gap at different
+# points, so with it on the iteration-count assertions below would be comparing the stopping
+# rules rather than the algorithms.
+const OPTS = (eps_abs = 1.0e-6, eps_rel = 1.0e-6, max_iter = 20_000, check_dualgap = false)
 
-# PureOSQP only: libosqp 0.6.2 has no duality-gap test and would reject the setting. With
-# it on, the two solvers stop on different criteria and the iteration-count assertions
-# below would be comparing the criteria rather than the algorithms.
-const PURE_ONLY = (check_dualgap = false,)
+solve_pure(P, q, A, l, u) = PureOSQP.solve(P, q, A, l, u; OPTS...)
 
-solve_pure(P, q, A, l, u) = PureOSQP.solve(P, q, A, l, u; OPTS..., PURE_ONLY...)
-
-function solve_osqp(P, q, A, l, u)
-    model = OSQP.Model()
-    OSQP.setup!(
-        model; P = sparse(Symmetric(Matrix(P))), q = collect(q), A = sparse(A),
-        l = collect(l), u = collect(u), verbose = false,
-        adaptive_rho_interval = 50, check_termination = 25, OPTS...
-    )
-    return OSQP.solve!(model)
-end
+# libosqp is timed on setup and solve from CSC it already holds, as a C caller would.
+solve_osqp(data, q, l, u) = solve_v1(
+    data, q, l, u;
+    verbose = false, adaptive_rho_interval = 50, check_termination = 25, OPTS...
+)
 
 # Each family is ONE problem solved twice: once with the matrix stored as a plain `Matrix`,
 # once in its structured type. Same numbers, so the iteration counts must match exactly and
@@ -102,18 +98,20 @@ function run_sparse()
         Pd, Ad = Matrix(Psp), Matrix(A)
         sp = solve_pure(Pd, q, Ad, l, u)
         ss = solve_pure(Psp, q, A, l, u)
-        so = solve_osqp(Psp, q, A, l, u)
-        (sp.status == PureOSQP.SOLVED && so.info.status == :Solved) || continue
+        data = CSCData(Psp, A)
+        so = solve_osqp(data, q, l, u)
+        # `1` is `OSQP_SOLVED`.
+        (sp.status == PureOSQP.SOLVED && so.status_val == 1) || continue
         # Storage must not change the answer, only the speed.
         @assert ss.iter == sp.iter "sparse input changed the iteration count"
         tp = @belapsed solve_pure($Pd, $q, $Ad, $l, $u)
         ts = @belapsed solve_pure($Psp, $q, $A, $l, $u)
-        to = @belapsed solve_osqp($Psp, $q, $A, $l, $u)
+        to = @belapsed solve_osqp($data, $q, $l, $u)
         push!(
             rows, (;
                 n, m, density, t_densified = tp, t_sparse = ts, t_osqp = to,
                 ratio = to / ts, gain = tp / ts,
-                iter_pure = sp.iter, iter_osqp = so.info.iter,
+                iter_pure = sp.iter, iter_osqp = so.iter,
             )
         )
         @printf(

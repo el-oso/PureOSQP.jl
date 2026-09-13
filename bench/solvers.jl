@@ -1,6 +1,6 @@
 # PureOSQP against three other solvers on dense QPs, one per algorithm family:
 #
-#   OSQP      operator splitting, sparse linear algebra  (the reference implementation)
+#   libosqp   operator splitting, sparse linear algebra  (the reference implementation)
 #   DAQP      dense active set                            (built for exactly this shape)
 #   Clarabel  interior point
 #
@@ -8,8 +8,10 @@
 # sparse solver on dense data, which is its worst case; DAQP is designed for dense QPs, so
 # it is the honest question "is a dense ADMM solver competitive with a dense active-set
 # one" rather than "does dense beat sparse on dense data".
-using PureOSQP, OSQP, DAQP, Clarabel
+using PureOSQP, DAQP, Clarabel
 using LinearAlgebra, SparseArrays, BenchmarkTools, Random, Printf, JSON
+
+include(joinpath(@__DIR__, "osqp_v1.jl"))
 
 BLAS.set_num_threads(1)
 
@@ -27,37 +29,39 @@ end
 
 pure(P, q, A, l, u) = PureOSQP.solve(
     P, q, A, l, u;
-    # `check_dualgap = false` matches libosqp 0.6.2's termination criteria. Left on, the
-    # gap test can only add iterations, which would make this a comparison of stopping
-    # rules dressed up as a comparison of solvers.
+    # `check_dualgap` is off on both operator-splitting solvers. Left on, the gap test can
+    # only add iterations, and the two compute the gap at different points, which would make
+    # this a comparison of stopping rules dressed up as a comparison of solvers.
     eps_abs = TOL, eps_rel = TOL, max_iter = 20_000, check_dualgap = false
 ).x
 
-function osqp(P, q, A, l, u)
-    model = OSQP.Model()
-    OSQP.setup!(
-        model; P = sparse(Symmetric(P)), q = q, A = sparse(A), l = l, u = u,
-        verbose = false, eps_abs = TOL, eps_rel = TOL, max_iter = 20_000,
-        adaptive_rho_interval = 50, check_termination = 25
-    )
-    return OSQP.solve!(model).x
-end
+osqp(data, q, l, u) = solve_v1(
+    data, q, l, u;
+    verbose = false, eps_abs = TOL, eps_rel = TOL, max_iter = 20_000,
+    adaptive_rho_interval = 50, check_termination = 25, check_dualgap = false
+).x
 
 daqp(P, q, A, l, u) = DAQP.quadprog(P, q, A, u, l, zeros(Cint, length(l)))[1]
 
-function clarabel(P, q, A, l, u)
-    # Clarabel takes one-sided cones, so the two-sided rows are stacked as Ax ≤ u, -Ax ≤ -l.
-    m = length(l)
+function clarabel(P, q, A, b, m)
     settings = Clarabel.Settings(verbose = false, tol_gap_abs = TOL, tol_gap_rel = TOL)
     solver = Clarabel.Solver()
-    Clarabel.setup!(
-        solver, sparse(triu(P)), q, sparse([A; -A]), [u; -l],
-        [Clarabel.NonnegativeConeT(2m)], settings
-    )
+    Clarabel.setup!(solver, P, q, A, b, [Clarabel.NonnegativeConeT(2m)], settings)
     return Clarabel.solve!(solver).x
 end
 
-const SOLVERS = ["PureOSQP" => pure, "OSQP" => osqp, "DAQP" => daqp, "Clarabel" => clarabel]
+# Each solver is timed on the input form it reads: libosqp and Clarabel take sparse matrices, so
+# the conversion from the dense problem is built once beforehand and not charged to them.
+# Clarabel takes one-sided cones, so the two-sided rows are stacked as Ax ≤ u, -Ax ≤ -l.
+const SOLVERS = [
+    "PureOSQP" => (identity, pure),
+    "OSQP" => (((P, q, A, l, u),) -> (CSCData(P, A), q, l, u), osqp),
+    "DAQP" => (identity, daqp),
+    "Clarabel" => (
+        ((P, q, A, l, u),) -> (sparse(triu(P)), q, sparse([A; -A]), [u; -l], length(l)),
+        clarabel,
+    ),
+]
 const CASES = [(10, 20), (25, 50), (50, 100), (100, 200), (200, 400), (100, 50)]
 
 function run_cases()
@@ -69,12 +73,14 @@ function run_cases()
     println("-"^74)
     for (n, m) in CASES
         P, q, A, l, u = make_problem(n, m; seed = n + m)
-        xs = Dict(name => f(P, q, A, l, u) for (name, f) in SOLVERS)
+        inputs = Dict(name => prep((P, q, A, l, u)) for (name, (prep, _)) in SOLVERS)
+        xs = Dict(name => f(inputs[name]...) for (name, (_, f)) in SOLVERS)
         ref = xs["PureOSQP"]
         dx = maximum(name -> maximum(abs, xs[name] .- ref), first.(SOLVERS))
         ts = Dict{String, Float64}()
-        for (name, f) in SOLVERS
-            ts[name] = @belapsed $f($P, $q, $A, $l, $u)
+        for (name, (_, f)) in SOLVERS
+            args = inputs[name]
+            ts[name] = @belapsed $f($args...)
         end
         push!(results, (; n, m, times = ts, max_dx = dx))
         @printf(
@@ -95,7 +101,10 @@ open(joinpath(@__DIR__, "results", "solvers.json"), "w") do io
             "blas_threads" => BLAS.get_num_threads(),
             "tol" => TOL,
             "versions" => Dict(
-                "OSQP" => string(pkgversion(OSQP)), "DAQP" => string(pkgversion(DAQP)),
+                "libosqp" => unsafe_string(
+                    ccall((:osqp_version, osqp_builtin_double), Cstring, ())
+                ),
+                "DAQP" => string(pkgversion(DAQP)),
                 "Clarabel" => string(pkgversion(Clarabel)),
             ),
             "results" => [

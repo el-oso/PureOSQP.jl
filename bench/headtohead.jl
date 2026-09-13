@@ -1,14 +1,15 @@
-# PureOSQP vs OSQP.jl (libosqp 0.6.2) on dense QPs, with PureOSQP measured on both
-# OpenBLAS and PureBLAS.
+# PureOSQP vs libosqp 1.0 on dense QPs, with PureOSQP measured on both OpenBLAS and
+# PureBLAS.
 #
 # The PureBLAS column is optional: PureBLAS is unregistered, so it is loaded if present and
 # the column is skipped otherwise. `PureBLAS.activate()` reroutes LinearAlgebra through
 # libblastrampoline, which `BLAS.get_config()` cannot report — `PureBLAS.is_active()` is
 # the check, and it is asserted at every measurement.
 #
-# Agreement with libosqp 1.x is checked separately by bench/headtohead_v1.jl; it has no
-# Julia wrapper, so timing it here would compare against a subprocess rather than a library.
-using PureOSQP, OSQP, LinearAlgebra, SparseArrays, BenchmarkTools, Random, Printf, JSON
+# Run with `--project=bench/pureblas` for the PureBLAS column, `--project=bench` without it.
+using PureOSQP, LinearAlgebra, SparseArrays, BenchmarkTools, Random, Printf, JSON
+
+include(joinpath(@__DIR__, "osqp_v1.jl"))
 
 const HAVE_PUREBLAS = try
     @eval using PureBLAS
@@ -19,15 +20,13 @@ end
 
 BLAS.set_num_threads(1)
 
+# `check_dualgap` is off on both. Both default it on and the two compute the gap at different
+# points, so with it on the iteration-count comparison would be a comparison of stopping
+# rules rather than of the algorithms.
 const SETTINGS = (
     eps_abs = 1.0e-6, eps_rel = 1.0e-6, max_iter = 20_000,
-    scaling = 10, adaptive_rho = true, polish = false,
+    scaling = 10, adaptive_rho = true, polishing = false, check_dualgap = false,
 )
-
-# PureOSQP only, and deliberately not in SETTINGS, which is splatted into `OSQP.setup!`
-# too: libosqp 0.6.2 has no duality-gap test and would reject the setting. Leaving it on
-# would also make the iteration-count comparison a comparison of termination criteria.
-const PURE_ONLY = (check_dualgap = false,)
 
 function make_problem(n, m; seed = 0)
     Random.seed!(seed)
@@ -39,43 +38,43 @@ function make_problem(n, m; seed = 0)
     return (P, q, A, Ax .- rand(m), Ax .+ rand(m))
 end
 
-function run_osqp(P, q, A, l, u)
-    model = OSQP.Model()
-    OSQP.setup!(
-        model; P = sparse(Symmetric(P)), q = q, A = sparse(A), l = l, u = u,
-        verbose = false, adaptive_rho_interval = 50, check_termination = 25,
-        SETTINGS...
-    )
-    return OSQP.solve!(model)
-end
+# libosqp takes CSC. The conversion from the dense problem happens once, outside the timing, so
+# libosqp is charged for setup and solve alone.
+run_osqp(data, q, l, u) = solve_v1(
+    data, q, l, u;
+    verbose = false, adaptive_rho_interval = 50, check_termination = 25,
+    SETTINGS...
+)
 
 function bench_case(n, m; seed = 0)
     P, q, A, l, u = make_problem(n, m; seed)
-    sp = PureOSQP.solve(P, q, A, l, u; SETTINGS..., PURE_ONLY...)
-    rc = run_osqp(P, q, A, l, u)
+    data = CSCData(P, A)
+    sp = PureOSQP.solve(P, q, A, l, u; SETTINGS...)
+    rc = run_osqp(data, q, l, u)
     @assert sp.status == PureOSQP.SOLVED "PureOSQP: $(sp.status)"
-    @assert rc.info.status == :Solved "OSQP.jl: $(rc.info.status)"
+    @assert rc.status_val == 1 "libosqp status $(rc.status_val)"
 
     HAVE_PUREBLAS && PureBLAS.is_active() && PureBLAS.deactivate()
-    t_pure = @belapsed PureOSQP.solve($P, $q, $A, $l, $u; SETTINGS..., PURE_ONLY...)
-    t_osqp = @belapsed run_osqp($P, $q, $A, $l, $u)
+    t_pure = @belapsed PureOSQP.solve($P, $q, $A, $l, $u; SETTINGS...)
+    t_osqp = @belapsed run_osqp($data, $q, $l, $u)
 
     t_pb, dx = NaN, NaN
     if HAVE_PUREBLAS
         PureBLAS.activate()
         @assert PureBLAS.is_active()
-        sb = PureOSQP.solve(P, q, A, l, u; SETTINGS..., PURE_ONLY...)
-        t_pb = @belapsed PureOSQP.solve($P, $q, $A, $l, $u; SETTINGS..., PURE_ONLY...)
+        sb = PureOSQP.solve(P, q, A, l, u; SETTINGS...)
+        t_pb = @belapsed PureOSQP.solve($P, $q, $A, $l, $u; SETTINGS...)
         PureBLAS.deactivate()
         @assert sb.iter == sp.iter "PureBLAS changed the iteration count"
         dx = maximum(abs, sb.x .- sp.x)
     end
 
-    objdiff = abs(sp.obj_val - rc.info.obj_val) / max(1, abs(rc.info.obj_val))
+    objdiff = abs(sp.obj_val - rc.obj_val) / max(1, abs(rc.obj_val))
+    dx_osqp = maximum(abs, sp.x .- rc.x)
     return (;
         n, m, t_openblas = t_pure, t_pureblas = t_pb, t_osqp,
         speedup = t_osqp / t_pure, speedup_pureblas = t_osqp / t_pb,
-        iter_pure = sp.iter, iter_osqp = rc.info.iter, objdiff, dx_pureblas = dx,
+        iter_pure = sp.iter, iter_osqp = rc.iter, objdiff, dx_osqp, dx_pureblas = dx,
     )
 end
 
@@ -88,17 +87,17 @@ HAVE_PUREBLAS || @info "PureBLAS not available; that column is skipped."
 
 results = NamedTuple[]
 @printf(
-    "%5s %6s | %10s %10s %10s | %7s %7s | %6s %6s | %9s\n",
-    "n", "m", "PureOSQP", "+PureBLAS", "OSQP.jl", "vs", "vs(pb)", "it_pu", "it_osqp", "obj rel Δ"
+    "%5s %6s | %10s %10s %10s | %7s %7s | %6s %6s | %9s %9s\n",
+    "n", "m", "PureOSQP", "+PureBLAS", "libosqp", "vs", "vs(pb)", "it_pu", "it_osqp", "obj rel Δ", "max |Δx|"
 )
-println("-"^102)
+println("-"^112)
 for (n, m) in CASES
     r = bench_case(n, m)
     push!(results, r)
     @printf(
-        "%5d %6d | %8.3f ms %8.3f ms %8.3f ms | %6.2fx %6.2fx | %6d %6d | %9.2e\n",
+        "%5d %6d | %8.3f ms %8.3f ms %8.3f ms | %6.2fx %6.2fx | %6d %6d | %9.2e %9.2e\n",
         r.n, r.m, 1.0e3r.t_openblas, 1.0e3r.t_pureblas, 1.0e3r.t_osqp,
-        r.speedup, r.speedup_pureblas, r.iter_pure, r.iter_osqp, r.objdiff
+        r.speedup, r.speedup_pureblas, r.iter_pure, r.iter_osqp, r.objdiff, r.dx_osqp
     )
     flush(stdout)
 end
@@ -106,7 +105,7 @@ end
 open(joinpath(@__DIR__, "results", "headtohead.json"), "w") do io
     JSON.print(
         io, Dict(
-            "reference" => "OSQP.jl / libosqp 0.6.2",
+            "reference" => "libosqp 1.0",
             "julia_version" => string(VERSION),
             "blas_threads" => BLAS.get_num_threads(),
             "julia_threads" => Threads.nthreads(),

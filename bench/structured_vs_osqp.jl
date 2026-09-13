@@ -7,8 +7,9 @@
 # One problem is run three ways: OSQP on CSC, PureOSQP on the same CSC, and PureOSQP on the
 # structured type. The middle column is what separates the two effects -- sparse against sparse
 # is the implementation, structured against sparse is what the declaration buys. Settings are
-# pinned on all three -- `adaptive_rho_interval = 50`, and no duality-gap test, which 0.6.2 does
-# not have -- so all three take the same path and the difference is the per-iteration solve.
+# pinned on all three -- `adaptive_rho_interval = 50`, and no duality-gap test, which the two
+# solvers compute at different points -- so all three take the same path and the difference is
+# the per-iteration solve.
 #
 # Every row asserts the three agree before it is reported: the same status, the same iteration
 # count, and objectives within `1e-9`. A speed comparison against a solver that took a
@@ -18,8 +19,10 @@
 # factorization has nothing to work with, while the operator is two small factors.
 #
 # Run:  julia --project=bench bench/structured_vs_osqp.jl
-using PureOSQP, OSQP, LinearAlgebra, SparseArrays, Random, Printf, JSON, Statistics
+using PureOSQP, LinearAlgebra, SparseArrays, Random, Printf, JSON, Statistics
 using BandedMatrices, LDLFactorizations, Krylov, Chairmarks
+
+include(joinpath(@__DIR__, "osqp_v1.jl"))
 
 BLAS.set_num_threads(1)
 
@@ -31,18 +34,17 @@ const OPT = (
 
 med(x) = median(s.time for s in x.samples)
 
-"Solve with OSQP from the same matrices in CSC, its native form."
-function osqp_solve(P, q, A, l, u; scaling)
-    m = OSQP.Model()
-    OSQP.setup!(
-        m; P = sparse(triu(SparseMatrixCSC{Float64, Int}(P))), q = collect(Float64, q),
-        A = sparse(SparseMatrixCSC{Float64, Int}(A)), l = collect(Float64, l),
-        u = collect(Float64, u), eps_abs = OPT.eps_abs, eps_rel = OPT.eps_rel,
-        max_iter = OPT.max_iter, adaptive_rho_interval = OPT.adaptive_rho_interval,
-        scaling = scaling, verbose = false,
+"""
+Solve with libosqp from CSC data built beforehand, the form a C caller already holds, so the
+conversion is not charged to it.
+"""
+function osqp_solve(data, q, l, u; scaling)
+    r = solve_v1(data, q, l, u; OPT..., scaling = scaling, verbose = false)
+    # `1` is `OSQP_SOLVED`; the rows below compare statuses as strings across three solves.
+    return (
+        status = r.status_val == 1 ? "Solved" : "status $(r.status_val)",
+        iter = r.iter, obj = r.obj_val,
     )
-    r = OSQP.solve!(m)
-    return (status = string(r.info.status), iter = Int(r.info.iter), obj = r.info.obj_val)
 end
 
 """
@@ -67,7 +69,8 @@ function case(name, Pj, Aj, q, l, u; scaling = 10)
     backend_sparse = String(PureOSQP.backend_name(wss.linsys))
     rj = PureOSQP.solve!(ws)
     rs = PureOSQP.solve!(wss)
-    rc = osqp_solve(Pd, q, Ad, l, u; scaling)
+    data = CSCData(Ps, As)
+    rc = osqp_solve(data, q, l, u; scaling)
 
     rj.status === PureOSQP.SOLVED || error("$name: structured returned $(rj.status)")
     rs.status === PureOSQP.SOLVED || error("$name: sparse returned $(rs.status)")
@@ -81,7 +84,7 @@ function case(name, Pj, Aj, q, l, u; scaling = 10)
 
     tj = med(@be PureOSQP.solve($Pj, $q, $Aj, $l, $u; OPT..., scaling = $scaling) seconds = 3)
     ts = med(@be PureOSQP.solve($Ps, $q, $As, $l, $u; OPT..., scaling = $scaling) seconds = 3)
-    tc = med(@be osqp_solve($Pd, $q, $Ad, $l, $u; scaling = $scaling) seconds = 3)
+    tc = med(@be osqp_solve($data, $q, $l, $u; scaling = $scaling) seconds = 3)
     density = 100 * nnz(As) / length(Ad)
     row = (;
         case = name, n = length(q), m = length(l), backend, backend_sparse, iter = rj.iter,

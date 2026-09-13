@@ -1,17 +1,16 @@
 # StrictMode gate for PureOSQP's hot path.
 #
-# Run:  cd bench && jl strictmode_audit.jl
+# Run:  julia --project=bench bench/strictmode_audit.jl
 # The global Stop hook runs this automatically after any turn that touches src/.
 #
-# `analysis = "full"` in bench/LocalPreferences.toml is deliberate: the `:fast` heuristic
-# reports `admm_step!` and `update_residuals!` as allocating when AllocCheck proves they
-# do not, so the cheap tier cannot be the gate for this package.
+# The gate is StrictModeTest's `test_signatures`, which proves each guarantee with AllocCheck
+# and JET. StrictMode's own value-free scan agrees with it on this package's hot path, but it
+# only reports, so it cannot gate.
 using PureOSQP
 using Krylov                   # supplies the :indirect backend, a weak dependency
 using LDLFactorizations        # supplies the LDLᵀ backends, likewise
 using BandedMatrices           # supplies the banded backend, likewise
-using StrictMode
-using AllocCheck, JET          # the :full backends; StrictMode dispatches to them
+using StrictMode, StrictModeTest
 using LinearAlgebra, SparseArrays, Random
 
 include(joinpath(@__DIR__, "lazy_operator.jl"))
@@ -297,7 +296,8 @@ for backend in (
     for (f, types, tier, measure) in checks
         label = "$(nameof(f))($(join(types, ", "))) [linsys=$backend]"
         try
-            StrictMode.check(f, types; guarantees = GUARANTEES[tier], mode = :full)
+            isempty(GUARANTEES[tier]) ||
+                test_signatures([(f, types)]; guarantees = GUARANTEES[tier])
             extra = ""
             if tier === :hot_measured
                 measured_noalloc(measure)
@@ -314,8 +314,7 @@ for backend in (
 end
 if isempty(failures)
     println(
-        "\nStrictMode: all guarantees hold (checks_enabled=", StrictMode.checks_enabled(),
-        ", mode=", StrictMode.analysis_mode(), ")."
+        "\nStrictMode: all guarantees hold (checks_enabled=", StrictMode.checks_enabled(), ")."
     )
 else
     println("\nStrictMode: ", length(failures), " failing guarantee(s):")
