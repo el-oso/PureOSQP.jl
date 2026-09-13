@@ -1167,7 +1167,8 @@ function cholmod_backend(
     # An LDLᵀ factorization has no `F.L`, and this backend's solve assumes `L Lᵀ`.
     L = try
         sparse(F.L)
-    catch
+    catch err
+        err isa InterruptException && rethrow()
         return nothing
     end
     nnz(L) < DENSE_FACTOR_FILL * n^2 || return nothing
@@ -1194,6 +1195,21 @@ function is_diagonal(P::SparseMatrixCSC)
         end
     end
     return true
+end
+
+"""
+    check_finite(M::SparseMatrixCSC, rows, cols, name)
+
+Check the stored entries only. The generic method reads every `(i, j)` that
+[`PureOSQP.structural_rows`](@ref) names, which for a `SparseMatrixCSC` is every row, and each
+read is a search through the column: `m × n` searches for a matrix with `nnz` entries.
+"""
+function PureOSQP.check_finite(M::SparseMatrixCSC, rows::Integer, cols::Integer, name::String)
+    rv, nz = rowvals(M), nonzeros(M)
+    for j in 1:cols, k in nzrange(M, j)
+        isfinite(nz[k]) || throw(ArgumentError("$name is not finite at entry ($(rv[k]), $j)"))
+    end
+    return nothing
 end
 
 """

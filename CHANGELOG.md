@@ -5,6 +5,45 @@ what is true now; this file is where the history lives.
 
 ## Unreleased
 
+### Changed
+
+- **The `polish` setting is now `polishing`**, the name libosqp 1.0 uses. This is a breaking
+  change: passing `polish = true` throws a `MethodError` for the unsupported keyword.
+- **The matrix-free backend warm-starts CG and halves its tolerance when CG stops moving.**
+  Starting each CG solve from the previous `x̃` cut CG iterations 2.5× to 60×, but late in a
+  solve the starting point already met the tolerance, CG took no step, and ADMM stalled. The
+  tolerance is now halved after `cg_tol_reduction` such solves in a row, which is what that
+  setting means in libosqp, and its floor is `eps(T)` relative to the right-hand side instead of
+  a fixed `sqrt(eps)`. A problem that ran to `max_iter` at `eps = 1e-9` now converges, and the
+  matrix-free backend now solves the `κ = 1e4` case in the conditioning benchmark.
+- **The GPU tests are excluded from the test run.** They are tagged `:gpu` in
+  `test/gpu_tests.jl`, and `test/runtests.jl` filters them out: compiling the JLArrays path
+  crashes Julia 1.13.0 inside LLVM on AVX-512 targets.
+- **Benchmarks compare against libosqp 1.0** through `bench/osqp_v1.jl`, with
+  `check_dualgap` off on both sides. `bench/update_bench.jl` gains a libosqp column that uses
+  `osqp_update_data_vec`. `bench/headtohead_v1.jl` is removed; `bench/headtohead.jl` reports the
+  same agreement figures.
+
+### Fixed
+
+- The infeasibility certificates test the sign strictly, as libosqp 1.0 does. A tolerance there
+  certified feasible problems as infeasible.
+- A `NaN` residual ends the solve as `NON_CONVEX` instead of running to `max_iter` with a point
+  that `has_solution` accepts.
+- A refused `update!` leaves the workspace unchanged. Before, a valid argument passed alongside
+  an invalid one was applied first.
+- The derivative is refused unless the last solve reached `SOLVED`.
+- A one-sided constraint row no longer makes every row look weakly active, which refused the
+  derivative of any problem with an infinite bound.
+- A refactorization drops the accelerator's history.
+- `solve` throws when `x0` or `y0` is passed with `warm_starting = false`, since the seed would
+  be discarded.
+- A failed factorization on the full KKT backend no longer suggests switching to it.
+- A non-finite Kronecker factor is reported by factor, and checked without reading the product.
+- The finiteness check in `setup` reads a `SparseMatrixCSC`'s stored entries only. It had read
+  every position, one search each, which made `setup` 13× slower on the suite's Huber class
+  (6.9 ms against 0.52 ms) and the whole solve 3.4× slower.
+
 ### Added
 
 - **`DiagonalReduced`**, the backend for a `Diagonal` `P` with a `Diagonal` `A` — a

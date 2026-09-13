@@ -70,7 +70,8 @@ mutable struct IndirectCG{T <: Real, V <: AbstractVector{T}, K} <: LinearSystem
     kws::K              # Krylov's CgWorkspace, reused across solves
     rhs::V
     prec::V             # the reduced diagonal, inverted
-    tol_scale::T        # shrinks as the ADMM residuals do
+    reduction::T        # multiplies the tolerance; halved when CG stops iterating
+    idle_solves::Int    # consecutive solves in which CG took no iteration
 end
 
 function PureOSQP.indirect_backend(proto::AbstractVector{T}, n::Integer, m::Integer) where {T <: Real}
@@ -80,7 +81,7 @@ function PureOSQP.indirect_backend(proto::AbstractVector{T}, n::Integer, m::Inte
     # solve after the first.
     kws.z = similar(proto, T, n)
     return IndirectCG{T, typeof(similar(proto, T, n)), typeof(kws)}(
-        kws, similar(proto, T, n), fill!(similar(proto, T, n), one(T)), one(T)
+        kws, similar(proto, T, n), fill!(similar(proto, T, n), one(T)), one(T), 0
     )
 end
 
@@ -115,9 +116,15 @@ Solve the reduced system by preconditioned CG.
 
 The tolerance follows the ADMM residuals rather than being fixed: an early iterate does not
 deserve an exact inner solve, and a late one does. It is `cg_tol_fraction` of the current
-residual level, tightened by `cg_tol_reduction` as the outer iteration converges, and
-floored so it cannot chase zero. This makes the solve *inexact*, so iterates differ from
-the direct backends in the last digits even though both converge to the same solution.
+residual level, floored at `eps(T)` relative to the right-hand side so it cannot chase zero.
+This makes the solve *inexact*, so iterates differ from the direct backends in the last
+digits even though both converge to the same solution.
+
+CG starts from the previous `x̃`. Late in a solve that guess already meets the tolerance, CG
+takes no step, and the iterate stops moving; after `cg_tol_reduction` such solves in a row
+the tolerance is halved, which is what that setting counts, as in libosqp. The floor is
+relative rather than a fixed `sqrt(eps)` because a fixed floor sits above tight outer
+tolerances, and no amount of halving gets below it.
 """
 function PureOSQP.solve_system!(ls::IndirectCG{T}, ws, rhs_x, rhs_z)::Nothing where {T}
     m = ws.m
@@ -131,13 +138,23 @@ function PureOSQP.solve_system!(ls::IndirectCG{T}, ws, rhs_x, rhs_z)::Nothing wh
 
     s = ws.settings
     level = max(ws.scaled_prim_res, ws.scaled_dual_res)
-    atol = max(s.cg_tol_fraction * level / s.cg_tol_reduction, sqrt(eps(T)))
+    floor = eps(T) * max(one(T), norm_inf(ls.rhs))
+    atol = max(ls.reduction * s.cg_tol_fraction * level, floor)
     op = ReducedOperator(ws)
+    # The previous step's `x̃` is the best available guess: consecutive ADMM subproblems
+    # differ by one relaxation step, so starting from zero discards most of the work and
+    # the inner budget is spent recovering it.
+    Krylov.warm_start!(ls.kws, ws.xtilde)
     cg!(
         ls.kws, op, ls.rhs;
         M = LinearAlgebra.Diagonal(ls.prec), ldiv = false,
         atol = atol, rtol = zero(T), itmax = s.cg_max_iter,
     )
+    ls.idle_solves = iszero(ls.kws.stats.niter) ? ls.idle_solves + 1 : 0
+    if ls.idle_solves >= s.cg_tol_reduction
+        ls.reduction /= 2
+        ls.idle_solves = 0
+    end
     copyto!(ws.xtilde, ls.kws.x)
     m > 0 && mul_A!(ws.ztilde, ws, ws.xtilde)
     return nothing

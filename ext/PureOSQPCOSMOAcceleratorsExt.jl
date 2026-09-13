@@ -12,13 +12,20 @@ than the plain step's by more than `safeguard_tol` is discarded, and the step is
 the last point the accelerator did not touch. Without that an accelerated run can stall where
 the plain one converges.
 
-Pass `accelerator = PureOSQP.anderson(Float64, n + m)` to [`PureOSQP.setup`](@ref). Nothing is
+Loading COSMOAccelerators is what makes this available; pass
+`accelerator = PureOSQP.anderson(Float64, n + m)` to [`PureOSQP.setup`](@ref). Nothing is
 accelerated unless you ask.
+
+Both packages export `update!`, so bring the accelerator in by name —
+`using COSMOAccelerators: COSMOAccelerators` — if the calling scope also uses PureOSQP's.
+Nothing here needs the export.
 """
 module PureOSQPCOSMOAcceleratorsExt
 
 using PureOSQP
-using COSMOAccelerators
+# By name, not by export: both packages export `update!`, and a `using` of both leaves the
+# extension's own calls to it ambiguous.
+using COSMOAccelerators: COSMOAccelerators
 using LinearAlgebra
 
 const CA = COSMOAccelerators
@@ -40,6 +47,9 @@ mutable struct AndersonState{T <: AbstractFloat, A}
     safeguard_tol::T
     nrm_plain::T
     guarding::Bool
+    # Set whenever the history is dropped. The step after a reset has nothing to
+    # extrapolate from and only records where it started.
+    restarted::Bool
     declined::Int
 end
 
@@ -63,7 +73,7 @@ function PureOSQP.anderson(
     ) where {T <: AbstractFloat}
     accel = CA.AndersonAccelerator{T}(Int(dim); mem = Int(memory))
     return AndersonState{T, typeof(accel)}(
-        accel, zeros(T, dim), zeros(T, dim), T(safeguard_tol), zero(T), false, 0
+        accel, zeros(T, dim), zeros(T, dim), T(safeguard_tol), zero(T), false, true, 0
     )
 end
 
@@ -77,10 +87,20 @@ function PureOSQP.init_accelerator(
     return state
 end
 
+function PureOSQP.accelerator_reset!(state::AndersonState)
+    CA.restart!(state.accel)
+    state.guarding = false
+    state.restarted = true
+    fill!(state.w_prev, zero(eltype(state.w_prev)))
+    return state
+end
+
 function PureOSQP.accelerate_pre!(state::AndersonState{T}, ws, iter::Integer) where {T}
     state.guarding = false
     PureOSQP.pack_fixed_point!(state.w, ws)
-    if iter > 1
+    # A restarted accelerator has no previous point to pair this one with, which is the
+    # first iteration of a solve and every iteration after a refactorization.
+    if !state.restarted
         CA.update!(state.accel, state.w, state.w_prev, iter)
         CA.accelerate!(state.w, state.w_prev, state.accel, iter)
         if CA.was_successful(state.accel)
@@ -91,6 +111,7 @@ function PureOSQP.accelerate_pre!(state::AndersonState{T}, ws, iter::Integer) wh
             PureOSQP.pack_fixed_point!(state.w, ws)
         end
     end
+    state.restarted = false
     copyto!(state.w_prev, state.w)
     return ws
 end

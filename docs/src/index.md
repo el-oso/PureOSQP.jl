@@ -74,7 +74,7 @@ For repeated solves, build the workspace once and reuse it — the factorization
 buffers are retained, and the previous iterates warm-start the next solve:
 
 ```julia
-ws = setup(P, q, A, l, u; eps_abs = 1e-8, eps_rel = 1e-8, polish = true)
+ws = setup(P, q, A, l, u; eps_abs = 1e-8, eps_rel = 1e-8, polishing = true)
 sol = solve!(ws)
 sol = solve!(ws)     # warm started from the previous solution
 ```
@@ -108,7 +108,7 @@ Equilibration is done once in `setup`. If your data changes magnitude significan
 
 Default tolerances are `eps_abs = eps_rel = 1e-3`. To improve accuracy:
 * Lower `eps_abs`/`eps_rel` (more iterations).
-* Set `polish = true` to solve the resulting equality-constrained QP exactly. This brings KKT residuals to machine precision at the cost of one extra factorization.
+* Set `polishing = true` to solve the resulting equality-constrained QP exactly. This brings KKT residuals to machine precision at the cost of one extra factorization.
 
 Polishing only runs if it improves both residuals, so it cannot make the solution worse.
 

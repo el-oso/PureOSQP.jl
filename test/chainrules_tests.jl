@@ -25,7 +25,7 @@
     # And against the implicit derivative directly, which is the quantity the rule is supposed
     # to be forwarding. A correct adjoint wired up wrongly would pass neither of these, but
     # only this one says where the fault is.
-    ws = setup(P, q, A, l, u; tol..., polish = true)
+    ws = setup(P, q, A, l, u; tol..., polishing = true)
     sol = PureOSQP.solve!(ws)
     direct = PureOSQP.adjoint_derivative(ws, 2 .* sol.x, zeros(3))
     @test g ≈ direct.dq rtol = 1.0e-8

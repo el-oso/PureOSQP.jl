@@ -13,7 +13,7 @@ solve has a GPU counterpart: Krylov.jl's `cg!` is GPU-native, `bunchkaufman!` ha
 implementation at all, CHOLMOD is CPU by construction, and `potri!` reaches LAPACK. Any
 other backend is refused at [`setup`](@ref) rather than left to fail inside `factorize!`.
 
-`polish` and the derivatives stay on the host, since both build a dense `(n+k)×(n+k)`
+`polishing` and the derivatives stay on the host, since both build a dense `(n+k)×(n+k)`
 matrix and factor it with `bunchkaufman!`.
 """
 module PureOSQPGPUArraysCoreExt

@@ -777,13 +777,23 @@ function refactor_rho!(ws)
 end
 
 function refactored!(ws, ok::Bool)
+    # The reduced form squares `cond(A)`, so the full quasi-definite system is the remedy —
+    # but only for a backend that is not already solving it.
     ok || throw(
         ArgumentError(
             "the linear system could not be factorized with the $(backend_name(ws.linsys)) backend. " *
-                "Rebuild the workspace with linsys = :kkt, which does not square the conditioning of A."
+                (
+                backend_info(ws.linsys).system === :reduced ?
+                    "Rebuild the workspace with linsys = :kkt, which does not square the conditioning of A." :
+                    "This is already the full KKT system; the problem is singular at this ρ."
+            )
         )
     )
     ws.refactor_count += 1
+    # A refactorization means `ρ` or the data moved, and the iteration is a fixed point of a
+    # different map afterwards. An accelerator extrapolating from both sides of that is
+    # extrapolating across two maps, so its history is dropped here.
+    accelerator_reset!(ws.accel)
     return ws
 end
 
@@ -860,7 +870,7 @@ function require_host(v::AbstractVector, what::String)
         ArgumentError(
             "$what runs on the host and this workspace holds $(typeof(v)): it factors a " *
                 "dense matrix with `bunchkaufman!`, which has no GPU counterpart. Move the " *
-                "problem to the host with `Array`, or leave `polish = false` and take the " *
+                "problem to the host with `Array`, or leave `polishing = false` and take the " *
                 "ADMM iterate."
         )
     )

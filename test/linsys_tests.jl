@@ -709,3 +709,13 @@ end
     @test isnothing(PureOSQP.dense_rung(Pm, ProductsOnly(Am), q, n, m))
     @test PureOSQP.dense_rung(Pm, Am, q, n, m)[1] isa PureOSQP.ReducedCholesky
 end
+
+@testitem "a failed factorization suggests the full KKT system only when it is not already in use" begin
+    P = [4.0 1.0; 1.0 2.0]
+    A = [1.0 1.0; 1.0 0.0; 0.0 1.0]
+    l, u = [1.0, 0.0, 0.0], [1.0, 0.7, 0.7]
+    @test_throws "Rebuild the workspace with linsys = :kkt" PureOSQP.refactored!(setup(P, [1.0, 1.0], A, l, u), false)
+    @test_throws "already the full KKT system" PureOSQP.refactored!(
+        setup(P, [1.0, 1.0], A, l, u; linsys = :kkt), false
+    )
+end

@@ -24,7 +24,7 @@ const STM = SymTridiagonal{Float64, Vector{Float64}}
 const TM = Tridiagonal{Float64, Vector{Float64}}
 
 solve_default(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u)
-solve_polish(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u; polish = true)
+solve_polish(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u; polishing = true)
 solve_kkt(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u; linsys = :kkt)
 solve_unscaled(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u; scaling = 0)
 

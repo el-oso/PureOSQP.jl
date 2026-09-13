@@ -100,3 +100,24 @@ end
         @test res.x ≈ ref.x rtol = 1.0e-7
     end
 end
+
+@testitem "the matrix-free backend reaches a tolerance tighter than sqrt(eps)" begin
+    using LinearAlgebra, Random, Krylov
+    # CG starts from the previous iterate, so late in a solve it can meet its tolerance
+    # without taking a step, and ADMM stops moving. Halving the tolerance after
+    # `cg_tol_reduction` such solves, down to a floor relative to the right-hand side, is
+    # what lets it continue; a fixed `sqrt(eps)` floor stalled this problem at the limit.
+    Random.seed!(5)
+    n, m = 100, 200
+    X = randn(n, n)
+    P = Matrix(X'X / n + I)
+    q = randn(n)
+    A = randn(m, n)
+    b = A * randn(n)
+    l, u = b .- rand(m), b .+ rand(m)
+    tol = (eps_abs = 1.0e-9, eps_rel = 1.0e-9, max_iter = 20_000)
+    cg = solve(P, q, A, l, u; linsys = :indirect, tol...)
+    direct = solve(P, q, A, l, u; tol...)
+    @test cg.status === SOLVED
+    @test cg.x ≈ direct.x rtol = 1.0e-6
+end

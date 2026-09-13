@@ -157,7 +157,7 @@ end
 
     # Polishing reports its own outcome, and only when it was asked for.
     polished = capture() do
-        PureOSQP.solve(P, q, A, l, u; verbose = true, polish = true)
+        PureOSQP.solve(P, q, A, l, u; verbose = true, polishing = true)
     end
     @test occursin("polish:", polished)
     @test !occursin("polish:", loud)
@@ -273,7 +273,7 @@ end
     @test off.status_polish == POLISH_NOT_PERFORMED
     @test !off.polished
 
-    on = PureOSQP.solve(P, q, A, l, u; eps_abs = 1.0e-9, eps_rel = 1.0e-9, polish = true)
+    on = PureOSQP.solve(P, q, A, l, u; eps_abs = 1.0e-9, eps_rel = 1.0e-9, polishing = true)
     @test on.status_polish == POLISH_SUCCESS
     @test on.polished
 
@@ -283,7 +283,7 @@ end
     Pu = Matrix(X'X + I)
     free = PureOSQP.solve(
         Pu, randn(MersenneTwister(4), n), zeros(0, n), Float64[], Float64[];
-        polish = true, eps_abs = 1.0e-9, eps_rel = 1.0e-9
+        polishing = true, eps_abs = 1.0e-9, eps_rel = 1.0e-9
     )
     @test free.status == SOLVED
     @test free.status_polish == POLISH_NO_ACTIVE_SET_FOUND
@@ -318,7 +318,7 @@ end
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(30, 70; seed = 66)
-    s = PureOSQP.solve(P, q, A, l, u; eps_abs = 1.0e-9, eps_rel = 1.0e-9, polish = true)
+    s = PureOSQP.solve(P, q, A, l, u; eps_abs = 1.0e-9, eps_rel = 1.0e-9, polishing = true)
     @test s.setup_time > 0
     @test s.solve_time > 0
     @test s.polish_time > 0
@@ -726,4 +726,65 @@ end
     @test first(counts)[2] == 25
     @test last(counts)[2] == 100
     @test first(counts)[1] == last(counts)[1]
+end
+
+@testitem "a seed alongside warm_starting = false is refused rather than discarded" begin
+    P = [4.0 1.0; 1.0 2.0]
+    A = [1.0 1.0; 1.0 0.0; 0.0 1.0]
+    l, u = [1.0, 0.0, 0.0], [1.0, 0.7, 0.7]
+    @test_throws "warm_starting = false then discards" solve(
+        P, [1.0, 1.0], A, l, u; x0 = [0.3, 0.7], warm_starting = false
+    )
+    @test solve(P, [1.0, 1.0], A, l, u; x0 = [0.3, 0.7]).status === SOLVED
+end
+
+@testitem "a refactorization drops the accelerator's history" begin
+    using LinearAlgebra, COSMOAccelerators, Random
+    Random.seed!(5)
+    n, m = 10, 20
+    X = randn(n, n)
+    P = Matrix(X'X / n + I)
+    A = randn(m, n)
+    b = A * randn(n)
+    # A window spanning a change of ρ mixes points from two different fixed-point maps.
+    ws = setup(
+        P, randn(n), A, b .- rand(m), b .+ rand(m);
+        accelerator = PureOSQP.anderson(Float64, n + m), max_iter = 30, adaptive_rho = false,
+    )
+    solve!(ws)
+    @test !ws.accel.restarted
+    PureOSQP.update_rho!(ws, 0.5)
+    @test ws.accel.restarted
+end
+
+@testitem "a NaN residual is reported as divergence, not as a usable point" begin
+    P = [4.0 1.0; 1.0 2.0]
+    A = [1.0 1.0; 1.0 0.0; 0.0 1.0]
+    ws = setup(P, [1.0, 1.0], A, [1.0, 0.0, 0.0], [1.0, 0.7, 0.7])
+    # `NaN > inf` is false, so without its own test a NaN residual runs to the iteration limit.
+    ws.prim_res, ws.dual_res = NaN, 0.0
+    @test PureOSQP.check_termination(ws) === PureOSQP.NON_CONVEX
+    ws.prim_res, ws.dual_res = 0.0, NaN
+    @test PureOSQP.check_termination(ws) === PureOSQP.NON_CONVEX
+end
+
+@testitem "an infeasibility certificate must separate, not merely come close" begin
+    # Both certificates test a sign strictly. A tolerance proportional to the direction's norm
+    # certifies these two problems, and neither is infeasible.
+    function dual_certified(qv)
+        ws = setup(zeros(1, 1), [qv], ones(1, 1), [-Inf], [Inf]; scaling = 0)
+        ws.delta_x .= [1.0]
+        return PureOSQP.is_dual_infeasible(ws, 1.0e-4)
+    end
+    @test dual_certified(-1.0e-12)      # qᵀδx < 0 descends forever
+    @test !dual_certified(1.0e-12)      # qᵀδx > 0 does not
+
+    # x ≥ 1 and x ≤ 1 + gap: infeasible for a negative gap, feasible for a positive one.
+    function primal_certified(gap)
+        ws = setup(ones(1, 1), [0.0], ones(2, 1), [1.0, -Inf], [Inf, 1.0 + gap]; scaling = 0)
+        ws.delta_y .= [-1.0, 1.0]
+        return PureOSQP.is_primal_infeasible(ws, 1.0e-4)
+    end
+    @test primal_certified(-2.0)
+    @test !primal_certified(1.0e-12)
 end

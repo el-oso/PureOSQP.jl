@@ -196,17 +196,22 @@ end
 """
     is_primal_infeasible(ws, eps) -> Bool
 
-Certificate test on `δy`, from libosqp 0.6.2: after projecting `δy` onto the polar of the
-recession cone of `[l, u]`, the problem is primal infeasible when
-`uᵀ max(δy,0) + lᵀ min(δy,0) < ε‖δy‖` and `‖Aᵀδy‖ < ε‖δy‖`. Overwrites `ws.delta_y` with
-the projected vector, which then becomes the certificate.
+Certificate test on `δy`: after projecting `δy` onto the polar of the recession cone of
+`[l, u]`, the problem is primal infeasible when `uᵀ max(δy,0) + lᵀ min(δy,0) < 0` and
+`‖Aᵀδy‖ < ε‖δy‖`. Overwrites `ws.delta_y` with the projected vector, which then becomes the
+certificate.
+
+The support function is tested against zero rather than against `ε‖δy‖`. A tolerance there
+admits directions that do not separate, and a certificate is a proof or it is nothing.
 """
 function is_primal_infeasible(ws::Workspace{T}, eps::T) where {T}
     ws.m == 0 && return false
     project_polar_reccone!(ws.delta_y, ws.l, ws.u)
     ndy = ws.settings.scaling > 0 ? scaled_norm_inf(ws.E, ws.delta_y) : norm_inf(ws.delta_y)
     ndy > DIVISION_TOL(T) || return false
-    support_plain(ws.delta_y, ws.l, ws.u) < eps * ndy || return false
+    # Strict, as libosqp 1.0 has it: the support function of the direction must be
+    # negative, not merely under a tolerance that scales with the direction's own norm.
+    support_plain(ws.delta_y, ws.l, ws.u) < zero(T) || return false
     mul_At!(ws.work_n, ws, ws.delta_y)
     if ws.settings.scaling > 0
         # mul_At! applies D; the unscaled test is Aᵀ(E ⊙ δy), so divide it back out once.
@@ -243,8 +248,10 @@ function is_dual_infeasible(ws::Workspace{T}, eps::T) where {T}
     ndx = scaled ? scaled_norm_inf(ws.D, ws.delta_x) : norm_inf(ws.delta_x)
     cost = scaled ? ws.c : one(T)
     ndx > DIVISION_TOL(T) || return false
-    # v0.6.2 uses a tolerance here, not a strict sign test; master tightened it to < 0.
-    dot(ws.q, ws.delta_x) < cost * eps * ndx || return false
+    # A strict sign test, as libosqp 1.0 has it. Allowing `qᵀδx` up to `+ε‖δx‖` certifies a
+    # direction that does not descend, and on an ill-conditioned `A` the near-null directions
+    # clear the two remaining tests, so a bounded problem is declared unbounded.
+    dot(ws.q, ws.delta_x) < zero(T) || return false
     mul_P!(ws.work_n, ws, ws.delta_x)
     scaled && divide!(ws.work_n, ws.work_n, ws.D)
     norm_inf(ws.work_n) < cost * eps * ndx || return false
@@ -265,6 +272,10 @@ run unconverged.
 function check_termination(ws::Workspace{T}, approximate::Bool = false) where {T}
     s = ws.settings
     inf = INFTY(T)
+    # `NaN` compares false against everything, so it passes a `> inf` test and would reach
+    # the iteration limit as a point with `has_solution` true. It is caught by name, and
+    # reported as the divergence it is.
+    (isnan(ws.prim_res) || isnan(ws.dual_res)) && return NON_CONVEX
     (ws.prim_res > inf || ws.dual_res > inf) && return NON_CONVEX
     f = approximate ? T(10) : one(T)
     scaled_term = s.scaled_termination && s.scaling > 0

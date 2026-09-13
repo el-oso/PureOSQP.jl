@@ -40,7 +40,7 @@ PureOSQP.Status
 | `profiler_level` | `0` | `profile_primdual` | `false` | one switch over the one measurement that needs a clock |
 | `warm_starting` | `true` | `warm_starting` | `true` | |
 | `scaling` | `10` | `scaling` | `10` | |
-| `polishing` | `false` | `polish` | `false` | renamed only |
+| `polishing` | `false` | `polishing` | `false` | |
 | `rho` | `0.1` | `rho` | `0.1` | |
 | `rho_is_vec` | `true` | `rho_is_vec` | `true` | |
 | `sigma` | `1e-6` | `sigma` | `1e-6` | |
@@ -65,7 +65,7 @@ PureOSQP.Status
 | `delta` | `1e-6` | `delta` | `1e-6` | |
 | `polish_refine_iter` | `3` | `polish_refine_iter` | `3` | |
 
-Of the thirty-one settings: twenty-one match upstream, three have no counterpart, six are renamed or defaulted differently, and one is a trap.
+Of the thirty-one settings: twenty-two match upstream, three have no counterpart, five are renamed or defaulted differently, and one is a trap.
 
 **Same name, different meaning — the one to watch.** `adaptive_rho_fraction` means different things in upstream and here. Upstream it is a fraction of *setup time*. Here it is a fraction of the *previous KKT error*. Under `adaptive_rho = :kkt_error`, $\rho$ is retuned only when the relative KKT error falls to `adaptive_rho_fraction` of its previous value. Porting tuned values without reading this will cause quiet errors.
 

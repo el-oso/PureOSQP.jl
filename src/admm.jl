@@ -75,8 +75,8 @@ function print_header(ws::Workspace)
     print(Core.stdout, ws.settings.eps_rel)
     print(Core.stdout, ", max_iter = ")
     print(Core.stdout, ws.settings.max_iter)
-    print(Core.stdout, ", polish = ")
-    println(Core.stdout, ws.settings.polish ? "on" : "off")
+    print(Core.stdout, ", polishing = ")
+    println(Core.stdout, ws.settings.polishing ? "on" : "off")
     println(Core.stdout, VERBOSE_RULE)
     println(Core.stdout, " iter      objective      prim res      dual res           rho")
     return nothing
@@ -96,7 +96,7 @@ function print_footer(ws::Workspace)
     println(Core.stdout, VERBOSE_RULE)
     print(Core.stdout, "status:               ")
     println(Core.stdout, status_name(ws.status))
-    if ws.settings.polish
+    if ws.settings.polishing
         print(Core.stdout, "polish:               ")
         println(Core.stdout, ws.polished ? "successful" : "unsuccessful")
     end
@@ -231,7 +231,7 @@ function solve!(ws::Workspace{T}) where {T}
         ws.status = st == UNSOLVED ? MAX_ITER_REACHED : st
     end
     ws.solve_time = (time_ns() - started) / 1.0e9
-    if (ws.status == SOLVED || ws.status == SOLVED_INACCURATE) && s.polish
+    if (ws.status == SOLVED || ws.status == SOLVED_INACCURATE) && s.polishing
         t_polish = time_ns()
         ws.status_polish = polish!(ws)
         ws.polished = ws.status_polish === POLISH_SUCCESS
@@ -323,7 +323,7 @@ the promotion of the five inputs' element types.
 
 The keyword arguments are the fields of [`Settings`](@ref) — `rho`, `sigma`, `alpha`,
 `max_iter`, `time_limit`, the tolerances, `scaling`, `adaptive_rho`, `check_dualgap`,
-`polish`, `warm_starting`, `verbose`, `linsys`, and `accelerator` — and [`setup`](@ref)
+`polishing`, `warm_starting`, `verbose`, `linsys`, and `accelerator` — and [`setup`](@ref)
 describes what each does and what the defaults are.
 
 `x0` and `y0` seed the iteration in problem space. With `warm_starting = true` (the
@@ -340,6 +340,16 @@ Base.@constprop :aggressive function solve(
         x0 = nothing, y0 = nothing, kwargs...
     )
     ws = setup(P, q, A, l, u; kwargs...)
-    (isnothing(x0) && isnothing(y0)) || warm_start!(ws; x = x0, y = y0)
+    if !isnothing(x0) || !isnothing(y0)
+        # `solve!` cold starts when `warm_starting` is off, so a seed given alongside it
+        # would be written and then discarded before the first step.
+        ws.settings.warm_starting || throw(
+            ArgumentError(
+                "x0 and y0 seed the iteration, which warm_starting = false then discards " *
+                    "before the first step. Pass one or the other."
+            )
+        )
+        warm_start!(ws; x = x0, y = y0)
+    end
     return solve!(ws)
 end

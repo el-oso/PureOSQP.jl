@@ -79,7 +79,7 @@ end
     @test_throws "scaling = 0" setup(Pop, q, Aop, l, u)
 
     # Polishing and the derivatives copy entries into a dense factorization.
-    @test_throws "is_materializable" solve(Pop, q, Aop, l, u; opts..., polish = true)
+    @test_throws "is_materializable" solve(Pop, q, Aop, l, u; opts..., polishing = true)
 
     # Every rung that would form a matrix declines, so `:auto` reaches the matrix-free one
     # instead of failing inside a factorization.
@@ -255,9 +255,11 @@ end
     l, u = fill(-1.0, n), fill(1.0, n)
 
     results = map((25, 100)) do iters
+        # A tolerance no run can reach, so both stop at `max_iter` while the termination
+        # check still runs every iteration.
         ws = setup(
             Pop, q, Aop, l, u; scaling = 0, max_iter = iters,
-            eps_abs = 1.0e-14, eps_rel = 1.0e-14, check_termination = 1,
+            eps_abs = 1.0e-30, eps_rel = 1.0e-30, check_termination = 1,
         )
         solve!(ws)
         # Each measured run starts from the same warm start as the one that reports `iter`,

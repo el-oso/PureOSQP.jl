@@ -27,6 +27,16 @@ Throws rather than returning anything when the derivative does not exist. See
 [`adjoint_derivative`](@ref) for why there is no fallback.
 """
 function active_kkt(ws::Workspace{T}) where {T}
+    # The derivative is of the solution map at a solution. An unconverged point is not one,
+    # and an infeasible run has already been cold started, so differentiating either returns
+    # a number for a question that was not asked.
+    ws.status === SOLVED || throw(
+        ArgumentError(
+            "the derivative is taken at a solution, and this workspace's last solve ended " *
+                "as $(status_name(ws.status)). Solve it first, or tighten the tolerances " *
+                "until it converges."
+        )
+    )
     require_host(ws.x, "differentiating the solution")
     require_entries(
         ws.P, ws.A, "differentiating the solution",
@@ -58,8 +68,15 @@ function active_kkt(ws::Workspace{T}) where {T}
             # A row sitting on a bound with a vanishing multiplier is weakly active: the
             # solution map is only directionally differentiable there, and which side the
             # active set falls on is decided by rounding error.
-            gap = sqrt(eps(T)) * max(one(T), abs(li), abs(ui))
-            if (isfinite(li) && abs(z[i] - li) <= gap) || (isfinite(ui) && abs(z[i] - ui) <= gap)
+            # A one-sided row's absent bound is stored as `±INFTY`, a large finite number
+            # that `isfinite` accepts. Left in, it both sets the scale of `gap` — making it
+            # around `1e22`, which every row clears — and is compared against as if the row
+            # could rest on it. Only the bounds the row actually has take part.
+            inf = INFTY(T)
+            has_l, has_u = li > -inf, ui < inf
+            gap = sqrt(eps(T)) *
+                max(one(T), has_l ? abs(li) : zero(T), has_u ? abs(ui) : zero(T))
+            if (has_l && abs(z[i] - li) <= gap) || (has_u && abs(z[i] - ui) <= gap)
                 throw(
                     ArgumentError(
                         "constraint row $i sits on its bound with multiplier $(y[i]): the QP " *

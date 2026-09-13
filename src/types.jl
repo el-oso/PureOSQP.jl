@@ -60,7 +60,7 @@ active set, so it can decline for reasons that are not failures.
 |---|---|---|
 | `POLISH_LINSYS_ERROR` | -2 | the active-set KKT matrix could not be factored |
 | `POLISH_FAILED` | -1 | the polished point did not improve both residuals, so it was discarded |
-| `POLISH_NOT_PERFORMED` | 0 | `polish` was off, which is the default |
+| `POLISH_NOT_PERFORMED` | 0 | `polishing` was off, which is the default |
 | `POLISH_SUCCESS` | 1 | the polished point was accepted and is what `Solution` carries |
 | `POLISH_NO_ACTIVE_SET_FOUND` | 2 | no constraint was active, so there was nothing to polish |
 
@@ -110,11 +110,13 @@ const LINSYS_OPTIONS = (
 """
     Settings{T}
 
-Algorithm parameters. Defaults follow libosqp 0.6.2 with two exceptions.
-`adaptive_rho_interval` is a fixed iteration count rather than a wall-clock fraction of
-the setup time, so iteration counts are reproducible across machines. And `check_dualgap`
-defaults on, following libosqp 1.x, so a run stops on the duality gap as well as on the
-two residuals.
+Algorithm parameters. Every default is libosqp 1.0's, including `check_dualgap` on and
+`adaptive_rho` adapting on a fixed iteration interval of 50.
+
+One mode is deliberately absent. libosqp 1.0 offers a fourth `adaptive_rho`, adapting once
+a fraction of the setup time has elapsed; a solver that decides when to refactorize by
+reading a clock takes a different number of iterations on a different machine, so the modes
+here are `:disabled`, `:iterations` and `:kkt_error` only.
 
 `profile_primdual` is off by default and is the only setting that makes the solve read a
 clock it would not otherwise read. Turning it on fills [`Solution`](@ref)'s `primdual_int`
@@ -143,7 +145,7 @@ struct Settings{T <: Real}
     profile_primdual::Bool
     scaled_termination::Bool
     rho_is_vec::Bool
-    polish::Bool
+    polishing::Bool
     polish_refine_iter::Int
     delta::T
     warm_starting::Bool
@@ -159,7 +161,7 @@ function Settings{T}(;
         cg_max_iter = 20, cg_tol_fraction = 0.15, cg_tol_reduction = 10,
         check_dualgap = true, profile_primdual = false,
         scaled_termination = false, rho_is_vec = true,
-        polish = false, polish_refine_iter = 3, delta = 1.0e-6,
+        polishing = false, polish_refine_iter = 3, delta = 1.0e-6,
         warm_starting = true, verbose = false, linsys = :auto,
     ) where {T <: Real}
     # `adaptive_rho` names a mode. A `Bool` is also accepted: `true` is `:iterations`.
@@ -203,7 +205,7 @@ function Settings{T}(;
         Int(cg_max_iter), T(cg_tol_fraction), Int(cg_tol_reduction),
         Bool(check_dualgap), Bool(profile_primdual),
         Bool(scaled_termination), Bool(rho_is_vec),
-        Bool(polish), Int(polish_refine_iter), T(delta),
+        Bool(polishing), Int(polish_refine_iter), T(delta),
         Bool(warm_starting), Bool(verbose), Symbol(linsys),
     )
 end
@@ -444,7 +446,15 @@ function validate(P, q, A, l, u)
     # transpose, and would otherwise be refused for the wrong reason.
     is_materializable(P) && check_finite(P, n, n, "P")
     is_materializable(A) && check_finite(A, m, n, "A")
-    is_symmetric(P) || throw(ArgumentError("P must be symmetric. Pass the full matrix or a Symmetric wrapper, not a stored triangle."))
+    # An operator has no entries to inspect, so it reports what its author declared and the
+    # remedy is the declaration, not the storage.
+    is_symmetric(P) || throw(
+        ArgumentError(
+            is_materializable(P) ?
+                "P must be symmetric. Pass the full matrix or a Symmetric wrapper, not a stored triangle." :
+                "P must be symmetric, and an operator reports only what it was told: build it with `issymmetric = true`, or wrap it with `ProductOperator{T}(op; symmetric = true)`."
+        )
+    )
     all(isfinite, q) || throw(ArgumentError("q must be finite, found NaN or Inf"))
     any(isnan, l) && throw(ArgumentError("l contains NaN"))
     any(isnan, u) && throw(ArgumentError("u contains NaN"))

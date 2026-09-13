@@ -61,8 +61,6 @@ function update!(
                     "Rebuild the workspace with setup."
             )
         )
-        ws.P = P
-        ws.linsys isa KroneckerReduced && (ws.linsys.mu = T(scalar_multiple(P)))
         refactor_needed = true
     end
     if !isnothing(A)
@@ -83,7 +81,6 @@ function update!(
                     "workspace with setup."
             )
         )
-        ws.A = A
         refactor_needed = true
     end
     if (!isnothing(P) || !isnothing(A)) && ws.linsys isa BlockReduced
@@ -108,12 +105,16 @@ function update!(
     if !isnothing(q)
         length(q) == n || throw(ArgumentError("length(q) must be $n, got $(length(q))"))
         all(isfinite, q) || throw(ArgumentError("q must be finite, found NaN or Inf"))
-        ws.q0 .= q
     end
     if !isnothing(l) || !isnothing(u)
+        # Lengths first: the ρ-class walk below indexes every row of both proposals, and a
+        # short one would reach the end of a vector rather than this message.
+        isnothing(l) || length(l) == m ||
+            throw(ArgumentError("length(l) must be $m, got $(length(l))"))
+        isnothing(u) || length(u) == m ||
+            throw(ArgumentError("length(u) must be $m, got $(length(u))"))
         # The kronecker backend requires a uniform ρ, which the classification of the
-        # proposed bounds must preserve. Evaluated against the arguments before anything is
-        # written, so a refusal leaves the workspace exactly as it was.
+        # proposed bounds must preserve.
         if ws.linsys isa KroneckerReduced && ws.m > 0
             loose = INFTY(T) * MIN_SCALING(T)
             split = ws.settings.rho_is_vec
@@ -133,22 +134,35 @@ function update!(
         end
         inf = INFTY(T)
         if !isnothing(l)
-            length(l) == m || throw(ArgumentError("length(l) must be $m, got $(length(l))"))
             any(isnan, l) && throw(ArgumentError("l contains NaN"))
             any(li -> li == Inf, l) && throw(ArgumentError("l may not be +Inf"))
-            ws.l0 .= max.(T.(l), -inf)
         end
         if !isnothing(u)
-            length(u) == m || throw(ArgumentError("length(u) must be $m, got $(length(u))"))
             any(isnan, u) && throw(ArgumentError("u contains NaN"))
             any(ui -> ui == -Inf, u) && throw(ArgumentError("u may not be -Inf"))
-            ws.u0 .= min.(T.(u), inf)
         end
+        # The ordering test runs on the clamped proposals, not on what the workspace holds,
+        # so a pair that fails it leaves the old bounds in place.
         for i in 1:m
-            ws.l0[i] <= ws.u0[i] ||
-                throw(ArgumentError("l must be elementwise ≤ u, violated at index $i: $(ws.l0[i]) > $(ws.u0[i])"))
+            li = isnothing(l) ? ws.l0[i] : max(T(l[i]), -inf)
+            ui = isnothing(u) ? ws.u0[i] : min(T(u[i]), inf)
+            li <= ui ||
+                throw(ArgumentError("l must be elementwise ≤ u, violated at index $i: $li > $ui"))
         end
     end
+
+    # Every check above reads the arguments, never the workspace's own fields, so the
+    # matrices are adopted only once none of them can refuse. A refusal that had already
+    # replaced `P` or `A` would leave the workspace holding a matrix its factorization and
+    # its buffers were not built for, and the next solve reads out of range.
+    if !isnothing(P)
+        ws.P = P
+        ws.linsys isa KroneckerReduced && (ws.linsys.mu = T(scalar_multiple(P)))
+    end
+    isnothing(A) || (ws.A = A)
+    isnothing(q) || (ws.q0 .= q)
+    isnothing(l) || (ws.l0 .= max.(T.(l), -INFTY(T)))
+    isnothing(u) || (ws.u0 .= min.(T.(u), INFTY(T)))
 
     # Reapply the existing equilibration to whatever changed.
     isnothing(q) || (ws.q .= ws.c .* ws.D .* ws.q0)

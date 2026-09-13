@@ -28,12 +28,12 @@ using ChainRulesCore: ChainRulesCore, NoTangent, ZeroTangent, unthunk, @thunk
 
 Solve, and refuse to hand back a workspace whose solution cannot be differentiated.
 
-`polish = true` unless the caller said otherwise: the derivative is taken at the active set,
+`polishing = true` unless the caller said otherwise: the derivative is taken at the active set,
 and polishing is what identifies it exactly. Without it the active set is whatever the ADMM
 iterate happened to be near, and the gradient is of a nearby problem.
 """
 function differentiable_workspace(P, q, A, l, u; kwargs...)
-    ws = PureOSQP.setup(P, q, A, l, u; polish = true, kwargs...)
+    ws = PureOSQP.setup(P, q, A, l, u; polishing = true, kwargs...)
     sol = PureOSQP.solve!(ws)
     sol.status === PureOSQP.SOLVED || throw(
         ArgumentError(

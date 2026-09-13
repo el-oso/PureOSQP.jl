@@ -29,7 +29,7 @@ The default tolerances are `1e-3`, matching upstream. For a sharper answer, tigh
 turn on polishing:
 
 ```@example demo
-sharp = solve(P, q, A, l, u; eps_abs = 1e-9, eps_rel = 1e-9, polish = true)
+sharp = solve(P, q, A, l, u; eps_abs = 1e-9, eps_rel = 1e-9, polishing = true)
 (sharp.x, sharp.obj_val)
 ```
 
@@ -135,7 +135,7 @@ A = [Ad              -Matrix(1.0I, m, m);
 l = [b; zeros(n)]
 u = [b; ones(n)]
 
-sol = solve(P, q, A, l, u; eps_abs = 1e-9, eps_rel = 1e-9, polish = true, max_iter = 100_000)
+sol = solve(P, q, A, l, u; eps_abs = 1e-9, eps_rel = 1e-9, polishing = true, max_iter = 100_000)
 x = sol.x[1:n]
 (sol.status, residual = norm(Ad * x - b), in_box = all(-1e-7 .<= x .<= 1 + 1e-7))
 ```
@@ -280,7 +280,7 @@ A = [Ad                -Im  -Im  Im;
      zeros(2m, n + m)   Matrix(1.0I, 2m, 2m)]
 
 sol = solve(P, q, A, [b; zeros(2m)], [b; fill(Inf, 2m)];
-            eps_abs = 1e-8, eps_rel = 1e-8, polish = true, max_iter = 200_000)
+            eps_abs = 1e-8, eps_rel = 1e-8, polishing = true, max_iter = 200_000)
 
 x_huber = sol.x[1:n]
 x_lsq = Ad \ b
@@ -350,7 +350,7 @@ A = [Diagonal(b) * Ad  -Im;
 l = [fill(-Inf, m); zeros(m)]
 u = [fill(-1.0, m); fill(Inf, m)]
 
-sol = solve(P, q, A, l, u; eps_abs = 1e-8, eps_rel = 1e-8, polish = true, max_iter = 200_000)
+sol = solve(P, q, A, l, u; eps_abs = 1e-8, eps_rel = 1e-8, polishing = true, max_iter = 200_000)
 w = sol.x[1:n]
 accuracy = count(i -> sign((Ad*w)[i]) == -b[i], 1:m) / m
 (sol.status, weight_norm = norm(w), training_accuracy = accuracy)
@@ -410,7 +410,7 @@ A = [F'                  -Matrix(1.0I, k, k);
 l = [zeros(k); 1.0; zeros(n)]
 u = [zeros(k); 1.0; ones(n)]
 
-sol = solve(P, q, A, l, u; eps_abs = 1e-9, eps_rel = 1e-9, polish = true, max_iter = 100_000)
+sol = solve(P, q, A, l, u; eps_abs = 1e-9, eps_rel = 1e-9, polishing = true, max_iter = 100_000)
 x = sol.x[1:n]
 (budget = sum(x), smallest_weight = minimum(x),
  expected_return = dot(μ, x), risk = dot(x, (F * F' + D) * x))
@@ -604,9 +604,9 @@ Settings can be changed afterwards. `rho`, `sigma` and `rho_is_vec` are built in
 factorization, so changing one of those refactorizes; the rest are free.
 
 ```@example workspace
-update_settings!(ws; eps_abs = 1e-6, polish = true)
+update_settings!(ws; eps_abs = 1e-6, polishing = true)
 update_rho!(ws, 1.0)
-(ws.settings.eps_abs, ws.settings.polish, live_rho = ws.rho, setting_rho = ws.settings.rho)
+(ws.settings.eps_abs, ws.settings.polishing, live_rho = ws.rho, setting_rho = ws.settings.rho)
 ```
 
 `update_rho!` sets the value the solver is running with; `ws.settings.rho` keeps the one
@@ -642,7 +642,7 @@ l = [1.0, 0.0, 0.0]
 u = [1.0, 0.7, 0.7]
 
 plain = solve(P, q, A, l, u)
-polished = solve(P, q, A, l, u; polish = true)
+polished = solve(P, q, A, l, u; polishing = true)
 (plain.rel_kkt_error, plain.status_polish, polished.rel_kkt_error, polished.status_polish)
 ```
 
@@ -767,7 +767,7 @@ A = [1.0 1.0; 1.0 0.0; 0.0 1.0]
 l = [1.0, 0.0, 0.0]
 u = [1.0, 1.0, 1.0]
 
-ws = setup(P, q, A, l, u; eps_abs = 1e-10, eps_rel = 1e-10, polish = true)
+ws = setup(P, q, A, l, u; eps_abs = 1e-10, eps_rel = 1e-10, polishing = true)
 sol = solve!(ws)
 grad = adjoint_derivative(ws, [1.0, 0.0], zeros(3))
 (sol.x, grad.dq, grad.dl)
@@ -777,7 +777,7 @@ Against central differences on `q`:
 
 ```@example deriv
 h = 1e-6
-loss(qq) = solve(P, qq, A, l, u; eps_abs = 1e-10, eps_rel = 1e-10, polish = true).x[1]
+loss(qq) = solve(P, qq, A, l, u; eps_abs = 1e-10, eps_rel = 1e-10, polishing = true).x[1]
 fd = [(loss(q .+ h .* e) - loss(q .- h .* e)) / 2h for e in ([1.0, 0.0], [0.0, 1.0])]
 (grad.dq, fd)
 ```
@@ -844,7 +844,7 @@ Two things follow, and both are refusals rather than approximations:
   least-squares answer there would have the right shape and units but be a different
   quantity, and nothing downstream could tell.
 
-`polish = true` is set for you unless you ask otherwise: the derivative is taken at the
+`polishing = true` is set for you unless you ask otherwise: the derivative is taken at the
 active set, and polishing identifies it exactly.
 
 One reach limit: `rrule` and `frule` cover every AD backend that consumes ChainRules,
@@ -891,7 +891,7 @@ not run here, since the docs do not depend on JuMP:
 using JuMP, PureOSQP
 
 model = Model(PureOSQP.Optimizer)
-set_optimizer_attribute(model, "polish", true)
+set_optimizer_attribute(model, "polishing", true)
 set_optimizer_attribute(model, "eps_abs", 1e-9)
 
 @variable(model, 0 <= x[1:2] <= 0.7)

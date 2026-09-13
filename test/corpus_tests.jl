@@ -44,7 +44,7 @@
         for (name, P, q, A, l, u) in cases
             s = PureOSQP.solve(
                 P, q, A, l, u; eps_abs = 1.0e-9, eps_rel = 1.0e-9,
-                max_iter = 200_000, polish = true, linsys = backend
+                max_iter = 200_000, polishing = true, linsys = backend
             )
             @test s.status == SOLVED
             s.status == SOLVED || continue
@@ -65,7 +65,7 @@ end
         )
         j = PureOSQP.solve(
             P, q, A, l, u; eps_abs = 1.0e-9, eps_rel = 1.0e-9,
-            max_iter = 100_000, polish = true
+            max_iter = 100_000, polishing = true
         )
         @test j.status == SOLVED
         @test abs(j.obj_val - c.info.obj_val) <= 1.0e-6 * max(1, abs(c.info.obj_val))

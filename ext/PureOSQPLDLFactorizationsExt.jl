@@ -42,10 +42,11 @@ internal arrays, so each access allocates and infers as `Any`. Reading them per 
 would put both on the hot path — which is what the backends store them for, exactly as the
 CHOLMOD backends store theirs rather than reaching into a foreign factor.
 
-Annotated rather than trusted: an unannotated `getproperty` result costs the caller its
-type stability whatever the field turns out to hold.
+Asserted rather than converted: the assertion narrows an `Any` to something the caller can
+infer through, while a concrete element type here would round every factor to it — a
+`BigFloat` problem factored to `Float64` and returned as though it had not been.
 """
-fact_L(F)::SparseMatrixCSC{Float64, Int} = F.L
+fact_L(F) = F.L::SparseMatrixCSC{<:Real, Int}
 fact_perm(F)::Vector{Int} = F.P
 
 """
@@ -89,7 +90,8 @@ function PureOSQP.ldl_backend(gram, proto::AbstractVector{T}, n::Integer, fill_l
     M = Symmetric(R, :U)
     fact = try
         ldl_analyze(M)
-    catch
+    catch err
+        err isa InterruptException && rethrow()
         return nothing
     end
     ldl_factorize!(M, fact)
@@ -259,7 +261,8 @@ function PureOSQP.ldl_kkt_backend(
     M = Symmetric(gram.K, :U)
     fact = try
         ldl_analyze(M)
-    catch
+    catch err
+        err isa InterruptException && rethrow()
         return nothing
     end
     ldl_factorize!(M, fact)

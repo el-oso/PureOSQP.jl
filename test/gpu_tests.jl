@@ -1,4 +1,4 @@
-@testitem "a GPU array solves through the matrix-free backend" begin
+@testitem "a GPU array solves through the matrix-free backend" tags = [:gpu] begin
     using LinearAlgebra, Random, Krylov, JLArrays, GPUArraysCore
     # JLArrays is CPU-hosted and slow, so this is a correctness gate, not a performance one:
     # with `allowscalar(false)` it enforces exactly the discipline CUDA.jl enforces, which is
@@ -29,7 +29,7 @@
     @test device.y isa Vector{Float64}
 end
 
-@testitem "a GPU array is refused by the direct backends" begin
+@testitem "a GPU array is refused by the direct backends" tags = [:gpu] begin
     using LinearAlgebra, Random, JLArrays, GPUArraysCore
     # `JLArray <: StridedArray`, so without an explicit refusal the dense backend dispatches
     # to CPU LAPACK and quietly succeeds here while failing inside `factorize!` on a CuArray.
@@ -46,7 +46,7 @@ end
     @test_throws "only the matrix-free backend has a GPU counterpart" setup(P, q, A, l, u; linsys = :auto)
 end
 
-@testitem "a GPU array survives update! and warm starting" begin
+@testitem "a GPU array survives update! and warm starting" tags = [:gpu] begin
     using LinearAlgebra, Random, Krylov, JLArrays, GPUArraysCore
     JLArrays.allowscalar(false)
     Random.seed!(5)
@@ -73,7 +73,7 @@ end
     @test solve!(ws).status == SOLVED
 end
 
-@testitem "polishing and derivatives refuse a GPU workspace by name" begin
+@testitem "polishing and derivatives refuse a GPU workspace by name" tags = [:gpu] begin
     using LinearAlgebra, Random, Krylov, JLArrays, GPUArraysCore
     # Both build a dense (n+k)×(n+k) matrix and factor it with `bunchkaufman!`, which has no
     # GPU counterpart. Without an explicit refusal the caller gets GPUArraysCore's
@@ -89,7 +89,7 @@ end
     opts = (eps_abs = 1.0e-8, eps_rel = 1.0e-8, linsys = :indirect)
     device = (jl(P), jl(q), jl(A), jl(l), jl(u))
 
-    @test_throws "polishing runs on the host" PureOSQP.solve(device...; opts..., polish = true)
+    @test_throws "polishing runs on the host" PureOSQP.solve(device...; opts..., polishing = true)
 
     ws = setup(device...; opts...)
     solve!(ws)

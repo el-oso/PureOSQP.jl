@@ -2,7 +2,7 @@
     # Central differencing is the weaker oracle -- it carries step-size error and compares
     # one directional projection per parameter, where the dual-number item below compares
     # whole Jacobians exactly. It is kept for one thing the dual check cannot reach:
-    # `polish = true`. `polish!` overwrites `ws.x`, `ws.y` and `ws.z`, and `active_kkt`
+    # `polishing = true`. `polish!` overwrites `ws.x`, `ws.y` and `ws.z`, and `active_kkt`
     # reads all three, so a polished workspace is a genuinely different input to the
     # derivative. `ForwardDiff` cannot get there, because `polish!` calls `bunchkaufman!`.
     using LinearAlgebra, SparseArrays, OSQP, Random
@@ -15,7 +15,7 @@
     A = randn(m, n)
     b = A * randn(n)
     l, u = b .- rand(m), b .+ rand(m)
-    opts = (eps_abs = 1.0e-12, eps_rel = 1.0e-12, max_iter = 200_000, polish = true)
+    opts = (eps_abs = 1.0e-12, eps_rel = 1.0e-12, max_iter = 200_000, polishing = true)
 
     ws = setup(P, q, A, l, u; opts...)
     @test PureOSQP.solve!(ws).status == SOLVED
@@ -63,7 +63,7 @@ end
     A = randn(m, n)
     b = A * randn(n)
     l, u = b .- rand(m), b .+ rand(m)
-    opts = (eps_abs = 1.0e-12, eps_rel = 1.0e-12, max_iter = 200_000, polish = true)
+    opts = (eps_abs = 1.0e-12, eps_rel = 1.0e-12, max_iter = 200_000, polishing = true)
     ws = setup(P, q, A, l, u; opts...)
     PureOSQP.solve!(ws)
 
@@ -98,7 +98,7 @@ end
     A = randn(m, n)
     b = A * randn(n)
     l, u = b .- rand(m), b .+ rand(m)
-    opts = (eps_abs = 1.0e-12, eps_rel = 1.0e-12, max_iter = 200_000, polish = true)
+    opts = (eps_abs = 1.0e-12, eps_rel = 1.0e-12, max_iter = 200_000, polishing = true)
 
     # Two identical equality rows: both active by construction, so the active constraint
     # gradients are exactly dependent and no derivative exists. A regularized solve would
@@ -128,7 +128,7 @@ end
     # compares the *whole* Jacobian rather than one directional projection, so a bug
     # confined to a subspace cannot hide in it.
     #
-    # `polish = false` because polishing calls `bunchkaufman!`, which LAPACK provides only
+    # `polishing = false` because polishing calls `bunchkaufman!`, which LAPACK provides only
     # for BLAS floats and `LinearAlgebra` has no generic fallback for. That is the one
     # thing standing between this package and running end to end on dual numbers.
     Random.seed!(11)
@@ -139,7 +139,7 @@ end
     A = randn(m, n)
     b = A * randn(n)
     l, u = b .- rand(m), b .+ rand(m)
-    opts = (eps_abs = 1.0e-12, eps_rel = 1.0e-12, max_iter = 200_000, polish = false)
+    opts = (eps_abs = 1.0e-12, eps_rel = 1.0e-12, max_iter = 200_000, polishing = false)
 
     ws = setup(P, q, A, l, u; opts...)
     @test PureOSQP.solve!(ws).status == SOLVED
@@ -173,7 +173,7 @@ end
     #
     # Only one-sided differences are available here. Perturbing an equality's `l` upward,
     # or its `u` downward, makes `l > u`, which `setup` rejects outright.
-    opts = (eps_abs = 1.0e-12, eps_rel = 1.0e-12, max_iter = 200_000, polish = true)
+    opts = (eps_abs = 1.0e-12, eps_rel = 1.0e-12, max_iter = 200_000, polishing = true)
     positive = Ref(0)
     negative = Ref(0)
 
@@ -215,4 +215,44 @@ end
     # Both signs must occur, or the test proves only half of what it claims.
     @test positive[] > 0
     @test negative[] > 0
+end
+
+@testitem "the derivative is refused at a point that is not a solution" begin
+    P = [4.0 1.0; 1.0 2.0]
+    A = [1.0 1.0; 1.0 0.0; 0.0 1.0]
+    ws = setup(
+        P, [1.0, 1.0], A, [1.0, 0.0, 0.0], [1.0, 0.7, 0.7];
+        max_iter = 5, eps_abs = 1.0e-12, eps_rel = 1.0e-12,
+    )
+    @test solve!(ws).status === PureOSQP.MAX_ITER_REACHED
+    @test_throws "the derivative is taken at a solution" PureOSQP.adjoint_derivative(
+        ws, ones(2), zeros(3)
+    )
+end
+
+@testitem "a one-sided row's missing bound does not make every row weakly active" begin
+    using LinearAlgebra, Random
+    # The absent upper bound is stored as a large finite number. The weak-activity gap must
+    # not be scaled by it: that makes the gap about 1e22, every row then counts as resting on
+    # its bound, and every derivative of a one-sided problem is refused.
+    Random.seed!(4)
+    n, m = 4, 6
+    X = randn(n, n)
+    P = Matrix(X'X + I)
+    q = randn(n)
+    A = randn(m, n)
+    l = A * randn(n) .- rand(m)
+    u = fill(Inf, m)
+    opts = (eps_abs = 1.0e-12, eps_rel = 1.0e-12, max_iter = 200_000, polishing = true)
+    ws = setup(P, q, A, l, u; opts...)
+    sol = solve!(ws)
+    @test sol.status === SOLVED
+    @test count(abs.(A * sol.x .- l) .< 1.0e-8) > 0          # the fixture has an active row
+
+    g = PureOSQP.adjoint_derivative(ws, ones(n), zeros(m))
+    h = 1.0e-6
+    dq = zeros(n)
+    dq[1] = h
+    fd = (sum(solve(P, q .+ dq, A, l, u; opts...).x) - sum(solve(P, q .- dq, A, l, u; opts...).x)) / 2h
+    @test g.dq[1] ≈ fd rtol = 1.0e-5
 end

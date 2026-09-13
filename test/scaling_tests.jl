@@ -205,3 +205,15 @@ end
     @test ss.obj_val ≈ sf.obj_val rtol = 1.0e-8
     @test ss.x ≈ sf.x rtol = 1.0e-8
 end
+
+@testitem "a sparse matrix's finiteness check reads only its stored entries" begin
+    using SparseArrays, LinearAlgebra
+    # Reading every position of a SparseMatrixCSC is one search per `(i, j)`. For this matrix
+    # that is 1e10 searches; on the suite's sparse classes that pattern costs more than the rest
+    # of `setup`.
+    n = 100_000
+    A = sparse([1, 7, n], [1, 3, n], [1.0, 2.0, 3.0], n, n)
+    @test (@elapsed PureOSQP.check_finite(A, n, n, "A")) < 1.0
+    nonzeros(A)[2] = NaN
+    @test_throws "A is not finite at entry (7, 3)" PureOSQP.check_finite(A, n, n, "A")
+end

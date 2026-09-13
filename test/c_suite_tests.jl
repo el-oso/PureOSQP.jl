@@ -14,7 +14,7 @@
     TOL = 1.0e-4
     # upstream: max_iter 2000, alpha 1.6, polish 1, scaling 0, warm_start 0
     s = PureOSQP.solve(
-        P, q, A, l, u; max_iter = 2000, alpha = 1.6, polish = true,
+        P, q, A, l, u; max_iter = 2000, alpha = 1.6, polishing = true,
         scaling = 0, warm_starting = false
     )
     @test s.status == SOLVED
@@ -35,7 +35,7 @@ end
     # warm_start 0. With the check disabled the loop always runs to max_iter, and the
     # post-loop check is what assigns the status.
     s = PureOSQP.solve(
-        P, q, A, l, u; max_iter = 200, alpha = 1.6, polish = false,
+        P, q, A, l, u; max_iter = 200, alpha = 1.6, polishing = false,
         scaling = 0, check_termination = 0, warm_starting = false,
         check_dualgap = false        # 0.6.2 has no duality-gap test; this ports its case
     )
@@ -56,7 +56,7 @@ end
     for rho in (0.1, 0.7, 1.0e-4, 10.0)
         s = PureOSQP.solve(
             P, q, A, l, u; rho = rho, max_iter = 5000, alpha = 1.6,
-            polish = true, scaling = 0, warm_starting = false
+            polishing = true, scaling = 0, warm_starting = false
         )
         @test s.status == SOLVED
         @test norm(s.x .- [0.3, 0.7], Inf) < 1.0e-4
@@ -91,7 +91,7 @@ end
     u = [0.0, 0.0, -15.0, 100.0, 80.0]
     TOL = 1.0e-4
     # upstream: rho 0.1, alpha 1.6, polish 1, remaining settings default
-    s = PureOSQP.solve(P, q, A, l, u; rho = 0.1, alpha = 1.6, polish = true, max_iter = 4000)
+    s = PureOSQP.solve(P, q, A, l, u; rho = 0.1, alpha = 1.6, polishing = true, max_iter = 4000)
     @test s.status == SOLVED
     @test norm(s.x .- [15.0, 0.0], Inf) < TOL
     @test norm(s.y .- [0.0, 508.0, 168.0, 0.0, 0.0], Inf) < TOL
@@ -109,14 +109,14 @@ end
     # upstream: max_iter 2000, alpha 1.6, scaling 0; polish 1 for the feasible case only
     s1 = PureOSQP.solve(
         P, q, A12, l, [5.0, 3.0, 3.0];
-        max_iter = 2000, alpha = 1.6, scaling = 0, polish = true
+        max_iter = 2000, alpha = 1.6, scaling = 0, polishing = true
     )
     @test s1.status == SOLVED
     @test norm(s1.x .- [1.0, 3.0], Inf) < 1.0e-4
     @test norm(s1.y .- [0.0, -2.0, 1.0], Inf) < 1.0e-4
     @test abs(s1.obj_val - (-1.5)) < 1.0e-4
 
-    opts = (max_iter = 2000, alpha = 1.6, scaling = 0, polish = false)
+    opts = (max_iter = 2000, alpha = 1.6, scaling = 0, polishing = false)
     @test PureOSQP.solve(P, q, A12, l, [0.0, 3.0, 3.0]; opts...).status == PRIMAL_INFEASIBLE
     @test PureOSQP.solve(P, q, A34, l, [2.0, 3.0, Inf]; opts...).status == DUAL_INFEASIBLE
     @test PureOSQP.solve(P, q, A34, l, [0.0, 3.0, Inf]; opts...).status == PRIMAL_INFEASIBLE

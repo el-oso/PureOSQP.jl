@@ -79,3 +79,17 @@ end
     @test !PureOSQP.is_scalar_multiple(Diagonal([1.0, 2.0]))
     @test !PureOSQP.is_scalar_multiple(randn(3, 3))
 end
+
+@testitem "a non-finite Kronecker factor is refused by naming the factor" begin
+    using LinearAlgebra
+    # The check reads the two factors, not the product, so the entry it reports is the
+    # factor's own.
+    A1 = [1.0 2.0; 3.0 NaN]
+    A2 = [1.0 0.0; 0.0 1.0]
+    @test_throws "A's first Kronecker factor is not finite at entry (2, 2)" setup(
+        Diagonal(ones(4)), zeros(4), PureOSQP.KroneckerOperator(A1, A2), fill(-1.0, 4), fill(1.0, 4)
+    )
+    @test_throws "A's second Kronecker factor" setup(
+        Diagonal(ones(4)), zeros(4), PureOSQP.KroneckerOperator(A2, A1), fill(-1.0, 4), fill(1.0, 4)
+    )
+end

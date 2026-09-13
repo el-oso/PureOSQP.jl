@@ -13,9 +13,10 @@ sweep count is exactly the requested one."
 Throw unless every entry `M` can be read is finite, naming the first that is not.
 
 Walks [`structural_rows`](@ref) column by column, so a structured representation pays only
-its own entries and a `SparseMatrixCSC` pays its stored ones — which is where a stray `NaN`
-or `Inf` can sit, and where a factorization run with `check = false` would not reliably
-report it. A representation that cannot be indexed is the caller's to skip.
+for its own entries. A `SparseMatrixCSC` has its own method in the SparseArrays extension that
+reads only the stored entries. A stray `NaN` or `Inf` would not be reliably reported by a
+factorization run with `check = false`, which is why this runs first. A representation that
+cannot be indexed is the caller's to skip.
 """
 function check_finite(M, rows::Integer, cols::Integer, name::String)
     for j in 1:cols
@@ -24,6 +25,23 @@ function check_finite(M, rows::Integer, cols::Integer, name::String)
             isfinite(v) || throw(ArgumentError("$name is not finite at entry ($i, $j)"))
         end
     end
+    return nothing
+end
+
+"""
+    check_finite(M::KroneckerOperator, rows, cols, name)
+
+Check the two factors rather than the product they stand for.
+
+`A₁ ⊗ A₂` has `size(A₁) .* size(A₂)` entries and stores only the factors; walking the
+product would read every one of them through the operator's `getindex`, which costs more
+than the whole of [`setup`](@ref) and is the work the type exists to avoid. An entry of the
+product is a product of one entry from each factor, so it is finite exactly when both are.
+"""
+function check_finite(M::KroneckerOperator, rows::Integer, cols::Integer, name::String)
+    # The entry reported is the factor's own, so the message names the factor.
+    check_finite(M.A1, size(M.A1, 1), size(M.A1, 2), name * "'s first Kronecker factor")
+    check_finite(M.A2, size(M.A2, 1), size(M.A2, 2), name * "'s second Kronecker factor")
     return nothing
 end
 
