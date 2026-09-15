@@ -4,3 +4,7 @@ docs/node_modules/
 Manifest.toml
 scratch/
 .claude-reap.sh
+.claude/
+# Per-solve samples the spike scripts regenerate; their compact summaries are tracked.
+bench/results/*_raw.json
+bench/results/ipm_matrixfree_spike.json
