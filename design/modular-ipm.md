@@ -3,8 +3,16 @@
 Design for steps 1 and 2 of the agreed strategy (internal boundary, then a Mehrotra IPM in the
 same package), with the step-3 package layout sketched. Every file:line below was read; claims
 that could not be checked by reading are marked **unverified**; claims that rest on the
-literature rather than on this code are marked **literature** and are behind a measurement in
-§6/§9. Choices the user should confirm are collected in §10.
+literature rather than on this code are marked **literature**. Claims marked **measured** come
+from the two bench-only spikes `bench/ipm_matrixfree_spike.jl` (27 dense instances, `n ∈ {200,
+500, 1000}`, results `bench/results/ipm_matrixfree_spike_summary.json`) and
+`bench/ipm_matrixfree_spike2.jl` (18 dense, 36 Kronecker, 30 sparse instances, `n ≤ 200`,
+results `bench/results/ipm_matrixfree_spike2_nog2stop.json`; three dense `n = 1000` instances
+in `ipm_matrixfree_spike2.json`), and `bench/ipm_rowtypes_spike.jl` (spike 3: spike 2's 18 dense
+and 30 sparse instances with equality, one-sided and free rows, inner stopping rules, CG start,
+and no-pivoting `LDLᵀ`; results `bench/results/ipm_rowtypes_spike.json`). All spikes ran at
+`n ≤ 1000` on neuromancer and are indicative. Choices the user has taken or must confirm are in
+§10.
 
 Conventions: `ws` is today's ADMM `Workspace`; `prob` is the shared problem object introduced
 here; `wt` is the weights object. Line numbers refer to the current tree.
@@ -166,7 +174,7 @@ src/core/
   linsys.jl                     LinearSystem contract, BackendInfo, ReducedCholesky, FullKKT,
                                 DiagonalReduced, TridiagonalReduced, reduced_rhs!, ladder
   block.jl lowrank.jl kronsolve.jl   (backends, on prob + wt)
-  preconditioner.jl             Preconditioner interface, Identity/Jacobi/ProbedWoodbury (§9.3)
+  preconditioner.jl             update_preconditioner! interface, JacobiPreconditioner (§9.3)
   residuals.jl                  residuals_at!, gap_terms, certificate tests, support kernels
   update.jl                     validate_update!, adopt_update!, check_update(ls, P, A)
   polish.jl                     polish_kernel!
@@ -188,7 +196,7 @@ src/api.jl                      setup/solve(…; algorithm), capabilities, dimen
 | SparseArrays | traversals, rungs, three backends, `is_convex`, `check_finite` | backend/rung signatures; `IPMSelection` methods (§5) |
 | LDLFactorizations | `ldl_backend`, `ldl_kkt_backend`, `ldl_posdef`, two backends | backend signatures |
 | BandedMatrices | `choose_backend`, `BandedReduced`, `structural_rows`, `is_symmetric/is_convex` | signatures |
-| Krylov | `IndirectCG`, `ReducedOperator`, `indirect_backend` | signatures, tolerance seam, preconditioner slot, `inner_iterations` (§3.6, §9) |
+| Krylov | `IndirectCG`, `ReducedOperator`, `indirect_backend` | signatures, tolerance seam, preconditioner slot applied by `ldiv!`, residual callback, `inner_iterations` (§3.6, §9) |
 | GPUArraysCore | `choose_backend` refusals, traversals | `choose_backend` signature; an `IPMSelection` refusal (§5) |
 | LinearMaps, SciMLOperators | `ProductOperator` constructors, `setup`/`solve` overloads | forward `algorithm` and `preconditioner` keywords (they already forward `kwargs...`) |
 | COSMOAccelerators | ADMM hooks, `admm_step!` | none (its reads are in `src/accelerate.jl`) |
@@ -245,8 +253,9 @@ end
 
 ADMM: `w = rho_vec`, `w_inv = rho_inv_vec`, `sigma = settings.sigma`; `update_settings!`
 assigns `ws.weights = SystemWeights(ws.weights.w, ws.weights.w_inv, new.sigma)` whenever it
-refactorizes (`api.jl:48-53`). IPM: `w_inv = s/z + δ_d`, `w = inv.(w_inv)`, `sigma = δ_p`
-(§8.2). Folding `δ_d` into `w_inv` keeps one invariant and leaves every backend unchanged.
+refactorizes (`api.jl:48-53`). IPM: `w` is the per-side regularized weight of §8.2,
+`w_inv = inv.(w)`, `sigma = δ_p`; equality and free rows set `w_inv` directly (§8.2). The
+backend interface does not know which algorithm built the weights.
 
 The object is a field of each workspace, not built per call, so the hot path constructs
 nothing. `rho_vec`/`rho_inv_vec` as `Workspace` fields are removed; the tests in §1.9 read
@@ -365,18 +374,23 @@ update_x!(…); update_zy!(…, ws.weights.w, ws.weights.w_inv, …)
 
 ```julia
 # outside ipm_step!, once per outer iteration (the backend's allocation lives here):
-ws.w_inv .= s ./ z .+ δ_d          # masked per row; equality rows δ_d, free rows 1/δ_d
-ws.w     .= inv.(ws.w_inv)
+weights!(ws)                        # §8.2: w = z_l/(s_l + δ_d z_l) + z_u/(s_u + δ_d z_u), masked;
+                                    # equality rows w_inv = δ_d, free rows w_inv = 1/δ_d
+set_refresh_index!(ws.linsys, k)    # outer iteration; −1 for the starting-point solve (§9.3)
 refactor_weights!(ws.linsys, ws.prob, ws.weights) || bump_regularization!(ws)
 # ipm_step!: two solves on the same factorization, no allocation
+set_tolerance_level!(ws.linsys, min(μ, ‖r‖∞))
 solve_multiplier!(ws.linsys, ws.prob, ws.weights, rhs_x, rhs_z, dx_aff, dy_aff)   # predictor
 …                                                                                # corrector
 ```
 
+For `IndirectCG`, `refactor_weights!` is where `update_preconditioner!` runs (§9.3).
+
 ### 3.6 The CG seam (Krylov ext)
 
 `IndirectCG{T,V,K,M}` holds a preconditioner `M` (§9.3), a mutable `level::T` to track the
-tolerance, and counters `total_iters::Int`, `misses::Int`. The three CG settings (max_iter,
+tolerance, a mutable `refresh_index::Int` handed to `update_preconditioner!`, and counters
+`total_iters::Int`, `misses::Int`. The three CG settings (max_iter,
 tol_fraction, tol_reduction) are not stored at construction; `indirect_backend(proto, n, m)`
 has no such parameters.
 
@@ -389,9 +403,16 @@ adopt_settings!(ls::IndirectCG, settings) = (ls.max_iter = settings.cg_max_iter;
 
 set_tolerance_level!(ls::LinearSystem, level) = nothing     # direct backends
 set_tolerance_level!(ls::IndirectCG, level) = (ls.level = level; nothing)
+set_refresh_index!(ls::LinearSystem, k) = nothing           # direct backends
+set_refresh_index!(ls::IndirectCG, k) = (ls.refresh_index = k; nothing)
 last_solve_converged(ls::LinearSystem) = true
-last_solve_converged(ls::IndirectCG) = ls.kws.stats.solved   # verify field name: unverified
+last_solve_converged(ls::IndirectCG) = ls.last_reached     # set by the miss rule of §9.4
 ```
+
+`refresh_index` is owned by the algorithm: the IPM sets it to the outer iteration before
+`refactor_weights!` (`−1` before the starting-point factorization; a regularization bump
+refactors with the same index); ADMM sets it to `refactor_count` before `factorize!` and
+`refactor_weights!`.
 
 Settings passed at construction do not reach the `:auto` operator path through `indirect_rung`,
 and nothing would refresh them on `update_settings!`; `adopt_settings!` is called by `setup_backend`
@@ -400,7 +421,10 @@ after the workspace is built and by `update_settings!` whenever settings change.
 ADMM calls `set_tolerance_level!` immediately before `solve_system!` with
 `max(scaled_prim_res, scaled_dual_res)`; the backend computes `atol` exactly as at
 `KrylovExt.jl:140-142`, so `:indirect` iterates do not move. CG warm-starts from the `x` argument,
-which holds the previous solution (the same values as `ws.xtilde` today).
+which holds the previous solution (the same values as `ws.xtilde` today). The IPM zeroes `x`
+before each `solve_multiplier!` on `IndirectCG`: a warm start from the previous step measured no
+G1 gain, 1.02× (dense) and 1.21× (sparse) the median products, and five extra misses from
+Krylov's machine-precision stop (**measured**, `ipm_rowtypes_spike.json`, `cgstart` groups).
 `ReducedOperator{T,PB,WT}(prob, wt)` replaces `ReducedOperator(ws)`.
 
 ---
@@ -511,7 +535,7 @@ as extra methods:
 | `sparse_kkt_backend` | KKT considered only when the reduced form would densify (`:596`) | pre-gate skipped; KKT factorization tried first, fill gate unchanged |
 | `density_gate_rung`, `formed_rung`, `dense_rung` | as today | `FullKKT(proto, n, m)` for `T <: BlasFloat` (materializes `A` once; covers dense-`P`/sparse-`A` and LP pairs); `ReducedCholesky` otherwise (`bunchkaufman!` has no generic method) |
 | structured reduced backends (diagonal, tridiagonal, banded, block, lowrank), `SparseCholmod/SparseLDL` | as today | as today; reached only when the pair has that structure; gated by measurement (S10) |
-| `IndirectCG` | as today | reachable by `:auto` only after the §9.5 gate; always by `linsys = :indirect` |
+| `indirect_rung` (operator pairs) | as today | declines; an operator pair under `:ipm` is served only by `linsys = :indirect` **with** a caller-supplied preconditioner (§9.2); without one `setup` refuses by name |
 | GPU ext `choose_backend` | refusal as today | `choose_backend(P::AbstractGPUMatrix, …, ::IPMSelection)` refuses `:ipm` by name (v1 is CPU-only) |
 | named kinds | as today | `:kronecker` throws naming the uniform-weights requirement |
 
@@ -531,26 +555,27 @@ corpus items pass unchanged and the snapshot matches. **M** mechanical, **J** ju
 | # | step | gate | diff. |
 |---|---|---|---|
 | S0 | **Snapshot artifact.** `bench/snapshot.jl`: for every suite class in `bench/suite_problems.jl` and every structured family in `selection_tests.jl`, record `(backend_name, iter, refactor_count, status, round(obj_val, 10))` at fixed settings with `BLAS.set_num_threads(1)`, on the S0 tree, into `bench/results/snapshot_s0.json`; a bench check compares the current tree to it. Not a committed test item; `meta_tests.jl` unchanged. | artifact generated | M |
-| **S-spike** | **Matrix-free measurement, before any refactor** (§9.5). `bench/ipm_matrixfree_spike.jl`: a throwaway dense Mehrotra prototype (bench-only, `Float64`, dense `bunchkaufman!` on the regularized KKT) produces the `(x_k, W_k)` sequence on LinearMap-over-dense QPs; for each `k` the reduced system is solved by `Krylov.cg!` under `δ ∈ {1e-8, 1e-4, 1e-2}` and each preconditioner (none, exact Jacobi, probed Woodbury `k ∈ {5, 20}`), recording iterations to `atol_k`. Answers §9.5 (i)–(iv). Results under `bench/results/`. | numbers committed; §10 decisions taken | J |
+| S-spike | **Done**: `bench/ipm_matrixfree_spike.jl` and `spike2.jl` (commit f2aee68), `bench/ipm_rowtypes_spike.jl`; findings in §8.2, §8.4, §8.5, §9.1, §9.4. | — | — |
 | S2a | **`Problem` extraction.** `core/problem.jl`; `Workspace.prob`; every `ws.<moved field>` rewritten; `mul_*` on `prob`; `settings.scaling` reads → `prob.scaling`; backends keep `(ls, ws)` for now but bind `P A D E c n m` to locals at entry; docs lines in §1.9. Gate adds `bench/loop_breakdown.jl` step timings against S0 on neuromancer, ABBA-interleaved with the S0 tree (indicative, §10.7). | identical; audit; trim; timings within noise | M |
 | S1+S2b | **Weights and backend signatures, one pass.** `SystemWeights`; `factorize!(ls, prob, wt)`, `refactor_weights!`, `solve_system!(ls, prob, wt, rhs_x, rhs_z, x, z)`; every `rho_vec/rho_inv_vec/settings.sigma` read of §1.2 → `wt`; `Workspace.weights`; `update_settings!` rebuilds `weights` (+ test that changes `sigma` and checks the factorized matrix); `set_rho_vec!`, `pack/unpack_fixed_point!`, `admm_step!` follow; `reduced_rhs!(prob, wt, …)`; `ReducedOperator(prob, wt)`; `check_update` + Kronecker `mu` in `factorize!`; `update!` split; contract; tests/bench/audit signatures `(LS, PB, WT, V, V, V, V)`, `(LS, PB, WT)`. CG seam: `set_tolerance_level!(ls::LinearSystem, level) = nothing` (default), mutable `level::T` field on `IndirectCG`, `admm_step!` sets it to `max(scaled_prim_res, scaled_dual_res)` immediately before `solve_system!`; `adopt_settings!(ls::LinearSystem, settings) = nothing` (default) with `IndirectCG` method filling `max_iter`, `tol_fraction`, `tol_reduction` from settings, called by `setup_backend` after workspace build and by `update_settings!` on every settings change; CG warm-starts from `x` argument. | identical; audit; trim | M |
 | S3 | **Selection tag.** `SelectionFor`; collapse rung signatures; `ADMMSelection` threaded from `setup`; no `IPMSelection` methods yet. | identical; `selection_tests` backends unchanged | M |
 | S4 | **Shared kernels.** `residuals_at!`, `gap_terms`, `eps_*`, certificate tests on `(prob, buffer, eps)`, `polish_kernel!`, `active_kkt(prob, x, y, z)`; ADMM wrappers keep names and order. | identical; audit (`update_residuals!` row); trim (`derivatives`, `solve_polish`) | M |
-| S5 | **CG seam continued.** Counters `total_iters`, `misses`; `last_solve_converged(ls)` reporting CG success; `inner_iterations(ls)` total lifetime CG iterations; `Solution.cg_iters` per-solve count; preconditioner slot with `IdentityPreconditioner`/`JacobiPreconditioner` reproducing today's `Diagonal(ls.prec)` (§9.3). | identical on `:indirect` (`indirect_tests`, `solve_indirect` trim entry) | J |
+| S5 | **CG seam continued.** Counters `total_iters`, `misses`, `last_reached`; `last_solve_converged(ls)`; `inner_iterations(ls)`; `Solution.cg_iters`; the preconditioner slot `M` applied through `ldiv!` (Krylov `ldiv = true`) with `update_preconditioner!(M, prob, wt, ls.refresh_index)` called from `factorize!`/`refactor_weights!`, `set_refresh_index!` (§3.6), and the default `JacobiPreconditioner` whose `ldiv!(y, J, x)` is `y .= J.dinv .* x`, reproducing today's `Diagonal(ls.prec)` product (§9.3); the stopping and miss rule of §9.4 (callback on Krylov's recursively updated `r`; miss only on budget or breakdown) behind a setting that keeps ADMM's `atol`/`rtol` path bit-identical by default. | identical on `:indirect` (`indirect_tests`, `solve_indirect` trim entry) | J |
 | S6 | **`solve_multiplier!`** default + `FullKKT`/`SparseKKT`/`LDLKKT` overrides; test at `w_inv = 1e-12`. | suite; audit unchanged | M |
 | S7 | **Directory move** to `src/core`, `src/admm`, `src/ipm` (empty). | identical; audit; trim | M |
-| S8 | **IPM skeleton on direct backends.** `IPMSettings`, `IPMWorkspace`, `setup(…; algorithm = :ipm)` via `Val`, `seeded`, starting point, `ipm_step!` (predictor–corrector, `τ = 0.99`), proximal regularization (§8.5), residuals through S4 kernels, `SOLVED`/`SOLVED_INACCURATE`/`MAX_ITER_REACHED`, `solve!`, `build_solution`; `IPMSelection` methods of §5 (FullKKT routing, KKT-first sparse, kronecker decline, GPU refusal). Corpus items under `:ipm` with `:auto`/`:kkt`, referee `< 1e-5`, backend name asserted for the dense-`P`/sparse-`A` and LP cases; objective vs `osqp_ref`. | new items pass; ADMM gates identical | J |
-| S9 | **Robustness.** Dynamic regularization bump; `NUMERICAL_ERROR` (+ every switch of §8.6); certificate buffers, stall rule, certificate tests on step and normalized iterates; `time_limit`, interrupt. Tests: c-suite ported cases under `:ipm`; a random infeasible `n = 20, m = 40` primal case and a dual one; equality-only and free-row corpus cases. | items pass | J |
+| S8 | **IPM skeleton on direct backends.** `IPMSettings`, `IPMWorkspace`, `setup(…; algorithm = :ipm)` via `Val`, `seeded`, starting point, `ipm_step!` with the per-side recovery and the σ floor of §8.2/§8.4 (`τ = 0.99`), regularization of §8.5, residuals through S4 kernels, `SOLVED`/`SOLVED_INACCURATE`/`MAX_ITER_REACHED`, `solve!`, `build_solution`; `IPMSelection` methods of §5 (FullKKT routing, KKT-first sparse, kronecker decline, GPU refusal, operator refusal: unconditional in S8, lifted by name in S11), the `N_s = 0` rule of §8.4. Corpus items under `:ipm` with `:auto`/`:kkt`, referee `< 1e-5`, backend name asserted for the dense-`P`/sparse-`A` and LP cases; objective vs `osqp_ref`; a reproduction test item on the spike-1 dense generator (`make_instance`) at `n = 200`, `κ ∈ {1, 1e3, 1e6}`, fractions `{0.1, 0.5, 0.9}`, in the spike's two-sided form and in spike 3's `mixed` row form, with `scaling = 0`, the spike's iteration count (outer iterations before the `1e-8` termination check passes), reproducing the exact-solve outer counts (`δ = 1e-8`: 6–11) within ±2 through `FullKKT` with `refine_iter = 0` and through `SparseKKT` with `refine_iter = 1`. | new items pass; ADMM gates identical | J |
+| S9 | **Robustness.** Dynamic regularization bump; `NUMERICAL_ERROR` (+ every switch of §8.6); certificate buffers, stall rule, certificate tests on step and normalized iterates; `time_limit`, interrupt. Tests: c-suite ported cases under `:ipm`; a random infeasible `n = 20, m = 40` primal case and a dual one; equality-only (`N_s = 0`) and free-row corpus cases; a `Float32` item as §10.8 question 3 decides (the refusal message under the recommended answer). | items pass | J |
 | S9b | **HSD decision point** (§9.6, §10): implement the bordered solve on `solve_system!` only if S9's infeasible cases are not detected. | — | J |
-| S10 | **Structured backends under IPM, measured.** Each structured family through its recorded backend under `:ipm`: referee tolerance and iteration count recorded per backend into the snapshot; a family whose count exceeds `2×` the `FullKKT` count on the same problem is routed to `FullKKT` under `IPMSelection` (materialized). `Float32` and `Dual` on `:auto`. | items pass; table in docs | J |
-| S11 | **Operator IPM** (§9): `ProbedWoodburyPreconditioner`, inner tolerance rule, budgets, `cg_fail_limit`, `bench/ipm_matrixfree.jl` (operator-IPM vs dense-IPM vs ADMM-operator), support-matrix row. Ships behind the §9.5 gate. | bench numbers under `bench/results/`; gate verdict recorded in docs | J |
+| S10 | **Structured backends under IPM, measured.** Each structured family through its recorded backend under `:ipm`: referee tolerance and iteration count recorded per backend into the snapshot; a family whose count exceeds `2×` the `FullKKT` count on the same problem is routed to `FullKKT` under `IPMSelection` (materialized). `Dual` on `:auto`; `Float32` as §10.8 question 3 decides. | items pass; table in docs | J |
+| S11 | **IPM `:indirect` with a caller-supplied preconditioner** (§9): `preconditioner` keyword, `update_preconditioner!(M, prob, wt, k)`, refusal by name without one (matrices and operators) and without `scaling = 0`, inner stopping and miss rule, zero start, budgets, `cg_fail_limit`, reporting; reference preconditioners in `bench/` and `test/` (lagged Cholesky over the dense reduced matrix, refreshed every 3 outer iterations; limited-memory LDLᵀ over the sparse one); test items: a `Diagonal` preconditioner with a negative entry ends `NUMERICAL_ERROR` with the message naming the preconditioner; `update_preconditioner!` returning another type throws the `ArgumentError`; a counting preconditioner sees `k = −1, 0, 1, …` and the same `k` after a bump; `bench/ipm_matrixfree.jl` per §9.6. Ships if the §9.6 gates pass. | items pass; bench under `bench/results/`; gate verdict recorded in docs | J |
 | S12 | **Polish, derivatives, `update!`, warm start, MOI for IPM.** | `derivative_tests`, `update_tests`, `moi_tests` parametrized where semantics carry | J |
 | S13 | **StrictMode + trim for IPM; Clarabel bench; docs.** Audit rows of §8.12; trim entries; `bench/ipm_vs_clarabel.jl`; iteration bounds; API/guarantees/algorithm pages. | audit green; trim green; bench committed | J |
 
-The spike is first because its outcome can change §8.5 (the `δ` defaults and whether
-refinement exists at all) and §9 (whether operator IPM ships); everything from S2a on is
-independent of it, so the two can also run in parallel on separate worktrees, but the spike's
-verdict must be in before S8 starts.
+The spikes' verdicts are in; S2a onward can start. The remaining measurements that could still
+invalidate a design choice are S10's (structured reduced backends at `δ = 1e-8`) and S11's
+(wall clock including preconditioner builds, `n ≥ 500`, the Kronecker family with a
+reference preconditioner), which is why S11 runs before S12 and S13 and before the docs claim
+operator support.
 
 ---
 
@@ -561,20 +586,32 @@ verdict must be in before S8 starts.
 2. **`@constprop` fragility in `setup`** (`types.jl:514-527`). `Problem` takes only
    `scaling::Int`; `linsys` stays a `Val`; trim entries `solve_kronecker`,
    `solve_lowrank_scaled`, `setup_kronecker` are the detectors.
-3. **Operator IPM may not beat ADMM-operator** even with proximal regularization and the
-   probed preconditioner (§9.5 (v)). The spike bounds the CG growth early; the S11 bench
-   decides shipping. Marked as a user decision.
-4. **Reduced backends under IPM** carry `w ≤ 1/δ_d`; with `δ_d = 1e-8` the reduced matrix's
-   conditioning is `~1e8‖Ã‖²`, marginal for `Float64` and hopeless for `Float32` — hence
-   `T`-dependent `δ`, `FullKKT` routing for `BlasFloat`, and the S10 measurement.
-5. **Infeasibility detection is heuristic** (§8.7); the S9 random infeasible cases decide
-   whether S9b (HSD) is needed.
-6. **Derivatives after an IPM solve**: inactive-row multipliers are `O(μ_final)`, above the
+3. **The inner stopping and miss rule of §9.4 is measured at `n ≤ 200` only.** It reproduces
+   the spikes' explicit-residual oracle on two-sided rows (identical inner and outer counts on
+   96 runs) and keeps the exact solver's G1 with equality rows where the oracle does not
+   (`ipm_rowtypes_spike.json`). It accepts steps whose reduced residual exceeds `atol_k`, which
+   the exact solver's steps also do; a step that is poor for another reason is caught only by
+   the outer stall rule (§8.7). S11 records the recomputed residual in the bench at `n ≥ 500`.
+4. **Operator IPM at `n ≥ 500` and its wall clock are unmeasured** (**measured** only at
+   `n ≤ 200` for the caller-supplied preconditioners, plus three dense `n = 1000`, `κ = 1e6`
+   instances). Preconditioner build cost was not counted in the spikes. S11 measures both;
+   until then the docs say "measured at `n ≤ 200`".
+5. **Reduced backends under IPM** carry `w` up to `1/δ_d`; with `δ = 1e-8` the reduced
+   matrix's conditioning bound is `~1e8‖Ã‖²`. **Measured** at `n ≤ 200`: a Cholesky of that
+   matrix (dense and CHOLMOD) reproduces the Bunch–Kaufman KKT outer counts on 96 of 96 runs,
+   equality rows included (`kktldl` groups). The structured reduced backends (diagonal,
+   tridiagonal, banded, block, low-rank) are not measured; S10 does it. Larger `δ` is not a
+   remedy: it costs outer convergence (§8.5, **measured**).
+6. **Infeasibility detection is heuristic** (§8.7); the S9 random infeasible cases decide
+   whether S9b (HSD) is needed. The spikes ran no infeasible instance.
+7. **Derivatives after an IPM solve**: inactive-row multipliers are `O(μ_final)`, above the
    `sqrt(eps)` threshold at default tolerances (`derivative.jl:52`); polishing cleans the
    active set and is required for IPM derivatives in v1.
-7. **`NUMERICAL_ERROR`** is a new `Status` value; every switch in §8.6 must grow with it.
-8. **Test churn**: ~120 lines outside `src/ext` read moved fields (§1.9).
-9. **Step-3 registration mechanics** untested here.
+8. **A caller's preconditioner that is not SPD** makes Krylov throw when `rᵀM⁻¹r` is negative
+   or NaN, or makes CG stall to its budget; §9.3 states how each surfaces and what the status is.
+9. **`NUMERICAL_ERROR`** is a new `Status` value; every switch in §8.6 must grow with it.
+10. **Test churn**: ~120 lines outside `src/ext` read moved fields (§1.9).
+11. **Step-3 registration mechanics** untested here.
 
 ---
 
@@ -598,7 +635,7 @@ for multipliers so every loop is branch-free apart from the mask; `N_s = count(h
 count(has_u)`. Variable bounds arrive as rows of `A` (MOI does this,
 `MathOptInterfaceExt.jl:130-139`); there is no separate box-slack path.
 
-### 8.2 Newton system and the weights
+### 8.2 Newton system, weights and step recovery
 
 Residuals of the *original* (scaled) problem at the current iterate:
 
@@ -607,24 +644,63 @@ Residuals of the *original* (scaled) problem at the current iterate:
     r_e = Ãx − l̃                              (equality rows)
     r_cl = s_l ∘ z_l − σμ e (+ Δs_a ∘ Δz_a),  r_cu likewise
 
-Eliminating `Δs`, `Δz` (derived from the KKT conditions of the two-sided form):
+**Regularized rows.** The dual regularization `δ_d` sits on each *side's* slack row, not on
+the eliminated multiplier `y`:
 
-    W_i = z_l/s_l + z_u/s_u        (absent bound contributes 0)
-    g_i = r_cl/s_l + (z_l/s_l) r_l − r_cu/s_u − (z_u/s_u) r_u
-    Δy_i = W_i (ÃΔx)_i + g_i
+    Ã_iΔx − Δs_l,i + δ_d Δz_l,i = −r_l,i          (lower side, if has_l)
+    −Ã_iΔx − Δs_u,i + δ_d Δz_u,i = −r_u,i         (upper side, if has_u)
+    z_l ∘ Δs_l + s_l ∘ Δz_l = −r_cl,   z_u ∘ Δs_u + s_u ∘ Δz_u = −r_cu
+    (P̃ + δ_p I)Δx + ÃᵀΔy = −r_d,   Δy = Δz_u − Δz_l
 
-With the proximal regularization of §8.5 the system is the package's KKT form with
-`w_inv = 1/W + δ_d`, `w = 1/w_inv`, `sigma = δ_p`:
+Substituting the slack row into the complementarity row of each side gives, with
 
-    [P̃ + δ_p I   Ãᵀ  ] [Δx]   [ −r_d      ]
-    [Ã   −diag(w_inv) ] [Δy] = [ −w_inv ⊙ g ]       rhs_x = −r_d,  rhs_z = −w_inv ⊙ g
+    d_l = s_l + δ_d z_l,   d_u = s_u + δ_d z_u
 
-Equality rows: `rhs_z,i = −r_e,i`. Free rows: `rhs_z,i = 0` and `Δy_i` is zeroed after the
+    Δz_l = −(r_cl + z_l ∘ (ÃΔx + r_l)) / d_l
+    Δz_u = −(r_cu + z_u ∘ (−ÃΔx + r_u)) / d_u
+    Δs_l = ÃΔx + r_l + δ_d Δz_l,   Δs_u = −ÃΔx + r_u + δ_d Δz_u
+
+and therefore `Δy = Δz_u − Δz_l = w ⊙ ÃΔx + g` with
+
+    w = z_l/d_l + z_u/d_u                                    (absent side contributes 0)
+    g = (r_cl + z_l ∘ r_l)/d_l − (r_cu + z_u ∘ r_u)/d_u
+
+which is exactly the package's KKT form with `w_inv = 1/w`, `sigma = δ_p`, `rhs_x = −r_d`,
+`rhs_z = −w_inv ⊙ g`. An implementer can check the derivation by substituting `Δz_l` back:
+`z_l(ÃΔx + r_l + δ_dΔz_l) + s_lΔz_l = z_l(ÃΔx + r_l) + Δz_l d_l = −r_cl`.
+
+**Why this form and not `w = 1/(1/W + δ_d)` with `Δs = ÃΔx + r`.** With `W = z_l/s_l +
+z_u/s_u`, the harmonic weight makes the solved `Δy = wÃΔx + g` differ from the recovered
+`Δz_u − Δz_l = WÃΔx + g` by `(W − w)ÃΔx`, so the step is not a solution of any one Newton
+system. **Measured** (`ipm_matrixfree_spike_summary.json`, `exact/design`): 0/27 instances
+converge at every `δ`. Rescaling `ÃΔx` by `1/(1 + δW)` to make the two agree (`exact/
+consistent`) converges 25/27 at `δ = 1e-8` and 0/27 at `1e-4` and `1e-2`. The per-side form
+above (`exact/perside`) converges 27/27 at `δ = 1e-8`, 18/27 at `1e-4`, 15/27 at `1e-2`
+(`spike.jl:391-396, 457-461`).
+
+**Equality rows**: `Ã_iΔx − δ_d Δy_i = −r_e,i`, i.e. `w_inv,i = δ_d`, `rhs_z,i = −r_e,i`; no
+slack recovery. **Free rows**: `w_inv,i = 1/δ_d`, `rhs_z,i = 0`, and `Δy_i` is zeroed after the
 solve (one masked store), so `y_i ≡ 0` and the row contributes `δ_d ãᵢãᵢᵀ` to the reduced
-matrix and nothing else. After `solve_multiplier!` returns `Δx, Δy`:
+matrix and nothing else. Zeroing leaves the solved and the applied `Δy` apart by `δ_d ÃΔx` on
+that row; it acts as an extra proximal term `δ_d ãᵢãᵢᵀΔx`, which vanishes at a fixed point.
+**One-sided rows**: the absent side's terms are masked out of `w`, `g` and the recovery; its
+slack and multiplier stay at their placeholders. After `solve_multiplier!` returns `Δx, Δy`,
+the recovery needs one `mul_A!` for `ÃΔx` and four masked elementwise passes.
 
-    Δs_l = ÃΔx + r_l,  Δs_u = −ÃΔx + r_u        (one mul_A! into scratch)
-    Δz_l = −(r_cl + z_l ∘ Δs_l) / s_l,  Δz_u = −(r_cu + z_u ∘ Δs_u) / s_u
+**Measured with every row class** (`ipm_rowtypes_spike.json`, `rowtypes` groups; spike 2's 18
+dense and 30 sparse instances re-planted with 20% equality rows, or with 20% equality, 20%
+lower-only, 20% upper-only, 10% free and 30% two-sided rows, or as `n/2` equality rows only):
+exact solves reach G1 and `1e-8` on 18/18 and 30/30 for every mix, in 6–10 outer iterations
+with mixed rows and 2 with equality rows only.
+
+**Centering safeguard.** Mehrotra's `σ = (μ_a/μ)³` is floored:
+
+    σ ← max(σ, min(1, 0.1 · ‖r‖∞ / μ)),   ‖r‖∞ = max(‖r_d‖∞, ‖r_l‖∞, ‖r_u‖∞, ‖r_e‖∞)
+
+so `μ` is not driven toward zero while the Newton residuals are still large. **Measured**
+(spike 1, `exact/perside` without and with the floor): at `δ = 1e-8` nothing changes (27/27
+converged either way); at `δ = 1e-4` convergence rises from 18 to 21 of 27 and G1 falls from 25
+to 24; at `1e-2` convergence stays at 15 and G1 rises from 15 to 18. It costs one comparison.
 
 ### 8.3 Starting point and `seeded`
 
@@ -640,57 +716,101 @@ matrix and nothing else. After `solve_multiplier!` returns `Δx, Δy`:
 3. Mehrotra's balancing: `δ_s = ½(sᵀz)/(eᵀz)`, `δ_z = ½(sᵀz)/(eᵀs)`; `s .+= δ_s`, `z .+= δ_z`.
    Equality multipliers keep `y` or start at `0`.
 
-`warm_starting = false` clears `seeded` before every solve. No claim is made about the
-iteration count of a warm-started re-solve; S13 records the measured number.
+Sums, minima and `θ` run over the masked entries only. With `N_s = 0` (no inequality side,
+§8.4) steps 2 and 3 are skipped. This is the starting point all three spikes ran
+(`spike.jl:337-354`; `ipm_rowtypes_spike.jl` for the row classes and `N_s = 0`). `warm_starting = false`
+clears `seeded` before every solve. No claim is made about the iteration count of a
+warm-started re-solve; S13 records the measured number.
 
 ### 8.4 One outer iteration
 
 Outside `ipm_step!` (allocation allowed, `:warm` audit rows):
 
-1. `μ = (s_lᵀz_l + s_uᵀz_u)/N_s`; weights per §8.2; `refactor_weights!`; on `false`,
-   `bump_regularization!` (§8.5) and retry.
+1. `μ = (s_lᵀz_l + s_uᵀz_u)/N_s`; `‖r‖∞`; weights per §8.2 (`weights!`);
+   `set_refresh_index!(ls, k)`; `refactor_weights!` (for `IndirectCG` this runs
+   `update_preconditioner!`, §9.3); on `false`, `bump_regularization!` (§8.5) and retry with
+   the same `k`.
 
 Inside `ipm_step!` (`:hot`, no allocation):
 
 2. **Predictor**: `r_cl = s_l∘z_l`, `r_cu = s_u∘z_u`; `g`, `rhs_x`, `rhs_z`;
-   `solve_multiplier!` → `Δx_a, Δy_a`; recover `Δs_a, Δz_a`; `α_a` = largest step in `(0, 1]`
-   keeping `s, z ≥ 0` (one step length for primal and dual: the dual residual couples `x`
-   and `y`); `μ_a`, `σ = (μ_a/μ)³`.
+   `set_tolerance_level!(ls, min(μ, ‖r‖∞))`; zero `Δx` (the CG start, §3.6);
+   `solve_multiplier!` → `Δx_a, Δy_a`; recover
+   `Δs_a, Δz_a` per §8.2; `α_a` = largest step in `(0, 1]` keeping `s, z ≥ 0` (one step length
+   for primal and dual: the dual residual couples `x` and `y`); `μ_a`, `σ = (μ_a/μ)³` with
+   the floor of §8.2.
 3. **Corrector**: `r_cl = s_l∘z_l + Δs_a∘Δz_a − σμ e` (and `u`); rebuild `g`, `rhs_z`; same
-   factorization; `solve_multiplier!`; optional refinement (§8.5); recover `Δs, Δz`.
+   factorization; zero `Δx`; `solve_multiplier!`; optional refinement (§8.5); recover `Δs, Δz`.
 4. `α = min(1, τ·α_max)`, `τ = step_fraction = 0.99`; update `x, y_E, s, z`; `y = z_u − z_l`
    on inequality rows; zero `Δy` on free rows.
+
+**No inequality side (`N_s = 0`).** `μ ≡ 0` and the tolerance level is `‖r‖∞`; each iteration
+makes one solve (steps 2 and 3 collapse: `r_c = 0`, no `σ`) and takes `α = 1`, which is the
+proximal-point iteration on the regularized KKT system. **Measured** (`ipm_rowtypes_spike.json`,
+`eqonly` groups, `n/2` equality rows): 2 outer iterations on 18/18 dense and 30/30 sparse
+instances with exact solves; 18/18 in 2 with the lagged Cholesky and 30/30 in 2–5 with the
+incomplete LDLᵀ.
 
 Then residuals and termination (§8.6) every `check_termination` iterations and at exit, with
 `time_limit` and `InterruptException` handled as in `admm.jl:161-225`. No Gondzio
 correctors, no adaptive `τ`, no separate step lengths in v1.
 
-### 8.5 Regularization model (decision for the user, §10.1)
+### 8.5 Regularization model and defaults
 
-One model for every backend: **primal–dual proximal regularization** — the Newton system
-carries `δ_p I` on the primal block and `δ_d I` on the dual block at every iteration, the
-right-hand side is built from the original residuals (the proximal terms are centred on the
-current iterate and vanish there), the regularization is never refined away, and termination
-is measured on the original residuals. Convergence to the original problem's solution for
-any fixed `δ_p, δ_d > 0` is the Friedlander–Orban result (**literature**; more outer
-iterations as `δ` grows). What this buys: `δ` can be as large as the linear solver needs —
-small for direct backends, large enough to bound `κ` for CG — without a second code path.
+One model for every backend: **primal–dual proximal regularization** — `δ_p I` on the primal
+block and `δ_d` on each slack row (§8.2) at every iteration, the right-hand side built from
+the original residuals, the regularization never refined away, termination measured on the
+original residuals. The motivation is Friedlander–Orban's primal–dual regularization
+(**literature**), which regularizes every primal variable including the slacks; here only `x`
+carries `δ_p` and the per-side `δ_d` term is the dual regularization in slack form, so the
+scheme is a variant and its convergence is a **measured** property (two-sided rows: spikes 1
+and 2; every row class: spike 3), not a cited theorem.
 
-- Defaults: `reg_primal = reg_dual = max(T(1e-8), sqrt(eps(T)))` for direct backends
-  (`1e-8` for `Float64`, `3.4e-4` for `Float32`); the CG default comes from the spike
-  (§9.5), provisionally `1e-4`. Both in scaled space, held in `IPMSettings`, changeable
-  through `update_settings!` without refactorization.
+**What `δ` costs (measured, exact solves, `δ_p = δ_d = δ`).** Convergence to `eps = 1e-8`
+(`ipm_matrixfree_spike2_nog2stop.json`, `exact` rows): dense 18/18 at `δ = 1e-8` and `1e-6`,
+14/18 at `1e-4`, 11/18 at `1e-2`; Kronecker 36/36, 33/36, 28/36, 21/36; sparse 30/30, 30/30,
+20/30, 18/30. G1 (`eps = 1e-6`, referee `≤ 1e-5`): dense 18, 18, 17, 12 of 18. Outer
+iterations on the dense instances that do converge: 6–11 at `1e-8` and `1e-6` (two outliers
+at 86–87 at `1e-6`), 6–71 at `1e-4`, 10–97 at `1e-2`. A larger `δ` therefore buys nothing the
+linear solver can use without paying it back in outer iterations; the preconditioned-CG runs
+of §9.1 confirm that their G1 ceiling equals the exact one at the same `δ` and falls with it.
+
+- **Defaults**: `reg_primal = reg_dual = 1e-8` for `Float64` on every backend, direct or
+  iterative; there is no separate `reg_indirect`. Where that default is **measured** at
+  `δ = 1e-8` (outer counts equal to Bunch–Kaufman on the `FullKKT` matrix, `n ≤ 200`,
+  `ipm_rowtypes_spike.json` `kktldl` groups, two-sided and mixed rows, dense and sparse, 96 runs
+  each): `FullKKT` (spikes 1–2); no-pivoting quasi-definite `LDLᵀ` through CHOLMOD `ldlt` (the
+  factorization `SparseKKT` calls) and through LDLFactorizations `ldl` (`LDLKKT`), each
+  identical on 96/96 with `refine_iter = 1`; without refinement 93/96 identical and 95/96
+  within ±2 (worst +7 and +5, both sparse with mixed rows); Cholesky of the reduced matrix,
+  dense and CHOLMOD (`ReducedCholesky`, `SparseCholmod`), identical on 96/96; the
+  preconditioned `IndirectCG` of §9. The package's own backend code for these is measured in
+  S8; the structured reduced backends (diagonal, tridiagonal, banded, block, low-rank) in S10.
+  Held in `IPMSettings` in scaled space, changeable through `update_settings!` without
+  refactorization.
+- **`Float32`** (and any `T` with `sqrt(eps(T)) > 1e-8`): no IPM run in that arithmetic exists;
+  the `1e-4`/`1e-2` columns above are `Float64` runs. v1 behavior is §10.8 question 3; the
+  recommended answer refuses `:ipm` for such `T` by name in `setup`.
 - `is_convex(T, P, reg_primal)` at setup; documented as the IPM's shift.
 - Dynamic: on `factorize!` returning `false`, multiply both by `10` and retry, up to
-  `max_reg_bumps = 5`; then `NUMERICAL_ERROR` with the last point.
+  `max_reg_bumps = 5`; then `NUMERICAL_ERROR` with the last point. The table says what each
+  bump costs in outer convergence, so a bumped run is reported with its final `δ` in the
+  verbose footer.
 - Refinement (direct backends only, `refine_iter` default `1`): one step against the
   *regularized* operator to correct rounding in the factorization —
   `r = [P̃Δx + δ_pΔx + ÃᵀΔy − rhs_x ; ÃΔx − w_inv ⊙ Δy − rhs_z]` (the second block is zero
   by construction after `solve_multiplier!`), correction through the same factorization.
-  For `IndirectCG` `refine_iter` is `0`: a restarted CG adds nothing a larger budget would
-  not.
-- Requirement stated in the `IPMSettings` docstring: a reduced backend needs
-  `κ(reduced) · eps(T) < 1`, and `κ ≤ (λ_max(P̃) + ‖Ã‖²/δ_d)/(λ_min(P̃) + δ_p)`.
+  For `IndirectCG` `refine_iter` is `0`: **measured** (`spike.jl` restart experiment, 238 slow
+  solves at `δ = 1e-8`, unpreconditioned), restarting CG every 200 iterations reached the
+  tolerance on 124 solves against 144 unrestarted, at 318k against 288k iterations.
+- The `IPMSettings` docstring states the conditioning bound of a reduced backend,
+  `κ ≤ (λ_max(P̃) + ‖Ã‖²/δ_d)/(λ_min(P̃) + δ_p)`, as the reason a structured backend is measured
+  before it is routed (S10). It is not checked by the code. Every measured instance has
+  `λ_min(P) = 1e-2`, so the bound stays near `‖Ã‖²·1e10`, below `1/eps(Float64)`; an LP
+  (`P = 0`) reaches `‖Ã‖²·1e16` and is unmeasured on a reduced backend, so S10 includes an LP
+  on each structured backend that accepts one.
+- The bump is triggered by `factorize!` returning `false` only. An inaccurate factor that
+  does not fail is not detected by the backend; its symptom is the outer stall rule (§8.7).
 
 ### 8.6 Termination and status
 
@@ -702,7 +822,7 @@ three pass; at `max_iter`, retry at ten times for `SOLVED_INACCURATE`, else
 `MAX_ITER_REACHED`. `check_termination = 1` by default: every iteration pays the residual
 kernels, which an IPM's iteration count justifies.
 
-`Status` gains `NUMERICAL_ERROR` (regularization ceiling, CG failure, stall without
+`Status` gains `NUMERICAL_ERROR` (regularization ceiling, inner-solve failure, stall without
 certificate, NaN residual — an IPM NaN after `is_convex` passed is a numerical failure, not
 `NON_CONVEX`). Switches to update: the `Status` docstring ("Eleven values", `types.jl:4`),
 `status_name` (`admm.jl:28-40`), the export list (`src/PureOSQP.jl:27-31`), MOI
@@ -710,7 +830,7 @@ certificate, NaN residual — an IPM NaN after `is_convex` passed is a numerical
 `MathOptInterfaceExt.jl:203-206`), `docs/src/algorithm.md:383-386`, the API table.
 `has_solution` is `false` for it.
 
-### 8.7 Infeasibility detection (decision for the user, §10.4)
+### 8.7 Infeasibility detection (decision §10.4)
 
 v1: certificate tests, not a homogeneous embedding.
 
@@ -720,13 +840,14 @@ v1: certificate tests, not a homogeneous embedding.
 - At every termination check, and every iteration once the stall or divergence guard fires,
   the IPM copies `(Δx, Δy)` of the last step and `(x/‖x‖∞, y/‖y‖∞)` into the buffers and runs
   both tests at `eps_prim_inf`/`eps_dual_inf`, with the `*_INACCURATE` retry at ten times.
-- Stall rule: `α < 1e-8` on three consecutive iterations, or `μ` not decreasing for ten,
-  triggers the tests; if neither fires the run ends `NUMERICAL_ERROR` with the last point.
+- Stall rule: `α < 1e-8` on three consecutive iterations, or `μ` (`‖r‖∞` when `N_s = 0`) not
+  decreasing for ten, triggers the tests; if neither fires the run ends `NUMERICAL_ERROR` with the last point.
   Divergence guard: `‖x‖∞` or `‖y‖∞` above `1/sqrt(eps(T))` relative to the data.
 - Whether a Mehrotra IPM's direction on an infeasible problem converges to a Farkas
   certificate or merely stalls is not established for this code; S9's random infeasible
   cases (`n = 20, m = 40`, primal and dual) decide. The c-suite six
-  (`c_suite_tests.jl:104-123`) are a regression, not the evidence.
+  (`c_suite_tests.jl:104-123`) are a regression, not the evidence. The spikes ran no
+  infeasible instance.
 - HSD (S9b) stays available: a bordered solve built entirely on `solve_system!` (two backend
   solves plus a rank-one update per system, no backend change). Its cost is exactly a doubled
   product count for operators, which is why it is not the v1 default.
@@ -740,8 +861,10 @@ refused for `:ipm` through the GPU extension's `choose_backend` method.
 
 Identical to ADMM: the workspace holds `prob` with `D E c`; iterates are scaled;
 `Solution.x = D ⊙ x̃`, `Solution.y = E ⊙ ỹ / c`; residuals are reported unscaled by the shared
-kernels. `scaling = 0` turns it off; operators need `scaling = 0` or `probe = true`
-(`operator.jl:49-66`).
+kernels. `scaling = 0` turns it off. Under `:ipm` a caller-supplied `preconditioner` requires
+`scaling = 0` (§9.2), for matrices and operators alike, so the matrix the preconditioner
+approximates is built from the caller's own `P` and `A`; `probe = true` is refused with a
+preconditioner in v1.
 
 ### 8.10 v1 support matrix
 
@@ -756,17 +879,20 @@ kernels. `scaling = 0` turns it off; operators need `scaling = 0` or `probe = tr
 | MOI | `algorithm = :ipm`; `BarrierIterations = iter`; `NUMERICAL_ERROR` mapped |
 | `time_limit`, `Ctrl-C` | as ADMM |
 | `verbose` | `Core.stdout`, row: `iter obj prim_res dual_res μ α cg_iters` |
-| operators (`ProductOperator`, LinearMaps, SciMLOperators) | `scaling = 0` or `probe = true`; `P` declared `posdef`; backend `IndirectCG` only; no polishing, no derivatives, no `:kkt`; reachable by `:auto` only after the §9.5 gate, always by `linsys = :indirect` |
+| `linsys = :indirect` (matrices or operators: `ProductOperator`, LinearMaps, SciMLOperators) | only with a caller-supplied `preconditioner` (§9) and `scaling = 0`; operators: `P` declared `posdef`, no polishing, no derivatives, no `:kkt`; never chosen by `:auto`. Without a preconditioner, or with `scaling ≠ 0`, `setup` refuses by name. |
 | accelerator, GPU arrays, `profile_primdual` | refused by name / absent |
+| `T` with `sqrt(eps(T)) > 1e-8` (`Float32`) | per §10.8 question 3 (recommended: refused by name) |
 
 `IPMSettings{T}`: `max_iter = 100`, `time_limit = Inf`, `eps_abs = eps_rel = 1e-8`,
-`eps_prim_inf = eps_dual_inf = 1e-8`, `scaling = 10`, `check_termination = 1`,
-`check_dualgap = true`, `scaled_termination = false`, `reg_primal = reg_dual =
-max(1e-8, sqrt(eps(T)))`, `reg_indirect = 1e-4` (provisional), `max_reg_bumps = 5`,
-`refine_iter = 1`, `step_fraction = 0.99`, `cg_max_iter = 200`, `cg_tol_fraction = 0.1`,
-`cg_tol_reduction = 10`, `cg_fail_limit = 3`, `precond_rows = 20`, `precond_probes = 8`,
+`eps_prim_inf = eps_dual_inf = 1e-8`, `scaling = 10`,
+`check_termination = 1`, `check_dualgap = true`, `scaled_termination = false`,
+`reg_primal = reg_dual = 1e-8`, `max_reg_bumps = 5`, `refine_iter = 1`,
+`step_fraction = 0.99`, `cg_max_iter = 500` (spike 2's cap; spike 1 and spike 2's three
+`n = 1000` records ran 2000; at 500, `cg_lagchol5` would have hit the cap on two of those three,
+whose maxima were 618 and 678), `cg_tol_fraction = 0.1`, `cg_fail_limit = 3`,
 `polishing = false`, `polish_refine_iter = 3`, `delta = 1e-6`, `warm_starting = true`,
 `verbose = false`, `linsys = :auto`. Validated in the constructor as `Settings{T}` is.
+(`cg_tol_reduction` is ADMM's idle-solve rule and has no IPM counterpart.)
 
 ### 8.11 Validation plan
 
@@ -775,27 +901,37 @@ max(1e-8, sqrt(eps(T)))`, `reg_indirect = 1e-4` (provisional), `max_reg_bumps = 
    every structured family of `selection_tests.jl:26-103`, with the backend name asserted.
 2. **Oracle**: objective vs `osqp_ref` to `1e-6·max(1,|obj|)`; `x` vs the ADMM solution at
    `eps = 1e-9` to `1e-6`.
-3. **Clarabel** (`bench/ipm_vs_clarabel.jl`, Clarabel via `bench/solvers.jl:46-51`): `x` to
-   `1e-5` relative on the six `CASES`, iteration counts and wall clock side by side.
-4. **Iteration sanity** (test): `iter ≤ 40` on corpus and c-suite; `≤ 25` on the dense random
+3. **Spike reproduction** (test): the spike-1 generator at `n = 200`, two-sided and with spike
+   3's mixed row classes, reproduces the exact-solve outer counts within ±2 through `FullKKT`
+   and `SparseKKT` (S8).
+4. **Clarabel** (`bench/ipm_vs_clarabel.jl`, Clarabel via `bench/solvers.jl:46-51`): `x` to
+   `1e-5` relative on the six `CASES`, iteration counts and wall clock side by side. (Both
+   spikes validated their exact runs against Clarabel: 0 of 84 instances off by more than
+   `1e-6` in objective.)
+5. **Iteration sanity** (test): `iter ≤ 40` on corpus and c-suite; `≤ 25` on the dense random
    QPs. The warm-started re-solve count is recorded in the snapshot, not asserted.
-5. **c-suite** under `:ipm`, plus S9's random infeasible cases.
-6. **Generic `T`**: `ForwardDiff.Dual` on `:auto` (reduced path, no `bunchkaufman!`),
-   `Float32` on `:auto` (reaches `FullKKT`), `BigFloat` on one small case.
-7. **Operators**: §9.5.
+6. **c-suite** under `:ipm`, plus S9's random infeasible cases.
+7. **Generic `T`**: `ForwardDiff.Dual` on `:auto` (reduced path, no `bunchkaufman!`),
+   `BigFloat` on one small case; `Float32` as §10.8 question 3 decides (refusal message, or a
+   referee test at `eps = 1e-4`).
+8. **Operators**: §9.6.
 
 ### 8.12 StrictMode and trim
 
 Audit rows per backend: `ipm_step!(W)` and `ipm_residuals!(W)` hot (`typestable`,
 `noalloc`); `solve_system!`/`solve_multiplier!` hot; `refactor_weights!`, `factorize!`,
 `check_termination(W, Bool)`, `solve!(W)` warm; the `:indirect` row measured. The docs state
-that the IPM's per-iteration allocation is the backend's factorization. Rules: masks and
-classes preallocated; every elementwise update a two-schedule function in `elementwise.jl`
-style (`max_step`, `complementarity!`, `weights!`, `recover_slack_steps!`); loops over
-`eachindex`, no `findall`, no broadcasting on `Vector`; `norm_inf` only; `IPMSettings{T}`
-concrete; `lazy"…"` messages; verbose via `Core.stdout`. Trim entries: `solve_ipm_default`,
-`solve_ipm_kkt`, `solve_ipm_unscaled`, `solve_ipm_polish`, `solve_ipm_diagonal`,
-`solve_ipm_sparse_kkt`, `solve_ipm_indirect`, `solve_ipm_operator`, `setup_ipm_update`,
+that the IPM's per-iteration allocation is the backend's factorization (and, for
+`IndirectCG`, the caller's `update_preconditioner!`). Rules: masks and classes preallocated;
+every elementwise update a two-schedule function in `elementwise.jl` style (`max_step`,
+`complementarity!`, `weights!`, `recover_slack_steps!`); loops over `eachindex`, no `findall`,
+no broadcasting on `Vector`; `norm_inf` only; `IPMSettings{T}` concrete; `lazy"…"` messages;
+verbose via `Core.stdout`. The `try`/`catch` that turns Krylov's definiteness throw into a miss
+(§9.3) lives in a `@noinline` helper outside the audited `solve_system!` kernel, so the
+`noalloc` row does not see the catch path. Trim entries: `solve_ipm_default`, `solve_ipm_kkt`,
+`solve_ipm_unscaled`, `solve_ipm_polish`, `solve_ipm_diagonal`, `solve_ipm_sparse_kkt`,
+`solve_ipm_indirect` (dense pair, `:indirect` with a `Cholesky` preconditioner),
+`solve_ipm_operator` (`ProductOperator` pair with the same), `setup_ipm_update`,
 `derivatives_ipm`.
 
 ---
@@ -806,131 +942,248 @@ The case the user cares about most: `P` and `A` as `LinearMap`s or SciMLOperator
 `ProductOperator`, `operator.jl`), which supply products and nothing else. Under the IPM such a
 pair has exactly one backend, `IndirectCG`, and the reduced matrix it must solve,
 `P̃ + δ_p I + Ãᵀ diag(w) Ã`, has a spectrum that splits as `μ → 0` — `O(w_max‖ã‖²)` on the
-active-row span, `O(λ_min(P̃) + δ_p)` on the rest (**literature**: Wright 1998). Unpreconditioned
-CG on that is the failure the design has to avoid. ADMM's matrix-free path is already
-1.4–5.9× ADMM's direct iteration count with a *fixed* `ρ` (`bench/results/indirect_backend.json`),
-so nothing carries over by assumption.
+active-row span, `O(λ_min(P̃) + δ_p)` on the rest (**literature**: Wright 1998).
 
-### 9.1 Regularization: consequences of §8.5 for every backend
+### 9.1 What the spikes established
 
-Proximal regularization is what makes the operator case possible, and it is the same model
-the direct backends run: `δ_d` bounds `w ≤ 1/δ_d`, hence `κ(reduced) ≤ (λ_max(P̃) +
-‖Ã‖²/δ_d)/(λ_min(P̃) + δ_p)`. Direct backends use the small default; `IndirectCG` uses
-`reg_indirect` (provisional `1e-4`; the spike sets it). Larger `δ` costs outer iterations —
-the spike measures how many. Consequences elsewhere: none for the backend interface (`w_inv`
-already carries `δ_d`); the termination residuals are the original problem's, so the
-reported accuracy is not the proximal subproblem's; `update_settings!(reg_indirect = …)`
-changes nothing but the next weights.
+All **measured**, at the G1 criterion "`eps = 1e-6` reached with referee `≤ 1e-5`" and, in
+spikes 1 and 2, an inner stopping oracle: the explicit reduced residual `‖b − KΔx‖₂ ≤ atol_k`
+(spike 2 every iteration; spike 1 through the recursive residual with warm restarts until the
+recomputed residual passes). "n/N" is instances passing out of the family's instances at that
+`δ`, whatever the run's status; every row class is two-sided unless spike 3 is named.
 
-### 9.2 Inner tolerance and budget
+- **Every product-only option fails G1 broadly** (`ipm_matrixfree_spike_summary.json`,
+  `ipm_matrixfree_spike2_nog2stop.json`). Unpreconditioned CG: 16/27 (spike 1, `δ = 1e-8`),
+  11/18 dense, 27/36 Kronecker, 16/30 sparse (spike 2); at `δ = 1e-4` 24/27 / 14/18 / 29/36 /
+  23/30, at `1e-2` no better than the exact ceiling minus the failures of §8.5. Exact Jacobi
+  (which needs entries): 17/27, 21/30 sparse. Probed Woodbury (a Hutchinson estimate of the diagonal plus the `k ∈ {5, 20}`
+  largest-weight rows): 4/27 and 8/27 at `δ = 1e-8`, *worse than no preconditioner*; its Hutchinson diagonal
+  estimate had a median relative error of 0.64 (min 0.05, max 1.39 over 5172 builds). MINRES on
+  the augmented system: 2/18; with the `diag(I, w)` block preconditioner 10/18 dense, 22/36
+  Kronecker. TriMR/TriCG need the `(1,1)` block's inverse and are product-only only for
+  `P = αI` (13/18 dense with a dense Cholesky of `P + δI`, 27–28/36 Kronecker). GPMR matched
+  TriMR iteration for iteration on the Kronecker checks and adds nothing. A Kronecker rank-one
+  fit of the weights helps only when the active set is itself Kronecker-structured (17/18
+  Kronecker-pattern instances with 0.07–0.64× the products of plain CG; on random active sets
+  5/18 fail and the rest cost more than plain CG).
+- **A lagged Cholesky of the reduced matrix reaches the exact ceiling on the dense family.**
+  Refreshed every third outer iteration (`cg_lagchol3`): G1 18/18 at `δ = 1e-8` and `1e-6`,
+  17/18 at `1e-4`, 12/18 at `1e-2` — the exact ceiling — at 0.074–0.244× (median 0.13×) the
+  products of plain CG at `1e-8` and 0.070–0.312× at `1e-6` (all 18 instances as
+  denominator), inner medians 8–32 per solve, maxima 15–110. Refreshed every fifth iteration
+  (`cg_lagchol5`): same G1, 0.145–0.745× products at `1e-8`. With row classes (spike 3, §9.4
+  miss rule): G1 18/18 with 20% equality rows and 18/18 with mixed rows, inner median per solve
+  17.0 and 16.5 against 15.2 two-sided, maxima 100 and 115.
+- **The limited-memory incomplete LDLᵀ is weaker evidence.** On the sparse family
+  (`cg_lldl10`, refreshed every outer iteration) G1 is 30/30 at `δ ≤ 1e-6`, but at
+  `cg_max_iter = 500 > n`: on 5/30 runs a solve takes more than `n` inner iterations
+  (`cg_lldl0`: 14/30). Products against plain CG at `1e-8`: 0.0027–0.66× (median ≈ 0.02×) over
+  all 30 instances, 0.0027–0.28× (median 0.014×) over the 16 where plain CG passed G1. 1182 of
+  6801 factor builds needed a diagonal shift to come out positive definite
+  (`spike2.jl:295-302`). With row classes (spike 3) G1 falls to 26/30 (20% equality rows) and
+  27/30 (mixed rows), every failure a solve at the 500 cap, under every stopping rule measured.
+- **Unpreconditioned CG and equality rows.** Median inner iterations per solve 118 on the
+  two-sided dense instances, 392 with 20% equality rows, 406 with mixed rows, 426 with equality
+  rows only (spike 3); G1 11/18, 6/18, 7/18, 12/18.
+- **The Kronecker family has no measured reference preconditioner.** Spike 2 ran plain CG,
+  MINRES, TriMR/TriCG and the Kronecker fits there, none of the preconditioners above.
+- **`δ` does not help a preconditioned solve.** For `lagchol*` and `lldl*` the G1 count at
+  `δ = 1e-4` and `1e-2` equals the exact solver's, which is lower than at `1e-8` (§8.5). (Not
+  for `cg_jacobi`, 25 against 29 at `1e-4`, nor `cg_kron_rank1_geo`, 28 against 31.)
+- **Restarting CG is not refinement** (§8.5).
+- **Not measured**: `n ≥ 500` for the caller-supplied preconditioners (three dense `n = 1000`,
+  `κ = 1e6` instances in `ipm_matrixfree_spike2.json` only, cap 2000); wall clock, and the cost
+  of building any preconditioner (products were counted, factorizations were not); the
+  Kronecker family with a reference preconditioner; infeasible problems; the ADMM-operator
+  comparison.
 
-Inner tolerance per solve (**literature**: inexact Newton, Dembo–Eisenstat–Steihaug):
+Consequence: the package ships no product-only preconditioner, and `:ipm` runs `IndirectCG`
+only when the caller supplies one.
 
-    atol_k = η · min(μ_k, ‖r_k‖∞),   η = cg_tol_fraction (0.1),   r_k = (r_d, r_l, r_u, r_e)
+### 9.2 What runs and what is refused
 
-set through `set_tolerance_level!(ls, min(μ_k, ‖r_k‖∞))` before each outer iteration; the
-backend floors it at `eps(T)·max(1, ‖rhs‖∞)` as today. The IPM checks the achieved reduced
-residual after each solve (one operator application, three products): the first KKT block
-row *is* the reduced residual and the second is zero by construction of `Δy`, so this is the
-KKT residual of the step. `last_solve_converged(ls)` reports whether CG met `atol` within
-`cg_max_iter`.
-
-Budget per outer iteration: two solves × `cg_max_iter` (default `200`), no refinement.
-Products per outer iteration ≈ `2·(cg_iters) · 3 + precond_rows + 3·precond_probes`.
-`Solution.cg_iters` reports the total inner iterations of the solve; the verbose row prints
-the per-iteration count.
-
-Failure: `cg_fail_limit` (default `3`) consecutive solves that miss `atol` end the run
-`NUMERICAL_ERROR` with the last point (never `MAX_ITER_REACHED`, which would misreport a
-linear-algebra failure as a convergence budget).
+- `setup(P, q, A, l, u; algorithm = :ipm, linsys = :indirect, preconditioner = M, scaling = 0)`
+  with an operator pair or with matrices: allowed. `IndirectCG` is built with `M`; the ladder
+  never chooses it (§5).
+- The same without `preconditioner`, or an operator pair with `linsys = :auto`: `setup` throws
+  an `ArgumentError` naming the requirement — "the interior-point method uses conjugate
+  gradients only with a caller-supplied `preconditioner`; measured without one, or with the
+  Jacobi diagonal, it does not reach the tolerance on most problems. Pass one, choose a direct
+  `linsys`, or use `algorithm = :admm`." Unpreconditioned and exact-Jacobi CG failed G1 (§9.1:
+  16/27 and 17/27 dense, 16/30 and 21/30 sparse), so decision §10.2 refuses them for matrices
+  as for operators. `JacobiPreconditioner` stays the ADMM default.
+- With a `preconditioner` and `scaling ≠ 0` (or `probe = true`): `setup` throws an
+  `ArgumentError` — the preconditioner must approximate the caller's own `P + σI + Aᵀdiag(w)A`,
+  which equilibration would change.
+- There is no experimental product-only path.
 
 ### 9.3 Preconditioner interface
 
 ```julia
 """
-Preconditioners approximate the inverse of the reduced matrix and are applied through
-`mul!(y, M, x)` (Krylov's `M` keyword with `ldiv = false`). `update_preconditioner!(M, prob,
-wt)` is called from `IndirectCG`'s `factorize!` and `refactor_weights!` with the current
-weights, so `M` can follow `w` every outer iteration. A user type needs those two methods.
-"""
-update_preconditioner!(M, prob, wt) = M                     # identity: nothing to update
+    update_preconditioner!(M, prob, wt, k::Int) -> M
 
-struct IdentityPreconditioner end                            # mul! is copyto!
-struct JacobiPreconditioner{V}; dinv::V; end                 # reduced_diagonal!, the hook at operator.jl:218
-struct ProbedWoodburyPreconditioner{T,V,M,F}                 # product-only (§9.4)
-    dinv::V; V::M; Y::M; cap::M; fact::F; rows::Vector{Int}; ky::V; probe::V; probes::Int
-end
+Refresh the preconditioner of `P + wt.sigma*I + A' * Diagonal(wt.w) * A`, where `P` and `A`
+are the matrices or operators passed to `setup` (a preconditioner requires `scaling = 0`, so
+no equilibration intervenes). `wt.w` and `wt.sigma` are the only documented reads of `wt`;
+`prob` is passed for dispatch and is not part of the documented interface.
+
+`k` is the refresh index the algorithm sets before calling: under `algorithm = :ipm`, `-1`
+for the starting-point solve and the outer iteration `0, 1, 2, …` afterwards; a
+regularization retry calls again with the same `k` and a larger `wt.sigma`. Under
+`algorithm = :admm`, `k` is the number of refactorizations so far.
+
+Called from `IndirectCG`'s `factorize!` and `refactor_weights!`, before the solves that use
+it. The returned object replaces `M` and must have the same type. Refresh lazily by
+returning `M` unchanged: the reference lagged Cholesky rebuilds when `k < 0`,
+`k % every == 0`, or `wt.sigma` differs from the value it was built with.
+
+`M` is applied through `LinearAlgebra.ldiv!(y, M, x)`, so a `Cholesky`, `LDLt` or any
+factorization object is usable as it is, and `M` must be symmetric positive definite.
+"""
+update_preconditioner!(M, prob, wt, k::Int) = M          # default: never refreshed
 ```
 
-`setup(…; preconditioner = nothing | M)`; `nothing` means the built-in choice: `Jacobi` when
-both operands are materializable or the wrapped type overrides `reduced_diagonal!`
-(`operator.jl:208-228` documents that hook; it is now stated to be called at every
-`refactor_weights!` with the current `w`), otherwise `ProbedWoodbury`. `IndirectCG{T,V,K,M}`
-carries `M` as a type parameter, so the choice is static and trim-safe. Under ADMM the default
-is `Jacobi`/identity exactly as today.
+- `IndirectCG{T,V,K,M}` carries `M` as a type parameter (static dispatch, trim-safe). The
+  `preconditioner` keyword of `setup` fixes the type at construction; `update_preconditioner!`
+  must return that type (checked, `ArgumentError` otherwise). `k` is `ls.refresh_index`
+  (§3.6).
+- Krylov is called with `ldiv = true`, so the user writes one method: `ldiv!(y, M, x)`.
+  Built-in `JacobiPreconditioner{V}` holds `dinv` from `reduced_diagonal!` (the hook at
+  `operator.jl:208-228`, refreshed at every `update_preconditioner!` with the current `wt.w`;
+  identity for an operator pair) and defines `LinearAlgebra.ldiv!(y, J::JacobiPreconditioner,
+  x) = (y .= J.dinv .* x)` through the elementwise-multiply kernel. That is the product today's
+  `Diagonal(ls.prec)` computes under `ldiv = false`, so ADMM's `:indirect` iterates stay bit
+  for bit. A `Diagonal` cannot stand in: `ldiv!(y, Diagonal(dinv), x)` applies `diag` rather
+  than its inverse, and `ldiv!(y, Diagonal(d), x)` computes `x ./ d`, which differs bitwise from
+  `(1 ./ d) .* x` on 26% of entries (**measured**, 1e6 log-uniform entries over 1e-8..1e8).
+- **SPD requirement and how a violation surfaces.** Krylov 0.10.9's `cg!` throws
+  `ErrorException("The linear operator `A` or the preconditioner `M` is not symmetric positive
+  definite.")` when `rᵀM⁻¹r` is negative or NaN (`cg.jl:163,243`; **measured** with a
+  `Diagonal` preconditioner holding a `-1` and one holding a `NaN`). `IndirectCG.solve_system!`
+  calls `cg!` through a `@noinline` helper that catches exactly that exception and message: a
+  throw counts as a missed solve, the run ends `NUMERICAL_ERROR` after `cg_fail_limit` misses,
+  and the message names the preconditioner as the likely cause. An indefinite `M` that does
+  not trigger the throw stalls CG to `cg_max_iter`, which is also a miss (§9.4). No SPD
+  pre-check is made: the one-application check `dot(x, M⁻¹x) > 0` on the right-hand side proves
+  nothing about definiteness.
+- Reference preconditioners ship in `bench/ipm_preconditioners.jl` and are used by the
+  tests, not in `src/`: `LaggedCholesky` (reduced matrix formed from the caller's matrices,
+  `cholesky!` per the refresh rule above; a `Cholesky` object) and `IncompleteLDL`
+  (limited-memory LDLᵀ through LimitedLDLFactorizations, with the shift search of
+  `spike2.jl:295-302`). Whether they become an extension is §10.8.
 
-### 9.4 Built-in product-only preconditioner
+### 9.4 Inner stopping test, budgets, reporting, failure
 
-`ProbedWoodburyPreconditioner`: `R ≈ C + VᵀW_KV`, `C` diagonal, `V` the `k` rows of `Ã` with
-the largest `w_i` (the active rows, which carry the large eigenvalues).
+**Tolerance.** `atol_k = η · min(μ_k, ‖r_k‖∞)`, `η = cg_tol_fraction (0.1)`, floored at
+`eps(T)·max(1, ‖rhs‖∞)`, set through `set_tolerance_level!` before each iteration's solves.
+This is the rule all three spikes ran (`spike.jl:398, 418`).
 
-- Rows: `k = precond_rows` indices with the largest `w_i`, selected by an `O(mk)` loop into a
-  preallocated index vector; row `i` of `Ã` is `Ãᵀeᵢ` through `mul_At!(prob, ·)` — `k` adjoint
-  products per outer iteration.
-- Core `C = c D² diag(P̃) + δ_p + Σ_{i∉K} w_i ã_i²`: exact through `reduced_diagonal!` when
-  entries are available, otherwise estimated with `precond_probes` Hutchinson probes
-  (`diag(M) ≈ mean(v ⊙ Mv)`, `v` random ±1; **literature**: Bekas–Kurzak–Saad 2007) — `3s`
-  products — floored at `δ_p`.
-- Woodbury: `cinv`, `Y = V C⁻¹`, `cap = W_K⁻¹ + V C⁻¹ Vᵀ` (`k×k` Cholesky), apply
-  `y = C⁻¹x − Yᵀ cap⁻¹ Y x` — the arithmetic of `DiagonalLowRank.refresh_core!` and
-  `solve_system!` (`lowrank.jl:111-166`), reused rather than copied.
-- Cost model in products per outer iteration: `k + 3s` to build, `0` to apply (dense
-  small matrix–vector products in `n` and `k`).
+**Stopping test.** CG starts from zero (§3.6). Krylov is called with `atol = rtol = 0` and a
+`callback` that returns `‖ws.r‖₂ ≤ atol_k`; `CgWorkspace.r` is the unpreconditioned residual,
+updated recursively (`cg.jl:158,240`), so the test costs `O(n)` per iteration and no products.
+Krylov also stops by itself when the preconditioned norm satisfies `‖r‖_M + 1 ≤ 1`
+(`cg.jl:249`); that stop is treated like the callback's. No residual is recomputed after the
+solve.
 
-### 9.5 Measurement gates
+**Miss rule.** A solve is missed when it spends `cg_max_iter` iterations or Krylov throws
+(§9.3); `last_reached` is `false` exactly then. A solve that stopped on either test above is
+reached, whatever its explicit residual.
 
-Two measurements, in this order:
+**Why the explicit residual is not tested (measured, `ipm_rowtypes_spike.json`).**
+- On two-sided rows (spike 2's 18 dense instances with `cg_lagchol3`, 30 sparse with
+  `cg_lldl10`, `δ ∈ {1e-8, 1e-6}`, 96 runs) the recursive-residual test gives the same inner
+  iteration count on every solve and the same outer count and G1 on every run as spike 2's
+  explicit-residual oracle; no solve landed between `atol_k` and `2·atol_k`, and Krylov's own
+  stop never fired. Recomputing once per solve and accepting at `2·atol_k` changes nothing
+  there except +3 products per solve (1.03–1.13× dense, 1.01–2.0× sparse).
+- With equality rows (`w = 1/δ_d`) the explicit reduced residual is not attainable: the
+  exact Bunch–Kaufman step exceeds `2·atol_k` on 28 of 272 solves (20% equality rows) and 37 of
+  264 (mixed rows), by up to 104×, and those runs converge 18/18. Testing the recomputed
+  residual at `2·atol_k` ends 3/18 and 4/18 of the lagged-Cholesky runs `NUMERICAL_ERROR`; the
+  miss rule above passes 18/18 and 18/18 with the same outer counts as the exact solver.
+  Restarting CG from its current point until the residual passes (spike 1's loop) spent 932
+  and 1542 restarts running into the cap. The missed residuals are 1e5–1.6e8 times the rounding
+  scale `eps·(‖b‖ + ‖PΔx‖ + ‖A‖₂‖w ⊙ AΔx‖)`, so no cheap floor on the test fixes it.
+- The consequence for a caller: a solve is trusted when CG's own recursion says it converged.
+  A step that is poor for another reason is not detected by the inner test; it shows as the
+  outer stall rule (§8.7) ending the run `NUMERICAL_ERROR`.
 
-**Spike (before S2a; §6 S-spike)** — a bench-only prototype answers, on LinearMap-over-dense
-QPs with `n ∈ {200, 500, 1000}`, `κ(A) ∈ {1e0, 1e3, 1e6}`, active fractions `{0.1, 0.5,
-0.9}`: (i) CG iterations per solve versus outer iteration at `δ = 1e-8` unpreconditioned;
-(ii) the same at `δ_d ∈ {1e-4, 1e-2}` and the outer-iteration cost of each; (iii) the effect
-of exact Jacobi and of probed Woodbury with `k ∈ {5, 20}`; (iv) whether a restarted
-"refinement" adds anything over a larger `cg_max_iter` (expected: nothing). Verdict recorded
-in `bench/results/ipm_matrixfree_spike.json` and in §10.
+**Budget.** `cg_max_iter` per solve (default `500`, §8.10); two solves per outer iteration
+(one when `N_s = 0`); no refinement for `IndirectCG`. Products per outer iteration ≈
+`3·(inner iterations of both solves)` plus whatever `update_preconditioner!` costs, which the
+caller owns.
 
-**Ship gate (S11; `bench/ipm_matrixfree.jl`)** — operator-IPM vs dense-IPM (`FullKKT`, the
-exact reference) vs ADMM-operator, LinearMap over dense matrices, `n ∈ {200, 500, 1000,
-2000}`, same sweeps, BLAS single-threaded on neuromancer (timings are indicative; nothing is
-gated on them), reporting outer iterations, total CG iterations, total products, wall clock,
-achieved KKT residual, with each preconditioner. Gates:
+**Reporting.** `Solution.cg_iters` (total inner iterations of the solve, both algorithms);
+the verbose row prints `cg_iters` per outer iteration; the verbose footer prints the total
+and the number of missed solves.
 
-- **G1 correctness**: referee `≤ 1e-5` at `eps = 1e-6` on every case with `n ≤ 1000` within
-  the budget.
-- **G2 bounded inner work**: median CG iterations per solve in the last three outer
-  iterations `≤ 10×` those of the first three, with the built-in preconditioner.
-- **G3 speed against ADMM-operator**: measured and published in the docs; decides nothing.
+**Failure.** `cg_fail_limit` (default `3`) consecutive missed solves end the run
+`NUMERICAL_ERROR` with the last point — never `MAX_ITER_REACHED`, which would misreport a
+linear-algebra failure as a convergence budget.
 
-Outcomes: G1 or G2 fails at every `δ`/preconditioner ⇒ operator IPM does not ship and `:ipm`
-refuses operators by name. G1 and G2 pass ⇒ available by `algorithm = :ipm` with an operator
-pair. In v1 no automatic choice ever selects the IPM for operators; the caller chooses the
-algorithm.
+### 9.5 Removed
 
-### 9.6 Ordering
+`ProbedWoodburyPreconditioner`, the Hutchinson diagonal estimate, `precond_rows`,
+`precond_probes`, `reg_indirect`, and the augmented-system solvers (MINRES, TriMR, TriCG,
+GPMR) are not part of the design: each was measured (§9.1) and none reaches G1 broadly
+without information a product-only operator cannot supply.
 
-The spike is the first thing after S0 because a negative result changes §8.5 and §9 before
-any of S8–S11 is written, and it needs no refactor to run. HSD (S9b) is decided after S9's
-infeasible cases, before S11, because its cost lands on the operator case.
+### 9.6 Ship gate (S11, `bench/ipm_matrixfree.jl`)
+
+**Grid.** Dense `make_instance` at `n ∈ {500, 1000, 2000}`, `κ(A) ∈ {1, 1e3, 1e6}`, active
+fractions `{0.1, 0.5, 0.9}`, each two-sided and with spike 3's mixed row classes (20% equality,
+20% lower-only, 20% upper-only, 10% free), as `LinearMap`s over the dense matrices, with
+`LaggedCholesky` (`every = 3`); sparse at `n ∈ {1000, 5000}` with a fixed 10 nonzeros per row
+of `A` (plus the identity), with `IncompleteLDL`; the Kronecker family of `spike2.jl` at
+sides `{25, 40}` with `LaggedCholesky`; `δ = 1e-8`, `scaling = 0`, `cg_max_iter = 500`, BLAS
+single-threaded on neuromancer (timings indicative, §10.3).
+
+**What it records.** Wall clock **including** every `update_preconditioner!` call; products
+and factorizations per outer iteration; per solve, the inner iterations, whether Krylov's own
+stop fired, and the explicit residual over `atol_k` (bench-side, from the returned `Δx`); the
+outer count and G1 of the same instance through `FullKKT` (dense) or `SparseKKT` (sparse), so
+the inner rule of §9.4 is compared with an exact solve and no oracle hook is needed in the
+package; G1 at both `eps = 1e-6` and the shipped `1e-8`; the ADMM-operator comparison (G3).
+
+**Infeasible instances**, one per family and kind: primal — two rows with the same `aᵢ` and
+disjoint intervals (`aᵢᵀx ≤ 0`, `aᵢᵀx ≥ 1`); dual — `P` with one zero eigenvalue along `v`,
+`Av = 0`, `qᵀv < 0` (so `P` is not declared `posdef`; direct backend only). Expected: the
+matching certificate status, recorded; a `SOLVED` fails the gate.
+
+- **G1 correctness**: referee `≤ 1e-5` at `eps = 1e-6` on every case within the budget.
+- **G2 bounded inner work**: with `f` the median inner iterations per solve over the first
+  three outer iterations and `t` over the last three, `t ≤ max(10·f, min(100, n/10))`, no solve
+  reaching `cg_max_iter`, and the largest inner count below `n`; evaluated at `n ≥ 500` only.
+  The absolute term keeps a preconditioner that starts at 1–3 iterations from failing for
+  reaching 30; capping it at `n/10` keeps the rule from passing unpreconditioned CG, which
+  reaches `n` by construction. At the spikes' `n ≤ 200` the rule is not informative: with
+  `max(10f, 100)` spike 3 passes `cg_lagchol3` 18/18 and `cg_lldl10` 23/30, with
+  `min(100, n/10)` 18/18 and 19/30, and in spike 2 unpreconditioned CG on Kronecker `n = 100`
+  passes the floor-100 form at `t = 88.5`.
+- **G3 speed against ADMM-operator**: measured and published; decides nothing (§10.3).
+
+Verdicts: G1 and G2 pass on the dense `LaggedCholesky` grid, two-sided and mixed rows ⇒ the
+`:indirect` path of §9.2 is documented as supported "with a caller-supplied preconditioner,
+measured on these families"; G1 or G2 fails there ⇒ `:ipm` refuses operators by name (§10.2).
+The sparse and Kronecker rows are published per (family, preconditioner), each labeled with
+its own G1/G2 result; how they enter the verdict is §10.8 question 1.
+
+### 9.7 Ordering
+
+The spikes have run; their verdicts shaped §8.2, §8.4, §8.5 and this section. S11 is the next
+measurement that can change the design (§7.3, §7.4) and precedes S12 and S13. HSD (S9b) is
+decided after S9's infeasible cases, before S11, because its cost lands on the operator case.
 
 ---
 
 ## 10. Decisions (taken with the user, 2026-09-15)
 
 1. **Regularization model:** primal–dual proximal regularization for every backend (§8.5).
-2. **Operator IPM in v1:** implemented in S11; ships if G1 and G2 pass (§9.5), otherwise
+2. **Operator IPM in v1:** implemented in S11; ships if G1 and G2 pass (§9.6), otherwise
    `:ipm` refuses operators by name. No automatic choice selects the IPM for operators in v1.
 3. **Gates:** G1 as stated; G2 at `10×`; G3 measured and published, not a gate. The spike and
-   the S11 benchmark use the §9.5 sweep (LinearMap over dense, `n` 200–2000) and run on
+   the S11 benchmark use the §9.6 sweep (LinearMap over dense, `n` 200–2000) and run on
    neuromancer; timings there are indicative.
 4. **Infeasibility:** certificate tests on directions with a stall rule (§8.7); HSD only if
    S9's random infeasible cases are not detected.
@@ -938,3 +1191,87 @@ infeasible cases, before S11, because its cost lands on the operator case.
 6. **Default tolerances:** `1e-8` for `:ipm`, `1e-3` for `:admm`, documented as differing.
 7. **Timing checks during the refactor (S2a):** run on neuromancer, interleaved ABBA with the
    S0 tree; indicative, not a verdict.
+
+### 10.8 Decisions on the operator path and IPM details
+
+The user took the recommended option of every question below; the design text above follows
+them.
+
+1. **Which runs decide the ship verdict of §9.6?**
+   (a) The dense `LaggedCholesky` grid at `n ≥ 500`, two-sided and mixed rows, must pass G1
+   and G2; sparse and Kronecker results are published per (family, preconditioner) with their
+   own verdicts and do not block. (b) At least one reference preconditioner per family must
+   pass. (c) Every reference preconditioner on every family must pass.
+   **Recommended: (a).** Only the dense lagged Cholesky has a record that holds up: G1 18/18
+   two-sided, 18/18 with equality and mixed rows, at the exact solver's outer counts. The
+   incomplete LDLᵀ passes 30/30 only by running past `n` inner iterations (5/30 runs) and
+   falls to 26/30 and 27/30 with equality rows, all at the cap. The Kronecker family has no
+   measured reference preconditioner, so (b) would pass or fail it on whatever S11 happens to
+   try; (c) would block on the weakest preconditioner rather than on the path.
+2. **Where do the reference preconditioners live?**
+   (a) `bench/` and `test/` only, `LaggedCholesky` documented as a worked example (under 30
+   lines, no dependency). (b) A LimitedLDLFactorizations weak-dependency extension shipping both.
+   **Recommended: (a).** The incomplete LDLᵀ is the weakest evidence (question 1) and needed a
+   diagonal shift on 1182 of 6801 builds; an extension adds a dependency for a path the ladder
+   never chooses.
+3. **What does `:ipm` do for `Float32` (any `T` with `sqrt(eps(T)) > 1e-8`) in v1?**
+   (a) Refuse by name in `setup`; S10 may lift it after one `Float32` run (spike dense generator,
+   `n = 200`, `FullKKT`, `eps = 1e-4`, `δ = sqrt(eps(Float32))`, gated like G1). (b) Allow with
+   `eps = 1e-4`, `δ = sqrt(eps(T))`, `FullKKT` routing and a documented reduced ceiling.
+   **Recommended: (a).** No IPM run in `Float32` exists; the "reduced ceiling" of (b) is read
+   off `Float64` runs at `δ = 1e-4` and `1e-2` judged at `Float64` tolerances.
+4. **What is G2?**
+   (a) `t ≤ max(10·f, min(100, n/10))`, no solve at `cg_max_iter`, largest inner count below
+   `n`, evaluated at `n ≥ 500`. (b) `t ≤ max(10·f, 100)` at every size. (c) `t/f ≤ 10` as in
+   decision 3.
+   **Recommended: (a).** At the spikes' sizes a floor of 100 is at least `n/2`, so (b) cannot
+   tell a working preconditioner from none (spike 2: unpreconditioned CG passes it on
+   Kronecker `n = 100` at `t = 88.5`). (c) fails preconditioners that start at one iteration.
+   Spike 3 at `n ≤ 200`: (a)'s ratio term passes `cg_lagchol3` 18/18 and `cg_lldl10` 19/30,
+   (b) 18/18 and 23/30.
+5. **Regularization default and its safeguard.**
+   (a) `reg_primal = reg_dual = 1e-8` on every backend, no `reg_indirect`, bump only when
+   `factorize!` fails; §8.5 lists where it is measured and S10 measures the structured reduced
+   backends (with an LP). (b) As (a) plus a second bump trigger when the refinement residual
+   exceeds `sqrt(eps)·‖rhs‖`. (c) Per-backend defaults.
+   **Recommended: (a).** Measured at `δ = 1e-8`: Bunch–Kaufman, no-pivoting `LDLᵀ` (CHOLMOD and
+   LDLFactorizations, identical outer counts on 96/96 runs each with `refine_iter = 1`) and
+   reduced Cholesky (96/96) all reproduce the same outer counts, equality rows included; larger
+   `δ` costs outer convergence (§8.5). No measured run needed (b)'s trigger, and its threshold
+   would be one more unmeasured constant; the stall rule already ends such a run
+   `NUMERICAL_ERROR`. Take (b) if S10 shows a structured backend drifting without failing.
+6. **May `:ipm` use `linsys = :indirect` on matrices without a caller preconditioner?**
+   (a) No, refused by name, as for operators. (b) Yes, with `JacobiPreconditioner`.
+   **Recommended: (a).** Exact Jacobi failed G1 (17/27 dense, 21/30 sparse against exact
+   ceilings of 27/27 and 30/30), the same kind of failure that decision 2 refuses for operators.
+7. **May a caller preconditioner run with equilibration?**
+   (a) No: `scaling = 0` required, documented reads `wt.w` and `wt.sigma` only. (b) Yes, with
+   `probe = true` and a documented accessor for `D`, `E`, `c`.
+   **Recommended: (a).** The matrix the preconditioner approximates is then the caller's own;
+   (b) turns `Problem` internals into public API for a case nobody has measured.
+8. **Where does CG start under `:ipm`?**
+   (a) From zero. (b) From the previous solve (the predictor's `Δx_a` for the corrector).
+   **Recommended: (a).** Measured on the dense and sparse reference runs: (b) gains no G1, costs
+   1.02× (dense) and 1.21× (sparse) the median products, and adds five misses through Krylov's
+   machine-precision stop.
+9. **What does `:ipm` do with no inequality side (`N_s = 0`: equality and free rows only)?**
+   (a) The rule of §8.4: `μ ≡ 0`, one solve per iteration, `α = 1`. (b) Refuse by name.
+   **Recommended: (a).** Measured: 2 outer iterations on 48/48 instances with exact solves,
+   18/18 and 30/30 with the reference preconditioners; it is the same `ipm_step!` with the
+   corrector skipped.
+10. **Which inner stopping and miss rule does `IndirectCG` use under `:ipm`?**
+    (a) Stop on the recursive residual (or Krylov's own stop); miss only at `cg_max_iter` or on
+    Krylov's throw; no recomputation. (b) As (a) but recompute once and miss above
+    `2·atol_k`. (c) Spike 1's loop: restart CG until the recomputed residual passes `atol_k`.
+    **Recommended: (a).** Identical to the explicit-residual oracle on 96 two-sided runs (inner
+    and outer counts, G1); with equality rows only (a) keeps the exact solver's G1 (18/18 and
+    18/18 against 15/18 and 14/18 for (b) and (c)), because even the exact step misses the
+    reduced tolerance by up to 104×; (c) ran 932 and 1542 restarts into the cap. (a) trusts
+    CG's recursion; a poor step for another reason reaches the outer stall rule instead of
+    being flagged per solve.
+11. **If the §9.6 gate fails, what happens to `:indirect` with a caller preconditioner on
+    matrices?**
+    (a) Refused under `:ipm` along with operators; the preconditioner interface serves ADMM
+    only. (b) Kept for matrices, documented as unmeasured at scale.
+    **Recommended: (a).** The gate measures exactly this path; matrices always have a direct
+    backend under `:ipm`, so (b) keeps an unvalidated path with no case that needs it.
