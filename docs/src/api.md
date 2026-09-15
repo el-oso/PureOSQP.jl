@@ -106,6 +106,7 @@ PureOSQP.refactor!
 PureOSQP.refactor_rho!
 PureOSQP.factorize!
 PureOSQP.refactor_weights!
+PureOSQP.assemble_kkt0!
 PureOSQP.solve_system!
 PureOSQP.solve_multiplier!
 PureOSQP.element_typed

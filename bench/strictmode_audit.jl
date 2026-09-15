@@ -206,6 +206,111 @@ function example_sparse_workspace(n, m)
     return ws
 end
 
+function example_ipm_workspace(backend::Symbol)
+    Random.seed!(101)
+    n, m = 12, 30
+    X = randn(n, n)
+    P = Matrix(X'X / n + I)
+    q = randn(n)
+    A = randn(m, n)
+    b = A * randn(n)
+    l, u = b .- rand(m), b .+ rand(m)
+    if backend === :sparse_kkt
+        return example_ipm_kkt_workspace(200, 100)
+    elseif backend === :diagonal
+        return example_ipm_diagonal_workspace(200)
+    elseif backend === :tridiagonal
+        return example_ipm_tridiagonal_workspace(200)
+    elseif backend === :banded
+        return example_ipm_banded_workspace(200)
+    elseif backend === :block
+        return example_ipm_block_workspace(200, 5)
+    elseif backend === :indirect
+        return example_ipm_indirect_workspace(200)
+    end
+    ws = PureOSQP.setup(P, q, A, l, u, PureOSQP.InteriorPoint(); linsys = backend)
+    PureOSQP.solve!(ws)
+    return ws
+end
+
+"""
+A pair the sparse KKT ladder rung factors, the same shape as `example_kkt_workspace`. Naming
+`linsys = :kkt` under the interior-point method always builds `FullKKT` (dense), unlike ADMM,
+so `:sparse` is what reaches the sparse KKT rung here.
+"""
+function example_ipm_kkt_workspace(n, m)
+    Random.seed!(108)
+    A = vcat(sprandn(m - 1, n, 0.02), sparse(ones(1, n)))
+    P = sparse(1.0I, n, n)
+    b = A * randn(n)
+    ws = PureOSQP.setup(
+        P, randn(n), A, b .- rand(m), b .+ rand(m), PureOSQP.InteriorPoint(); linsys = :sparse
+    )
+    PureOSQP.solve!(ws)
+    return ws
+end
+
+function example_ipm_diagonal_workspace(n)
+    Random.seed!(107)
+    P, A = Diagonal(rand(n) .+ 0.5), Diagonal(rand(n) .+ 0.5)
+    l, u = -rand(n), rand(n)
+    ws = PureOSQP.setup(P, randn(n), A, l, u, PureOSQP.InteriorPoint())
+    PureOSQP.solve!(ws)
+    return ws
+end
+
+function example_ipm_tridiagonal_workspace(n)
+    Random.seed!(109)
+    P = SymTridiagonal(rand(n) .+ 3, rand(n - 1) ./ 8)
+    A = Diagonal(rand(n) .+ 0.5)
+    ws = PureOSQP.setup(P, randn(n), A, -rand(n), rand(n), PureOSQP.InteriorPoint())
+    PureOSQP.solve!(ws)
+    return ws
+end
+
+function example_ipm_banded_workspace(n)
+    Random.seed!(110)
+    P = SymTridiagonal(rand(n) .+ 4, rand(n - 1) ./ 8)
+    A = Tridiagonal(rand(n - 1) ./ 4, rand(n) .+ 1, rand(n - 1) ./ 4)
+    ws = PureOSQP.setup(P, randn(n), A, -rand(n), rand(n), PureOSQP.InteriorPoint())
+    PureOSQP.solve!(ws)
+    return ws
+end
+
+function example_ipm_block_workspace(n, K)
+    Random.seed!(111)
+    nb = n ÷ K
+    P = PureOSQP.BlockDiagonal([spd_block(nb) for _ in 1:K])
+    A = PureOSQP.BlockDiagonal([randn(nb, nb) ./ sqrt(nb) for _ in 1:K])
+    m = size(A, 1)
+    b = randn(m)
+    ws = PureOSQP.setup(
+        P, randn(size(A, 2)), A, b .- rand(m), b .+ rand(m), PureOSQP.InteriorPoint()
+    )
+    PureOSQP.solve!(ws)
+    return ws
+end
+
+"""
+The matrix-free IPM backend, run with a caller-supplied Cholesky preconditioner: the IPM has
+no automatic route onto `:indirect`, so it is always named together with a preconditioner.
+"""
+function example_ipm_indirect_workspace(n)
+    Random.seed!(112)
+    X = randn(n, n)
+    P = Matrix(X'X / n + I)
+    q = randn(n)
+    A = randn(n, n) ./ sqrt(n)
+    b = A * randn(n)
+    l, u = b .- rand(n), b .+ rand(n)
+    ws = PureOSQP.setup(
+        P, q, A, l, u, PureOSQP.InteriorPoint();
+        linsys = :indirect, scaling = 0, preconditioner = cholesky(Symmetric(P + I))
+    )
+    PureOSQP.solve!(ws)
+    return ws
+end
+
 const GUARANTEES = Dict(
     :hot => (:typestable, :noalloc),
     :warm => (:typestable,),
@@ -326,6 +431,65 @@ for backend in (
         end
     end
 end
+# The interior-point method's own hot kernels, over the backends its ladder actually reaches:
+# `FullKKT` (`:auto` on a dense pair), the sparse KKT family (`:kkt` on a sparse pair,
+# `LDLKKT` here since `LDLFactorizations` is loaded), the structured reduced backends it
+# shares with ADMM, and `:indirect` with a caller preconditioner. `:kronecker` and `:lowrank`
+# are absent because the interior-point ladder has no rung for either (uniform weights and,
+# respectively, a Woodbury solve that misses the tolerance on linear programs); `:sparse_formed`
+# is unreachable under the interior-point method for the same reason, having no `formed_rung`
+# method of its own.
+for example_kind in (:auto, :sparse_kkt, :diagonal, :tridiagonal, :banded, :block, :indirect)
+    ws = example_ipm_workspace(example_kind)
+    W = typeof(ws)
+    LS = typeof(ws.linsys)
+    PB = typeof(ws.prob)
+    WT = typeof(ws.weights)
+    V = Vector{Float64}
+    matrix_free = example_kind === :indirect
+    tier = matrix_free ? :hot_measured : :hot
+    # The sparse KKT family factors with foreign `LDLᵀ` code, exactly like ADMM's `:sparse_kkt`
+    # row above; its own `solve_multiplier!` is this package's code and keeps the full claim.
+    warm = example_kind === :sparse_kkt ? :warm_sparse : :warm
+    step() = @allocated PureOSQP.ipm_step!(ws)
+    residuals() = @allocated PureOSQP.ipm_residuals!(ws)
+    solve_mult() = @allocated PureOSQP.solve_multiplier!(
+        ws.linsys, ws.prob, ws.weights, ws.rhs_x, ws.rhs_z, ws.dx, ws.dy
+    )
+    checks = Any[
+        (PureOSQP.ipm_step!, (W,), tier, step),
+        (PureOSQP.ipm_residuals!, (W,), tier, residuals),
+        (PureOSQP.solve_multiplier!, (LS, PB, WT, V, V, V, V), tier, solve_mult),
+        (PureOSQP.check_termination, (W, Bool), :warm, nothing),
+        (PureOSQP.factorize!, (LS, PB, WT), warm, nothing),
+        (PureOSQP.refactor_weights!, (LS, PB, WT), warm, nothing),
+        (PureOSQP.solve!, (W,), warm, nothing),
+    ]
+    if matrix_free
+        op = Base.get_extension(PureOSQP, :PureOSQPKrylovExt).ReducedOperator(ws.prob, ws.weights)
+        push!(checks, (LinearAlgebra.mul!, (V, typeof(op), V), :hot, nothing))
+    end
+    label_name = PureOSQP.backend_name(ws.linsys)
+    for (f, types, tier, measure) in checks
+        label = "$(nameof(f))($(join(types, ", "))) [ipm linsys=$label_name]"
+        try
+            isempty(GUARANTEES[tier]) ||
+                test_signatures([(f, types)]; guarantees = GUARANTEES[tier])
+            extra = ""
+            if tier === :hot_measured
+                measured_noalloc(measure)
+                extra = ", noalloc (measured: 0 bytes)"
+            end
+            claims = isempty(GUARANTEES[tier]) ? "no static claim (sparse arithmetic)" : join(GUARANTEES[tier], ", ")
+            println("  ✓ ", label, "  ", claims, extra)
+        catch e
+            push!(failures, label)
+            println("  ✗ ", label)
+            println(sprint(showerror, e))
+        end
+    end
+end
+
 if isempty(failures)
     println(
         "\nStrictMode: all guarantees hold (checks_enabled=", StrictMode.checks_enabled(), ")."

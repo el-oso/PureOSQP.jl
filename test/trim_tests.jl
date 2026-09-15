@@ -14,6 +14,8 @@
         :solve_interruptible,
         :solve_time_limited, :solve_profiled,
         :setup_solve_update, :warm_started, :not_trimmable,
+        :solve_ipm_default, :solve_ipm_kkt, :solve_ipm_unscaled, :solve_ipm_polish,
+        :setup_ipm_update, :derivatives_ipm,
     ]
     sigs = [
         :(TrimEntry.$f(Matrix{Float64}, Vector{Float64}, Matrix{Float64}, Vector{Float64}, Vector{Float64}))
@@ -26,6 +28,15 @@
         sigs,
         :(
             TrimEntry.solve_diagonal(
+                TrimEntry.DM, Vector{Float64}, TrimEntry.DM, Vector{Float64}, Vector{Float64}
+            )
+        )
+    )
+    push!(names, :solve_ipm_diagonal)
+    push!(
+        sigs,
+        :(
+            TrimEntry.solve_ipm_diagonal(
                 TrimEntry.DM, Vector{Float64}, TrimEntry.DM, Vector{Float64}, Vector{Float64}
             )
         )
@@ -113,6 +124,15 @@
             )
         )
     )
+    push!(names, :solve_ipm_operator)
+    push!(
+        sigs,
+        :(
+            TrimEntry.solve_ipm_operator(
+                TrimEntry.PO, Vector{Float64}, TrimEntry.PO, Vector{Float64}, Vector{Float64}
+            )
+        )
+    )
     push!(names, :solve_sciml)
     push!(
         sigs,
@@ -124,7 +144,7 @@
     )
     # Sparse operands, which are compatible only with the backend named -- see the comment in
     # `trim/entrypoints.jl` for why `:auto` on a doubly sparse pair is not.
-    for f in (:solve_sparse_kkt, :solve_sparse_dense)
+    for f in (:solve_sparse_kkt, :solve_sparse_dense, :solve_ipm_sparse_kkt)
         push!(names, f)
         push!(
             sigs,

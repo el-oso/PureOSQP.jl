@@ -292,6 +292,64 @@ factorization at moderate conditioning, and it is the closest match to what the 
 implementation does, which makes it useful when a result is in question. The entire test
 corpus runs through both backends.
 
+## The interior-point method
+
+[`InteriorPoint`](@ref) is a Mehrotra predictor–corrector method. Instead of the ADMM
+recurrence above, each outer iteration factors a new Newton system at the current point,
+takes a predictor step to estimate how much the barrier parameter `μ` can shrink, then a
+corrector step that aims at that target `μ`:
+
+```math
+\begin{aligned}
+\begin{bmatrix} \tilde P + \delta_p I & \tilde A^\top \\ \tilde A & -\mathrm{diag}(w)^{-1} \end{bmatrix}
+\begin{bmatrix} \Delta x \\ \Delta y \end{bmatrix}
+&= \begin{bmatrix} -r_d \\ -\mathrm{diag}(w)^{-1} \odot g \end{bmatrix}
+\end{aligned}
+```
+
+`w` is the current row weight — `z_l/(s_l + \delta_d z_l) + z_u/(s_u + \delta_d z_u)` on an
+inequality row, `1/\delta_d` on an equality row, `\delta_d` on a free row — and it changes
+every iteration as the slacks `s` and multipliers `z` move toward the boundary. `δ_p` and
+`δ_d` are fixed proximal regularizations, not something the iteration tunes away. Solving
+this system is exactly the `LinearSystem` contract above, so every backend that serves ADMM's
+reduced or KKT system serves this one too, at the row weights the interior-point method hands
+it.
+
+A run takes a few dozen iterations, each paying for a fresh factorization, and reaches
+`1e-8` by default rather than ADMM's `1e-3`. Choose it over ADMM when the accuracy target is
+tighter than ADMM reaches in a modest iteration count, or when ADMM's residuals fall slowly on
+a particular problem; choose ADMM when the same workspace is re-solved many times through
+[`update!`](@ref), when the matrices are matrix-free operators with no caller-supplied
+preconditioner, or on GPU arrays.
+
+### What it supports and refuses
+
+- [`update!`](@ref), [`warm_start!`](@ref), [`cold_start!`](@ref) and
+  [`update_settings!`](@ref) work as they do for ADMM; a settings change never forces a
+  refactorization, since every solve resets its regularization and factors before the first
+  iteration regardless.
+- `polishing = true` is required before [`adjoint_derivative`](@ref) or
+  [`forward_derivative`](@ref): an interior-point solution's inactive-row multipliers sit at
+  `O(μ_final)`, not at the near-zero a derivative through the active set needs, and polishing
+  is what cleans that up.
+- The MathOptInterface extension accepts `InteriorPoint()` through the `"algorithm"` raw
+  attribute; switching algorithms on a live optimizer refuses a raw setting the new one does
+  not accept.
+- `verbose` and `profile_primdual` are read only by [`OperatorSplitting`](@ref); passing either
+  to `InteriorPoint()` throws naming the algorithm that owns it, since the interior-point
+  method reports no per-iteration progress to print.
+- `accelerator` is ADMM's fixed-point accelerator and is refused by name under
+  `InteriorPoint()`; a GPU array is refused by name, as it is under ADMM's non-`:indirect`
+  backends.
+- `linsys = :indirect` runs only with a caller-supplied `preconditioner` and `scaling = 0`,
+  on matrices and on operators alike — see [Operators under the interior-point method](@ref).
+  `linsys = :kronecker` and `linsys = :lowrank` are refused by name: the Kronecker backend
+  needs one weight for every row, which the interior-point method's per-row weights break,
+  and the low-rank backend's Woodbury solve misses the tolerance on linear programs (see the
+  table below).
+- Any `T <: Real` is accepted, with no element type refused; see the generic-element-type
+  paragraph below.
+
 ### Backends under the interior-point method
 
 With [`InteriorPoint`](@ref) the Newton system has the same shape, but its row weights change every

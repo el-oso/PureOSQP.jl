@@ -58,27 +58,27 @@ the keyword form of [`update_settings!`](@ref), [`adjoint_derivative`](@ref) and
 ## A linear-system backend
 
 A backend is a subtype of [`LinearSystem`](@ref); the workspace holds one and hands it the
-[`Problem`](@ref) and the [`SystemWeights`](@ref) on every call.
+[`PureOSQP.Problem`](@ref) and the [`PureOSQP.SystemWeights`](@ref) on every call.
 
 | method | returns | what it does |
 |---|---|---|
-| [`factorize!(ls, prob, wt)`](@ref factorize!) | `Bool` | rebuilds the factorization; `false` when it cannot |
-| [`solve_system!(ls, prob, wt, rhs_x, rhs_z, x, z)`](@ref solve_system!) | `Nothing` | solves for `x` and writes `z = Ãx` |
+| [`factorize!(ls, prob, wt)`](@ref PureOSQP.factorize!) | `Bool` | rebuilds the factorization; `false` when it cannot |
+| [`solve_system!(ls, prob, wt, rhs_x, rhs_z, x, z)`](@ref PureOSQP.solve_system!) | `Nothing` | solves for `x` and writes `z = Ãx` |
 | [`backend_info(ls)`](@ref backend_info) | [`BackendInfo`](@ref) | what the backend is and how large its factorization is |
 
 Optional, each with a default for every backend:
 
 | method | returns | default |
 |---|---|---|
-| [`refactor_weights!(ls, prob, wt)`](@ref refactor_weights!) | `Bool` | calls `factorize!` |
-| [`solve_multiplier!(ls, prob, wt, rhs_x, rhs_z, x, nu)`](@ref solve_multiplier!) | `Nothing` | derives `ν` from `solve_system!` |
-| [`check_update(ls, P, A)`](@ref check_update) | `Nothing` | accepts |
-| [`set_tolerance_level!(ls, level)`](@ref set_tolerance_level!) | `Nothing` | ignores it |
-| [`set_refresh_index!(ls, k)`](@ref set_refresh_index!) | `Nothing` | ignores it |
-| [`adopt_settings!(ls, alg, options)`](@ref adopt_settings!) | `Nothing` | ignores them |
-| [`use_residual_stop!(ls, on)`](@ref use_residual_stop!) | `Nothing` | ignores it |
-| [`last_solve_converged(ls)`](@ref last_solve_converged) | `Bool` | `true` |
-| [`inner_iterations(ls)`](@ref inner_iterations) | `Int` | `0` |
+| [`refactor_weights!(ls, prob, wt)`](@ref PureOSQP.refactor_weights!) | `Bool` | calls `factorize!` |
+| [`solve_multiplier!(ls, prob, wt, rhs_x, rhs_z, x, nu)`](@ref PureOSQP.solve_multiplier!) | `Nothing` | derives `ν` from `solve_system!` |
+| [`check_update(ls, P, A)`](@ref PureOSQP.check_update) | `Nothing` | accepts |
+| [`set_tolerance_level!(ls, level)`](@ref PureOSQP.set_tolerance_level!) | `Nothing` | ignores it |
+| [`set_refresh_index!(ls, k)`](@ref PureOSQP.set_refresh_index!) | `Nothing` | ignores it |
+| [`adopt_settings!(ls, alg, options)`](@ref PureOSQP.adopt_settings!) | `Nothing` | ignores them |
+| [`use_residual_stop!(ls, on)`](@ref PureOSQP.use_residual_stop!) | `Nothing` | ignores it |
+| [`last_solve_converged(ls)`](@ref PureOSQP.last_solve_converged) | `Bool` | `true` |
+| [`inner_iterations(ls)`](@ref PureOSQP.inner_iterations) | `Int` | `0` |
 
 A backend defined in an extension is checked when the extension loads.
 

@@ -87,6 +87,20 @@ what is true now; this file is where the history lives.
 - **ChainRulesCore's `rrule` and `frule` for `solve` work with `InteriorPoint()`.** Both call
   `adjoint_derivative`/`forward_derivative`, which now accept either workspace, so no change
   to the rules themselves was needed.
+- **The interior-point method's hot path carries the same StrictMode and `--trim`
+  guarantees as ADMM's.** `ipm_step!`, `ipm_residuals!` and `solve_multiplier!` are
+  type-stable and allocation-free on every backend the interior-point selection reaches,
+  including the sparse KKT family, where `solve_multiplier!` is this package's own code and
+  keeps the guarantee even though `factorize!` there reaches foreign sparse arithmetic. Trim
+  entries cover `InteriorPoint()` on its default (`FullKKT`), the KKT backend named directly,
+  unscaled, with polishing, on a diagonal pair, on the sparse KKT family, on `:indirect` with a
+  caller preconditioner on both a matrix pair and a `ProductOperator` pair, and through a
+  `setup` → `solve!` → `update!` → `solve!` sequence and the derivatives.
+- **`bench/ipm_vs_clarabel.jl`** runs `InteriorPoint()` against Clarabel, also an
+  interior-point method, and against `OperatorSplitting()` at a looser tolerance, on the
+  smallest instance of each OSQP suite problem class. `x` agrees with Clarabel's to about
+  `1e-5`–`1e-8` relative across the seven classes; results are written to
+  `bench/results/ipm_vs_clarabel.json`.
 - **`QPAlgorithm`, `QPWorkspace` and `Preconditioner` declare interface contracts**, and
   `LinearSystem`'s contract lists its optional methods too, so `TypeContracts.describe` prints
   what a new algorithm, workspace, backend or preconditioner implements. Every subtype in the

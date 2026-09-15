@@ -39,9 +39,29 @@ To add a backend, subtype `LinearSystem`, implement the mandatory methods, and u
 | `refactor_weights!` | type-stable |
 | `solve!` | type-stable |
 
+The interior-point method's own hot kernels carry the same guarantees, checked over every
+backend its selection ladder reaches (`FullKKT`, the sparse KKT family, the structured
+reduced backends, and `:indirect` with a caller preconditioner):
+
+| function | guarantees |
+|---|---|
+| `ipm_step!` | type-stable, allocation-free |
+| `ipm_residuals!` | type-stable, allocation-free |
+| `solve_multiplier!` | type-stable, allocation-free |
+| `check_termination` | type-stable |
+| `factorize!` | type-stable |
+| `refactor_weights!` | type-stable |
+| `solve!` | type-stable |
+
 Two notes:
-- Sparse arithmetic backends may perform allocations within their own libraries.
-- The matrix-free backend is checked by measurement; its static analysis shows potential branches that are never taken.
+- Sparse arithmetic backends may perform allocations within their own libraries. This applies
+  to `factorize!`, `refactor_weights!` and `solve!` on the sparse KKT family under both
+  algorithms; `solve_multiplier!` there is this package's own code and keeps the full
+  guarantee regardless.
+- The matrix-free backend is checked by measurement; its static analysis shows potential
+  branches that are never taken. Under the interior-point method, the `try`/`catch` that turns
+  a non-positive-definite preconditioner into a missed solve (rather than an exception) sits
+  in a helper outside the audited kernel, so it does not affect what is measured.
 
 An operator provided by the user is only as efficient as its own `mul!` method.
 
@@ -57,6 +77,10 @@ An operator provided by the user is only as efficient as its own `mul!` method.
 - `setup` $\to$ `solve!` $\to$ `update!` $\to$ `solve!`, and similar sequences with `warm_start!`.
 - `update_settings!`, `update_rho!`, and `cold_start!`.
 - The derivatives.
+- `InteriorPoint()` on `FullKKT` (its default and its named KKT backend), the sparse KKT
+  family, a diagonal pair, `:indirect` with a caller preconditioner on both a matrix pair and
+  a `ProductOperator` pair, and a `setup` $\to$ `solve!` $\to$ `update!` $\to$ `solve!`
+  sequence and the derivatives, each under `InteriorPoint()`.
 
 For sparse problems, we require the backend to be explicitly named (e.of `:kkt`, `:dense`, or `:indirect`) to ensure compatibility.
 
