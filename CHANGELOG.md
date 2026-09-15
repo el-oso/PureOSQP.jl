@@ -68,20 +68,24 @@ what is true now; this file is where the history lives.
   refreshed by a method of `update_preconditioner!` whenever `ρ` or `σ` changes. A caller's own
   preconditioner requires `scaling = 0`.
 - **The interior-point method supports polishing, derivatives, `update!`, `update_settings!`
-  and MathOptInterface.** `IPMSettings` gains `polishing`, `polish_refine_iter`, `delta` and
-  `verbose`, matching `Settings`; a `SOLVED` or `SOLVED_INACCURATE` run polishes exactly as
-  ADMM does and reports `Solution.polished`/`status_polish`. `adjoint_derivative` and
+  and MathOptInterface.** `IPMSettings` gains `polishing`, `polish_refine_iter` and `delta`,
+  matching `Settings`; a `SOLVED` or `SOLVED_INACCURATE` run polishes exactly as ADMM does
+  and reports `Solution.polished`/`status_polish`. `adjoint_derivative` and
   `forward_derivative` accept an `IPMWorkspace`, taking the derivative at its unscaled point
-  through the same active-set KKT matrix ADMM uses; polishing first is recommended, since an
-  interior-point solution's inactive-row multipliers sit at `μ_final` rather than at zero.
+  through the same active-set KKT matrix ADMM uses, and refuse an unpolished one by name: an
+  interior-point solution's inactive-row multipliers sit at `μ_final` rather than at zero,
+  which the active-set test cannot otherwise tell apart from a genuinely active row.
   `update!` validates and adopts `q`, `l`, `u`, `P` and `A` through the same path as ADMM and
   reclassifies rows, without refactorizing: every outer iteration refactorizes at its own
   weights regardless. `update_settings!` rebuilds `IPMSettings`, rejecting a changed `linsys`
   or `scaling`; every other field, including the two regularizations, takes effect on the
   next solve without any refactorization here, since a solve always resets them from
-  `settings` before its first iteration. `MOI.RawOptimizerAttribute("algorithm")` selects
-  `:admm` or `:ipm`, and every other raw setting is then checked against `IPMSettings` or
-  `Settings` accordingly; `MOI.optimize!` dispatches to whichever `setup` returns, and
+  `settings` before its first iteration. `IPMSettings` also gains `verbose`, refused when
+  `true` rather than accepted and ignored: the interior-point method has no per-iteration
+  report yet. `MOI.RawOptimizerAttribute("algorithm")` selects `:admm` or `:ipm`, and every
+  other raw setting is then checked against `IPMSettings` or `Settings` accordingly; setting
+  `algorithm` itself is refused when a raw setting already stored does not belong to the
+  algorithm being switched to. `MOI.optimize!` dispatches to whichever `setup` returns, and
   `MOI.BarrierIterations` reports `Solution.iter` for either.
 - **ChainRulesCore's `rrule` and `frule` for `solve` work at `algorithm = :ipm`.** Both call
   `adjoint_derivative`/`forward_derivative`, which now accept either workspace, so no change

@@ -345,6 +345,38 @@ end
     @test s3.x == s1.x
 end
 
+@testitem "warm_start! seeds an IPMWorkspace's next solve" begin
+    using LinearAlgebra, SparseArrays, OSQP, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    P, q, A, l, u = random_qp(12, 30; seed = 96)
+    opts = (algorithm = :ipm, eps_abs = 1.0e-8, eps_rel = 1.0e-8)
+    cold = PureOSQP.solve(P, q, A, l, u; opts...)
+    ws = setup(P, q, A, l, u; opts...)
+
+    warm_start!(ws; x = cold.x, y = cold.y)
+    @test ws.seeded
+    warm = PureOSQP.solve!(ws)
+    @test warm.status == SOLVED
+    @test warm.iter <= cold.iter
+    @test warm.x ≈ cold.x rtol = 1.0e-5
+
+    cold_start!(ws)
+    @test !ws.seeded
+    @test all(iszero, ws.x)
+    @test all(iszero, ws.y)
+
+    x = zeros(12)
+    x[1] = NaN
+    @test_throws "x must be finite" warm_start!(ws; x = x)
+    y = zeros(30)
+    y[2] = Inf
+    @test_throws "y must be finite" warm_start!(ws; y = y)
+    @test_throws "length(x) must be 12" warm_start!(ws; x = zeros(11))
+    @test_throws "length(y) must be 30" warm_start!(ws; y = zeros(29))
+    # A refused call leaves the seed alone.
+    @test !ws.seeded
+end
+
 @testitem "interior point: Float32 on the full KKT and the reduced Cholesky" begin
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
@@ -565,6 +597,66 @@ end
     @test_throws "eps_prim_inf and eps_dual_inf must be positive" setup(
         P, q, A, l, u; algorithm = :ipm, eps_dual_inf = 0.0
     )
+end
+
+@testitem "update_settings! on an IPMWorkspace validates and never refactorizes" begin
+    using LinearAlgebra, SparseArrays, OSQP, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    P, q, A, l, u = random_qp(10, 24; seed = 95)
+    ws = setup(P, q, A, l, u; algorithm = :ipm, eps_abs = 1.0e-6, eps_rel = 1.0e-6)
+
+    # A tolerance is not read by any factorization, so changing it is free, exactly as ADMM's
+    # `update_settings!` treats it.
+    update_settings!(ws; eps_abs = 1.0e-9, max_iter = 200)
+    @test ws.settings.eps_abs == 1.0e-9
+    @test ws.settings.max_iter == 200
+    @test ws.settings.eps_rel == 1.0e-6          # untouched fields survive
+
+    # `reg_primal`/`reg_dual` are free too: every solve resets its regularization from
+    # `settings` before the first iteration, so nothing here needs to trigger a
+    # refactorization the way ADMM's `rho`/`sigma` do.
+    update_settings!(ws; reg_primal = 1.0e-6, reg_dual = 1.0e-6)
+    @test ws.settings.reg_primal == 1.0e-6
+    @test ws.settings.reg_dual == 1.0e-6
+    got = PureOSQP.solve!(ws)
+    @test got.status == SOLVED
+    @test ws.reg_primal == 1.0e-6
+    @test ws.reg_dual == 1.0e-6
+
+    # Rejected, not silently ignored: the backend is part of the workspace's type, and the
+    # equilibration factors were computed once from the data setup saw.
+    @test_throws "linsys is fixed" update_settings!(ws; linsys = :kkt)
+    @test_throws "scaling is fixed" update_settings!(ws; scaling = 0)
+    # A rejected call leaves the workspace alone.
+    @test ws.settings.linsys === :auto
+    @test_throws "eps_abs and eps_rel must be non-negative" update_settings!(ws; eps_abs = -1)
+    @test_throws "reg_primal must be positive" update_settings!(ws; reg_primal = -1.0)
+    @test_throws "no per-iteration report" update_settings!(ws; verbose = true)
+
+    @test PureOSQP.solve!(ws).status == SOLVED
+end
+
+@testitem "update_settings! refreshes the matrix-free IPM backend's CG settings" begin
+    using LinearAlgebra, Random, Krylov
+    include(joinpath(@__DIR__, "helpers.jl"))
+    P, q, A, l, u = random_qp(10, 20; seed = 94)
+    ws = setup(
+        P, q, A, l, u; algorithm = :ipm, linsys = :indirect, scaling = 0,
+        preconditioner = Diagonal(ones(10)), cg_max_iter = 7, cg_tol_fraction = 0.3
+    )
+    @test (ws.linsys.max_iter, ws.linsys.tol_fraction) == (7, 0.3)
+    update_settings!(ws; cg_max_iter = 3, cg_tol_fraction = 0.05)
+    @test (ws.linsys.max_iter, ws.linsys.tol_fraction) == (3, 0.05)
+    @test ws.settings.cg_max_iter == 3
+end
+
+@testitem "verbose = true is refused under algorithm = :ipm" begin
+    using LinearAlgebra, SparseArrays, OSQP, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    P, q, A, l, u = random_qp(6, 12; seed = 97)
+    @test_throws "no per-iteration report" PureOSQP.solve(P, q, A, l, u; algorithm = :ipm, verbose = true)
+    ws = setup(P, q, A, l, u; algorithm = :ipm)
+    @test_throws "no per-iteration report" update_settings!(ws; verbose = true)
 end
 
 @testitem "interior point: time_limit and an interrupt return the point reached" begin

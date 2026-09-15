@@ -37,12 +37,14 @@ and [`solve`](@ref). The keyword arguments of those two functions are then these
   Newton residual, floored at `eps(T)` relative to the right-hand side.
 - `cg_fail_limit = 3` — this many missed solves in a row end the run `NUMERICAL_ERROR`.
 - `polishing = false` — refine the solution by [`polish_kernel!`](@ref) once the run ends
-  `SOLVED` or `SOLVED_INACCURATE`, as in [`Settings`](@ref). Recommended before taking a
+  `SOLVED` or `SOLVED_INACCURATE`, as in [`Settings`](@ref). Required before taking a
   derivative: an interior-point solution carries inactive-row multipliers of size
-  `μ_final`, which is small but not the near-zero `active_kkt` requires.
+  `μ_final`, which is small but not the near-zero [`active_kkt`](@ref) requires, and
+  [`adjoint_derivative`](@ref)/[`forward_derivative`](@ref) refuse an unpolished workspace.
 - `polish_refine_iter = 3`, `delta = 1e-6` — iterative-refinement steps and the
   regularization of the polishing solve, as in [`Settings`](@ref).
-- `verbose = false` — reserved for a per-iteration report; nothing is printed yet.
+- `verbose = false` — the interior-point method has no per-iteration report, so `true` is
+  refused rather than accepted and ignored.
 
 A reduced backend solves `P̃ + δ_p I + Ãᵀ diag(w) Ã`, whose weights reach `1/δ_d` on
 equality rows and on active inequality rows, so its conditioning is bounded by
@@ -130,6 +132,12 @@ function IPMSettings{T}(;
     cg_fail_limit > 0 || throw(ArgumentError("cg_fail_limit must be positive, got $cg_fail_limit"))
     polish_refine_iter >= 0 || throw(ArgumentError("polish_refine_iter must be non-negative"))
     delta > 0 || throw(ArgumentError("delta must be positive, got $delta"))
+    Bool(verbose) && throw(
+        ArgumentError(
+            "the interior-point method has no per-iteration report: verbose = true would be " *
+                "accepted and silently ignored, so it is refused. Leave verbose = false."
+        )
+    )
     return IPMSettings{T}(
         Int(max_iter), T(time_limit), T(eps_abs), T(eps_rel), T(eps_prim_inf),
         T(eps_dual_inf), Int(scaling), Int(check_termination),

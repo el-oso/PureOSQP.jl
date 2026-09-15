@@ -120,6 +120,17 @@ function MOI.set(o::Optimizer{T}, a::MOI.RawOptimizerAttribute, v) where {T}
     if name === :algorithm
         alg = Symbol(v)
         alg in (:admm, :ipm) || throw(ArgumentError("algorithm must be :admm or :ipm, got :$alg"))
+        ST = alg === :ipm ? PureOSQP.IPMSettings{T} : PureOSQP.Settings{T}
+        current = Dict(k => val for (k, val) in o.settings if k !== :algorithm)
+        stale = setdiff(keys(current), fieldnames(ST))
+        isempty(stale) || throw(
+            ArgumentError(
+                "algorithm = :$alg does not accept the raw setting(s) " *
+                    "$(join(sort(String.(stale)), ", ")), set for the other algorithm: " *
+                    "start from a fresh optimizer, or set only names $ST accepts."
+            )
+        )
+        ST(; current...)      # every surviving value must also still validate against ST
         o.settings[:algorithm] = alg
         return
     end

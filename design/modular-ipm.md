@@ -927,7 +927,7 @@ preconditioner in v1.
 | MOI | `algorithm = :ipm`; `BarrierIterations = iter`; `NUMERICAL_ERROR` mapped |
 | `time_limit`, `Ctrl-C` | as ADMM |
 | `verbose` | `Core.stdout`, row: `iter obj prim_res dual_res μ α cg_iters` |
-| `linsys = :indirect` (matrices or operators: `ProductOperator`, LinearMaps, SciMLOperators) | only with a caller-supplied `preconditioner` (§9) and `scaling = 0`; operators: `P` declared `posdef`, no polishing, no derivatives, no `:kkt`; never chosen by `:auto`. Without a preconditioner, or with `scaling ≠ 0`, `setup` refuses by name. `update_settings!` does not change `linsys`; a refactorize on regularization change runs `update_preconditioner!`. |
+| `linsys = :indirect` (matrices or operators: `ProductOperator`, LinearMaps, SciMLOperators) | only with a caller-supplied `preconditioner` (§9) and `scaling = 0`; operators: `P` declared `posdef`, no polishing, no derivatives, no `:kkt`; never chosen by `:auto`. Without a preconditioner, or with `scaling ≠ 0`, `setup` refuses by name. `update_settings!` does not change `linsys`; a regularization change reaches the next solve's own factorization, which runs `update_preconditioner!` regardless. |
 | accelerator, GPU arrays, `profile_primdual` | refused by name / absent |
 | element type `T <: Real` | generic, none refused (§10.8 question 3); defaults from `ipm_floor(T)` (§8.5) |
 | `Float32` | `FullKKT` and reduced backends; tests: dense QP, LP, equality/one-sided/free rows through `:kkt` and `:dense`, referee `< 10·sqrt(eps(Float32))` (`test/ipm_tests.jl`); measured per §8.5 |
@@ -952,9 +952,11 @@ whose maxima were 618 and 678), `cg_tol_fraction = 0.1`, `cg_fail_limit = 3`,
 `eps_dual_inf` (certificate tolerances); `max_reg_bumps` (limit on regularization bumps, each
 multiplies both `reg_primal` and `reg_dual` by 10 and triggers a full `factorize!`; counted
 per solve); `reg_primal`, `reg_dual` (run in scaled space, changeable through `update_settings!`
-without refactorization on direct backends; triggers refactorize on `:indirect` with
-`update_preconditioner!`). A starting point without seeding returns `NaN` for `x` and `y` while
-the workspace keeps the last iterate and clears `seeded`. Verbose output not yet implemented.
+with no refactorization at update time on any backend, direct or `:indirect`: every solve
+resets the regularization from `settings` before its first iteration and factorizes there
+regardless, which runs `update_preconditioner!` on `:indirect`). A starting point without
+seeding returns `NaN` for `x` and `y` while the workspace keeps the last iterate and clears
+`seeded`. `verbose = true` is refused rather than accepted and ignored.
 
 ### 8.11 Validation plan
 

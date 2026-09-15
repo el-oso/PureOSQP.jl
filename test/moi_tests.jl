@@ -137,15 +137,65 @@ end
     MOI.set(o, MOI.RawOptimizerAttribute("rho"), 0.2)
     @test MOI.get(o, MOI.RawOptimizerAttribute("rho")) == 0.2
 
-    MOI.set(o, MOI.RawOptimizerAttribute("algorithm"), "ipm")
-    @test MOI.get(o, MOI.RawOptimizerAttribute("algorithm")) === :ipm
+    # Switching with no ADMM-only setting left to conflict: a fresh optimizer, not `o`, since
+    # `rho` above would otherwise make the switch itself the refusal this test is not about
+    # (see the item below for that).
+    o2 = PureOSQP.Optimizer()
+    MOI.set(o2, MOI.RawOptimizerAttribute("algorithm"), "ipm")
+    @test MOI.get(o2, MOI.RawOptimizerAttribute("algorithm")) === :ipm
     # `rho` belongs to `Settings`, not `IPMSettings`, so it is no longer a raw attribute here.
-    @test !MOI.supports(o, MOI.RawOptimizerAttribute("rho"))
+    @test !MOI.supports(o2, MOI.RawOptimizerAttribute("rho"))
     # An IPM-only field, checked against `IPMSettings` once `algorithm` names it.
-    @test MOI.supports(o, MOI.RawOptimizerAttribute("max_reg_bumps"))
-    MOI.set(o, MOI.RawOptimizerAttribute("max_reg_bumps"), 3)
-    @test MOI.get(o, MOI.RawOptimizerAttribute("max_reg_bumps")) == 3
-    @test_throws "must be non-negative" MOI.set(o, MOI.RawOptimizerAttribute("max_reg_bumps"), -1)
+    @test MOI.supports(o2, MOI.RawOptimizerAttribute("max_reg_bumps"))
+    MOI.set(o2, MOI.RawOptimizerAttribute("max_reg_bumps"), 3)
+    @test MOI.get(o2, MOI.RawOptimizerAttribute("max_reg_bumps")) == 3
+    @test_throws "must be non-negative" MOI.set(o2, MOI.RawOptimizerAttribute("max_reg_bumps"), -1)
+end
+
+@testitem "switching algorithm is refused rather than leaving a stale raw setting behind" begin
+    using MathOptInterface
+    const MOI = MathOptInterface
+
+    # A setting from the algorithm being left behind must not silently survive the switch:
+    # `optimize!` would otherwise build the new settings struct from it and throw a bare
+    # `MethodError` instead of the setting being caught here, at `MOI.set`.
+    o = PureOSQP.Optimizer()
+    MOI.set(o, MOI.RawOptimizerAttribute("rho"), 0.2)
+    @test_throws "does not accept the raw setting" MOI.set(
+        o, MOI.RawOptimizerAttribute("algorithm"), :ipm
+    )
+    @test MOI.get(o, MOI.RawOptimizerAttribute("algorithm")) === :admm
+    @test MOI.get(o, MOI.RawOptimizerAttribute("rho")) == 0.2
+
+    # The reverse direction is checked the same way, and a clean switch still works.
+    o2 = PureOSQP.Optimizer()
+    MOI.set(o2, MOI.RawOptimizerAttribute("algorithm"), "ipm")
+    MOI.set(o2, MOI.RawOptimizerAttribute("max_reg_bumps"), 3)
+    @test_throws "does not accept the raw setting" MOI.set(
+        o2, MOI.RawOptimizerAttribute("algorithm"), :admm
+    )
+
+    o3 = PureOSQP.Optimizer()
+    MOI.set(o3, MOI.RawOptimizerAttribute("rho"), 0.2)
+    MOI.set(o3, MOI.RawOptimizerAttribute("algorithm"), :admm)          # no-op switch: fine
+    @test MOI.get(o3, MOI.RawOptimizerAttribute("rho")) == 0.2
+
+    # A clean switch to `:ipm`, with no leftover ADMM setting, still reaches `optimize!`.
+    o4 = PureOSQP.Optimizer()
+    MOI.set(o4, MOI.Silent(), true)
+    MOI.set(o4, MOI.RawOptimizerAttribute("algorithm"), :ipm)
+    src = MOI.Utilities.Model{Float64}()
+    x = MOI.add_variables(src, 2)
+    MOI.add_constraint.(src, x, MOI.GreaterThan(0.0))
+    obj = MOI.ScalarQuadraticFunction(
+        MOI.ScalarQuadraticTerm.([2.0, 2.0], x, x), MOI.ScalarAffineTerm.([-2.0, -4.0], x), 5.0,
+    )
+    MOI.set(src, MOI.ObjectiveFunction{typeof(obj)}(), obj)
+    MOI.set(src, MOI.ObjectiveSense(), MOI.MIN_SENSE)
+    MOI.copy_to(o4, src)
+    MOI.optimize!(o4)
+    @test MOI.get(o4, MOI.TerminationStatus()) == MOI.OPTIMAL
+    @test MOI.get(o4, MOI.BarrierIterations()) > 0
 end
 
 @testitem "NUMERICAL_ERROR maps to MOI.NUMERICAL_ERROR with no result" begin

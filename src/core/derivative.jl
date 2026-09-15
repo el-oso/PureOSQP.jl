@@ -107,7 +107,9 @@ end
 Check that `ws` holds a converged, host-resident solution, unscale it into problem space,
 and delegate to the `active_kkt(prob, x, y, z)` method above. One method serves both
 [`Workspace`](@ref) and [`IPMWorkspace`](@ref): each holds its iterate the same way, scaled
-by the same `D`, `E`, `c`.
+by the same `D`, `E`, `c`. An `IPMWorkspace` must also be polished: its inactive-row
+multipliers sit at the barrier parameter rather than at zero, which the active-set test
+below cannot otherwise tell apart from a genuinely active row.
 """
 function active_kkt(ws::Union{Workspace{T}, IPMWorkspace{T}}) where {T}
     # The derivative is of the solution map at a solution. An unconverged point is not one,
@@ -122,6 +124,28 @@ function active_kkt(ws::Union{Workspace{T}, IPMWorkspace{T}}) where {T}
     )
     require_host(ws.x, "differentiating the solution")
     prob = ws.prob
+    # An operator that cannot be materialized was never a candidate for polishing either, so
+    # that refusal takes priority: it names the actual obstacle, where the check below would
+    # otherwise blame a workspace that had no way to satisfy it.
+    require_entries(
+        prob.P, prob.A, "differentiating the solution",
+        "`adjoint_derivative` and `forward_derivative` need the active-set KKT matrix, which " *
+            "has no matrix-free form: re-express the problem with a matrix `P` and `A` to " *
+            "differentiate it."
+    )
+    # An interior-point solution carries inactive-row multipliers of size `μ_final`, not the
+    # near-zero a projection gives: the active-set threshold below cannot tell those apart
+    # from a genuinely active row, and the resulting derivative is silently wrong rather than
+    # merely imprecise. Polishing recomputes the point from the guessed active set exactly,
+    # which is what makes the threshold meaningful again.
+    ws isa IPMWorkspace && !ws.polished && throw(
+        ArgumentError(
+            "the derivative of an interior-point solution needs a polished workspace: its " *
+                "inactive-row multipliers sit at the barrier parameter rather than at zero, " *
+                "which the active-set test cannot tell apart from a genuinely active row. " *
+                "Solve with polishing = true first."
+        )
+    )
     x = prob.D .* ws.x
     y = (prob.E .* ws.y) ./ prob.c
     z = ws.z ./ prob.E

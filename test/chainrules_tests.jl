@@ -113,7 +113,7 @@ end
     A = [1.0 1.0; 1.0 0.0; 0.0 1.0]
     l = [1.0, 0.0, 0.0]
     u = [1.0, 1.0, 1.0]
-    tol = (algorithm = :ipm, eps_abs = 1.0e-10, eps_rel = 1.0e-10)
+    tol = (algorithm = :ipm, eps_abs = 1.0e-10, eps_rel = 1.0e-10, polishing = true)
 
     loss(qq) = sum(solve(P, qq, A, l, u; tol...).x .^ 2)
     g = only(Zygote.gradient(loss, q))

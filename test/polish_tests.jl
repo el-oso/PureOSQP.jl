@@ -96,4 +96,17 @@ end
     @test PureOSQP.solve!(ws).status == SOLVED
     @test_throws "supplies products only" PureOSQP.adjoint_derivative(ws, randn(n), randn(m))
     @test_throws "no matrix-free form" PureOSQP.forward_derivative(ws; dq = randn(n))
+
+    # The same operator through `algorithm = :ipm`, `linsys = :indirect`: setup accepts it
+    # with a caller-supplied preconditioner, but polishing and the derivatives refuse it by
+    # the same name as above, including before the workspace's `polished` field is even
+    # examined.
+    ipm_opts = (algorithm = :ipm, linsys = :indirect, scaling = 0, eps_abs = 1.0e-8, eps_rel = 1.0e-8)
+    @test_throws "Leave `polishing = false`" PureOSQP.solve(
+        P, q, A, l, u; ipm_opts..., preconditioner = Diagonal(ones(n)), polishing = true
+    )
+    ws_ipm = setup(P, q, A, l, u; ipm_opts..., preconditioner = Diagonal(ones(n)))
+    @test PureOSQP.solve!(ws_ipm).status == SOLVED
+    @test_throws "supplies products only" PureOSQP.adjoint_derivative(ws_ipm, randn(n), randn(m))
+    @test_throws "no matrix-free form" PureOSQP.forward_derivative(ws_ipm; dq = randn(n))
 end
