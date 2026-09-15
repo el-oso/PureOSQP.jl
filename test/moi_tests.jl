@@ -91,3 +91,19 @@ end
     MOI.set(o, MOI.RawOptimizerAttribute("linsys"), "kkt")
     @test MOI.get(o, MOI.RawOptimizerAttribute("linsys")) === :kkt
 end
+
+@testitem "NUMERICAL_ERROR maps to MOI.NUMERICAL_ERROR with no result" begin
+    using MathOptInterface
+    const MOI = MathOptInterface
+
+    # ADMM never ends this way, so the status is placed on a solution directly.
+    o = PureOSQP.Optimizer()
+    s = PureOSQP.solve([2.0;;], [1.0], [1.0;;], [-1.0], [1.0])
+    fields = ntuple(i -> getfield(s, i), fieldcount(typeof(s)))
+    o.sol = typeof(s)(fields[1:2]..., PureOSQP.NUMERICAL_ERROR, fields[4:end]...)
+    @test MOI.get(o, MOI.TerminationStatus()) == MOI.NUMERICAL_ERROR
+    @test MOI.get(o, MOI.ResultCount()) == 0
+    @test MOI.get(o, MOI.PrimalStatus()) == MOI.NO_SOLUTION
+    @test MOI.get(o, MOI.DualStatus()) == MOI.NO_SOLUTION
+    @test MOI.get(o, MOI.RawStatusString()) == "NUMERICAL_ERROR"
+end

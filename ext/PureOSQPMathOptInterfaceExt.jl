@@ -190,6 +190,7 @@ const _TERMINATION = Dict(
     PureOSQP.TIME_LIMIT_REACHED => MOI.TIME_LIMIT,
     PureOSQP.INTERRUPTED => MOI.INTERRUPTED,
     PureOSQP.NON_CONVEX => MOI.INVALID_MODEL,
+    PureOSQP.NUMERICAL_ERROR => MOI.NUMERICAL_ERROR,
 )
 
 function MOI.get(o::Optimizer, ::MOI.TerminationStatus)
@@ -202,7 +203,8 @@ MOI.get(o::Optimizer, ::MOI.RawStatusString) =
 
 function MOI.get(o::Optimizer, ::MOI.ResultCount)
     o.sol === nothing && return 0
-    return o.sol.status == PureOSQP.NON_CONVEX ? 0 : 1
+    s = o.sol.status
+    return s == PureOSQP.NON_CONVEX || s == PureOSQP.NUMERICAL_ERROR ? 0 : 1
 end
 
 function MOI.get(o::Optimizer, attr::MOI.PrimalStatus)

@@ -15,8 +15,10 @@ multiplier is `y = z_u − z_l`. An absent side holds `s = 1`, `z = 0`, so the e
 loops need no branch beyond the mask. An equality row carries a free multiplier `y`; a free
 row has `y = 0`.
 
-`seeded` says whether `x` and `y` are a starting point: a completed solve and
-[`warm_start!`](@ref) set it, [`cold_start!`](@ref) and `warm_starting = false` clear it.
+`seeded` says whether `x` and `y` are a starting point: a solve that ends with a point
+([`has_solution`](@ref)) and [`warm_start!`](@ref) set it; a solve that ends without one,
+[`cold_start!`](@ref) and `warm_starting = false` clear it. After a solve without a point, `x`
+and `y` still hold the last iterate.
 """
 mutable struct IPMWorkspace{
         T <: Real, MP <: AbstractMatrix, MA <: AbstractMatrix, V <: AbstractVector{T},
@@ -24,8 +26,9 @@ mutable struct IPMWorkspace{
     }
     const prob::Problem{T, MP, MA, V}
     const linsys::LS
-    # `sigma = reg_primal`; `w` and `w_inv` are rewritten every outer iteration.
-    const weights::SystemWeights{T, V}
+    # `sigma` is the current `reg_primal`, so a regularization bump replaces the object; `w`
+    # and `w_inv` are rewritten in place every outer iteration.
+    weights::SystemWeights{T, V}
     const rclass::VI
     const has_l::VB
     const has_u::VB
@@ -63,6 +66,24 @@ mutable struct IPMWorkspace{
     const res_z::V
     const corr_x::V
     const corr_y::V
+    # Infeasibility certificate candidates. The tests project them in place, and the one that
+    # passes is what the solution reports.
+    const cert_x::V
+    const cert_y::V
+    # The regularization in force: the settings' values times ten per bump in this solve.
+    reg_primal::T
+    reg_dual::T
+    reg_bumps::Int
+    # The backend's factorization was built with a `sigma` other than the current one, so the
+    # next factorization must be a full one.
+    sigma_changed::Bool
+    # Guards: consecutive steps shorter than `STALL_STEP`, consecutive iterations whose merit
+    # (`mu`, or `rnorm` without an inequality side) did not fall, the previous merit, and
+    # whether the certificate tests now run every iteration.
+    short_steps::Int
+    flat_merit::Int
+    last_merit::T
+    alert::Bool
     mu::T
     rnorm::T
     alpha::T
@@ -129,6 +150,9 @@ function ipm_workspace(ls::LinearSystem, prob::Problem{T}, wt::SystemWeights{T},
         buf(n), buf(m), buf(m), buf(m), buf(m),
         buf(n), buf(m), buf(n), buf(m), buf(m), buf(m), buf(m), buf(m), buf(m),
         buf(n), buf(m), buf(n), buf(m),
+        buf(n), buf(m),
+        settings.reg_primal, settings.reg_dual, 0, false,
+        0, 0, zero(T), false,
         zero(T), zero(T), zero(T),
         zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), zero(T),
         zero(T), zero(T), zero(T), zero(T),

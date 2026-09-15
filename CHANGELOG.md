@@ -14,12 +14,24 @@ what is true now; this file is where the history lives.
   equilibration as ADMM does, and solves its Newton systems with the direct backends: the
   dense full KKT factorization for dense data and for a dense `P` with a sparse `A`, and for
   a sparse pair the sparse KKT factorization first. A re-solve starts from the previous
-  point. It reports `SOLVED`, `SOLVED_INACCURATE` or `MAX_ITER_REACHED`, and throws when
-  its Newton system cannot be factorized or a residual stops being finite. In this version
-  it refuses by name `Float32` data, GPU arrays, operators that supply products only,
-  `linsys = :indirect` and `linsys = :kronecker`, and it has no infeasibility detection,
-  polishing, derivatives, `update!`, `update_settings!`, time limit, verbose output or
+  point. In this version it refuses by name `Float32` data, GPU arrays, operators that
+  supply products only, `linsys = :indirect` and `linsys = :kronecker`, and it has no
+  polishing, derivatives, `update!`, `update_settings!`, verbose output or
   MathOptInterface support.
+- **The interior-point method detects infeasibility.** It reports `PRIMAL_INFEASIBLE` and
+  `DUAL_INFEASIBLE` (and their `*_INACCURATE` variants) with certificates in
+  `Solution.prim_inf_cert` and `Solution.dual_inf_cert`, found by ADMM's certificate tests on
+  its last step and its normalized iterate at `eps_prim_inf` and `eps_dual_inf` (default
+  `1e-8`). On random `n = 20`, `m = 40` primal- and dual-infeasible problems, all 40 runs
+  (ten seeds each, with and without equilibration) end with a certificate that checks
+  against the data, in 8–20 and 14–34 iterations.
+- **The interior-point method takes `time_limit` and returns on `Ctrl-C`**, with
+  `TIME_LIMIT_REACHED` and `INTERRUPTED` and the point reached, as ADMM does.
+- **`NUMERICAL_ERROR`**, a new `Status` value. The interior-point method returns it when its
+  Newton system stays unfactorizable after `max_reg_bumps` (default `5`) tenfold increases of
+  the regularization, when a residual stops being finite, and when three consecutive steps
+  are shorter than `1e-8` without a certificate. `has_solution` is false for it, and MathOptInterface reports
+  `MOI.NUMERICAL_ERROR` with no result. ADMM never returns it.
 - **`Solution.cg_iters`** reports how many conjugate-gradient iterations a solve took on
   `linsys = :indirect`. It is zero on every direct backend.
 - **`setup` and `solve` take a `preconditioner` keyword** for `linsys = :indirect`. The default

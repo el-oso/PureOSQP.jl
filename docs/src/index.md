@@ -140,7 +140,7 @@ The [`Solution`](@ref) object carries the objective, duality gap, both residuals
 
 ## Status values
 
-There are eleven status values in [`Status`](@ref PureOSQP.Status). Key facts:
+There are twelve status values in [`Status`](@ref PureOSQP.Status). Key facts:
 1. An unconverged result is never marked `SOLVED`.
 2. If there is no meaningful primal-dual point, `x` and `y` are `NaN`.
 

@@ -117,6 +117,11 @@ PureOSQP.active_kkt
 PureOSQP.ipm_step!
 PureOSQP.ipm_residuals!
 PureOSQP.weights!
+PureOSQP.factorize_newton!
+PureOSQP.primal_certificate!
+PureOSQP.dual_certificate!
+PureOSQP.stalled!
+PureOSQP.iterate_bound
 PureOSQP.has_solution
 PureOSQP.PolishStatus
 ```

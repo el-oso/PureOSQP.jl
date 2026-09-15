@@ -17,33 +17,56 @@
 "`max|v|` with a start value, for the Newton residual norm."
 @inline absmax(acc, v) = max(acc, abs(v))
 
-"""
-    throw_factorization_failure(ws)
+"Steps shorter than this, `STALL_STEPS` times in a row, stall the iteration."
+@inline STALL_STEP(::Type{T}) where {T} = T(1.0e-8)
+const STALL_STEPS = 3
+"Iterations in a row whose merit does not fall before the certificate tests run every iteration."
+const STALL_MERIT = 10
 
-The Newton system could not be factorized. Raising the regularization would recover, and is
-not attempted.
 """
-@noinline function throw_factorization_failure(ws::IPMWorkspace)
-    name = backend_name(ws.linsys)
-    rp, rd = ws.settings.reg_primal, ws.settings.reg_dual
-    throw(
-        ErrorException(
-            lazy"the interior-point Newton system could not be factorized with the $name backend at reg_primal = $rp and reg_dual = $rd."
-        )
-    )
+    set_regularization!(ws, reg_primal, reg_dual) -> ws
+
+Put `reg_primal` and `reg_dual` in force. A new `reg_primal` replaces the weights object, whose
+`sigma` it is, and marks the backend's factorization as needing a full rebuild.
+"""
+function set_regularization!(ws::IPMWorkspace{T}, reg_primal::T, reg_dual::T) where {T}
+    ws.reg_dual = reg_dual
+    if reg_primal != ws.reg_primal
+        ws.reg_primal = reg_primal
+        wt = ws.weights
+        ws.weights = SystemWeights(wt.w, wt.w_inv, reg_primal)
+        ws.sigma_changed = true
+    end
+    return ws
 end
 
-@noinline function throw_nonfinite_residual()
-    throw(
-        ErrorException(
-            "the interior-point iteration produced a non-finite residual; the problem is " *
-                "numerically out of reach at this regularization."
-        )
-    )
+"""
+    factorize_newton!(ws, starting) -> Bool
+
+Factorize the Newton system at the current weights, raising both regularizations tenfold and
+retrying whenever the backend reports failure, at most `max_reg_bumps` times per solve.
+`starting` says the weights are the unit weights of the starting point, which do not depend
+on `reg_dual`; otherwise they are recomputed after a bump. `false` means the bumps ran out.
+"""
+function factorize_newton!(ws::IPMWorkspace{T}, starting::Bool) where {T}
+    ls = ws.linsys
+    while true
+        full = starting || ws.sigma_changed
+        ok = full ? factorize!(ls, ws.prob, ws.weights) : refactor_weights!(ls, ws.prob, ws.weights)
+        if ok
+            ws.sigma_changed = false
+            return true
+        end
+        ws.reg_bumps < ws.settings.max_reg_bumps || return false
+        ws.reg_bumps += 1
+        set_regularization!(ws, T(10) * ws.reg_primal, T(10) * ws.reg_dual)
+        starting || weights!(ws)
+    end
+    return
 end
 
 """
-    starting_point!(ws)
+    starting_point!(ws) -> Bool
 
 Build the starting slacks and multipliers. Unseeded, `x` solves
 `(P̃ + δ_p I + ÃᵀÃ) x = −q̃ + Ãᵀt` with `t` the midpoint of a two-sided row, the finite bound of
@@ -51,7 +74,8 @@ a one-sided one, `l̃` of an equality and `0` of a free row, and `y` starts at z
 and `y` are the workspace's. The slacks are `Ãx − l̃` and `ũ − Ãx`, shifted up by
 `1.5·max(0, −min s)`; the multipliers are one, or `max(∓y, 0) + 1` when seeded; both then take
 Mehrotra's balancing shift `½ sᵀz / eᵀz` and `½ sᵀz / eᵀs`. With no inequality side only `x`
-and `y` are set.
+and `y` are set. `false` means the unseeded system could not be factorized within
+`max_reg_bumps`, and nothing was changed.
 """
 function starting_point!(ws::IPMWorkspace{T}) where {T}
     prob, wt, ls = ws.prob, ws.weights, ws.linsys
@@ -62,7 +86,8 @@ function starting_point!(ws::IPMWorkspace{T}) where {T}
         fill!(wt.w, o)
         fill!(wt.w_inv, o)
         set_refresh_index!(ls, -1)
-        factorize!(ls, prob, wt) || throw_factorization_failure(ws)
+        factorize_newton!(ws, true) || return false
+        wt = ws.weights
         for j in eachindex(ws.rhs_x)
             ws.rhs_x[j] = -prob.q[j]
         end
@@ -86,7 +111,7 @@ function starting_point!(ws::IPMWorkspace{T}) where {T}
         has_u[i] && (smin = min(smin, s_u[i]))
         rclass[i] == ROW_FREE && (y[i] = zr)
     end
-    ws.n_sides > 0 || return ws
+    ws.n_sides > 0 || return true
     theta = max(zr, -T(1.5) * smin)
     sz, sums, sumz = zr, zr, zr
     for i in eachindex(s_l)
@@ -108,7 +133,7 @@ function starting_point!(ws::IPMWorkspace{T}) where {T}
         end
         rclass[i] == ROW_INEQUALITY && (y[i] = z_u[i] - z_l[i])
     end
-    return ws
+    return true
 end
 
 """
@@ -177,7 +202,7 @@ current point: `w = z_l/(s_l + δ_d z_l) + z_u/(s_u + δ_d z_u)` and `w_inv = 1/
 rows, `w_inv = δ_d` on equality rows, `w_inv = 1/δ_d` on free rows.
 """
 function weights!(ws::IPMWorkspace{T}) where {T}
-    delta = ws.settings.reg_dual
+    delta = ws.reg_dual
     w, w_inv = ws.weights.w, ws.weights.w_inv
     s_l, s_u, z_l, z_u, rclass = ws.s_l, ws.s_u, ws.z_l, ws.z_u, ws.rclass
     sz = zero(T)
@@ -238,7 +263,7 @@ and multiplier steps side by side.
 """
 function direction!(ws::IPMWorkspace{T}) where {T}
     prob, wt, s = ws.prob, ws.weights, ws.settings
-    delta = s.reg_dual
+    delta = ws.reg_dual
     rclass, has_l, has_u = ws.rclass, ws.has_l, ws.has_u
     s_l, s_u, z_l, z_u, r_l, r_u, rc_l, rc_u = ws.s_l, ws.s_u, ws.z_l, ws.z_u, ws.r_l, ws.r_u, ws.rc_l, ws.rc_u
     w_inv, rhs_z, dy = wt.w_inv, ws.rhs_z, ws.dy
@@ -366,13 +391,52 @@ function ipm_step!(ws::IPMWorkspace{T}) where {T}
 end
 
 """
+    primal_certificate!(ws, eps) -> Bool
+
+Run the primal infeasibility test on the last step `Δy` and then on `y/‖y‖∞`, copied into
+`cert_y`. `true` leaves the passing candidate, projected, in `cert_y`.
+"""
+function primal_certificate!(ws::IPMWorkspace{T}, eps::T) where {T}
+    prob, cert = ws.prob, ws.cert_y
+    copyto!(cert, ws.dy)
+    is_primal_infeasible(prob, cert, eps) && return true
+    ny = norm_inf(ws.y)
+    ny > zero(T) || return false
+    for i in eachindex(cert)
+        cert[i] = ws.y[i] / ny
+    end
+    return is_primal_infeasible(prob, cert, eps)
+end
+
+"""
+    dual_certificate!(ws, eps) -> Bool
+
+Run the dual infeasibility test on the last step `Δx` and then on `x/‖x‖∞`, copied into
+`cert_x`. `true` leaves the passing candidate in `cert_x`.
+"""
+function dual_certificate!(ws::IPMWorkspace{T}, eps::T) where {T}
+    prob, cert = ws.prob, ws.cert_x
+    copyto!(cert, ws.dx)
+    is_dual_infeasible(prob, cert, eps) && return true
+    nx = norm_inf(ws.x)
+    nx > zero(T) || return false
+    for j in eachindex(cert)
+        cert[j] = ws.x[j] / nx
+    end
+    return is_dual_infeasible(prob, cert, eps)
+end
+
+"""
     check_termination(ws::IPMWorkspace, approximate = false) -> Status
 
 `SOLVED` when the primal residual, the dual residual and, with `check_dualgap`, the duality
 gap pass the tolerances [`eps_prim`](@ref), [`eps_dual`](@ref) and
-[`eps_duality_gap`](@ref), exactly as ADMM tests them; `UNSOLVED` otherwise. With
-`approximate = true` the tolerances are ten times larger and the pass is
-`SOLVED_INACCURATE`.
+[`eps_duality_gap`](@ref), exactly as ADMM tests them. A primal residual that fails runs the
+primal infeasibility test at `eps_prim_inf`, and a dual residual that fails runs the dual one
+at `eps_dual_inf`, each on the last step and then on the normalized iterate (see
+[`is_primal_infeasible`](@ref), [`is_dual_infeasible`](@ref)); a passing test gives
+`PRIMAL_INFEASIBLE` or `DUAL_INFEASIBLE`. `UNSOLVED` otherwise. With `approximate = true`
+every tolerance is ten times larger and the statuses are the `*_INACCURATE` variants.
 """
 function check_termination(ws::IPMWorkspace{T}, approximate::Bool = false) where {T}
     s, prob = ws.settings, ws.prob
@@ -381,7 +445,13 @@ function check_termination(ws::IPMWorkspace{T}, approximate::Bool = false) where
     pres = scaled_term ? ws.scaled_prim_res : ws.prim_res
     dres = scaled_term ? ws.scaled_dual_res : ws.dual_res
     prim_ok = iszero(prob.m) || pres < f * eps_prim(prob, s, ws.z, ws.Ax)
+    if !prim_ok && primal_certificate!(ws, f * s.eps_prim_inf)
+        return approximate ? PRIMAL_INFEASIBLE_INACCURATE : PRIMAL_INFEASIBLE
+    end
     dual_ok = dres < f * eps_dual(prob, s, ws.Aty, ws.Px)
+    if !dual_ok && dual_certificate!(ws, f * s.eps_dual_inf)
+        return approximate ? DUAL_INFEASIBLE_INACCURATE : DUAL_INFEASIBLE
+    end
     (prim_ok && dual_ok) || return UNSOLVED
     if s.check_dualgap
         gap = scaled_term ? ws.scaled_duality_gap : ws.duality_gap
@@ -391,43 +461,135 @@ function check_termination(ws::IPMWorkspace{T}, approximate::Bool = false) where
 end
 
 """
+    iterate_bound(ws) -> T
+
+`1/sqrt(eps)` times the size of the data, `max(1, ‖q̃‖∞, finite |l̃|, finite |ũ|)`. An iterate
+larger than this is diverging.
+"""
+function iterate_bound(ws::IPMWorkspace{T}) where {T}
+    prob = ws.prob
+    loose = INFTY(T) * MIN_SCALING(T)
+    b = max(one(T), norm_inf(prob.q))
+    for i in eachindex(prob.l)
+        li, ui = prob.l[i], prob.u[i]
+        li > -loose && (b = max(b, abs(li)))
+        ui < loose && (b = max(b, abs(ui)))
+    end
+    return b / sqrt(eps(T))
+end
+
+"""
+    stalled!(ws, bound) -> Bool
+
+Advance the guards by the step just taken. The iteration stalls after `STALL_STEPS`
+consecutive steps shorter than `STALL_STEP`. `alert` is raised, and stays raised for the
+solve, after `STALL_MERIT` consecutive iterations whose merit, `μ` (`‖r‖∞` without an
+inequality side), is not below the previous iteration's, or once `‖x‖∞` or `‖y‖∞` exceeds
+`bound`. A rising `μ` is what an infeasible problem's diverging multipliers produce, so it
+calls for the certificate tests rather than ending the run.
+"""
+function stalled!(ws::IPMWorkspace{T}, bound::T) where {T}
+    ws.short_steps = ws.alpha < STALL_STEP(T) ? ws.short_steps + 1 : 0
+    merit = ws.n_sides > 0 ? ws.mu : ws.rnorm
+    ws.flat_merit = merit < ws.last_merit ? 0 : ws.flat_merit + 1
+    ws.last_merit = merit
+    (ws.flat_merit >= STALL_MERIT || norm_inf(ws.x) > bound || norm_inf(ws.y) > bound) &&
+        (ws.alert = true)
+    return ws.short_steps >= STALL_STEPS
+end
+
+finite_residuals(ws::IPMWorkspace) = isfinite(ws.rnorm) && isfinite(ws.prim_res) && isfinite(ws.dual_res)
+
+"""
     solve!(ws::IPMWorkspace) -> Solution
 
 Run the interior-point method. Each outer iteration refactorizes the Newton system at the
 current weights, takes one predictor–corrector step and recomputes the residuals, testing
-for termination every `check_termination` iterations. At `max_iter` the tests are retried at
-ten times the tolerances for `SOLVED_INACCURATE`, and otherwise the status is
-`MAX_ITER_REACHED`.
+for termination and infeasibility (see [`check_termination`](@ref)) every
+`check_termination` iterations. At `max_iter` the tests are retried at ten times the
+tolerances, and otherwise the status is `MAX_ITER_REACHED`.
+
+Safeguards, checked every iteration:
+
+- A factorization failure raises both regularizations tenfold and retries, at most
+  `max_reg_bumps` times in the solve; past that the run ends `NUMERICAL_ERROR`.
+- A non-finite residual ends the run `NUMERICAL_ERROR`.
+- A stalled iteration (see [`stalled!`](@ref)) runs the tests at once, then at ten times the
+  tolerances, and ends `NUMERICAL_ERROR` if neither passes.
+- Once `μ` has stopped falling for `STALL_MERIT` iterations, or an iterate exceeds
+  [`iterate_bound`](@ref), the tests run every iteration, whatever `check_termination` says,
+  and the run continues.
+- `time_limit` and an `InterruptException` end the run `TIME_LIMIT_REACHED` and
+  `INTERRUPTED` with the point reached, as for ADMM; the clock includes the starting point.
 
 The point is seeded from the previous solve with `warm_starting = true`, from
-[`warm_start!`](@ref), and otherwise computed (see [`IPMWorkspace`](@ref)). A factorization
-failure or a non-finite residual throws.
+[`warm_start!`](@ref), and otherwise computed (see [`IPMWorkspace`](@ref)). A solve that ends
+without a point ([`has_solution`](@ref) false) clears the seed, and its `Solution` carries
+`NaN` in `x` and `y`.
 """
 function solve!(ws::IPMWorkspace{T}) where {T}
     s = ws.settings
     s.warm_starting || (ws.seeded = false)
     ws.status = UNSOLVED
     ws.iter = 0
+    ws.reg_bumps = 0
+    set_regularization!(ws, s.reg_primal, s.reg_dual)
+    ws.short_steps = 0
+    ws.flat_merit = 0
+    ws.last_merit = INFTY(T)
+    ws.alert = false
+    bound = iterate_bound(ws)
     inner_before = inner_iterations(ws.linsys)
+    # As in ADMM's loop: the clock is read only when a limit is set.
+    limited = isfinite(s.time_limit)
     started = time_ns()
-    starting_point!(ws)
-    ipm_residuals!(ws)
-    for iter in 1:s.max_iter
-        ws.iter = iter
-        weights!(ws)
-        set_refresh_index!(ws.linsys, iter - 1)
-        refactor_weights!(ws.linsys, ws.prob, ws.weights) || throw_factorization_failure(ws)
-        ipm_step!(ws)
-        ipm_residuals!(ws)
-        (isfinite(ws.rnorm) && isfinite(ws.prim_res) && isfinite(ws.dual_res)) ||
-            throw_nonfinite_residual()
-        if s.check_termination > 0 && iszero(iter % s.check_termination)
-            st = check_termination(ws, false)
-            if st != UNSOLVED
-                ws.status = st
+    budget = limited ? round(UInt64, Float64(s.time_limit) * 1.0e9) : typemax(UInt64)
+    try
+        if starting_point!(ws)
+            ipm_residuals!(ws)
+            finite_residuals(ws) || (ws.status = NUMERICAL_ERROR)
+        else
+            ws.status = NUMERICAL_ERROR
+        end
+        for iter in 1:s.max_iter
+            ws.status == UNSOLVED || break
+            ws.iter = iter
+            weights!(ws)
+            set_refresh_index!(ws.linsys, iter - 1)
+            if !factorize_newton!(ws, false)
+                ws.status = NUMERICAL_ERROR
+                break
+            end
+            ipm_step!(ws)
+            ipm_residuals!(ws)
+            if !finite_residuals(ws)
+                ws.status = NUMERICAL_ERROR
+                break
+            end
+            if limited && time_ns() - started >= budget
+                ws.status = TIME_LIMIT_REACHED
+                break
+            end
+            stall = stalled!(ws, bound)
+            checking = s.check_termination > 0 && iszero(iter % s.check_termination)
+            if checking || stall || ws.alert
+                st = check_termination(ws, false)
+                if st != UNSOLVED
+                    ws.status = st
+                    break
+                end
+            end
+            if stall
+                st = check_termination(ws, true)
+                ws.status = st == UNSOLVED ? NUMERICAL_ERROR : st
                 break
             end
         end
+    catch e
+        e isa InterruptException || rethrow()
+        # An interrupt lands wherever it lands, so the residuals are those of the point reached.
+        ipm_residuals!(ws)
+        ws.status = INTERRUPTED
     end
     if ws.status == UNSOLVED
         st = check_termination(ws, false)
@@ -438,20 +600,47 @@ function solve!(ws::IPMWorkspace{T}) where {T}
     ws.cg_iters = inner_iterations(ws.linsys) - inner_before
     sol = build_solution(ws)
     ws.first_run = false
-    ws.seeded = true
+    ws.seeded = has_solution(ws.status)
     return sol
 end
 
-function build_solution(ws::IPMWorkspace{T}) where {T}
-    prob = ws.prob
-    x = prob.D .* ws.x
-    y = (prob.E .* ws.y) ./ prob.c
+"""
+    ipm_solution(ws, x, y, obj, dual_obj, gap, prim_cert, dual_cert) -> Solution
+
+Assemble a [`Solution`](@ref) from the workspace's counters and the values that depend on
+how the run ended.
+"""
+function ipm_solution(
+        ws::IPMWorkspace{T}, x, y, obj::T, dual_obj::T, gap::T, prim_cert, dual_cert
+    ) where {T}
     return Solution{T}(
-        Vector{T}(x), Vector{T}(y), ws.status, ws.obj_val, ws.dual_obj_val, ws.duality_gap,
+        Vector{T}(x), Vector{T}(y), ws.status, obj, dual_obj, gap,
         ws.prim_res, ws.dual_res, ws.rel_kkt_error, ws.iter,
         0.0, 0.0, zero(T), 0, 0, ws.cg_iters, false, POLISH_NOT_PERFORMED,
         ws.setup_time, 0.0, ws.solve_time, 0.0,
         (ws.first_run ? ws.setup_time : 0.0) + ws.solve_time,
-        T[], T[],
+        Vector{T}(prim_cert), Vector{T}(dual_cert),
     )
+end
+
+function build_solution(ws::IPMWorkspace{T}) where {T}
+    prob = ws.prob
+    n, m = prob.n, prob.m
+    nan = T(NaN)
+    if ws.status == PRIMAL_INFEASIBLE || ws.status == PRIMAL_INFEASIBLE_INACCURATE
+        cert = prob.E .* ws.cert_y
+        nc = norm_inf(cert)
+        nc > zero(T) && (cert ./= nc)
+        return ipm_solution(ws, fill(nan, n), fill(nan, m), T(Inf), nan, nan, cert, T[])
+    elseif ws.status == DUAL_INFEASIBLE || ws.status == DUAL_INFEASIBLE_INACCURATE
+        cert = prob.D .* ws.cert_x
+        nc = norm_inf(cert)
+        nc > zero(T) && (cert ./= nc)
+        return ipm_solution(ws, fill(nan, n), fill(nan, m), T(-Inf), nan, nan, T[], cert)
+    elseif !has_solution(ws.status)
+        return ipm_solution(ws, fill(nan, n), fill(nan, m), nan, nan, nan, T[], T[])
+    end
+    x = prob.D .* ws.x
+    y = (prob.E .* ws.y) ./ prob.c
+    return ipm_solution(ws, x, y, ws.obj_val, ws.dual_obj_val, ws.duality_gap, T[], T[])
 end

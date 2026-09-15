@@ -382,7 +382,8 @@ Three more things decide what the caller sees:
 - **A relaxed pass is reported as such.** When the loop ends without converging, the whole
   test is repeated at ten times the tolerances; passing that gives `SOLVED_INACCURATE`, which
   is a different answer from `SOLVED` and never presented as one. A residual above `INFTY`
-  gives `NON_CONVEX`: a convex problem's residuals cannot diverge.
+  gives `NON_CONVEX`: a convex problem's residuals cannot diverge. ADMM never reports
+  `NUMERICAL_ERROR`; that status belongs to `algorithm = :ipm`.
 
 `scaled_termination` tests the equilibrated residuals instead of the unscaled ones. It is off
 by default, since the natural question is about your problem rather than the solver's internal

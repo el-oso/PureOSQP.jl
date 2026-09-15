@@ -1,7 +1,7 @@
 """
     Status
 
-How a solve ended, reported as `Solution.status`. Eleven values, in three groups.
+How a solve ended, reported as `Solution.status`. Twelve values, in three groups.
 
 **Converged.** [`has_solution`](@ref) is true and `x`, `y` are the answer.
 
@@ -28,6 +28,7 @@ simply not a converged one, and are returned rather than discarded.
 | `DUAL_INFEASIBLE` | a certificate was found; it is in `Solution.dual_inf_cert` |
 | `PRIMAL_INFEASIBLE_INACCURATE`, `DUAL_INFEASIBLE_INACCURATE` | the same certificates, established only at ten times the requested tolerances |
 | `NON_CONVEX` | the residuals diverged, which a convex problem's cannot |
+| `NUMERICAL_ERROR` | the interior-point method could not continue: its Newton system stayed unfactorizable after `max_reg_bumps` regularization increases, a residual stopped being finite, or the iteration stalled with no certificate. ADMM never returns it |
 | `UNSOLVED` | the loop has not run. It is a workspace's state before its first [`solve!`](@ref) and never the status of a completed solve |
 
 An unconverged result is never reported as `SOLVED`.
@@ -48,6 +49,7 @@ inspect and no way to miss one by not looking.
     TIME_LIMIT_REACHED
     INTERRUPTED
     NON_CONVEX
+    NUMERICAL_ERROR
 end
 
 """

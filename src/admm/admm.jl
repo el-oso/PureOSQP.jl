@@ -38,6 +38,7 @@ function status_name(s::Status)
     s === TIME_LIMIT_REACHED && return "time limit reached"
     s === INTERRUPTED && return "interrupted"
     s === NON_CONVEX && return "problem non convex"
+    s === NUMERICAL_ERROR && return "numerical error"
     return "unsolved"
 end
 

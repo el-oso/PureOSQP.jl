@@ -142,6 +142,16 @@ end
         @test s.iter <= 2
         @test maximum(kkt_residuals(P, q, Ae, be, be, s.x, s.y)) < 1.0e-5
     end
+
+    # Equality and free rows together, still with no inequality side.
+    Af = A[1:30, :]
+    lf, uf = [be; fill(-Inf, 10)], [be; fill(Inf, 10)]
+    for sc in (0, 10)
+        s = PureOSQP.solve(P, q, Af, lf, uf; algorithm = :ipm, scaling = sc)
+        @test s.status == SOLVED
+        @test maximum(kkt_residuals(P, q, Af, lf, uf, s.x, s.y)) < 1.0e-5
+        @test all(iszero, s.y[21:30])
+    end
 end
 
 @testitem "interior point: outer iterations of the reference prototype" begin
@@ -322,4 +332,200 @@ end
     s3 = solve!(ws)
     @test s3.iter == s1.iter
     @test s3.x == s1.x
+end
+
+@testitem "interior point: random infeasible problems return checkable certificates" begin
+    using LinearAlgebra, SparseArrays, OSQP, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    for seed in 1:5, sc in (0, 10)
+        P, q, A, l, u = primal_infeasible_qp(20, 40, seed)
+        s = PureOSQP.solve(P, q, A, l, u; algorithm = :ipm, scaling = sc)
+        @test s.status == PRIMAL_INFEASIBLE
+        @test !has_solution(s.status)
+        @test all(isnan, s.x)
+        @test is_primal_certificate(A, l, u, s.prim_inf_cert)
+
+        P, q, A, l, u = dual_infeasible_qp(20, 40, seed)
+        s = PureOSQP.solve(P, q, A, l, u; algorithm = :ipm, scaling = sc)
+        @test s.status == DUAL_INFEASIBLE
+        @test all(isnan, s.y)
+        @test is_dual_certificate(P, q, A, l, u, s.dual_inf_cert)
+    end
+end
+
+@testitem "interior point: a rising μ runs the certificate tests without ending the run" begin
+    using LinearAlgebra, SparseArrays, OSQP, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    # On this instance the diverging multipliers raise `μ` for more than ten iterations in a
+    # row before the certificate passes.
+    P, q, A, l, u = primal_infeasible_qp(20, 40, 4)
+    ws = setup(P, q, A, l, u; algorithm = :ipm, scaling = 0)
+    s = solve!(ws)
+    @test s.status == PRIMAL_INFEASIBLE
+    @test ws.alert
+    @test ws.flat_merit >= PureOSQP.STALL_MERIT
+    @test is_primal_certificate(A, l, u, s.prim_inf_cert)
+    # A run without a point leaves no seed behind.
+    @test !ws.seeded
+end
+
+@testitem "interior point: the C suite infeasibility cases" begin
+    using LinearAlgebra, SparseArrays, OSQP, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    # `primal_dual_infeasibility` from `c_suite_tests.jl`, under the interior-point method.
+    P = [1.0 0.0; 0.0 0.0]
+    q = [1.0, -1.0]
+    A12 = [1.0 1.0; 1.0 0.0; 0.0 1.0]
+    A34 = [1.0 0.0; 1.0 0.0; 0.0 1.0]
+    l = [0.0, 1.0, 1.0]
+    for sc in (0, 10)
+        s1 = PureOSQP.solve(P, q, A12, l, [5.0, 3.0, 3.0]; algorithm = :ipm, scaling = sc)
+        @test s1.status == SOLVED
+        @test norm(s1.x .- [1.0, 3.0], Inf) < 1.0e-4
+        @test norm(s1.y .- [0.0, -2.0, 1.0], Inf) < 1.0e-4
+        @test abs(s1.obj_val - (-1.5)) < 1.0e-4
+
+        u2 = [0.0, 3.0, 3.0]
+        s2 = PureOSQP.solve(P, q, A12, l, u2; algorithm = :ipm, scaling = sc)
+        @test s2.status == PRIMAL_INFEASIBLE
+        @test is_primal_certificate(A12, l, u2, s2.prim_inf_cert)
+
+        u3 = [2.0, 3.0, Inf]
+        s3 = PureOSQP.solve(P, q, A34, l, u3; algorithm = :ipm, scaling = sc)
+        @test s3.status == DUAL_INFEASIBLE
+        @test is_dual_certificate(P, q, A34, l, u3, s3.dual_inf_cert)
+
+        # Both infeasible at once: `x₁ ≤ 0` and `x₁ ≥ 1` conflict, and `x₂ → ∞` descends
+        # without leaving the rows. Either certificate proves a true statement.
+        u4 = [0.0, 3.0, Inf]
+        s4 = PureOSQP.solve(P, q, A34, l, u4; algorithm = :ipm, scaling = sc)
+        @test s4.status in (PRIMAL_INFEASIBLE, DUAL_INFEASIBLE)
+        if s4.status == PRIMAL_INFEASIBLE
+            @test is_primal_certificate(A34, l, u4, s4.prim_inf_cert)
+        else
+            @test is_dual_certificate(P, q, A34, l, u4, s4.dual_inf_cert)
+        end
+    end
+end
+
+@testitem "interior point: factorization failure bumps the regularization" begin
+    using LinearAlgebra, SparseArrays, OSQP, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    # A backend that refuses to factorize while `sigma` is below a threshold, and once more
+    # at a chosen call, and otherwise defers to the full KKT factorization.
+    mutable struct Gate{L <: PureOSQP.LinearSystem} <: PureOSQP.LinearSystem
+        inner::L
+        threshold::Float64
+        fail_at::Int
+        calls::Int
+    end
+    function PureOSQP.factorize!(g::Gate, prob, wt)::Bool
+        g.calls += 1
+        (wt.sigma < g.threshold || g.calls == g.fail_at) && return false
+        return PureOSQP.factorize!(g.inner, prob, wt)
+    end
+    PureOSQP.solve_system!(g::Gate, prob, wt, rx, rz, x, z)::Nothing =
+        PureOSQP.solve_system!(g.inner, prob, wt, rx, rz, x, z)
+    PureOSQP.solve_multiplier!(g::Gate, prob, wt, rx, rz, x, nu)::Nothing =
+        PureOSQP.solve_multiplier!(g.inner, prob, wt, rx, rz, x, nu)
+    PureOSQP.backend_info(g::Gate) = PureOSQP.backend_info(g.inner)
+    function gated(P, q, A, l, u; threshold = 0.0, fail_at = 0, kwargs...)
+        m, n = size(A)
+        prob = PureOSQP.Problem(Float64, P, q, A, l, u; scaling = 0)
+        wt = PureOSQP.SystemWeights(ones(m), ones(m), 1.0e-8)
+        ls = Gate(FullKKT(zeros(n), n, m), threshold, fail_at, 0)
+        return PureOSQP.ipm_workspace(ls, prob, wt, IPMSettings{Float64}(; scaling = 0, kwargs...))
+    end
+
+    P, q, A, l, u = random_qp(20, 30; seed = 91)
+    ref = PureOSQP.solve(P, q, A, l, u; algorithm = :ipm, scaling = 0)
+    @test ref.status == SOLVED
+
+    # The starting point's factorization fails at 1e-8 and succeeds after one bump.
+    ws = gated(P, q, A, l, u; threshold = 5.0e-8)
+    s = solve!(ws)
+    @test s.status == SOLVED
+    @test ws.reg_bumps == 1
+    @test ws.reg_primal ≈ 1.0e-7
+    @test ws.reg_dual ≈ 1.0e-7
+    @test maximum(kkt_residuals(P, q, A, l, u, s.x, s.y)) < 1.0e-5
+    # Every solve starts from the settings' regularization.
+    s = solve!(ws)
+    @test s.status == SOLVED
+    @test ws.reg_bumps == 1
+
+    # A failure inside the loop, rescued by one bump.
+    ws = gated(P, q, A, l, u; fail_at = 4)
+    s = solve!(ws)
+    @test s.status == SOLVED
+    @test ws.reg_bumps == 1
+    @test maximum(kkt_residuals(P, q, A, l, u, s.x, s.y)) < 1.0e-5
+
+    # No threshold the bumps can reach: the run ends without a point.
+    for (threshold, bumps) in ((Inf, 5), (5.0e-8, 0))
+        ws = gated(P, q, A, l, u; threshold, max_reg_bumps = bumps)
+        s = solve!(ws)
+        @test s.status == NUMERICAL_ERROR
+        @test !has_solution(s.status)
+        @test ws.reg_bumps == bumps
+        @test all(isnan, s.x)
+        @test all(isnan, s.y)
+        @test isnan(s.obj_val)
+        @test !ws.seeded
+    end
+    @test PureOSQP.status_name(NUMERICAL_ERROR) == "numerical error"
+
+    @test_throws "max_reg_bumps must be non-negative" setup(P, q, A, l, u; algorithm = :ipm, max_reg_bumps = -1)
+    @test_throws "time_limit must be positive" setup(P, q, A, l, u; algorithm = :ipm, time_limit = 0.0)
+    @test_throws "eps_prim_inf and eps_dual_inf must be positive" setup(
+        P, q, A, l, u; algorithm = :ipm, eps_dual_inf = 0.0
+    )
+end
+
+@testitem "interior point: time_limit and an interrupt return the point reached" begin
+    using LinearAlgebra, SparseArrays, OSQP, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    P, q, A, l, u = random_qp(40, 60; seed = 92)
+    unlimited = PureOSQP.solve(P, q, A, l, u; algorithm = :ipm)
+    @test unlimited.status == SOLVED
+    # A nanosecond is spent by the first iteration, so the run stops there.
+    limited = PureOSQP.solve(P, q, A, l, u; algorithm = :ipm, time_limit = 1.0e-9)
+    @test limited.status == TIME_LIMIT_REACHED
+    @test limited.iter == 1 < unlimited.iter
+    @test has_solution(limited.status)
+    @test all(isfinite, limited.x)
+    @test all(isfinite, limited.y)
+    @test isfinite(limited.obj_val)
+
+    # A matrix that throws once it has been read a set number of times, as in the ADMM test:
+    # the factorization and the products read `A` every iteration, so the throw lands inside
+    # the loop.
+    mutable struct Fuse{T} <: AbstractMatrix{T}
+        A::Matrix{T}
+        n::Int
+        interrupt::Bool
+    end
+    Base.size(F::Fuse) = size(F.A)
+    function Base.getindex(F::Fuse, i::Int, j::Int)
+        F.n -= 1
+        iszero(F.n) && throw(F.interrupt ? InterruptException() : ErrorException("boom"))
+        return F.A[i, j]
+    end
+
+    P, q, A, l, u = random_qp(8, 16; seed = 3)
+    F = Fuse(A, typemax(Int), true)
+    ws = setup(P, q, F, l, u; algorithm = :ipm, check_termination = 0)
+    F.n = 20 * length(A)
+    sol = solve!(ws)
+    @test sol.status == INTERRUPTED
+    @test has_solution(sol.status)
+    @test 0 < sol.iter < 100
+    @test all(isfinite, sol.x)
+    @test all(isfinite, sol.y)
+    @test isfinite(sol.prim_res)
+
+    F = Fuse(A, typemax(Int), false)
+    ws = setup(P, q, F, l, u; algorithm = :ipm, check_termination = 0)
+    F.n = 20 * length(A)
+    @test_throws "boom" solve!(ws)
 end

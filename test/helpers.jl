@@ -107,6 +107,83 @@ function random_qp(n, m; seed = 0, colscale = 0)
 end
 
 """
+    primal_infeasible_qp(n, m, seed) -> (P, q, A, l, u)
+
+A random primal-infeasible QP with `m > n`: `y` spans a direction of the null space of `Aᵀ`,
+and two-sided bounds around a point `A x₀` are shifted by `−c·y`, which lowers
+`uᵀmax(y,0) + lᵀmin(y,0)` by `c‖y‖²` to below zero while `yᵀA x = 0` for every `x`.
+"""
+function primal_infeasible_qp(n, m, seed)
+    rng = Xoshiro(seed)
+    X = randn(rng, n, n)
+    P = X'X / n + I
+    A = randn(rng, m, n)
+    y = nullspace(Matrix(A'))[:, 1]
+    b = A * randn(rng, n)
+    r = rand(rng, m) .+ 0.1
+    c = 2 * sum(abs.(y) .* r) / dot(y, y)
+    return (P, randn(rng, n), A, b .- r .- c .* y, b .+ r .- c .* y)
+end
+
+"""
+    dual_infeasible_qp(n, m, seed) -> (P, q, A, l, u)
+
+A random dual-infeasible (unbounded) QP: `P` has rank `n − 1` with null vector `v`,
+`qᵀv = −1`, the first `m ÷ 4` rows of `A` are orthogonal to `v` and two-sided, and every
+other row keeps only the bound that `v` moves away from.
+"""
+function dual_infeasible_qp(n, m, seed)
+    rng = Xoshiro(seed)
+    X = randn(rng, n, n - 1)
+    P = Matrix(Symmetric(X * X' / n))
+    v = nullspace(P)[:, 1]
+    A = randn(rng, m, n)
+    for i in 1:(m ÷ 4)
+        A[i, :] .-= dot(A[i, :], v) .* v
+    end
+    b = A * randn(rng, n)
+    l, u = b .- rand(rng, m) .- 0.1, b .+ rand(rng, m) .+ 0.1
+    Av = A * v
+    for i in (m ÷ 4 + 1):m
+        Av[i] > 0 ? (u[i] = Inf) : (l[i] = -Inf)
+    end
+    q = randn(rng, n)
+    q .-= (dot(q, v) + 1) .* v
+    return (P, q, A, l, u)
+end
+
+"""
+    is_primal_certificate(A, l, u, y; tol = 1e-6) -> Bool
+
+Whether `y` proves `l ≤ Ax ≤ u` infeasible, from the data alone:
+`uᵀmax(y,0) + lᵀmin(y,0) < 0` with every infinite bound meeting a zero entry, and
+`‖Aᵀy‖∞ < tol‖y‖∞`.
+"""
+function is_primal_certificate(A, l, u, y; tol = 1.0e-6)
+    s = 0.0
+    for i in eachindex(y)
+        y[i] > 0 && (s += u[i] * y[i])
+        y[i] < 0 && (s += l[i] * y[i])
+    end
+    return isfinite(s) && s < 0 && norm(A' * y, Inf) < tol * norm(y, Inf)
+end
+
+"""
+    is_dual_certificate(P, q, A, l, u, x; tol = 1e-6) -> Bool
+
+Whether `x` proves the QP unbounded below, from the data alone: `qᵀx < 0`,
+`‖Px‖∞ < tol‖x‖∞`, and `Ax` in the recession cone of `[l, u]` to within `tol‖x‖∞`.
+"""
+function is_dual_certificate(P, q, A, l, u, x; tol = 1.0e-6)
+    nx = norm(x, Inf)
+    Ax = A * x
+    cone = all(eachindex(Ax)) do i
+        (!isfinite(u[i]) || Ax[i] <= tol * nx) && (!isfinite(l[i]) || Ax[i] >= -tol * nx)
+    end
+    return nx > 0 && dot(q, x) < 0 && norm(P * x, Inf) < tol * nx && cone
+end
+
+"""
     banded_qp(n, m; band = 3, seed = 0) -> (P, q, A, l, u)
 
 A convex QP whose matrices are banded, as in model-predictive control: each constraint row
