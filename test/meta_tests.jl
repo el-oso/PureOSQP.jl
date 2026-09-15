@@ -14,7 +14,7 @@
         "gpu_tests.jl" => 4,
         "indirect_tests.jl" => 6,
         "kronecker_tests.jl" => 4,
-        "linsys_tests.jl" => 30,
+        "linsys_tests.jl" => 32,
         "meta_tests.jl" => 1,
         "moi_tests.jl" => 3,
         "operator_tests.jl" => 7,

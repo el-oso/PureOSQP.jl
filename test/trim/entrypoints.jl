@@ -28,6 +28,15 @@ solve_polish(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u; polis
 solve_kkt(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u; linsys = :kkt)
 solve_unscaled(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u; scaling = 0)
 
+# ADMM never calls `solve_multiplier!`, so it needs its own entry point to be reached at all.
+# `:kkt` is what selects a backend whose override, rather than the default, is exercised.
+function solve_multiplier(P::M, q::V, A::M, l::V, u::V)
+    ws = PureOSQP.setup(P, q, A, l, u; linsys = :kkt)
+    nu = similar(ws.rhs_z)
+    PureOSQP.solve_multiplier!(ws.linsys, ws.prob, ws.weights, ws.rhs_x, ws.rhs_z, ws.xtilde, nu)
+    return nu[1]
+end
+
 # The diagonal backend is reached by representation rather than by a setting, so it needs a
 # signature of its own to be analysed at all.
 solve_diagonal(P::DM, q::V, A::DM, l::V, u::V) = PureOSQP.solve(P, q, A, l, u)

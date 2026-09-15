@@ -120,6 +120,27 @@ weight-independent parts are current, since every path that invalidates them cal
 refactor_weights!(ls::LinearSystem, prob, wt) = factorize!(ls, prob, wt)
 
 """
+    solve_multiplier!(ls, prob, wt, rhs_x, rhs_z, x, nu) -> Nothing
+
+Solve the same system as [`solve_system!`](@ref) for `x` and the eliminated multiplier `ν`
+directly, instead of for `x` and `z̃ = Ã x`. Row two of the system reads
+`Ã x − w_inv ⊙ ν = rhs_z`, so `ν = w ⊙ (z̃ − rhs_z)`, which is what the default computes from
+[`solve_system!`](@ref)'s own output. That subtraction cancels as `w_inv → 0` — `z̃` approaches
+`rhs_z` in floating point before `ν` does — so a backend that already holds `ν` as part of an
+augmented solve (a KKT backend) overrides this to return it directly, unaffected by `w_inv`'s
+magnitude.
+
+None of `rhs_x rhs_z x nu` may alias each other or `prob.work_n`, `prob.work_m`, `prob.tmp_n`,
+`prob.tmp_m`, as for [`solve_system!`](@ref).
+"""
+function solve_multiplier!(ls::LinearSystem, prob, wt, rhs_x, rhs_z, x, nu)
+    solve_system!(ls, prob, wt, rhs_x, rhs_z, x, nu)      # nu holds z̃ for a moment
+    subtract!(nu, nu, rhs_z)
+    scale_by!(nu, wt.w)
+    return nothing
+end
+
+"""
     check_update(ls, P, A) -> Nothing
 
 Throw unless the backend can go on serving the matrices `P` and `A` that [`update!`](@ref) is
@@ -802,6 +823,31 @@ function solve_system!(ls::FullKKT, prob, wt, rhs_x, rhs_z, x, z)::Nothing
     w_inv = wt.w_inv
     for i in 1:m
         z[i] = rhs_z[i] + w_inv[i] * ls.rhs[n + i]
+    end
+    return nothing
+end
+
+"""
+    solve_multiplier!(ls::FullKKT, prob, wt, rhs_x, rhs_z, x, nu) -> Nothing
+
+`ls.rhs[n+i]` is the augmented solve's own eliminated multiplier, so `ν` is read off it
+directly instead of recovered through `z̃`. This is [`solve_system!`](@ref) minus the loop
+that would go on to form `z̃ = rhs_z + w_inv ⊙ ν`.
+"""
+function solve_multiplier!(ls::FullKKT, prob, wt, rhs_x, rhs_z, x, nu)::Nothing
+    n, m = prob.n, prob.m
+    for i in 1:n
+        ls.rhs[i] = rhs_x[i]
+    end
+    for i in 1:m
+        ls.rhs[n + i] = rhs_z[i]
+    end
+    ldiv!(ls.fact, ls.rhs)
+    for i in 1:n
+        x[i] = ls.rhs[i]
+    end
+    for i in 1:m
+        nu[i] = ls.rhs[n + i]
     end
     return nothing
 end

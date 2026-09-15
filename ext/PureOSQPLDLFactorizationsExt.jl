@@ -330,6 +330,40 @@ function PureOSQP.solve_system!(ls::LDLKKT{T}, prob, wt, rhs_x, rhs_z, x, z)::No
     return nothing
 end
 
+"""
+    PureOSQP.solve_multiplier!(ls::LDLKKT, prob, wt, rhs_x, rhs_z, x, nu) -> Nothing
+
+The forward-backward solve already leaves `ν` in `work` before the eliminated multiplier
+would be turned into `z̃ = rhs_z + w_inv ⊙ ν`, so this is [`PureOSQP.solve_system!`](@ref)
+minus that last loop.
+"""
+function PureOSQP.solve_multiplier!(
+        ls::LDLKKT{T}, prob, wt, rhs_x, rhs_z, x, nu
+    )::Nothing where {T}
+    n, m = prob.n, prob.m
+    N = n + m
+    perm, work = ls.perm, ls.work
+    L, dinv = ls.L, ls.dinv
+    for i in 1:N
+        p = perm[i]
+        work[i] = p <= n ? rhs_x[p] : rhs_z[p - n]
+    end
+    unit_forward!(work, L, N)
+    for i in 1:N
+        work[i] *= dinv[i]
+    end
+    unit_backward!(work, L, N)
+    for i in 1:N
+        p = perm[i]
+        if p <= n
+            x[p] = work[i]
+        else
+            nu[p - n] = work[i]
+        end
+    end
+    return nothing
+end
+
 # No `trim_compat` claim: the factorization is a foreign package's, and the trim entry points
 # cover the dense path.
 @verify SparseLDL

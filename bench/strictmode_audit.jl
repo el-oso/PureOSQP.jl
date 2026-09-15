@@ -246,8 +246,8 @@ end
 failures = String[]
 
 for backend in (
-        :auto, :kkt, :sparse, :cholmod, :diagonal, :tridiagonal, :banded, :lowrank, :indirect,
-        :block, :kronecker, :operator, :productoperator,
+        :auto, :kkt, :sparse, :sparse_kkt, :cholmod, :diagonal, :tridiagonal, :banded, :lowrank,
+        :indirect, :block, :kronecker, :operator, :productoperator,
     )
     ws = example_workspace(backend)
     W = typeof(ws)
@@ -262,8 +262,10 @@ for backend in (
     tier = matrix_free ? :hot_measured : :hot
     # See `:warm_sparse`: only the factorization side is affected, never the hot path.
     # `:cholmod` reaches sparse arithmetic whichever engine factors it -- the reduced matrix
-    # is assembled the same way before either sees it.
-    warm = backend === :cholmod ? :warm_sparse : :warm
+    # is assembled the same way before either sees it. `:sparse_kkt` factors the KKT matrix
+    # with the same foreign LDLᵀ code and inherits the same exemption; `solve_multiplier!`
+    # is checked separately below, at the hot tier, since it is this package's own code.
+    warm = backend in (:cholmod, :sparse_kkt) ? :warm_sparse : :warm
     solve_sys() = @allocated PureOSQP.solve_system!(
         ws.linsys, ws.prob, ws.weights, ws.rhs_x, ws.rhs_z, ws.xtilde, ws.ztilde
     )
@@ -278,6 +280,14 @@ for backend in (
         (PureOSQP.refactor_weights!, (LS, PB, WT), warm, nothing),
         (PureOSQP.solve!, (W,), warm, nothing),
     ]
+    if backend in (:kkt, :sparse_kkt)
+        # ADMM never calls this; the KKT backends' own override is what the guarantee
+        # applies to, at the same tier as `solve_system!` since it does the same work.
+        solve_mult() = @allocated PureOSQP.solve_multiplier!(
+            ws.linsys, ws.prob, ws.weights, ws.rhs_x, ws.rhs_z, ws.xtilde, ws.ztilde
+        )
+        push!(checks, (PureOSQP.solve_multiplier!, (LS, PB, WT, V, V, V, V), tier, solve_mult))
+    end
     if matrix_free
         # The operator is this package's own code and gets the full static guarantee, with
         # no exemption: it is where a matrix-free product would allocate if one did.

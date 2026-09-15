@@ -730,3 +730,72 @@ end
         setup(P, [1.0, 1.0], A, l, u; linsys = :kkt), false
     )
 end
+
+@testitem "solve_multiplier! recovers ν directly on FullKKT as w_inv shrinks" begin
+    using LinearAlgebra, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    P, q, A, l, u = random_qp(10, 16; seed = 30)
+    ws = setup(P, q, A, l, u; linsys = :kkt, sigma = 1.0e-6, scaling = 0)
+    @test ws.linsys isa PureOSQP.FullKKT
+    # This is the w_inv an IPM's dual regularization reaches on an active inequality row,
+    # where the default path's cancellation below is worst.
+    for i in (1, 2)
+        ws.weights.w_inv[i] = 1.0e-12
+        ws.weights.w[i] = inv(ws.weights.w_inv[i])
+    end
+    @test PureOSQP.factorize!(ws.linsys, ws.prob, ws.weights)
+    n, m = ws.prob.n, ws.prob.m
+    bx, bz = randn(n), randn(m)
+    x, nu = similar(bx), similar(bz)
+    PureOSQP.solve_multiplier!(ws.linsys, ws.prob, ws.weights, bx, bz, x, nu)
+    @test ws.prob.A * x .- ws.weights.w_inv .* nu ≈ bz atol = 1.0e-9
+
+    # The default recovers ν from z̃ = rhs_z + w_inv ⊙ ν: at this w_inv the addition rounds
+    # z̃ back to rhs_z before the subtraction sees ν, so on the rows w_inv was shrunk on it
+    # comes back measurably (here ~1e-5 to 1e-4 relative) less accurate than the direct
+    # extraction above, which stays at the factorization's own precision.
+    x_def, nu_def = similar(bx), similar(bz)
+    invoke(
+        PureOSQP.solve_multiplier!,
+        Tuple{PureOSQP.LinearSystem, Any, Any, Any, Any, Any, Any},
+        ws.linsys, ws.prob, ws.weights, bx, bz, x_def, nu_def,
+    )
+    @test x_def ≈ x
+    @test abs(nu_def[1] - nu[1]) > 1.0e-6 * abs(nu[1])
+    @test abs(nu_def[2] - nu[2]) > 1.0e-6 * abs(nu[2])
+end
+
+@testitem "solve_multiplier! recovers ν directly on the sparse KKT backend as w_inv shrinks" begin
+    using LinearAlgebra, SparseArrays, LDLFactorizations, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    Random.seed!(8)
+    n, m = 200, 100
+    # A dense row is what makes the KKT form win over the reduced one, as in the OSQP
+    # suite's Portfolio class; the fill gate needs this many columns to accept it.
+    A = vcat(sprandn(m - 1, n, 0.02), sparse(ones(1, n)))
+    P = sparse(1.0I, n, n)
+    q = randn(n)
+    b = A * randn(n)
+    l, u = b .- rand(m), b .+ rand(m)
+    ws = setup(P, q, A, l, u; linsys = :sparse, scaling = 0)
+    @test PureOSQP.backend_name(ws.linsys) in SPARSE_KKT_BACKENDS
+    for i in (1, 2)
+        ws.weights.w_inv[i] = 1.0e-12
+        ws.weights.w[i] = inv(ws.weights.w_inv[i])
+    end
+    @test PureOSQP.factorize!(ws.linsys, ws.prob, ws.weights)
+    bx, bz = randn(n), randn(m)
+    x, nu = similar(bx), similar(bz)
+    PureOSQP.solve_multiplier!(ws.linsys, ws.prob, ws.weights, bx, bz, x, nu)
+    @test ws.prob.A * x .- ws.weights.w_inv .* nu ≈ bz atol = 1.0e-9
+
+    x_def, nu_def = similar(bx), similar(bz)
+    invoke(
+        PureOSQP.solve_multiplier!,
+        Tuple{PureOSQP.LinearSystem, Any, Any, Any, Any, Any, Any},
+        ws.linsys, ws.prob, ws.weights, bx, bz, x_def, nu_def,
+    )
+    @test x_def ≈ x
+    @test abs(nu_def[1] - nu[1]) > 1.0e-6 * abs(nu[1])
+    @test abs(nu_def[2] - nu[2]) > 1.0e-6 * abs(nu[2])
+end

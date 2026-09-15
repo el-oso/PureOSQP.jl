@@ -567,6 +567,37 @@ function PureOSQP.solve_system!(ls::SparseKKT{T}, prob, wt, rhs_x, rhs_z, x, z):
 end
 
 """
+    PureOSQP.solve_multiplier!(ls::SparseKKT, prob, wt, rhs_x, rhs_z, x, nu) -> Nothing
+
+The forward-backward solve already leaves `ν` in `work` before the eliminated multiplier
+would be turned into `z̃ = rhs_z + w_inv ⊙ ν`, so this is [`PureOSQP.solve_system!`](@ref)
+minus that last loop.
+"""
+function PureOSQP.solve_multiplier!(
+        ls::SparseKKT{T}, prob, wt, rhs_x, rhs_z, x, nu
+    )::Nothing where {T}
+    n, m = prob.n, prob.m
+    N = n + m
+    perm, work = ls.perm, ls.work
+    for i in 1:N
+        p = perm[i]
+        work[i] = p <= n ? rhs_x[p] : rhs_z[p - n]
+    end
+    ldl_forward!(work, ls.L, N)
+    work .*= ls.dinv
+    ldl_backward!(work, ls.L, N)
+    for i in 1:N
+        p = perm[i]
+        if p <= n
+            x[p] = work[i]
+        else
+            nu[p - n] = work[i]
+        end
+    end
+    return nothing
+end
+
+"""
     sparse_kkt_backend(P, A, prob, wt) -> SparseKKT or nothing
 
 Build the full-KKT backend when the reduced form would densify and this one would not.

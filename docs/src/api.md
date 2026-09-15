@@ -96,6 +96,7 @@ PureOSQP.refactor_rho!
 PureOSQP.factorize!
 PureOSQP.refactor_weights!
 PureOSQP.solve_system!
+PureOSQP.solve_multiplier!
 PureOSQP.admm_step!
 PureOSQP.set_rho_vec!
 PureOSQP.adapt_rho!
