@@ -6,7 +6,7 @@
 # right place.
 #
 # Both backends read their data from the same workspace — `factorize!` and `solve_system!`
-# take the workspace, not their own copy of the problem — so one is built by `setup` and the
+# take the workspace's problem and weights, not their own copy — so one is built by `setup` and the
 # other constructed beside it. Nothing here extends `choose_backend`, so running this file
 # leaves selection exactly as it ships.
 using PureOSQP, BandedMatrices, LinearAlgebra
@@ -69,19 +69,20 @@ for n in SIZES
         # the same equilibrated data through the same `ws`.
         ws = PureOSQP.setup(P, q, A, l, u; linsys = :dense, OPTS...)
         bl = banded_for(ws, b)
-        PureOSQP.factorize!(bl, ws) || error("n=$n b=$b: banded factorization failed")
+        pb, wt, x, z = ws.prob, ws.weights, ws.xtilde, ws.ztilde
+        PureOSQP.factorize!(bl, pb, wt) || error("n=$n b=$b: banded factorization failed")
         accepted = PureOSQP.backend_name(PureOSQP.setup(P, q, A, l, u; OPTS...).linsys) === :banded
         bx, bz = randn(n), randn(n)
         # Both backends must agree before their times mean anything.
-        PureOSQP.solve_system!(bl, ws, bx, bz)
-        xb = copy(ws.xtilde)
-        PureOSQP.solve_system!(ws.linsys, ws, bx, bz)
-        isapprox(xb, ws.xtilde; rtol = 1.0e-8) || error("n=$n b=$b: backends disagree")
+        PureOSQP.solve_system!(bl, pb, wt, bx, bz, x, z)
+        xb = copy(x)
+        PureOSQP.solve_system!(ws.linsys, pb, wt, bx, bz, x, z)
+        isapprox(xb, x; rtol = 1.0e-8) || error("n=$n b=$b: backends disagree")
 
-        fb = @be PureOSQP.factorize!($bl, $ws) seconds = BUDGET
-        fd = @be PureOSQP.factorize!($ws.linsys, $ws) seconds = BUDGET
-        sb = @be PureOSQP.solve_system!($bl, $ws, $bx, $bz) seconds = BUDGET
-        sd = @be PureOSQP.solve_system!($ws.linsys, $ws, $bx, $bz) seconds = BUDGET
+        fb = @be PureOSQP.factorize!($bl, $pb, $wt) seconds = BUDGET
+        fd = @be PureOSQP.factorize!($ws.linsys, $pb, $wt) seconds = BUDGET
+        sb = @be PureOSQP.solve_system!($bl, $pb, $wt, $bx, $bz, $x, $z) seconds = BUDGET
+        sd = @be PureOSQP.solve_system!($ws.linsys, $pb, $wt, $bx, $bz, $x, $z) seconds = BUDGET
         med(x) = median(s.time for s in x.samples)
         tfb, tfd, tsb, tsd = med(fb), med(fd), med(sb), med(sd)
         push!(

@@ -81,10 +81,10 @@ end
     l = [1.0, -Inf, 0.0]
     u = [1.0, Inf, 1.0]
     ws = setup(zeros(2, 2), zeros(2), A, l, u; scaling = 0, rho = 0.1)
-    @test ws.rho_vec[1] ≈ 1.0e3 * 0.1
-    @test ws.rho_vec[2] ≈ 1.0e-6
-    @test ws.rho_vec[3] ≈ 0.1
-    @test ws.rho_inv_vec ≈ 1 ./ ws.rho_vec
+    @test ws.weights.w[1] ≈ 1.0e3 * 0.1
+    @test ws.weights.w[2] ≈ 1.0e-6
+    @test ws.weights.w[3] ≈ 0.1
+    @test ws.weights.w_inv ≈ 1 ./ ws.weights.w
     @test ws.constr_type == Int8[1, -1, 0]
 end
 
@@ -179,13 +179,13 @@ end
     # Only the iterates are discarded. `ρ`, the equilibration factors and the
     # factorization survive, as they do upstream, so cold starting costs no refactorization.
     refac = ws.refactor_count
-    rho = copy(ws.rho_vec)
+    rho = copy(ws.weights.w)
     @test cold_start!(ws) === ws
     @test all(iszero, ws.x)
     @test all(iszero, ws.y)
     @test all(iszero, ws.z)
     @test ws.refactor_count == refac
-    @test ws.rho_vec == rho
+    @test ws.weights.w == rho
 
     cold = PureOSQP.solve!(ws)
     @test cold.status == SOLVED
@@ -406,8 +406,8 @@ end
     flat = setup(
         zeros(2, 2), zeros(2), A2, l2, u2; scaling = 0, rho = 0.1, rho_is_vec = false
     )
-    @test length(unique(split.rho_vec)) == 3     # equality, free, inequality
-    @test all(≈(0.1), flat.rho_vec)
+    @test length(unique(split.weights.w)) == 3     # equality, free, inequality
+    @test all(≈(0.1), flat.weights.w)
     @test all(iszero, flat.constr_type)
 end
 
@@ -517,6 +517,25 @@ end
     @test PureOSQP.solve!(ws).status == SOLVED
 end
 
+@testitem "update_settings! builds a new sigma into the factorized matrix" begin
+    using LinearAlgebra
+    # With `P` and `A` diagonal and no equilibration the backend stores the reciprocal of
+    # `P[j,j] + σ + ρⱼ A[j,j]²` entry by entry, so the σ it factored with can be read back.
+    n = 5
+    P = Diagonal([1.0, 2.0, 3.0, 4.0, 5.0])
+    A = Diagonal([0.5, 1.0, 1.5, 2.0, 2.5])
+    ws = setup(P, ones(n), A, -ones(n), ones(n); scaling = 0, sigma = 1.0e-6, rho = 0.1)
+    @test ws.linsys isa PureOSQP.DiagonalReduced
+    reduced(sigma) = inv.(P.diag .+ sigma .+ ws.weights.w .* A.diag .^ 2)
+    @test ws.linsys.dinv ≈ reduced(1.0e-6) rtol = 1.0e-14
+
+    update_settings!(ws; sigma = 0.25)
+    @test ws.settings.sigma == 0.25
+    @test ws.weights.sigma == 0.25
+    @test ws.linsys.dinv ≈ reduced(0.25) rtol = 1.0e-14
+    @test PureOSQP.solve!(ws).status == SOLVED
+end
+
 @testitem "update_rho! is the solver's own rho change, exposed" begin
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
@@ -530,9 +549,9 @@ end
     @test ws.refactor_count > before
     @test ws.rho ≈ 0.7
     # Split across the constraint classes exactly as adaptive rho does.
-    @test ws.rho_vec[1] ≈ 1.0e3 * 0.7      # equality
-    @test ws.rho_vec[2] ≈ 1.0e-6           # free row
-    @test ws.rho_vec[3] ≈ 0.7              # inequality
+    @test ws.weights.w[1] ≈ 1.0e3 * 0.7      # equality
+    @test ws.weights.w[2] ≈ 1.0e-6           # free row
+    @test ws.weights.w[3] ≈ 0.7              # inequality
 
     # Clamped to the solver's band rather than accepted as given.
     update_rho!(ws, 1.0e12)

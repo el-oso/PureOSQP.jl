@@ -19,7 +19,7 @@ using PureOSQP, TypeContracts, Markdown
 Markdown.parse(replace(contract_md_string(PureOSQP.LinearSystem), r"\A# [^\n]*\n+" => ""))
 ```
 
-`PureOSQP.refactor_rho!` is not part of the contract, as its default is to rebuild the factorization.
+`PureOSQP.refactor_weights!` is not part of the contract, as its default is to rebuild the factorization.
 
 @verify ensures that backends implement the required methods and return the correct types at precompilation.
 
@@ -36,7 +36,7 @@ To add a backend, subtype `LinearSystem`, implement the mandatory methods, and u
 | `solve_system!` | type-stable, allocation-free |
 | `check_termination` | type-stable |
 | `factorize!` | type-stable |
-| `refactor_rho!` | type-stable |
+| `refactor_weights!` | type-stable |
 | `solve!` | type-stable |
 
 Two notes:

@@ -27,9 +27,31 @@ end
     P, q, A, l, u = random_qp(20, 40; seed = 8)
     ws = setup(P, q, A, l, u; eps_abs = 1.0e-8, eps_rel = 1.0e-8, linsys = :indirect)
     PureOSQP.solve!(ws)
-    PureOSQP.solve_system!(ws.linsys, ws, ws.rhs_x, ws.rhs_z)      # warm up
-    allocs = [(@allocated PureOSQP.solve_system!(ws.linsys, ws, ws.rhs_x, ws.rhs_z)) for _ in 1:4]
+    # Measured inside a function: from top-level scope the call is a dynamic dispatch on an
+    # untyped global, and that dispatch allocates 32 bytes of its own.
+    solve_bytes(ws) = @allocated PureOSQP.solve_system!(
+        ws.linsys, ws.prob, ws.weights, ws.rhs_x, ws.rhs_z, ws.xtilde, ws.ztilde
+    )
+    solve_bytes(ws)      # warm up
+    allocs = [solve_bytes(ws) for _ in 1:4]
     @test all(iszero, allocs)
+end
+
+@testitem "the matrix-free backend reads the CG settings setup and update_settings! give it" begin
+    using LinearAlgebra, SparseArrays, OSQP, Random, Krylov
+    include(joinpath(@__DIR__, "helpers.jl"))
+    P, q, A, l, u = random_qp(20, 40; seed = 9)
+    ws = setup(P, q, A, l, u; linsys = :indirect, cg_max_iter = 7, cg_tol_fraction = 0.3)
+    @test (ws.linsys.max_iter, ws.linsys.tol_fraction, ws.linsys.tol_reduction) == (7, 0.3, 10)
+
+    update_settings!(ws; cg_max_iter = 1, cg_tol_fraction = 0.05, cg_tol_reduction = 4)
+    @test (ws.linsys.max_iter, ws.linsys.tol_fraction, ws.linsys.tol_reduction) == (1, 0.05, 4)
+    # And the solve honors it: one CG iteration at most, whatever the tolerance asks for.
+    ws.rhs_x .= randn(20)
+    ws.rhs_z .= randn(40)
+    PureOSQP.set_tolerance_level!(ws.linsys, 0.0)
+    PureOSQP.solve_system!(ws.linsys, ws.prob, ws.weights, ws.rhs_x, ws.rhs_z, ws.xtilde, ws.ztilde)
+    @test ws.linsys.kws.stats.niter == 1
 end
 
 @testitem "asking for the matrix-free backend without Krylov says so" begin
@@ -91,8 +113,8 @@ end
         m = size(A, 1)
         lo, hi = -rand(m) .- 0.5, rand(m) .+ 0.5
         ws, ref_ws = setup(P, q, A, lo, hi; opts...), setup(P, q, Matrix(A), lo, hi; opts...)
-        @test PureOSQP.factorize!(ws.linsys, ws)
-        @test PureOSQP.factorize!(ref_ws.linsys, ref_ws)
+        @test PureOSQP.factorize!(ws.linsys, ws.prob, ws.weights)
+        @test PureOSQP.factorize!(ref_ws.linsys, ref_ws.prob, ref_ws.weights)
         @test ws.linsys.prec == ref_ws.linsys.prec
 
         res, ref = PureOSQP.solve!(ws), PureOSQP.solve!(ref_ws)

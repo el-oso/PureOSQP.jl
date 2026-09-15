@@ -312,8 +312,8 @@ mutable struct Workspace{
     rhs_x::V
     rhs_z::V
     rho::T
-    rho_vec::V
-    rho_inv_vec::V
+    # `w = ρ`, `w_inv = ρ⁻¹` per row, `sigma = σ`; replaced whenever `σ` changes.
+    weights::SystemWeights{T, V}
     constr_type::VI
     linsys::LS
     # `nothing` unless the caller supplied an accelerator. Its type is a parameter so the
@@ -551,22 +551,29 @@ function setup_backend(
         INFTY(T) * MIN_SCALING(T), settings.rho_is_vec
     )
     ac = init_accelerator(accelerator, T, n, m)
-    make(ls) = Workspace{
-        T, typeof(P), typeof(A), typeof(q0), typeof(ctype), typeof(ls), typeof(ac),
-    }(
-        prob,
-        buf(n, z), buf(m, z), buf(m, z), buf(n, z), buf(m, z), buf(n, z), buf(m, z), buf(n, z), buf(m, z),
-        buf(m, z), buf(n, z), buf(n, z),
-        buf(n, z), buf(m, z),
-        rho, rho_vec, rho_inv_vec, ctype,
-        ls, ac, 0,
-        zero(T), zero(T), zero(T), zero(T), zero(T),
-        zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), INFTY(T),
-        0.0, 0.0, 0.0, zero(T), zero(UInt64),
-        settings.rho, 0, 0, 0, UNSOLVED, false, POLISH_NOT_PERFORMED,
-        0.0, 0.0, true, 0.0, 0.0,
-        settings,
-    )
+    wt = SystemWeights(rho_vec, rho_inv_vec, settings.sigma)
+    # `built`, not `ws`: assigning a name the enclosing function also assigns would capture
+    # that variable, and a captured variable that is assigned is boxed.
+    function make(ls)
+        built = Workspace{
+            T, typeof(P), typeof(A), typeof(q0), typeof(ctype), typeof(ls), typeof(ac),
+        }(
+            prob,
+            buf(n, z), buf(m, z), buf(m, z), buf(n, z), buf(m, z), buf(n, z), buf(m, z), buf(n, z), buf(m, z),
+            buf(m, z), buf(n, z), buf(n, z),
+            buf(n, z), buf(m, z),
+            rho, wt, ctype,
+            ls, ac, 0,
+            zero(T), zero(T), zero(T), zero(T), zero(T),
+            zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), INFTY(T),
+            0.0, 0.0, 0.0, zero(T), zero(UInt64),
+            settings.rho, 0, 0, 0, UNSOLVED, false, POLISH_NOT_PERFORMED,
+            0.0, 0.0, true, 0.0, 0.0,
+            settings,
+        )
+        adopt_settings!(built.linsys, settings)
+        return built
+    end
     # `LS` is a type parameter, so a named backend leaves exactly one of these branches live
     # and the rest are gone before the trimmer sees them. `settings` still holds and validates
     # the same value; reading it back here instead would put the choice beyond inference's
@@ -665,7 +672,7 @@ function setup_backend(
     ws = make(ls)
     # A factorization that fails here throws, as it does at every later refactorization, and
     # names `linsys = :kkt` as the remedy rather than switching backends unannounced.
-    factored ? (ws.refactor_count += 1) : refactored!(ws, factorize!(ws.linsys, ws))
+    factored ? (ws.refactor_count += 1) : refactor!(ws)
     return finish_setup!(ws, t0)
 end
 

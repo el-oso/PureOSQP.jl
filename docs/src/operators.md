@@ -96,10 +96,12 @@ and skip equilibration. Both are described under [`PureOSQP.ProductOperator`](@r
 
 ### 3. A `LinearSystem` — the reduced matrix is never formed
 
-Subtype [`PureOSQP.LinearSystem`](@ref) and implement `factorize!`, `solve_system!` and
-`backend_info`; the contract is enforced at precompilation, and
-[`PureOSQP.refactor_rho!`](@ref) is optional. The backend decides what "solve the reduced
-system" means for this structure, and it is where the `O(n²)` object stops existing.
+Subtype [`PureOSQP.LinearSystem`](@ref) and implement `factorize!(ls, prob, wt)`,
+`solve_system!(ls, prob, wt, rhs_x, rhs_z, x, z)` and `backend_info`; the contract is enforced
+at precompilation, and [`PureOSQP.refactor_weights!`](@ref) is optional. `prob` is the
+[`PureOSQP.Problem`](@ref) and `wt` the [`PureOSQP.SystemWeights`](@ref). The backend decides
+what "solve the reduced system" means for this structure, and it is where the `O(n²)` object
+stops existing.
 
 ```julia
 mutable struct BlockSolve{T} <: PureOSQP.LinearSystem
@@ -109,7 +111,7 @@ end
 
 `factorize!` builds whatever the structure implies — for blocks, one small factorization
 each; for a low-rank correction, a `k×k` capacitance. `solve_system!` calls
-[`PureOSQP.reduced_rhs!`](@ref) first, writes `ws.xtilde`, then `mul_A!` into `ws.ztilde`.
+[`PureOSQP.reduced_rhs!`](@ref) first, writes `x`, then `mul_A!` into `z`.
 
 Two things the shipped backends do well. Invert each block and use `symv` instead of keeping
 a factor and calling `ldiv!`: both cost `2nᵢ²` flops, but a triangular solve computes its

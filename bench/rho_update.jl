@@ -62,7 +62,7 @@ end
 println("\nThe ρ-only update channel against a full rebuild.\n")
 @printf(
     "%-16s %6s %-13s | %12s %12s %8s\n",
-    "case", "n", "backend", "refactor_rho!", "factorize!", "saved"
+    "case", "n", "backend", "refactor_weights!", "factorize!", "saved"
 )
 println("-"^76)
 
@@ -74,17 +74,18 @@ for n in (500, 1000, 2000)
         backend = PureOSQP.backend_name(ws.linsys)
         # Both paths must leave the same factorization behind, or the cheap one is not an
         # update of the expensive one.
-        PureOSQP.refactor_rho!(ws.linsys, ws) || error("$name at n=$n: rho update failed")
+        pb, wt = ws.prob, ws.weights
+        PureOSQP.refactor_weights!(ws.linsys, pb, wt) || error("$name at n=$n: rho update failed")
         rhs = copy(ws.rhs_x)
-        PureOSQP.solve_system!(ws.linsys, ws, rhs, ws.rhs_z)
+        PureOSQP.solve_system!(ws.linsys, pb, wt, rhs, ws.rhs_z, ws.xtilde, ws.ztilde)
         xr = copy(ws.xtilde)
-        PureOSQP.factorize!(ws.linsys, ws) || error("$name at n=$n: rebuild failed")
-        PureOSQP.solve_system!(ws.linsys, ws, rhs, ws.rhs_z)
+        PureOSQP.factorize!(ws.linsys, pb, wt) || error("$name at n=$n: rebuild failed")
+        PureOSQP.solve_system!(ws.linsys, pb, wt, rhs, ws.rhs_z, ws.xtilde, ws.ztilde)
         isapprox(xr, ws.xtilde; rtol = 1.0e-12) ||
             error("$name at n=$n: the two paths disagree")
         tr, tf = abba(
-            () -> @be(PureOSQP.refactor_rho!(ws.linsys, ws), seconds = BUDGET),
-            () -> @be(PureOSQP.factorize!(ws.linsys, ws), seconds = BUDGET),
+            () -> @be(PureOSQP.refactor_weights!(ws.linsys, pb, wt), seconds = BUDGET),
+            () -> @be(PureOSQP.factorize!(ws.linsys, pb, wt), seconds = BUDGET),
         )
         push!(rows, (; name, n, backend = string(backend), rho = tr, full = tf))
         @printf(

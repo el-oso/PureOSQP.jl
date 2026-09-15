@@ -31,7 +31,7 @@ mutable struct KroneckerReduced{
     dinv::M          # `n₂×n₁`, the reciprocal diagonal in the eigenbasis
     X::M             # `n₂×n₁` scratch, the right-hand side reshaped
     Z::M             # `n₂×n₁` scratch, one product in
-    mu::T            # the `μ` of `P = μI`, settled by the rung
+    mu::T            # the `μ` of `P = μI`, read by the rung and by every `factorize!`
 end
 
 """
@@ -88,11 +88,28 @@ function kronecker_rung(
     return (KroneckerReduced(proto, n1, n2, T(scalar_multiple(P))), false)
 end
 
-function factorize!(ls::KroneckerReduced{T}, ws)::Bool where {T}
-    prob = ws.prob
-    A = prob.A
-    rho = first(ws.rho_vec)
-    shift = prob.c * ls.mu + ws.settings.sigma
+# The diagonalization has no form for a general `P`.
+function check_update(ls::KroneckerReduced, P, A)
+    is_scalar_multiple(P) || throw(
+        ArgumentError(
+            "P must stay a scalar multiple of the identity: the kronecker backend " *
+                "diagonalizes cμ + σ + ρ(G₁⊗G₂) and has no form for a general P. " *
+                "Rebuild the workspace with setup."
+        )
+    )
+    return nothing
+end
+
+function factorize!(ls::KroneckerReduced{T}, prob, wt)::Bool where {T}
+    A, P = prob.A, prob.P
+    # `μ` is read from `P` on every factorization, so a `P` that `update!` replaced is the one
+    # the diagonal is built from. The predicate comes first for the same reason as in the rung:
+    # for a representation that is never a scalar multiple it folds to `false` and leaves no
+    # call to `scalar_multiple` behind.
+    is_scalar_multiple(P) || return false
+    ls.mu = T(scalar_multiple(P))
+    rho = first(wt.w)
+    shift = prob.c * ls.mu + wt.sigma
     # `Gᵢ = AᵢᵀAᵢ` is formed at factor size and thrown away; only its eigenbasis is kept.
     F1 = eigen(Symmetric(A.A1' * A.A1))
     F2 = eigen(Symmetric(A.A2' * A.A2))
@@ -108,9 +125,8 @@ function factorize!(ls::KroneckerReduced{T}, ws)::Bool where {T}
     return true
 end
 
-function solve_system!(ls::KroneckerReduced, ws, rhs_x, rhs_z)::Nothing
-    prob = ws.prob
-    reduced_rhs!(ws, rhs_x, rhs_z)
+function solve_system!(ls::KroneckerReduced, prob, wt, rhs_x, rhs_z, x, z)::Nothing
+    reduced_rhs!(prob, wt, rhs_x, rhs_z)
     # Copied into the backend's own `n₂×n₁` scratch rather than reshaped in place: `reshape`
     # of a vector allocates an array header, and this runs every iteration.
     copyto!(ls.X, prob.work_n)
@@ -124,7 +140,7 @@ function solve_system!(ls::KroneckerReduced, ws, rhs_x, rhs_z)::Nothing
     end
     mul!(ls.Z, ls.Q2, ls.X)           # Q₂ (…)
     mul!(ls.X, ls.Z, ls.Q1')          # Q₂ (…) Q₁ᵀ
-    copyto!(ws.xtilde, ls.X)
-    prob.m > 0 && mul_A!(ws.ztilde, prob, ws.xtilde)
+    copyto!(x, ls.X)
+    prob.m > 0 && mul_A!(z, prob, x)
     return nothing
 end

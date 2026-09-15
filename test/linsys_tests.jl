@@ -7,9 +7,9 @@
     A = randn(m, n)
     ws = setup(P, randn(n), A, -rand(m), rand(m); scaling = 0, sigma = 1.0e-6, rho = 0.1)
     @test ws.linsys isa PureOSQP.ReducedCholesky
-    K = [P + ws.settings.sigma * I  A'; A  -Diagonal(1 ./ ws.rho_vec)]
+    K = [P + ws.settings.sigma * I  A'; A  -Diagonal(1 ./ ws.weights.w)]
     bx, bz = randn(n), randn(m)
-    PureOSQP.solve_system!(ws.linsys, ws, bx, bz)
+    PureOSQP.solve_system!(ws.linsys, ws.prob, ws.weights, bx, bz, ws.xtilde, ws.ztilde)
     ref = K \ [bx; bz]
     @test ws.xtilde ≈ ref[1:n] rtol = 1.0e-9
     @test ws.ztilde ≈ A * ws.xtilde rtol = 1.0e-9
@@ -31,10 +31,10 @@ end
     ws = setup(P, q, A, -ones(m), ones(m); scaling = 0, linsys = :kkt)
     @test ws.linsys isa PureOSQP.FullKKT
     bx, bz = randn(n), randn(m)
-    PureOSQP.solve_system!(ws.linsys, ws, bx, bz)
+    PureOSQP.solve_system!(ws.linsys, ws.prob, ws.weights, bx, bz, ws.xtilde, ws.ztilde)
     # At this conditioning a Float64 `K \ b` is no more trustworthy than the solver, so
     # the reference is computed in extended precision.
-    K = [P + ws.settings.sigma * I  A'; A  -Diagonal(1 ./ ws.rho_vec)]
+    K = [P + ws.settings.sigma * I  A'; A  -Diagonal(1 ./ ws.weights.w)]
     ref = Float64.(big.(K) \ big.([bx; bz]))[1:n]
     @test norm(ws.xtilde .- ref, Inf) < 1.0e-4 * norm(ref, Inf)
 end
@@ -267,8 +267,13 @@ end
     ws = setup(P, q, A, l, u; eps_abs = 1.0e-9, eps_rel = 1.0e-9)
     @test PureOSQP.backend_name(ws.linsys) in SPARSE_FACTOR_BACKENDS
     PureOSQP.solve!(ws)
-    PureOSQP.solve_system!(ws.linsys, ws, ws.rhs_x, ws.rhs_z)      # warm up
-    allocs = [(@allocated PureOSQP.solve_system!(ws.linsys, ws, ws.rhs_x, ws.rhs_z)) for _ in 1:4]
+    # Measured inside a function: from top-level scope the call is a dynamic dispatch on an
+    # untyped global, and that dispatch allocates 32 bytes of its own.
+    solve_bytes(ws) = @allocated PureOSQP.solve_system!(
+        ws.linsys, ws.prob, ws.weights, ws.rhs_x, ws.rhs_z, ws.xtilde, ws.ztilde
+    )
+    solve_bytes(ws)      # warm up
+    allocs = [solve_bytes(ws) for _ in 1:4]
     @test all(iszero, allocs)
 end
 
@@ -431,8 +436,8 @@ end
 
     # Against the same system the dense backend would have built and factored.
     bx, bz = randn(n), randn(n)
-    PureOSQP.solve_system!(ws.linsys, ws, bx, bz)
-    K = [P + ws.settings.sigma * I  A'; A  -Diagonal(1 ./ ws.rho_vec)]
+    PureOSQP.solve_system!(ws.linsys, ws.prob, ws.weights, bx, bz, ws.xtilde, ws.ztilde)
+    K = [P + ws.settings.sigma * I  A'; A  -Diagonal(1 ./ ws.weights.w)]
     ref = K \ [bx; bz]
     @test ws.xtilde ≈ ref[1:n] rtol = 1.0e-9
     @test ws.ztilde ≈ A * ws.xtilde rtol = 1.0e-9
@@ -483,12 +488,12 @@ end
         @test ws.linsys isa PureOSQP.TridiagonalReduced
         @test PureOSQP.backend_name(ws.linsys) == :tridiagonal
         # The bands must equal the reduced matrix the dense backend would have formed.
-        R = Matrix(P) + ws.settings.sigma * I + Matrix(A)' * Diagonal(ws.rho_vec) * Matrix(A)
+        R = Matrix(P) + ws.settings.sigma * I + Matrix(A)' * Diagonal(ws.weights.w) * Matrix(A)
         @test ws.linsys.dv ≈ diag(R) rtol = 1.0e-12
         @test ws.linsys.ev ≈ diag(R, 1) rtol = 1.0e-12
         bx, bz = randn(n), randn(n)
-        PureOSQP.solve_system!(ws.linsys, ws, bx, bz)
-        K = [Matrix(P) + ws.settings.sigma * I  Matrix(A)'; Matrix(A)  -Diagonal(1 ./ ws.rho_vec)]
+        PureOSQP.solve_system!(ws.linsys, ws.prob, ws.weights, bx, bz, ws.xtilde, ws.ztilde)
+        K = [Matrix(P) + ws.settings.sigma * I  Matrix(A)'; Matrix(A)  -Diagonal(1 ./ ws.weights.w)]
         ref = K \ [bx; bz]
         @test ws.xtilde ≈ ref[1:n] rtol = 1.0e-9
         @test ws.ztilde ≈ A * ws.xtilde rtol = 1.0e-9
@@ -534,8 +539,8 @@ end
 
     # Against the full KKT system the backend stands for.
     bx, bz = randn(n), randn(k + m0)
-    PureOSQP.solve_system!(ws.linsys, ws, bx, bz)
-    K = [Matrix(P) + ws.settings.sigma * I  dense_A'; dense_A  -Diagonal(1 ./ ws.rho_vec)]
+    PureOSQP.solve_system!(ws.linsys, ws.prob, ws.weights, bx, bz, ws.xtilde, ws.ztilde)
+    K = [Matrix(P) + ws.settings.sigma * I  dense_A'; dense_A  -Diagonal(1 ./ ws.weights.w)]
     ref = K \ [bx; bz]
     @test ws.xtilde ≈ ref[1:n] rtol = 1.0e-9
     @test ws.ztilde ≈ dense_A * ws.xtilde rtol = 1.0e-9
@@ -591,16 +596,16 @@ end
 
     "The solve of a fixed right-hand side, which is what the factorization is for."
     function applied(ws)
-        PureOSQP.solve_system!(ws.linsys, ws, ws.rhs_x, ws.rhs_z)
+        PureOSQP.solve_system!(ws.linsys, ws.prob, ws.weights, ws.rhs_x, ws.rhs_z, ws.xtilde, ws.ztilde)
         return copy(ws.xtilde)
     end
 
     ws.rhs_x .= randn(n)
     ws.rhs_z .= randn(ws.prob.m)
     PureOSQP.set_rho_vec!(ws, 3.7)
-    @test PureOSQP.refactor_rho!(ws.linsys, ws)
+    @test PureOSQP.refactor_weights!(ws.linsys, ws.prob, ws.weights)
     cheap = applied(ws)
-    @test PureOSQP.factorize!(ws.linsys, ws)
+    @test PureOSQP.factorize!(ws.linsys, ws.prob, ws.weights)
     @test cheap ≈ applied(ws) rtol = 1.0e-12
 end
 
@@ -655,7 +660,7 @@ end
     @test !PureOSQP.is_convex(Float64, bad, sigma)
     ws.prob.P = bad
     PureOSQP.set_rho_vec!(ws, 50.0)
-    @test PureOSQP.factorize!(ws.linsys, ws)
+    @test PureOSQP.factorize!(ws.linsys, ws.prob, ws.weights)
 end
 
 @testitem "a products-only operator routes to the indirect rung" begin

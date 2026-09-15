@@ -21,7 +21,7 @@
     # reported. Matching that log is what keeps the warning out of the suite's output while
     # asserting it was emitted: the check both returns `false` and says why.
     struct TrimUnsafeProbe <: PureOSQP.LinearSystem end
-    PureOSQP.factorize!(::TrimUnsafeProbe, ws) = !isempty(Base.return_types(sin, (Float64,)))
+    PureOSQP.factorize!(::TrimUnsafeProbe, prob, wt) = !isempty(Base.return_types(sin, (Float64,)))
     probe = @test_logs (:warn, r"trim-unsafe") match_mode = :any TypeContracts.check_trim_compat(
         TrimUnsafeProbe
     )

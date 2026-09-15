@@ -87,15 +87,15 @@ function lowrank_rung(
 end
 
 """
-    scale_coupling!(ls, ws)
+    scale_coupling!(ls, prob)
 
 Fill `V` with the scaled coupling rows, `E[i]·C[i,j]·D[j]`.
 
-Depends on the data and the equilibration factors, not on `ρ`, which is why
-[`refactor_rho!`](@ref) leaves it alone.
+Depends on the data and the equilibration factors, not on the weights, which is why
+[`refactor_weights!`](@ref) leaves it alone.
 """
-function scale_coupling!(ls::DiagonalLowRank, ws)
-    A, D, E, V = ws.prob.A, ws.prob.D, ws.prob.E, ls.V
+function scale_coupling!(ls::DiagonalLowRank, prob)
+    A, D, E, V = prob.A, prob.D, prob.E, ls.V
     for i in axes(V, 1), j in axes(V, 2)
         V[i, j] = E[i] * A.coupling[i, j] * D[j]
     end
@@ -103,16 +103,15 @@ function scale_coupling!(ls::DiagonalLowRank, ws)
 end
 
 """
-    refresh_core!(ls, ws) -> Bool
+    refresh_core!(ls, prob, wt) -> Bool
 
-Rebuild everything `ρ` enters: the diagonal core `C⁻¹`, `Y = V C⁻¹`, and the `k×k`
+Rebuild everything the weights enter: the diagonal core `C⁻¹`, `Y = V C⁻¹`, and the `k×k`
 capacitance and its factorization. Reads `V` and does not write it.
 """
-function refresh_core!(ls::DiagonalLowRank{T}, ws)::Bool where {T}
-    prob = ws.prob
+function refresh_core!(ls::DiagonalLowRank{T}, prob, wt)::Bool where {T}
     n = prob.n
     A, P, D, E, c = prob.A, prob.P, prob.D, prob.E, prob.c
-    rho, sigma = ws.rho_vec, ws.settings.sigma
+    rho, sigma = wt.w, wt.sigma
     k = size(ls.V, 1)
     # The core: `P`'s diagonal, `σ`, and the one-entry rows, each of which touches a single
     # column and so contributes only to the diagonal.
@@ -145,24 +144,35 @@ function refresh_core!(ls::DiagonalLowRank{T}, ws)::Bool where {T}
     return issuccess(ls.fact)
 end
 
-function factorize!(ls::DiagonalLowRank, ws)::Bool
-    scale_coupling!(ls, ws)
-    return refresh_core!(ls, ws)
+function factorize!(ls::DiagonalLowRank, prob, wt)::Bool
+    scale_coupling!(ls, prob)
+    return refresh_core!(ls, prob, wt)
 end
 
-# `V` is `E ⊙ C ⊙ D`, so a ρ move leaves it current and only the core, `Y` and the `k×k`
+# `V` is `E ⊙ C ⊙ D`, so a weight move leaves it current and only the core, `Y` and the `k×k`
 # capacitance have to be rebuilt.
-refactor_rho!(ls::DiagonalLowRank, ws) = refresh_core!(ls, ws)
+refactor_weights!(ls::DiagonalLowRank, prob, wt) = refresh_core!(ls, prob, wt)
 
-function solve_system!(ls::DiagonalLowRank, ws, rhs_x, rhs_z)::Nothing
-    prob = ws.prob
-    reduced_rhs!(ws, rhs_x, rhs_z)
-    b, x = prob.work_n, ws.xtilde
+# The backend holds storage for the coupling rank it was built with.
+function check_update(ls::DiagonalLowRank, P, A)
+    coupling_rank(A) != size(ls.V, 1) && throw(
+        ArgumentError(
+            "the coupling rows of A must stay the number the workspace was built with: " *
+                "the low-rank backend holds storage for that rank. Rebuild the " *
+                "workspace with setup."
+        )
+    )
+    return nothing
+end
+
+function solve_system!(ls::DiagonalLowRank, prob, wt, rhs_x, rhs_z, x, z)::Nothing
+    reduced_rhs!(prob, wt, rhs_x, rhs_z)
+    b = prob.work_n
     multiply!(x, ls.cinv, b)          # C⁻¹b
     mul!(ls.ky, ls.Y, b)              # V C⁻¹ b
     ldiv!(ls.fact, ls.ky)             # (W⁻¹ + V C⁻¹ Vᵀ)⁻¹ V C⁻¹ b
     mul!(ls.ty, ls.Y', ls.ky)         # C⁻¹ Vᵀ (…)
     subtract!(x, x, ls.ty)
-    prob.m > 0 && mul_A!(ws.ztilde, prob, x)
+    prob.m > 0 && mul_A!(z, prob, x)
     return nothing
 end

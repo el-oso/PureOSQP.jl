@@ -3,8 +3,8 @@
 # That pair's reduced matrix has bandwidth 1, so both backends serve it and the choice between
 # them is the question this file answers. Setup is timed through `setup` itself -- `:auto`
 # against `linsys = :dense` -- while the per-iteration comparison builds both backends over one
-# workspace, since `factorize!` and `solve_system!` read their data from the workspace rather
-# than from their own copy of the problem.
+# workspace, since `factorize!` and `solve_system!` read their data from the workspace's
+# problem and weights rather than from their own copy.
 #
 # Swept at two BLAS thread counts. `ReducedCholesky`'s solve is a threaded `symv` and a
 # tridiagonal `ldiv!` is not threaded, so a single-threaded sweep answers a different question
@@ -49,18 +49,19 @@ for nthreads in THREADS
         # reads the same equilibrated data through the same `ws`.
         ws = PureOSQP.setup(P, q, A, l, u; linsys = :dense)
         tl = PureOSQP.TridiagonalReduced(zeros(n), n)
-        PureOSQP.factorize!(tl, ws) || error("n=$n: tridiagonal factorization failed")
+        pb, wt, x, z = ws.prob, ws.weights, ws.xtilde, ws.ztilde
+        PureOSQP.factorize!(tl, pb, wt) || error("n=$n: tridiagonal factorization failed")
         bx, bz = randn(n), randn(n)
         # The times mean nothing unless the two backends solve the same system.
-        PureOSQP.solve_system!(tl, ws, bx, bz)
-        xt = copy(ws.xtilde)
-        PureOSQP.solve_system!(ws.linsys, ws, bx, bz)
-        isapprox(xt, ws.xtilde; rtol = 1.0e-8) || error("n=$n: backends disagree")
+        PureOSQP.solve_system!(tl, pb, wt, bx, bz, x, z)
+        xt = copy(x)
+        PureOSQP.solve_system!(ws.linsys, pb, wt, bx, bz, x, z)
+        isapprox(xt, x; rtol = 1.0e-8) || error("n=$n: backends disagree")
 
         st = @be PureOSQP.setup($P, $q, $A, $l, $u) seconds = BUDGET
         sc = @be PureOSQP.setup($P, $q, $A, $l, $u; linsys = :dense) seconds = BUDGET
-        vt = @be PureOSQP.solve_system!($tl, $ws, $bx, $bz) seconds = BUDGET
-        vc = @be PureOSQP.solve_system!($ws.linsys, $ws, $bx, $bz) seconds = BUDGET
+        vt = @be PureOSQP.solve_system!($tl, $pb, $wt, $bx, $bz, $x, $z) seconds = BUDGET
+        vc = @be PureOSQP.solve_system!($ws.linsys, $pb, $wt, $bx, $bz, $x, $z) seconds = BUDGET
         tst, tsc, tvt, tvc = med(st), med(sc), med(vt), med(vc)
         push!(
             rows, (;

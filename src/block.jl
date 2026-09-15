@@ -71,10 +71,28 @@ function block_rung(
     )
 end
 
-function factorize!(ls::BlockReduced{T}, ws)::Bool where {T}
-    prob = ws.prob
+# The backend factors over the partition it was built with; a new block run of the same type
+# is a different partition and would read the wrong blocks.
+function check_update(ls::BlockReduced, P, A)
+    same_column_partition(P, A) || throw(
+        ArgumentError(
+            "P and A must keep the block partition the workspace was built with: the " *
+                "block backend factors the reduced matrix over that partition. Rebuild " *
+                "the workspace with setup."
+        )
+    )
+    for i in eachindex(ls.blocks)
+        size(P.blocks[i]) == (size(ls.blocks[i], 1), size(ls.blocks[i], 1)) ||
+            throw(ArgumentError("P and A must keep the block sizes the workspace was built with. Rebuild the workspace with setup."))
+        size(A.blocks[i]) == (size(ls.scaled[i], 1), size(ls.blocks[i], 1)) ||
+            throw(ArgumentError("P and A must keep the block sizes the workspace was built with. Rebuild the workspace with setup."))
+    end
+    return nothing
+end
+
+function factorize!(ls::BlockReduced{T}, prob, wt)::Bool where {T}
     A, P, D, E, c = prob.A, prob.P, prob.D, prob.E, prob.c
-    rho, sigma = ws.rho_vec, ws.settings.sigma
+    rho, sigma = wt.w, wt.sigma
     for i in eachindex(ls.blocks)
         R = ls.blocks[i]
         cols, rows = colrange(A, i), rowrange(A, i)
@@ -104,15 +122,14 @@ function factorize!(ls::BlockReduced{T}, ws)::Bool where {T}
     return true
 end
 
-function solve_system!(ls::BlockReduced, ws, rhs_x, rhs_z)::Nothing
-    prob = ws.prob
-    reduced_rhs!(ws, rhs_x, rhs_z)
-    b, x = prob.work_n, ws.xtilde
+function solve_system!(ls::BlockReduced, prob, wt, rhs_x, rhs_z, x, z)::Nothing
+    reduced_rhs!(prob, wt, rhs_x, rhs_z)
+    b = prob.work_n
     A = prob.A
     for i in eachindex(ls.blocks)
         cols = colrange(A, i)
         mul!(view(x, cols), Symmetric(ls.blocks[i], :U), view(b, cols))
     end
-    prob.m > 0 && mul_A!(ws.ztilde, prob, x)
+    prob.m > 0 && mul_A!(z, prob, x)
     return nothing
 end

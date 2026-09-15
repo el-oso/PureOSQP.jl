@@ -18,7 +18,8 @@ are those of [`Settings`](@ref) and are validated exactly as at [`setup`](@ref),
 out-of-range value throws and leaves the workspace untouched.
 
 `rho`, `sigma` and `rho_is_vec` are built into the factorization, so changing any of them
-refactorizes; everything else is free.
+refactorizes; everything else is free. The settings a backend reads while solving — the
+`cg_*` settings of the matrix-free backend — reach it at once.
 
 `linsys` and `scaling` are rejected rather than honored. The backend is part of the
 workspace's *type*, so assigning a new `Settings` cannot change it — accepting
@@ -48,7 +49,12 @@ function update_settings!(ws::Workspace{T}; kwargs...) where {T}
     refactor_needed = new.rho != old.rho || new.sigma != old.sigma ||
         new.rho_is_vec != old.rho_is_vec
     ws.settings = new
+    adopt_settings!(ws.linsys, new)
     if refactor_needed
+        # `σ` is held by value in the weights, so a new one needs a new weights object; the
+        # vectors are shared and refilled in place by `set_rho_vec!`.
+        wt = ws.weights
+        ws.weights = SystemWeights(wt.w, wt.w_inv, new.sigma)
         set_rho_vec!(ws, new.rho)
         refactor!(ws)
     end

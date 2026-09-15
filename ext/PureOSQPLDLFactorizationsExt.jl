@@ -137,18 +137,17 @@ function PureOSQP.ldl_posdef(P::SparseMatrixCSC, sigma)
     return true
 end
 
-function PureOSQP.factorize!(ls::SparseLDL{T}, ws)::Bool where {T}
-    prob = ws.prob
+function PureOSQP.factorize!(ls::SparseLDL{T}, prob, wt)::Bool where {T}
     P, A = prob.P, prob.A
     Ext = Base.get_extension(PureOSQP, :PureOSQPSparseArraysExt)
     if !Ext.describes(ls.gram, P, A)
         # `update!` replaced P or A with one storing entries elsewhere, so both the slot map
         # and the analysis built on its pattern are stale.
         ls.gram = Ext.reduced_gram(T, P, A, prob.n)
-        R = Ext.refill!(ls.gram, P, A, ws.rho_vec, prob.E, prob.D, prob.c, ws.settings.sigma)
+        R = Ext.refill!(ls.gram, P, A, wt.w, prob.E, prob.D, prob.c, wt.sigma)
         ls.fact = ldl_analyze(Symmetric(R, :U))
     else
-        Ext.refill!(ls.gram, P, A, ws.rho_vec, prob.E, prob.D, prob.c, ws.settings.sigma)
+        Ext.refill!(ls.gram, P, A, wt.w, prob.E, prob.D, prob.c, wt.sigma)
     end
     ldl_factorize!(Symmetric(ls.gram.R, :U), ls.fact)
     d = ls.fact.d
@@ -204,9 +203,9 @@ function unit_backward!(x::AbstractVector, L::SparseMatrixCSC, N::Integer)
     return x
 end
 
-function PureOSQP.solve_system!(ls::SparseLDL{T}, ws, rhs_x, rhs_z)::Nothing where {T}
-    rhs = PureOSQP.reduced_rhs!(ws, rhs_x, rhs_z)
-    perm, work, n = ls.perm, ls.permuted, ws.prob.n
+function PureOSQP.solve_system!(ls::SparseLDL{T}, prob, wt, rhs_x, rhs_z, x, z)::Nothing where {T}
+    rhs = PureOSQP.reduced_rhs!(prob, wt, rhs_x, rhs_z)
+    perm, work, n = ls.perm, ls.permuted, prob.n
     L, dinv = ls.L, ls.dinv
     # R[perm, perm] = Lᵤ D Lᵤᵀ, so the solve is a permutation, two substitutions and the
     # diagonal, all over buffers this backend owns.
@@ -218,11 +217,10 @@ function PureOSQP.solve_system!(ls::SparseLDL{T}, ws, rhs_x, rhs_z)::Nothing whe
         work[i] *= dinv[i]
     end
     unit_backward!(work, L, n)
-    x = ws.xtilde
     for i in 1:n
         x[perm[i]] = work[i]
     end
-    ws.prob.m > 0 && PureOSQP.mul_A!(ws.ztilde, ws.prob, x)
+    prob.m > 0 && PureOSQP.mul_A!(z, prob, x)
     return nothing
 end
 
@@ -277,18 +275,17 @@ function PureOSQP.ldl_kkt_backend(
     )
 end
 
-function PureOSQP.factorize!(ls::LDLKKT{T}, ws)::Bool where {T}
+function PureOSQP.factorize!(ls::LDLKKT{T}, prob, wt)::Bool where {T}
     Ext = Base.get_extension(PureOSQP, :PureOSQPSparseArraysExt)
-    prob = ws.prob
     P, A = prob.P, prob.A
     if !Ext.describes(ls.gram, P, A)
         # `update!` replaced P or A with one storing entries elsewhere, so the slot map and
         # the analysis built on its pattern are both stale.
         ls.gram = Ext.kkt_gram(T, P, A, prob.n, prob.m)
-        K = Ext.refill_kkt!(ls.gram, P, A, ws.rho_inv_vec, prob.E, prob.D, prob.c, ws.settings.sigma)
+        K = Ext.refill_kkt!(ls.gram, P, A, wt.w_inv, prob.E, prob.D, prob.c, wt.sigma)
         ls.fact = ldl_analyze(Symmetric(K, :U))
     else
-        Ext.refill_kkt!(ls.gram, P, A, ws.rho_inv_vec, prob.E, prob.D, prob.c, ws.settings.sigma)
+        Ext.refill_kkt!(ls.gram, P, A, wt.w_inv, prob.E, prob.D, prob.c, wt.sigma)
     end
     ldl_factorize!(Symmetric(ls.gram.K, :U), ls.fact)
     d = ls.fact.d
@@ -301,8 +298,8 @@ function PureOSQP.factorize!(ls::LDLKKT{T}, ws)::Bool where {T}
     return true
 end
 
-function PureOSQP.solve_system!(ls::LDLKKT{T}, ws, rhs_x, rhs_z)::Nothing where {T}
-    n, m = ws.prob.n, ws.prob.m
+function PureOSQP.solve_system!(ls::LDLKKT{T}, prob, wt, rhs_x, rhs_z, x, z)::Nothing where {T}
+    n, m = prob.n, prob.m
     N = n + m
     perm, work = ls.perm, ls.work
     L, dinv = ls.L, ls.dinv
@@ -321,13 +318,14 @@ function PureOSQP.solve_system!(ls::LDLKKT{T}, ws, rhs_x, rhs_z)::Nothing where 
     for i in 1:N
         p = perm[i]
         if p <= n
-            ws.xtilde[p] = work[i]
+            x[p] = work[i]
         else
-            ws.ztilde[p - n] = work[i]
+            z[p - n] = work[i]
         end
     end
+    w_inv = wt.w_inv
     for i in 1:m
-        ws.ztilde[i] = rhs_z[i] + ws.rho_inv_vec[i] * ws.ztilde[i]
+        z[i] = rhs_z[i] + w_inv[i] * z[i]
     end
     return nothing
 end

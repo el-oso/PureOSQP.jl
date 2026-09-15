@@ -94,6 +94,7 @@ PureOSQP.mul_P!
 PureOSQP.refactor!
 PureOSQP.refactor_rho!
 PureOSQP.factorize!
+PureOSQP.refactor_weights!
 PureOSQP.solve_system!
 PureOSQP.admm_step!
 PureOSQP.set_rho_vec!
@@ -111,6 +112,11 @@ PureOSQP.PolishStatus
 
 ```@docs
 PureOSQP.LinearSystem
+PureOSQP.Problem
+PureOSQP.SystemWeights
+PureOSQP.check_update
+PureOSQP.set_tolerance_level!
+PureOSQP.adopt_settings!
 PureOSQP.choose_backend
 PureOSQP.ReducedInverse
 PureOSQP.ReducedCholesky

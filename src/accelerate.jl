@@ -62,7 +62,7 @@ Write `[x; ρ⁻¹ ⊙ y + z]`, the vector the ADMM iteration is a fixed point o
 function pack_fixed_point!(w::AbstractVector{T}, ws::Workspace{T}) where {T}
     n = ws.prob.n
     @views w[1:n] .= ws.x
-    @views w[(n + 1):end] .= ws.rho_inv_vec .* ws.y .+ ws.z
+    @views w[(n + 1):end] .= ws.weights.w_inv .* ws.y .+ ws.z
     return w
 end
 
@@ -81,7 +81,7 @@ function unpack_fixed_point!(ws::Workspace{T}, w::AbstractVector{T}) where {T}
     @views ws.x .= w[1:n]
     v = @view w[(n + 1):end]
     @. ws.z = clamp(v, prob.l, prob.u)
-    @. ws.y = ws.rho_vec * (v - ws.z)
+    @. ws.y = ws.weights.w * (v - ws.z)
     return ws
 end
 

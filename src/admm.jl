@@ -11,16 +11,17 @@ One ADMM iteration:
 `x_prev` and `z_prev` are swapped rather than copied.
 """
 function admm_step!(ws::Workspace{T}) where {T}
-    prob = ws.prob
+    prob, wt = ws.prob, ws.weights
     ws.x, ws.x_prev = ws.x_prev, ws.x
     ws.z, ws.z_prev = ws.z_prev, ws.z
-    scale_subtract!(ws.rhs_x, ws.settings.sigma, ws.x_prev, prob.q)
-    subtract_scaled!(ws.rhs_z, ws.z_prev, ws.rho_inv_vec, ws.y)
-    solve_system!(ws.linsys, ws, ws.rhs_x, ws.rhs_z)
+    scale_subtract!(ws.rhs_x, wt.sigma, ws.x_prev, prob.q)
+    subtract_scaled!(ws.rhs_z, ws.z_prev, wt.w_inv, ws.y)
+    set_tolerance_level!(ws.linsys, max(ws.scaled_prim_res, ws.scaled_dual_res))
+    solve_system!(ws.linsys, prob, wt, ws.rhs_x, ws.rhs_z, ws.xtilde, ws.ztilde)
     update_x!(ws.x, ws.delta_x, ws.xtilde, ws.x_prev, ws.settings.alpha)
     prob.m > 0 && update_zy!(
         ws.z, ws.y, ws.delta_y, ws.ztilde, ws.z_prev,
-        ws.rho_vec, ws.rho_inv_vec, prob.l, prob.u, ws.settings.alpha, prob.work_m
+        wt.w, wt.w_inv, prob.l, prob.u, ws.settings.alpha, prob.work_m
     )
     return ws
 end

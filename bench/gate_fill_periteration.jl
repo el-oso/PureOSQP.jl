@@ -63,8 +63,13 @@ for n in SIZES
         name in (:ldlfactorizations, :cholmod, :ldl_kkt, :sparse_kkt) || continue
         f = fill_of(sparse_ws)
         bx, bz = randn(n), randn(n)
-        ts = @be PureOSQP.solve_system!($sparse_ws.linsys, $sparse_ws, $bx, $bz) seconds = BUDGET
-        td = @be PureOSQP.solve_system!($dense_ws.linsys, $dense_ws, $bx, $bz) seconds = BUDGET
+        sw, dw = sparse_ws, dense_ws
+        ts = @be PureOSQP.solve_system!(
+            $sw.linsys, $sw.prob, $sw.weights, $bx, $bz, $sw.xtilde, $sw.ztilde
+        ) seconds = BUDGET
+        td = @be PureOSQP.solve_system!(
+            $dw.linsys, $dw.prob, $dw.weights, $bx, $bz, $dw.xtilde, $dw.ztilde
+        ) seconds = BUDGET
         s, d = median(x.time for x in ts.samples), median(x.time for x in td.samples)
         sol = PureOSQP.solve(P, q, A, l, u; OPTS...)
         push!(

@@ -59,45 +59,96 @@ factor_fill(ws) = backend_info(ws.linsys).factor_nnz / ws.prob.n^2
 """
     LinearSystem
 
-Interface for the factorization that solves the ADMM subproblem
+Interface for the factorization that solves
 
-    ⎡P̃ + σI      Ãᵀ   ⎤ ⎡x̃⎤   ⎡rhs_x⎤
-    ⎣Ã       −diag(ρ⁻¹)⎦ ⎣ν⎦ = ⎣rhs_z⎦
+    ⎡P̃ + σI        Ãᵀ     ⎤ ⎡x⎤   ⎡rhs_x⎤
+    ⎣Ã       −diag(w_inv)⎦ ⎣ν⎦ = ⎣rhs_z⎦
 
-once per iteration. A backend owns its own storage and factorization object; the workspace
-holds one, chosen at [`setup`](@ref) and fixed for the workspace's life, so every call
-dispatches statically.
+for the [`Problem`](@ref) and the [`SystemWeights`](@ref) it is handed; ADMM solves it once
+per iteration with `w = ρ`. A backend owns its own storage and factorization object; the
+workspace holds one, chosen at [`setup`](@ref) and fixed for the workspace's life, so every
+call dispatches statically.
 
 Implementations must provide the three methods below; the contract is enforced at
-precompilation. [`refactor_rho!`](@ref) is optional, and rebuilding from scratch is a correct
-answer to it.
+precompilation. A method leaves the `Problem` and `SystemWeights` slots unannotated (or
+annotates them with exactly those types) and annotates its return.
+[`refactor_weights!`](@ref), [`check_update`](@ref), [`set_tolerance_level!`](@ref) and
+[`adopt_settings!`](@ref) are optional.
 """
 abstract type LinearSystem end
 
+"""
+    factorize!(ls, prob, wt) -> Bool
+
+Rebuild the factorization of the system `prob` and `wt` define. `false` means this backend
+cannot factor it (not positive definite for a reduced backend; a zero pivot for a KKT one).
+Reads `prob.P A D E c n m` and `wt`; may use `prob.work_n` and `prob.work_m` as scratch.
+"""
 function factorize! end
+
+"""
+    solve_system!(ls, prob, wt, rhs_x, rhs_z, x, z) -> Nothing
+
+Solve for `x` and write `z = Ã x` as this backend computes it: a reduced backend forms the
+product, a KKT backend recovers it from the eliminated multiplier as `rhs_z + w_inv ⊙ ν`.
+None of `rhs_x rhs_z x z` may alias each other or `prob.work_n`, `prob.work_m`, `prob.tmp_n`,
+`prob.tmp_m` ([`reduced_rhs!`](@ref) writes `work_n` and `work_m`; the products use `tmp_*`).
+"""
 function solve_system! end
 
 @contract LinearSystem begin
-    factorize!(::Self, ::Any)::Bool
-    solve_system!(::Self, ::Any, ::Any, ::Any)::Nothing
+    factorize!(::Self, ::Problem, ::SystemWeights)::Bool
+    solve_system!(::Self, ::Problem, ::SystemWeights, ::Any, ::Any, ::Any, ::Any)::Nothing
     backend_info(::Self)::BackendInfo
 end
 
 """
-    refactor_rho!(ls, ws) -> Bool
+    refactor_weights!(ls, prob, wt) -> Bool
 
-Refresh the factorization after `ρ` moved and nothing else, returning whether it succeeded.
+Refresh the factorization after only the contents of `wt.w` and `wt.w_inv` changed since the
+last [`factorize!`](@ref), returning whether it succeeded.
 
-Separate from [`factorize!`](@ref) because the two events are not the same: `ρ` changes on
-its own every time [`adapt_rho!`](@ref) fires, while `P`, `A`, `D`, `E` and `c` change only
-through [`setup`](@ref) and [`update!`](@ref). A backend whose factorization is partly
-independent of `ρ` can keep that part.
+Separate from `factorize!` because the two events are not the same: `ρ` changes on its own
+every time [`adapt_rho!`](@ref) fires, while `P`, `A`, `D`, `E`, `c` and `σ` change only
+through [`setup`](@ref), [`update!`](@ref) and [`update_settings!`](@ref). A backend whose
+factorization is partly independent of the weights can keep that part.
 
 Rebuilding everything is correct, and is what the default does. An override may assume the
-`ρ`-independent parts are current, since every path that invalidates them calls
-[`refactor!`](@ref) instead.
+weight-independent parts are current, since every path that invalidates them calls
+`factorize!` instead.
 """
-refactor_rho!(ls::LinearSystem, ws) = factorize!(ls, ws)
+refactor_weights!(ls::LinearSystem, prob, wt) = factorize!(ls, prob, wt)
+
+"""
+    check_update(ls, P, A) -> Nothing
+
+Throw unless the backend can go on serving the matrices `P` and `A` that [`update!`](@ref) is
+about to adopt. Called with the matrices the workspace will hold afterwards, whenever either
+is being replaced, before anything is adopted.
+
+The default accepts: a backend that reads only what the representation implies needs nothing
+beyond the type check `update!` already makes. A structured backend whose storage or
+factorization depends on data-level invariants — a partition, a rank, a scalar `P` —
+overrides this.
+"""
+check_update(ls::LinearSystem, P, A) = nothing
+
+"""
+    set_tolerance_level!(ls, level) -> Nothing
+
+Hand an inexact backend the residual level its next solves are to be accurate relative to.
+A direct backend solves exactly and ignores it, which is the default.
+"""
+set_tolerance_level!(ls::LinearSystem, level) = nothing
+
+"""
+    adopt_settings!(ls, settings) -> Nothing
+
+Copy into the backend whatever of the workspace's [`Settings`](@ref) it reads while solving.
+Called once the workspace is built and whenever its settings are replaced. The default
+backend reads none, and does nothing.
+"""
+adopt_settings!(ls::LinearSystem, settings) = nothing
 
 """
     ReducedInverse <: LinearSystem
@@ -558,20 +609,12 @@ end
 invert_spd!(R::StridedMatrix{<:LinearAlgebra.BlasFloat}, F) = LAPACK.potri!('U', R)
 invert_spd!(R::AbstractMatrix, F) = copyto!(R, inv(F))
 
-"""
-    factorize!(ls, ws) -> Bool
-
-Rebuild the factorization for the workspace's current `ρ`. Returns `false` if the matrix
-turned out not to be factorizable by this backend, which for [`ReducedCholesky`](@ref)
-means it was not positive definite.
-"""
-function factorize!(ls::ReducedCholesky{T}, ws)::Bool where {T}
-    prob = ws.prob
+function factorize!(ls::ReducedCholesky{T}, prob, wt)::Bool where {T}
     P, A, D, E, c, n, m = prob.P, prob.A, prob.D, prob.E, prob.c, prob.n, prob.m
     R = ls.Rinv
     # `scaled_col!` writes only the entries the matrix actually has, so W is zeroed first.
     fill!(ls.W, zero(T))
-    rho = ws.rho_vec
+    rho = wt.w
     # `m` square roots instead of `m*n`: a per-entry closure would pay one for every entry
     # of `W`, which is most of a refactorization's setup at the sizes the dense backend
     # serves.
@@ -590,7 +633,7 @@ function factorize!(ls::ReducedCholesky{T}, ws)::Bool where {T}
         add_scaled_col!(T, R, P, j, (p, i) -> c * D[i] * p * dj)
     end
     for i in 1:n
-        R[i, i] += ws.settings.sigma
+        R[i, i] += wt.sigma
     end
     F = cholesky!(Symmetric(R); check = false)
     issuccess(F) || return false
@@ -598,10 +641,9 @@ function factorize!(ls::ReducedCholesky{T}, ws)::Bool where {T}
     return true
 end
 
-function factorize!(ls::DiagonalReduced{T}, ws)::Bool where {T}
-    prob = ws.prob
+function factorize!(ls::DiagonalReduced{T}, prob, wt)::Bool where {T}
     P, A, D, E, c, n, m = prob.P, prob.A, prob.D, prob.E, prob.c, prob.n, prob.m
-    rho, sigma = ws.rho_vec, ws.settings.sigma
+    rho, sigma = wt.w, wt.sigma
     for j in 1:n
         dj = D[j]
         r = c * dj * P[j, j] * dj + sigma
@@ -617,10 +659,9 @@ function factorize!(ls::DiagonalReduced{T}, ws)::Bool where {T}
     return true
 end
 
-function factorize!(ls::TridiagonalReduced{T}, ws)::Bool where {T}
-    prob = ws.prob
+function factorize!(ls::TridiagonalReduced{T}, prob, wt)::Bool where {T}
     P, A, D, E, c, n, m = prob.P, prob.A, prob.D, prob.E, prob.c, prob.n, prob.m
-    rho, sigma = ws.rho_vec, ws.settings.sigma
+    rho, sigma = wt.w, wt.sigma
     dv, ev = ls.dv, ls.ev
     for j in 1:n
         dv[j] = c * D[j] * P[j, j] * D[j] + sigma
@@ -655,8 +696,7 @@ function factorize!(ls::TridiagonalReduced{T}, ws)::Bool where {T}
     return all(>(zero(T)), ls.fact.data.dv)
 end
 
-function factorize!(ls::FullKKT{T}, ws)::Bool where {T}
-    prob = ws.prob
+function factorize!(ls::FullKKT{T}, prob, wt)::Bool where {T}
     P, A, D, E, c, n, m = prob.P, prob.A, prob.D, prob.E, prob.c, prob.n, prob.m
     fill!(ls.K, zero(T))
     # The P block is an indexed `n²` loop rather than the fused `c · (D ⊙ P) ⊙ Dᵀ` broadcast:
@@ -669,7 +709,7 @@ function factorize!(ls::FullKKT{T}, ws)::Bool where {T}
         for i in 1:n
             ls.K[i, j] = c * D[i] * T(P[i, j]) * dj
         end
-        ls.K[j, j] += ws.settings.sigma
+        ls.K[j, j] += wt.sigma
         for i in 1:m
             aij = E[i] * T(A[i, j]) * dj
             ls.K[n + i, j] = aij
@@ -677,7 +717,7 @@ function factorize!(ls::FullKKT{T}, ws)::Bool where {T}
         end
     end
     for i in 1:m
-        ls.K[n + i, n + i] = -ws.rho_inv_vec[i]
+        ls.K[n + i, n + i] = -wt.w_inv[i]
     end
     F = bunchkaufman!(Symmetric(ls.K, :L); check = false)
     issuccess(F) || return false
@@ -686,17 +726,16 @@ function factorize!(ls::FullKKT{T}, ws)::Bool where {T}
 end
 
 """
-    reduced_rhs!(ws, rhs_x, rhs_z) -> ws.prob.work_n
+    reduced_rhs!(prob, wt, rhs_x, rhs_z) -> prob.work_n
 
-Assemble `rhs_x + Ãᵀ(ρ ⊙ rhs_z)`, the right-hand side of the reduced system.
+Assemble `rhs_x + Ãᵀ(w ⊙ rhs_z)`, the right-hand side of the reduced system.
 
 Written into `work_n` rather than over an argument because the solves that consume it may
 not alias their input and output — `symv` in particular.
 """
-function reduced_rhs!(ws, rhs_x, rhs_z)
-    prob = ws.prob
+function reduced_rhs!(prob, wt, rhs_x, rhs_z)
     if prob.m > 0
-        multiply!(prob.work_m, ws.rho_vec, rhs_z)
+        multiply!(prob.work_m, wt.w, rhs_z)
         mul_At!(prob.work_n, prob, prob.work_m)
         increment!(prob.work_n, rhs_x)
     else
@@ -705,38 +744,30 @@ function reduced_rhs!(ws, rhs_x, rhs_z)
     return prob.work_n
 end
 
-"""
-    solve_system!(ls, ws, rhs_x, rhs_z) -> Nothing
-
-Solve the subproblem, writing `x̃` into `ws.xtilde` and `z̃` into `ws.ztilde`.
-"""
-function solve_system!(ls::ReducedInverse, ws, rhs_x, rhs_z)::Nothing
-    prob = ws.prob
-    reduced_rhs!(ws, rhs_x, rhs_z)
-    mul!(ws.xtilde, Symmetric(ls.Rinv, :U), prob.work_n)
-    prob.m > 0 && mul_A!(ws.ztilde, prob, ws.xtilde)
+function solve_system!(ls::ReducedInverse, prob, wt, rhs_x, rhs_z, x, z)::Nothing
+    reduced_rhs!(prob, wt, rhs_x, rhs_z)
+    mul!(x, Symmetric(ls.Rinv, :U), prob.work_n)
+    prob.m > 0 && mul_A!(z, prob, x)
     return nothing
 end
 
-function solve_system!(ls::DiagonalReduced, ws, rhs_x, rhs_z)::Nothing
-    prob = ws.prob
-    reduced_rhs!(ws, rhs_x, rhs_z)
-    multiply!(ws.xtilde, ls.dinv, prob.work_n)
-    prob.m > 0 && mul_A!(ws.ztilde, prob, ws.xtilde)
+function solve_system!(ls::DiagonalReduced, prob, wt, rhs_x, rhs_z, x, z)::Nothing
+    reduced_rhs!(prob, wt, rhs_x, rhs_z)
+    multiply!(x, ls.dinv, prob.work_n)
+    prob.m > 0 && mul_A!(z, prob, x)
     return nothing
 end
 
-function solve_system!(ls::TridiagonalReduced, ws, rhs_x, rhs_z)::Nothing
-    prob = ws.prob
-    reduced_rhs!(ws, rhs_x, rhs_z)
-    copyto!(ws.xtilde, prob.work_n)
-    ldiv!(ls.fact, ws.xtilde)
-    prob.m > 0 && mul_A!(ws.ztilde, prob, ws.xtilde)
+function solve_system!(ls::TridiagonalReduced, prob, wt, rhs_x, rhs_z, x, z)::Nothing
+    reduced_rhs!(prob, wt, rhs_x, rhs_z)
+    copyto!(x, prob.work_n)
+    ldiv!(ls.fact, x)
+    prob.m > 0 && mul_A!(z, prob, x)
     return nothing
 end
 
-function solve_system!(ls::FullKKT, ws, rhs_x, rhs_z)::Nothing
-    n, m = ws.prob.n, ws.prob.m
+function solve_system!(ls::FullKKT, prob, wt, rhs_x, rhs_z, x, z)::Nothing
+    n, m = prob.n, prob.m
     # Indexed rather than `copyto!(view(...), ...)`: the views leave allocation sites that
     # AllocCheck reports, and the loops make the no-allocation property provable.
     for i in 1:n
@@ -747,10 +778,11 @@ function solve_system!(ls::FullKKT, ws, rhs_x, rhs_z)::Nothing
     end
     ldiv!(ls.fact, ls.rhs)
     for i in 1:n
-        ws.xtilde[i] = ls.rhs[i]
+        x[i] = ls.rhs[i]
     end
+    w_inv = wt.w_inv
     for i in 1:m
-        ws.ztilde[i] = rhs_z[i] + ws.rho_inv_vec[i] * ls.rhs[n + i]
+        z[i] = rhs_z[i] + w_inv[i] * ls.rhs[n + i]
     end
     return nothing
 end
@@ -759,7 +791,7 @@ end
 """
     refactor!(ws)
 
-Refresh the workspace's factorization after `ρ` or the problem data changed.
+Refresh the workspace's factorization after `ρ`, `σ` or the problem data changed.
 
 The backend is fixed at [`setup`](@ref), so that every solve dispatches statically and the
 workspace stays concretely typed. If the reduced Cholesky ever fails here — which no
@@ -767,18 +799,18 @@ measured problem has produced once equilibration is on — the remedy is to rebu
 workspace with `linsys = :kkt` rather than to switch backend underneath the caller.
 """
 function refactor!(ws)
-    return refactored!(ws, factorize!(ws.linsys, ws))
+    return refactored!(ws, factorize!(ws.linsys, ws.prob, ws.weights))
 end
 
 """
     refactor_rho!(ws)
 
 Refresh the workspace's factorization after `ρ` alone changed, through the backend's
-[`refactor_rho!`](@ref) rather than a full rebuild. Counted and reported like any other
+[`refactor_weights!`](@ref) rather than a full rebuild. Counted and reported like any other
 refactorization.
 """
 function refactor_rho!(ws)
-    return refactored!(ws, refactor_rho!(ws.linsys, ws))
+    return refactored!(ws, refactor_weights!(ws.linsys, ws.prob, ws.weights))
 end
 
 function refactored!(ws, ok::Bool)

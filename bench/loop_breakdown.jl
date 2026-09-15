@@ -50,7 +50,7 @@ for (name, build) in CASES
     t_step = t_all / sol.iter
     fresh = PureOSQP.setup(P, q, A, l, u; OPTS...)
     t_res = (@b PureOSQP.update_residuals!(fresh)).time
-    t_fac = (@b PureOSQP.factorize!(fresh.linsys, fresh)).time
+    t_fac = (@b PureOSQP.factorize!(fresh.linsys, fresh.prob, fresh.weights)).time
     @printf(
         "%-12s %5d %5d %6d | %8.2f %8.2f %8.2f | %7.2fms %7.2fms\n",
         name, sol.iter, refac, checks,

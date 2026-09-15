@@ -12,7 +12,7 @@
         "corpus_tests.jl" => 4,
         "derivative_tests.jl" => 7,
         "gpu_tests.jl" => 4,
-        "indirect_tests.jl" => 5,
+        "indirect_tests.jl" => 6,
         "kronecker_tests.jl" => 4,
         "linsys_tests.jl" => 30,
         "meta_tests.jl" => 1,
@@ -23,7 +23,7 @@
         "scaling_tests.jl" => 9,
         "selection_tests.jl" => 5,
         "setup_tests.jl" => 13,
-        "solve_tests.jl" => 32,
+        "solve_tests.jl" => 33,
         "trim_tests.jl" => 1,
         "update_tests.jl" => 9,
     )

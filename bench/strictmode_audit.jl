@@ -252,6 +252,8 @@ for backend in (
     ws = example_workspace(backend)
     W = typeof(ws)
     LS = typeof(ws.linsys)
+    PB = typeof(ws.prob)
+    WT = typeof(ws.weights)
     V = Vector{Float64}
     # `:operator` and `:productoperator` reach the same matrix-free backend as `:indirect`
     # and take the same exemption for Krylov's `cg!`, whose timing and `allocate_if` branches
@@ -262,22 +264,24 @@ for backend in (
     # `:cholmod` reaches sparse arithmetic whichever engine factors it -- the reduced matrix
     # is assembled the same way before either sees it.
     warm = backend === :cholmod ? :warm_sparse : :warm
-    solve_sys() = @allocated PureOSQP.solve_system!(ws.linsys, ws, ws.rhs_x, ws.rhs_z)
+    solve_sys() = @allocated PureOSQP.solve_system!(
+        ws.linsys, ws.prob, ws.weights, ws.rhs_x, ws.rhs_z, ws.xtilde, ws.ztilde
+    )
     step() = @allocated PureOSQP.admm_step!(ws)
     checks = Any[
         (PureOSQP.admm_step!, (W,), tier, step),
         (PureOSQP.update_residuals!, (W,), :hot, nothing),
-        (PureOSQP.solve_system!, (LS, W, V, V), tier, solve_sys),
+        (PureOSQP.solve_system!, (LS, PB, WT, V, V, V, V), tier, solve_sys),
         (PureOSQP.check_termination, (W, Bool), :warm, nothing),
-        (PureOSQP.factorize!, (LS, W), warm, nothing),
+        (PureOSQP.factorize!, (LS, PB, WT), warm, nothing),
         # Runs every time `ρ` moves, so it sits inside the solve loop rather than at setup.
-        (PureOSQP.refactor_rho!, (LS, W), warm, nothing),
+        (PureOSQP.refactor_weights!, (LS, PB, WT), warm, nothing),
         (PureOSQP.solve!, (W,), warm, nothing),
     ]
     if matrix_free
         # The operator is this package's own code and gets the full static guarantee, with
         # no exemption: it is where a matrix-free product would allocate if one did.
-        op = Base.get_extension(PureOSQP, :PureOSQPKrylovExt).ReducedOperator(ws)
+        op = Base.get_extension(PureOSQP, :PureOSQPKrylovExt).ReducedOperator(ws.prob, ws.weights)
         push!(checks, (LinearAlgebra.mul!, (V, typeof(op), V), :hot, nothing))
     end
     if backend === :cholmod

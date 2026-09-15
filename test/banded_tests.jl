@@ -12,12 +12,12 @@
     @test ws.linsys.bw == 2
     # `cholesky!` overwrites the assembled matrix, so what `R` holds now is the factor.
     # The reduced matrix is checked through the system it solves, below.
-    R = Matrix(P) + ws.settings.sigma * I + Matrix(A)' * Diagonal(ws.rho_vec) * Matrix(A)
+    R = Matrix(P) + ws.settings.sigma * I + Matrix(A)' * Diagonal(ws.weights.w) * Matrix(A)
     @test Matrix(ws.linsys.fact.U)' * Matrix(ws.linsys.fact.U) ≈ R rtol = 1.0e-9
 
     bx, bz = randn(n), randn(n)
-    PureOSQP.solve_system!(ws.linsys, ws, bx, bz)
-    K = [Matrix(P) + ws.settings.sigma * I  Matrix(A)'; Matrix(A)  -Diagonal(1 ./ ws.rho_vec)]
+    PureOSQP.solve_system!(ws.linsys, ws.prob, ws.weights, bx, bz, ws.xtilde, ws.ztilde)
+    K = [Matrix(P) + ws.settings.sigma * I  Matrix(A)'; Matrix(A)  -Diagonal(1 ./ ws.weights.w)]
     ref = K \ [bx; bz]
     @test ws.xtilde ≈ ref[1:n] rtol = 1.0e-9
     @test ws.ztilde ≈ A * ws.xtilde rtol = 1.0e-9

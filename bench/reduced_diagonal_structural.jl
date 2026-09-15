@@ -3,7 +3,7 @@
 # `reduced_diagonal!` builds the matrix-free backend's Jacobi preconditioner column by
 # column, and the inner sum runs over the rows `A` can hold a nonzero in. Summing every row
 # instead makes a `Diagonal`, `Bidiagonal` or `RowCoupled` `A` cost `O(mn)` where the matrix
-# holds `O(n)` or `O(kn)` entries. `refactor_rho!` defaults to `factorize!`, so the cost is
+# holds `O(n)` or `O(kn)` entries. `refactor_weights!` defaults to `factorize!`, so the cost is
 # paid again at every rho adaptation rather than once at setup, which is why the end-to-end
 # sweep below leaves adaptation at its default.
 #

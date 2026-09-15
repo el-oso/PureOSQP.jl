@@ -16,7 +16,8 @@ end
 """
     set_rho_vec!(ws, rho) -> Bool
 
-Classify each constraint and fill `rho_vec`/`rho_inv_vec`. Rows with both bounds
+Classify each constraint and fill the weights `ws.weights.w` (`ρ` per row) and
+`ws.weights.w_inv` in place. Rows with both bounds
 effectively infinite get `RHO_MIN`, rows with `ũ - l̃ < RHO_TOL` are equalities and get
 `1e3 ρ`, everything else gets `ρ`. Returns `true` if any classification changed, which is
 what forces a refactorization.
@@ -27,7 +28,7 @@ function set_rho_vec!(ws::Workspace{T}, rho::T) where {T}
     # uniform. The classification still runs, because it is what decides whether a
     # refactorization is needed when bounds move between classes.
     return classify_rho!(
-        ws.constr_type, ws.rho_vec, ws.rho_inv_vec, ws.prob.l, ws.prob.u, ws.rho,
+        ws.constr_type, ws.weights.w, ws.weights.w_inv, ws.prob.l, ws.prob.u, ws.rho,
         INFTY(T) * MIN_SCALING(T), ws.settings.rho_is_vec
     )
 end
