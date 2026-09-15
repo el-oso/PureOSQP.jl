@@ -30,15 +30,19 @@ const Ext = Base.get_extension(PureOSQP, :PureOSQPSparseArraysExt)
 const MODE = Ref(:auto)
 
 function PureOSQP.choose_backend(
-        P::SparseMatrixCSC, A::SparseMatrixCSC, proto::AbstractVector{T},
-        n::Integer, m::Integer, D, E, c, rho_vec, sigma
+        P::SparseMatrixCSC, A::SparseMatrixCSC, prob::PureOSQP.Problem{T},
+        wt::PureOSQP.SystemWeights{T}, sel::PureOSQP.ADMMSelection
     ) where {T <: Real}
     shipped() = invoke(
         PureOSQP.choose_backend,
-        Tuple{Any, SparseMatrixCSC, AbstractVector{T}, Integer, Integer, Any, Any, Any, Any, Any},
-        P, A, proto, n, m, D, E, c, rho_vec, sigma
+        Tuple{Any, SparseMatrixCSC, Any, Any, PureOSQP.ADMMSelection},
+        P, A, prob, wt, sel
     )
     MODE[] === :auto && return shipped()
+    n = prob.n
+    proto = prob.q0
+    D, E, c = prob.D, prob.E, prob.c
+    rho_vec, sigma = wt.w, wt.sigma
     gram = Ext.reduced_gram(T, P, A, n)
     R = Ext.refill!(gram, P, A, rho_vec, E, D, c, sigma)
     if MODE[] === :ldl

@@ -63,18 +63,16 @@ function backend_info(ls::DiagonalLowRank)
 end
 
 """
-    lowrank_rung(P, A, proto, n, m, D, E, c, rho_vec, sigma) -> (LinearSystem, Bool) or nothing
+    lowrank_rung(P, A, prob, wt, sel::ADMMSelection) -> (LinearSystem, Bool) or nothing
 
 Ladder rung for a reduced matrix that is a diagonal plus a low-rank correction. Declines when
 the correction is wide enough that `O(nk)` stops beating the dense `O(n²)` apply.
 """
-lowrank_rung(P, A, proto::AbstractVector, n::Integer, m::Integer, D, E, c, rho_vec, sigma) = nothing
+lowrank_rung(P, A, prob, wt, sel::ADMMSelection) = nothing
 
-function lowrank_rung(
-        P::Diagonal, A::RowCoupled, proto::AbstractVector{T}, n::Integer, m::Integer,
-        D, E, c, rho_vec, sigma
-    ) where {T <: Real}
+function lowrank_rung(P::Diagonal, A::RowCoupled, prob, wt, sel::ADMMSelection)
     k = coupling_rank(A)
+    n = prob.n
     # The apply is two `gemv`s against a `k×n` block where the rung below does one `symv`
     # against `n×n`, so on flops alone the correction wins until `k` reaches `n/2`. It does
     # not: `symv` is multithreaded and both `gemv`s here are narrow, so the measured crossing
@@ -83,7 +81,7 @@ function lowrank_rung(
     # limit has to hold at the threaded crossing, and it sits below it: at `k = n/10` the
     # solve is 1.78–2.27× ahead and setup 3.0–6.8× at every size measured.
     (k < 1 || 10k > n) && return nothing
-    return (DiagonalLowRank(proto, n, k), false)
+    return (DiagonalLowRank(prob.q0, n, k), false)
 end
 
 """

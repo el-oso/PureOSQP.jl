@@ -148,40 +148,34 @@ matches the density above which callers are already advised to hand over dense c
 """
 const DENSE_FORM_DENSITY = 0.1
 
-function PureOSQP.density_gate_rung(
-        P, A::SparseMatrixCSC, proto::AbstractVector, n::Integer, m::Integer
-    )
+function PureOSQP.density_gate_rung(P, A::SparseMatrixCSC, prob, sel::PureOSQP.ADMMSelection)
+    n, m = prob.n, prob.m
     (n > 0 && m > 0 && nnz(A) > DENSE_FORM_DENSITY * m * n) || return nothing
-    return PureOSQP.dense_rung(P, A, proto, n, m)
+    return PureOSQP.dense_rung(P, A, prob, sel)
 end
 
 # Factoring sparsely beats inverting densely only when the factor stays sparse, which is a
 # property of the pattern and so is measured rather than assumed. Both of these rungs factor
 # the real matrix to find out, so a backend they return is ready to solve.
-function PureOSQP.kkt_rung(
-        P, A::SparseMatrixCSC, proto::AbstractVector, n::Integer, m::Integer,
-        D, E, c, rho_vec, sigma
-    )
-    ls = sparse_kkt_backend(P, A, proto, n, m, D, E, c, rho_vec, sigma)
+function PureOSQP.kkt_rung(P, A::SparseMatrixCSC, prob, wt, sel::PureOSQP.ADMMSelection)
+    ls = sparse_kkt_backend(P, A, prob, wt)
     return isnothing(ls) ? nothing : (ls, true)
 end
 
-function PureOSQP.reduced_rung(
-        P, A::SparseMatrixCSC, proto::AbstractVector, n::Integer, m::Integer,
-        D, E, c, rho_vec, sigma
-    )
-    ls = cholmod_backend(P, A, proto, n, m, D, E, c, rho_vec, sigma)
+function PureOSQP.reduced_rung(P, A::SparseMatrixCSC, prob, wt, sel::PureOSQP.ADMMSelection)
+    ls = cholmod_backend(P, A, prob, wt)
     return isnothing(ls) ? nothing : (ls, true)
 end
 
 function PureOSQP.formed_rung(
-        P, A::SparseMatrixCSC, proto::AbstractVector{T}, n::Integer, m::Integer
+        P, A::SparseMatrixCSC, prob::PureOSQP.Problem{T}, sel::PureOSQP.ADMMSelection
     ) where {T <: Real}
     # `SparseFormedInverse.factorize!` accumulates `P`'s columns through `add_scaled_col!`,
     # which indexes. `A` is a `SparseMatrixCSC` here and so always readable; `P` is not
     # constrained by the signature.
     PureOSQP.is_materializable(P) || return nothing
-    Rinv = similar(proto, T, n, n)
+    n = prob.n
+    Rinv = similar(prob.q0, T, n, n)
     return (SparseFormedInverse{T, typeof(Rinv)}(Rinv), false)
 end
 
@@ -573,7 +567,7 @@ function PureOSQP.solve_system!(ls::SparseKKT{T}, prob, wt, rhs_x, rhs_z, x, z):
 end
 
 """
-    sparse_kkt_backend(P, A, proto, n, m, D, E, c, rho_vec, sigma) -> SparseKKT or nothing
+    sparse_kkt_backend(P, A, prob, wt) -> SparseKKT or nothing
 
 Build the full-KKT backend when the reduced form would densify and this one would not.
 
@@ -585,9 +579,8 @@ The matrix is assembled from the equilibrated data, so the factorization that an
 fill question is the one the solver goes on to use — a backend returned from here needs no
 further `factorize!`.
 """
-function sparse_kkt_backend(
-        P, A, proto::AbstractVector{T}, n::Integer, m::Integer, D, E, c, rho_vec, sigma
-    ) where {T <: Real}
+function sparse_kkt_backend(P, A, prob::PureOSQP.Problem{T}, wt::PureOSQP.SystemWeights{T}) where {T <: Real}
+    n, m = prob.n, prob.m
     # The concrete type, not `issparse`: everything downstream of here — `kkt_gram`,
     # `refill_kkt!` — is written against `SparseMatrixCSC`'s stored columns, and a
     # `Symmetric` wrapper over one answers `issparse` while matching none of it.
@@ -595,10 +588,10 @@ function sparse_kkt_backend(
     # Only worth considering where the reduced form loses, which is what the dense row means.
     densest_row(A)^2 < DENSE_FACTOR_FILL * n^2 && return nothing
     gram = kkt_gram(T, P, A, n, m)
-    K = refill_kkt!(gram, P, A, inv.(rho_vec), E, D, c, sigma)
+    K = refill_kkt!(gram, P, A, wt.w_inv, prob.E, prob.D, prob.c, wt.sigma)
     # As for the reduced matrix: a pure-Julia LDLᵀ, where one is loaded, factors this faster
     # and needs nothing extracted from a foreign factor afterwards.
-    alt = PureOSQP.ldl_kkt_backend(gram, proto, n, m, DENSE_FACTOR_FILL)
+    alt = PureOSQP.ldl_kkt_backend(gram, prob.q0, n, m, DENSE_FACTOR_FILL)
     isnothing(alt) || return alt
     F = ldlt(Symmetric(K, :U); check = false)
     issuccess(F) || return nothing
@@ -608,7 +601,7 @@ function sparse_kkt_backend(
     # Against the dense reduced factorization this replaces, whose cost is `n²`.
     nnz(LD) < DENSE_FACTOR_FILL * n^2 || return nothing
     check_factor(LD, n + m)
-    v = similar(proto, T, n + m)
+    v = similar(prob.q0, T, n + m)
     return SparseKKT{T, typeof(v), typeof(F)}(
         gram, F, LD, inv.(d), F.p::Vector{Int}, v, similar(v)
     )
@@ -1130,7 +1123,7 @@ end
 
 
 """
-    cholmod_backend(P, A, proto, n, m, D, E, c, rho_vec, sigma) -> SparseCholmod or nothing
+    cholmod_backend(P, A, prob, wt) -> SparseCholmod or nothing
 
 Build the reduced sparse-factorization backend if it suits these matrices, and return
 `nothing` if it does not.
@@ -1142,9 +1135,9 @@ the one the solver goes on to solve against and its symbolic part is what every 
 refactorization reuses. When the answer is no, [`densest_row`](@ref) usually says so before
 `R` is formed at all, and `nnz(R)` catches the rest.
 """
-function cholmod_backend(
-        P, A, proto::AbstractVector{T}, n::Integer, m::Integer, D, E, c, rho_vec, sigma
-    ) where {T <: Real}
+function cholmod_backend(P, A, prob::PureOSQP.Problem{T}, wt::PureOSQP.SystemWeights{T}) where {T <: Real}
+    n = prob.n
+    proto = prob.q0
     # As in `sparse_kkt_backend`: `reduced_gram` and `refill!` need `SparseMatrixCSC`'s
     # stored columns, which a `Symmetric` wrapper over one does not present.
     (P isa SparseMatrixCSC && n > 0) || return nothing
@@ -1156,7 +1149,7 @@ function cholmod_backend(
     limit = floor(Int, DENSE_FACTOR_FILL * n^2)
     reduced_nnz(P, A, n, limit) < limit || return nothing
     gram = reduced_gram(T, P, A, n)
-    R = refill!(gram, P, A, rho_vec, E, D, c, sigma)
+    R = refill!(gram, P, A, wt.w, prob.E, prob.D, prob.c, wt.sigma)
     # A pure-Julia LDLᵀ, if one is loaded, factors this faster than CHOLMOD does and hands
     # back `L` and `D` as plain arrays, so nothing has to be extracted from a foreign factor.
     alt = PureOSQP.ldl_backend(gram, proto, n, DENSE_FACTOR_FILL)

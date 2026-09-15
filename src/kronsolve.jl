@@ -61,31 +61,31 @@ function backend_info(ls::KroneckerReduced)
 end
 
 """
-    kronecker_rung(P, A, proto, n, m, D, E, c, rho_vec, sigma) -> (LinearSystem, Bool) or nothing
+    kronecker_rung(P, A, prob, wt, sel::ADMMSelection) -> (LinearSystem, Bool) or nothing
 
 Ladder rung for `A = A₁ ⊗ A₂` with a scalar `P`. Declines unless every condition the
 diagonalization needs holds: `P` a multiple of the identity, `ρ` uniform, and no equilibration
 scaling in force.
 """
-kronecker_rung(P, A, proto::AbstractVector, n::Integer, m::Integer, D, E, c, rho_vec, sigma) =
-    nothing
+kronecker_rung(P, A, prob, wt, sel::ADMMSelection) = nothing
 
 function kronecker_rung(
-        P, A::KroneckerOperator, proto::AbstractVector{T}, n::Integer, m::Integer,
-        D, E, c, rho_vec, sigma
+        P, A::KroneckerOperator, prob, wt::SystemWeights{T}, sel::ADMMSelection
     ) where {T <: Real}
     # Predicate first, value second. A `Union{Nothing,T}` for the caller to narrow is a call
     # `--trim` refuses to resolve, however plainly the check narrows it.
     is_scalar_multiple(P) || return nothing
+    rho_vec = wt.w
     # `ρ` enters as `ρ (G₁ ⊗ G₂)` only when it is one number. A single equality row or a free
     # row gives it two values and the eigenbasis stops diagonalizing.
     isempty(rho_vec) && return nothing
     all(==(first(rho_vec)), rho_vec) || return nothing
+    D, E, c = prob.D, prob.E, prob.c
     # Equilibration puts `c·μ·D²` in the reduced matrix, which is diagonal but not scalar, so
     # only unscaled data keeps the structure. `scaling = 0` is what produces this.
     (all(isone, D) && all(isone, E) && isone(c)) || return nothing
     n1, n2 = size(A.A1, 2), size(A.A2, 2)
-    return (KroneckerReduced(proto, n1, n2, T(scalar_multiple(P))), false)
+    return (KroneckerReduced(prob.q0, n1, n2, T(scalar_multiple(P))), false)
 end
 
 # The diagonalization has no form for a general `P`.

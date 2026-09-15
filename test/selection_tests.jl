@@ -104,14 +104,17 @@ end
 
 @testitem "the ladder's terminal and indirect rungs" begin
     using LinearAlgebra, Krylov
+    include(joinpath(@__DIR__, "helpers.jl"))
     n, m = 5, 4
-    proto = zeros(n)
     P, A = Matrix(1.0I, n, n), randn(m, n)
+    prob = raw_problem(P, A, n, m)
+    wt = raw_weights(ones(m), 1.0e-6)
+    sel = PureOSQP.ADMMSelection()
 
     # A materializable pair stops at the dense terminal, and the rungs above it decline.
-    @test isnothing(PureOSQP.density_gate_rung(P, A, proto, n, m))
-    @test isnothing(PureOSQP.formed_rung(P, A, proto, n, m))
-    ls, factored = PureOSQP.dense_rung(P, A, proto, n, m)
+    @test isnothing(PureOSQP.density_gate_rung(P, A, prob, sel))
+    @test isnothing(PureOSQP.formed_rung(P, A, prob, sel))
+    ls, factored = PureOSQP.dense_rung(P, A, prob, sel)
     @test ls isa PureOSQP.ReducedCholesky
     @test !factored
 
@@ -120,18 +123,18 @@ end
     # terminal, so the decline is reachable from a type `Workspace` accepts.
     struct Opaque <: AbstractMatrix{Float64} end
     PureOSQP.is_materializable(::Opaque) = false
-    @test isnothing(PureOSQP.dense_rung(Opaque(), Opaque(), proto, n, m))
-    ls, factored = PureOSQP.indirect_rung(Opaque(), Opaque(), proto, n, m)
+    opaque_prob = raw_problem(Opaque(), Opaque(), n, m)
+    @test isnothing(PureOSQP.dense_rung(Opaque(), Opaque(), opaque_prob, sel))
+    ls, factored = PureOSQP.indirect_rung(Opaque(), Opaque(), opaque_prob, sel)
     @test PureOSQP.backend_name(ls) === :indirect
     @test !factored
 
     # The descent itself, not just its rungs: a pair no rung above the terminal serves stops
     # at the terminal, and one no rung serves at all reaches the bottom.
-    D, E, c, rho, sig = ones(n), ones(m), 1.0, ones(m), 1.0e-6
-    ls, factored = PureOSQP.select_backend(P, A, proto, n, m, D, E, c, rho, sig)
+    ls, factored = PureOSQP.select_backend(P, A, prob, wt, sel)
     @test ls isa PureOSQP.ReducedCholesky
     @test !factored
-    ls, factored = PureOSQP.select_backend(Opaque(), Opaque(), proto, n, m, D, E, c, rho, sig)
+    ls, factored = PureOSQP.select_backend(Opaque(), Opaque(), opaque_prob, wt, sel)
     @test PureOSQP.backend_name(ls) === :indirect
     @test !factored
 end
@@ -196,6 +199,7 @@ end
 
 @testitem "two spellings of one matrix select the same backend" begin
     using LinearAlgebra, SparseArrays, BandedMatrices, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
     Random.seed!(73)
 
     # `Tridiagonal` and `SymTridiagonal` name the same band, so a problem written either way
@@ -217,10 +221,10 @@ end
     @test named(tri, bidi_A) === named(sym, bidi_A) === :tridiagonal
     @test named(sym, tri_A) === :banded
 
-    proto = zeros(n)
-    D, E, c, rho, sigma = ones(n), ones(n), 1.0, ones(n), 1.0e-6
-    picked(P, A) =
-        PureOSQP.backend_name(first(PureOSQP.choose_backend(P, A, proto, n, n, D, E, c, rho, sigma)))
+    wt = raw_weights(ones(n), 1.0e-6)
+    picked(P, A) = PureOSQP.backend_name(
+        first(PureOSQP.choose_backend(P, A, raw_problem(P, A, n, n), wt, PureOSQP.ADMMSelection()))
+    )
     @test picked(tri, diag_A) === picked(sym, diag_A) === :tridiagonal
     @test picked(tri, bidi_A) === picked(sym, bidi_A) === :tridiagonal
     @test picked(sym, tri_A) === :banded

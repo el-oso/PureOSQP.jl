@@ -384,7 +384,34 @@ function require_entries(P, A, what::String, remedy::String)
 end
 
 """
-    choose_backend(P, A, proto, n, m, D, E, c, rho_vec, sigma) -> (LinearSystem, Bool)
+    SelectionFor
+
+Which algorithm [`select_backend`](@ref) and the ladder rungs are choosing a backend for.
+A rung whose choice does not depend on the algorithm defines one method, taking any
+subtype; a rung whose choice differs adds a method for the specific subtype that needs the
+different answer.
+"""
+abstract type SelectionFor end
+
+"""
+    ADMMSelection <: SelectionFor
+
+Selecting a backend for the ADMM iteration, whose reduced system is
+`P̃ + σI + Ãᵀ diag(ρ) Ã`. [`setup`](@ref) threads one instance through [`choose_backend`](@ref)
+and every rung it reaches.
+"""
+struct ADMMSelection <: SelectionFor end
+
+"""
+    IPMSelection <: SelectionFor
+
+Selecting a backend for an interior-point iteration's Newton system. No rung defines a
+method for it.
+"""
+struct IPMSelection <: SelectionFor end
+
+"""
+    choose_backend(P, A, prob, wt, sel::ADMMSelection) -> (LinearSystem, Bool)
 
 The backend `linsys = :auto` builds for these matrices, and whether it already carries a
 factorization of the current data.
@@ -392,23 +419,23 @@ factorization of the current data.
 Dispatching on `typeof(P)` and `typeof(A)` is the point: a representation that admits a
 cheaper way to form the reduced matrix is served by adding a method here rather than by
 branching inside `factorize!`. The choice is made once, and the backend then becomes part
-of the workspace's type, so the per-iteration solve still dispatches statically.
+of the workspace's type, so the per-iteration solve still dispatches statically. `P` and `A`
+stay explicit arguments, alongside `prob` that also holds them, because dispatch on them is
+the point.
 
-The equilibration factors and `ρ` are passed in because deciding well means building the
-reduced matrix and reading the fill its factorization produces — and once that is done with
-the values the solver will actually use, the factorization is the setup factorization. A
-method that works that way returns `true` and [`setup`](@ref) does not factor again; one
-that only picks a representation returns `false`.
+`prob` and `wt` are passed in because deciding well means building the reduced matrix and
+reading the fill its factorization produces — and once that is done with the values the
+solver will actually use, the factorization is the setup factorization. A method that works
+that way returns `true` and [`setup`](@ref) does not factor again; one that only picks a
+representation returns `false`.
 
 A `(P, A)` pair with no method of its own descends [`select_backend`](@ref)'s ladder, whose
 named terminal rung is the dense reduced matrix.
 """
-choose_backend(
-    P, A, proto::AbstractVector, n::Integer, m::Integer, D, E, c, rho_vec, sigma
-) = select_backend(P, A, proto, n, m, D, E, c, rho_vec, sigma)
+choose_backend(P, A, prob, wt, sel::ADMMSelection) = select_backend(P, A, prob, wt, sel)
 
 """
-    select_backend(P, A, proto, n, m, D, E, c, rho_vec, sigma) -> (LinearSystem, Bool)
+    select_backend(P, A, prob, wt, sel::ADMMSelection) -> (LinearSystem, Bool)
 
 Descend the selection ladder, returning the first rung that serves this `(P, A)` pair and
 whether that rung already carries a factorization of the current data.
@@ -455,40 +482,38 @@ Each rung is a generic function whose default declines, so an extension adds its
 ladder by defining the method its representation needs. The order is fixed here, in one
 place, rather than emerging from where each gate happens to sit.
 """
-function select_backend(
-        P, A, proto::AbstractVector, n::Integer, m::Integer, D, E, c, rho_vec, sigma
-    )
-    rung = density_gate_rung(P, A, proto, n, m)
+function select_backend(P, A, prob, wt, sel::ADMMSelection)
+    rung = density_gate_rung(P, A, prob, sel)
     isnothing(rung) || return rung
-    rung = kkt_rung(P, A, proto, n, m, D, E, c, rho_vec, sigma)
+    rung = kkt_rung(P, A, prob, wt, sel)
     isnothing(rung) || return rung
-    rung = reduced_rung(P, A, proto, n, m, D, E, c, rho_vec, sigma)
+    rung = reduced_rung(P, A, prob, wt, sel)
     isnothing(rung) || return rung
-    rung = kronecker_rung(P, A, proto, n, m, D, E, c, rho_vec, sigma)
+    rung = kronecker_rung(P, A, prob, wt, sel)
     isnothing(rung) || return rung
-    rung = block_rung(P, A, proto, n, m, D, E, c, rho_vec, sigma)
+    rung = block_rung(P, A, prob, wt, sel)
     isnothing(rung) || return rung
-    rung = lowrank_rung(P, A, proto, n, m, D, E, c, rho_vec, sigma)
+    rung = lowrank_rung(P, A, prob, wt, sel)
     isnothing(rung) || return rung
-    rung = formed_rung(P, A, proto, n, m)
+    rung = formed_rung(P, A, prob, sel)
     isnothing(rung) || return rung
-    rung = dense_rung(P, A, proto, n, m)
+    rung = dense_rung(P, A, prob, sel)
     isnothing(rung) || return rung
-    return indirect_rung(P, A, proto, n, m)
+    return indirect_rung(P, A, prob, sel)
 end
 
 """
-    density_gate_rung(P, A, proto, n, m) -> (LinearSystem, Bool) or nothing
+    density_gate_rung(P, A, prob, sel::ADMMSelection) -> (LinearSystem, Bool) or nothing
 
 Ladder rung 1: send a pair whose stored entries are too dense for sparse assembly to pay
 straight to [`dense_rung`](@ref), skipping the rungs between.
 
 Declines for a representation with no density to measure.
 """
-density_gate_rung(P, A, proto::AbstractVector, n::Integer, m::Integer) = nothing
+density_gate_rung(P, A, prob, sel::ADMMSelection) = nothing
 
 """
-    kkt_rung(P, A, proto, n, m, D, E, c, rho_vec, sigma) -> (LinearSystem, Bool) or nothing
+    kkt_rung(P, A, prob, wt, sel::ADMMSelection) -> (LinearSystem, Bool) or nothing
 
 Ladder rung 2: factor the full quasi-definite KKT matrix sparsely, when its factor stays
 sparse enough to clear the gate. Decides by factoring, so what it returns is already factored.
@@ -497,18 +522,18 @@ The gate is a fill threshold, not a comparison against the dense path: it accept
 sparse factor is small, which is a sufficient condition for the sparse route to win and not a
 necessary one. A pair it declines is not thereby known to be better served densely.
 """
-kkt_rung(P, A, proto::AbstractVector, n::Integer, m::Integer, D, E, c, rho_vec, sigma) = nothing
+kkt_rung(P, A, prob, wt, sel::ADMMSelection) = nothing
 
 """
-    reduced_rung(P, A, proto, n, m, D, E, c, rho_vec, sigma) -> (LinearSystem, Bool) or nothing
+    reduced_rung(P, A, prob, wt, sel::ADMMSelection) -> (LinearSystem, Bool) or nothing
 
 Ladder rung 3: factor the reduced matrix sparsely, when its factor stays sparse. Decides by
 factoring, so what it returns is already factored.
 """
-reduced_rung(P, A, proto::AbstractVector, n::Integer, m::Integer, D, E, c, rho_vec, sigma) = nothing
+reduced_rung(P, A, prob, wt, sel::ADMMSelection) = nothing
 
 """
-    formed_rung(P, A, proto, n, m) -> (LinearSystem, Bool) or nothing
+    formed_rung(P, A, prob, sel::ADMMSelection) -> (LinearSystem, Bool) or nothing
 
 Ladder rung 6: form the reduced matrix by accumulating over stored entries, then invert it
 densely — the same dense arithmetic as [`dense_rung`](@ref) reached without the `m×n` buffer
@@ -517,10 +542,10 @@ its product needs.
 Accumulating reads entries, so a method here declines an operand that answers
 [`is_materializable`](@ref) with `false`, as rung 6 does.
 """
-formed_rung(P, A, proto::AbstractVector, n::Integer, m::Integer) = nothing
+formed_rung(P, A, prob, sel::ADMMSelection) = nothing
 
 """
-    dense_rung(P, A, proto, n, m) -> (LinearSystem, Bool) or nothing
+    dense_rung(P, A, prob, sel::ADMMSelection) -> (LinearSystem, Bool) or nothing
 
 Ladder rung 7, the terminal: [`ReducedCholesky`](@ref), which forms the reduced matrix with
 one dense product and inverts it. It serves any pair of materializable matrices, which is
@@ -529,20 +554,18 @@ why every rung above it may decline freely.
 Declines when either operand answers [`is_materializable`](@ref) with `false`, since forming
 the product reads entries. The ladder then falls through to [`indirect_rung`](@ref).
 """
-function dense_rung(
-        P::AbstractMatrix, A::AbstractMatrix, proto::AbstractVector, n::Integer, m::Integer
-    )
+function dense_rung(P::AbstractMatrix, A::AbstractMatrix, prob, sel::ADMMSelection)
     (is_materializable(P) && is_materializable(A)) || return nothing
-    return (ReducedCholesky(proto, n, m), false)
+    return (ReducedCholesky(prob.q0, prob.n, prob.m), false)
 end
 
 # Every rung declines rather than erroring on a pair it does not serve, so the ladder reaches
 # its next rung instead of the caller reaching a `MethodError`. This is the terminal rung's
 # share of that: an operand outside `AbstractMatrix` is served below, not here.
-dense_rung(P, A, proto::AbstractVector, n::Integer, m::Integer) = nothing
+dense_rung(P, A, prob, sel::ADMMSelection) = nothing
 
 """
-    indirect_rung(P, A, proto, n, m) -> (LinearSystem, Bool)
+    indirect_rung(P, A, prob, sel::ADMMSelection) -> (LinearSystem, Bool)
 
 Ladder rung 8, below the terminal: conjugate gradients, which needs only products with `P`
 and `A` and so serves an operator no other rung can materialize.
@@ -550,13 +573,11 @@ and `A` and so serves an operator no other rung can materialize.
 It has no gate: reaching it means nothing above could serve. Without Krylov loaded there is
 no such backend and [`indirect_backend`](@ref) says so.
 """
-indirect_rung(P, A, proto::AbstractVector, n::Integer, m::Integer) =
-    (indirect_backend(proto, n, m), false)
+indirect_rung(P, A, prob, sel::ADMMSelection) =
+    (indirect_backend(prob.q0, prob.n, prob.m), false)
 
-choose_backend(
-    P::Diagonal, A::Diagonal, proto::AbstractVector, n::Integer, m::Integer,
-    D, E, c, rho_vec, sigma
-) = (DiagonalReduced(proto, n), false)
+choose_backend(P::Diagonal, A::Diagonal, prob, wt, sel::ADMMSelection) =
+    (DiagonalReduced(prob.q0, prob.n), false)
 
 # The pairs whose reduced matrix has bandwidth 1. `Bidiagonal` is as wide an `A` as this
 # reaches: a `Tridiagonal` one squares to bandwidth 2, which no symmetric type in
@@ -566,14 +587,12 @@ choose_backend(
 # reads it through `P[j, j]` and `P[j, j+1]` alone; `validate` has already established that
 # `P` is symmetric, so the subdiagonal it also stores holds the same numbers.
 choose_backend(
-    P::Union{SymTridiagonal, Tridiagonal}, A::Diagonal, proto::AbstractVector,
-    n::Integer, m::Integer, D, E, c, rho_vec, sigma
-) = (TridiagonalReduced(proto, n), false)
+    P::Union{SymTridiagonal, Tridiagonal}, A::Diagonal, prob, wt, sel::ADMMSelection
+) = (TridiagonalReduced(prob.q0, prob.n), false)
 
 choose_backend(
-    P::Union{Diagonal, SymTridiagonal, Tridiagonal}, A::Bidiagonal, proto::AbstractVector,
-    n::Integer, m::Integer, D, E, c, rho_vec, sigma
-) = (TridiagonalReduced(proto, n), false)
+    P::Union{Diagonal, SymTridiagonal, Tridiagonal}, A::Bidiagonal, prob, wt, sel::ADMMSelection
+) = (TridiagonalReduced(prob.q0, prob.n), false)
 
 "Name of the backend, for reporting."
 backend_name(::ReducedCholesky) = :cholesky

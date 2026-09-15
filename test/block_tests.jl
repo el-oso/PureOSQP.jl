@@ -41,8 +41,8 @@ end
 
 @testitem "the block rung declines what it cannot decouple" begin
     using LinearAlgebra, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
     Random.seed!(52)
-    proto = zeros(20)
     square(k) = Matrix(
         Symmetric(
             let S = randn(k, k)
@@ -56,9 +56,9 @@ end
         P = PureOSQP.BlockDiagonal([square(k) for k in psizes])
         A = PureOSQP.BlockDiagonal([randn(k, k) for k in asizes])
         n, m = size(P, 2), size(A, 1)
-        return PureOSQP.block_rung(
-            P, A, proto, n, m, ones(n), ones(m), 1.0, ones(m), 1.0e-6
-        )
+        prob = raw_problem(P, A, n, m)
+        wt = raw_weights(ones(m), 1.0e-6)
+        return PureOSQP.block_rung(P, A, prob, wt, PureOSQP.ADMMSelection())
     end
 
     # One block is the dense terminal wearing a wrapper.

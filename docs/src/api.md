@@ -158,6 +158,9 @@ PureOSQP.check_symmetric_products
 ## The selection ladder
 
 ```@docs
+PureOSQP.SelectionFor
+PureOSQP.ADMMSelection
+PureOSQP.IPMSelection
 PureOSQP.select_backend
 PureOSQP.density_gate_rung
 PureOSQP.kkt_rung

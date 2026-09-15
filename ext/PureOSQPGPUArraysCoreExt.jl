@@ -42,14 +42,13 @@ function unsupported_backend()
 end
 
 PureOSQP.choose_backend(
-    P, A::AbstractGPUMatrix, proto::AbstractVector, n::Integer, m::Integer, D, E, c, rho_vec, sigma
+    P, A::AbstractGPUMatrix, prob, wt, sel::PureOSQP.ADMMSelection
 ) = unsupported_backend()
 PureOSQP.choose_backend(
-    P::AbstractGPUMatrix, A, proto::AbstractVector, n::Integer, m::Integer, D, E, c, rho_vec, sigma
+    P::AbstractGPUMatrix, A, prob, wt, sel::PureOSQP.ADMMSelection
 ) = unsupported_backend()
 PureOSQP.choose_backend(
-    P::AbstractGPUMatrix, A::AbstractGPUMatrix, proto::AbstractVector, n::Integer, m::Integer,
-    D, E, c, rho_vec, sigma
+    P::AbstractGPUMatrix, A::AbstractGPUMatrix, prob, wt, sel::PureOSQP.ADMMSelection
 ) = unsupported_backend()
 
 """

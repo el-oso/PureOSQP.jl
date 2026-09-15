@@ -565,17 +565,17 @@ end
 
 @testitem "the low-rank rung declines a correction too wide to pay" begin
     using LinearAlgebra, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
     Random.seed!(43)
     n = 20
-    proto = zeros(n)
 
     "The rung's verdict for a coupling of rank `k`."
     function rung(k)
         A = PureOSQP.RowCoupled(randn(k, n), n)
         m = k + n
-        return PureOSQP.lowrank_rung(
-            Diagonal(ones(n)), A, proto, n, m, ones(n), ones(m), 1.0, ones(m), 1.0e-6
-        )
+        prob = raw_problem(Diagonal(ones(n)), A, n, m)
+        wt = raw_weights(ones(m), 1.0e-6)
+        return PureOSQP.lowrank_rung(Diagonal(ones(n)), A, prob, wt, PureOSQP.ADMMSelection())
     end
 
     # The limit is `10k <= n`, which is `k <= 2` here.
@@ -714,9 +714,11 @@ end
     @test lazy.obj_val ≈ ref.obj_val atol = 1.0e-5
 
     # The trait is what declines rung 6, and it declines on either operand alone.
-    @test isnothing(PureOSQP.dense_rung(ProductsOnly(Pm), Am, q, n, m))
-    @test isnothing(PureOSQP.dense_rung(Pm, ProductsOnly(Am), q, n, m))
-    @test PureOSQP.dense_rung(Pm, Am, q, n, m)[1] isa PureOSQP.ReducedCholesky
+    include(joinpath(@__DIR__, "helpers.jl"))
+    sel = PureOSQP.ADMMSelection()
+    @test isnothing(PureOSQP.dense_rung(ProductsOnly(Pm), Am, raw_problem(ProductsOnly(Pm), Am, n, m), sel))
+    @test isnothing(PureOSQP.dense_rung(Pm, ProductsOnly(Am), raw_problem(Pm, ProductsOnly(Am), n, m), sel))
+    @test PureOSQP.dense_rung(Pm, Am, raw_problem(Pm, Am, n, m), sel)[1] isa PureOSQP.ReducedCholesky
 end
 
 @testitem "a failed factorization suggests the full KKT system only when it is not already in use" begin

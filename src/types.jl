@@ -536,7 +536,7 @@ function setup_backend(
     # well means building the reduced matrix and factoring it, and doing that with the values
     # the solver will actually use makes that factorization the setup factorization.
     prob = validated_problem(T, nv, mv, P, q, A, l, u, settings.scaling)
-    n, m, q0, D, E, c, l, u = prob.n, prob.m, prob.q0, prob.D, prob.E, prob.c, prob.l, prob.u
+    n, m, q0, l, u = prob.n, prob.m, prob.q0, prob.l, prob.u
     # A single definition, and no default argument: a local function assigned more than
     # once is boxed, which turns every call through it into a dynamic dispatch and makes
     # the entry points fail `--trim`.
@@ -593,9 +593,9 @@ function setup_backend(
         refactor!(ws)
         return finish_setup!(ws, t0)
     elseif LS === :sparse
-        rung = kkt_rung(P, A, q0, n, m, D, E, c, rho_vec, settings.sigma)
-        isnothing(rung) && (rung = reduced_rung(P, A, q0, n, m, D, E, c, rho_vec, settings.sigma))
-        isnothing(rung) && (rung = formed_rung(P, A, q0, n, m))
+        rung = kkt_rung(P, A, prob, wt, ADMMSelection())
+        isnothing(rung) && (rung = reduced_rung(P, A, prob, wt, ADMMSelection()))
+        isnothing(rung) && (rung = formed_rung(P, A, prob, ADMMSelection()))
         isnothing(rung) && throw(
             ArgumentError(
                 "linsys = :sparse factors the reduced or KKT matrix sparsely and could not " *
@@ -611,7 +611,7 @@ function setup_backend(
         (P isa Diagonal && A isa Diagonal) || throw(
             ArgumentError("linsys = :diagonal needs P and A both diagonal")
         )
-        ls, factored = choose_backend(P, A, q0, n, m, D, E, c, rho_vec, settings.sigma)
+        ls, factored = choose_backend(P, A, prob, wt, ADMMSelection())
         ws = make(ls)
         factored || refactor!(ws)
         return finish_setup!(ws, t0)
@@ -625,12 +625,12 @@ function setup_backend(
                     "P with a diagonal A, or any of those P with a bidiagonal A"
             )
         )
-        ls, factored = choose_backend(P, A, q0, n, m, D, E, c, rho_vec, settings.sigma)
+        ls, factored = choose_backend(P, A, prob, wt, ADMMSelection())
         ws = make(ls)
         factored || refactor!(ws)
         return finish_setup!(ws, t0)
     elseif LS === :kronecker
-        rung = kronecker_rung(P, A, q0, n, m, D, E, c, rho_vec, settings.sigma)
+        rung = kronecker_rung(P, A, prob, wt, ADMMSelection())
         isnothing(rung) && throw(
             ArgumentError(
                 "linsys = :kronecker needs A a KroneckerOperator, P a scalar multiple of the " *
@@ -642,7 +642,7 @@ function setup_backend(
         factored || refactor!(ws)
         return finish_setup!(ws, t0)
     elseif LS === :block
-        rung = block_rung(P, A, q0, n, m, D, E, c, rho_vec, settings.sigma)
+        rung = block_rung(P, A, prob, wt, ADMMSelection())
         isnothing(rung) && throw(
             ArgumentError(
                 "linsys = :block needs P and A both block diagonal over the same column " *
@@ -654,7 +654,7 @@ function setup_backend(
         factored || refactor!(ws)
         return finish_setup!(ws, t0)
     elseif LS === :lowrank
-        rung = lowrank_rung(P, A, q0, n, m, D, E, c, rho_vec, settings.sigma)
+        rung = lowrank_rung(P, A, prob, wt, ADMMSelection())
         isnothing(rung) && throw(
             ArgumentError(
                 "linsys = :lowrank needs a diagonal P and a RowCoupled A whose coupling rank " *
@@ -668,7 +668,7 @@ function setup_backend(
     end
     # `choose_backend` picks by representation; the choice is settled here, once. The backend
     # is then part of the workspace's type, so the per-iteration solve dispatches statically.
-    ls, factored = choose_backend(P, A, q0, n, m, D, E, c, rho_vec, settings.sigma)
+    ls, factored = choose_backend(P, A, prob, wt, ADMMSelection())
     ws = make(ls)
     # A factorization that fails here throws, as it does at every later refactorization, and
     # names `linsys = :kkt` as the remedy rather than switching backends unannounced.

@@ -87,17 +87,18 @@ const WideBand = Union{Tridiagonal, BandedMatrix, Symmetric{<:Any, <:BandedMatri
 const NarrowBand = Union{Diagonal, Bidiagonal}
 
 PureOSQP.choose_backend(
-    P::BandedLike, A::WideBand, proto::AbstractVector{T}, n::Integer, m::Integer,
-    D, E, c, rho_vec, sigma
-) where {T <: Real} = banded_backend(P, A, proto, n, m)
+    P::BandedLike, A::WideBand, prob, wt, sel::PureOSQP.ADMMSelection
+) = banded_backend(P, A, prob, sel)
 
 PureOSQP.choose_backend(
     P::Union{BandedMatrix, Symmetric{<:Any, <:BandedMatrix}}, A::NarrowBand,
-    proto::AbstractVector{T}, n::Integer, m::Integer,
-    D, E, c, rho_vec, sigma
-) where {T <: Real} = banded_backend(P, A, proto, n, m)
+    prob, wt, sel::PureOSQP.ADMMSelection
+) = banded_backend(P, A, prob, sel)
 
-function banded_backend(P, A, proto::AbstractVector{T}, n::Integer, m::Integer) where {T <: Real}
+function banded_backend(
+        P, A, prob::PureOSQP.Problem{T}, sel::PureOSQP.ADMMSelection
+    ) where {T <: Real}
+    n = prob.n
     b = reduced_bandwidth(P, A)
     # Below bandwidth 2 the LinearAlgebra backends already apply and are cheaper than a banded
     # factorization. Above `n/4` the dense path wins per iteration.
@@ -116,7 +117,7 @@ function banded_backend(P, A, proto::AbstractVector{T}, n::Integer, m::Integer) 
     # `b <= n/4` also implies the band is the smaller representation — `(2b+1)n` against the
     # dense backend's `mn + n^2` — and implies `b < n - 1`, so neither needs testing separately.
     # See `bench/gate_band_beyond.jl`.
-    (b < 2 || 4b > n) && return PureOSQP.dense_rung(P, A, proto, n, m)
+    (b < 2 || 4b > n) && return PureOSQP.dense_rung(P, A, prob, sel)
     R = BandedMatrix{T}(undef, (n, n), (b, b))
     fill!(R.data, zero(T))
     for i in 1:n
