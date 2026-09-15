@@ -10,7 +10,7 @@
         "chainrules_tests.jl" => 3,
         "coverage_tests.jl" => 1,
         "corpus_tests.jl" => 4,
-        "derivative_tests.jl" => 7,
+        "derivative_tests.jl" => 8,
         "gpu_tests.jl" => 4,
         "indirect_tests.jl" => 10,
         "ipm_backends_tests.jl" => 3,
@@ -18,7 +18,7 @@
         "kronecker_tests.jl" => 4,
         "linsys_tests.jl" => 32,
         "meta_tests.jl" => 1,
-        "moi_tests.jl" => 4,
+        "moi_tests.jl" => 6,
         "operator_tests.jl" => 7,
         "oracle_tests.jl" => 4,
         "polish_tests.jl" => 4,
@@ -27,7 +27,7 @@
         "setup_tests.jl" => 13,
         "solve_tests.jl" => 34,
         "trim_tests.jl" => 1,
-        "update_tests.jl" => 10,
+        "update_tests.jl" => 11,
     )
     dir = @__DIR__
     files = sort(filter(f -> endswith(f, "_tests.jl"), readdir(dir)))

@@ -1,13 +1,11 @@
 """
     settings_tuple(s) -> NamedTuple
 
-`s` as a keyword-ready `NamedTuple`. `Val(fieldcount(...))` keeps the loop unrolled, so the
-field accesses resolve statically.
+`s` as a keyword-ready `NamedTuple`, for either [`Settings`](@ref) or [`IPMSettings`](@ref).
+`Val(fieldcount(...))` keeps the loop unrolled, so the field accesses resolve statically.
 """
-function settings_tuple(s::Settings{T}) where {T}
-    return NamedTuple{fieldnames(Settings{T})}(
-        ntuple(i -> getfield(s, i), Val(fieldcount(Settings{T})))
-    )
+function settings_tuple(s::S) where {S}
+    return NamedTuple{fieldnames(S)}(ntuple(i -> getfield(s, i), Val(fieldcount(S))))
 end
 
 """

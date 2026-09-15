@@ -50,18 +50,22 @@ include("admm/rho.jl")
 include("admm/termination.jl")
 include("admm/admm.jl")
 include("core/polish.jl")
-include("core/derivative.jl")
 include("core/update.jl")
 include("admm/api.jl")
 include("ipm/settings.jl")
 include("ipm/workspace.jl")
 include("ipm/ipm.jl")
+# After IPMWorkspace: the derivative methods below serve both algorithms' workspaces.
+include("core/derivative.jl")
 
 """
     Optimizer(; kwargs...)
 
 MathOptInterface optimizer, available once MathOptInterface is loaded. Keyword arguments
-are the fields of [`Settings`](@ref).
+are `algorithm` (`:admm`, the default, or `:ipm`) and the fields of [`Settings`](@ref) or
+[`IPMSettings`](@ref), whichever `algorithm` names; `MOI.RawOptimizerAttribute("algorithm")`
+sets it after construction too, and every other raw attribute is then checked against the
+settings struct it selects.
 
 The wrapper lives in a package extension, so it costs nothing to a caller who does not use
 it; this name is the only part of it the core owns.

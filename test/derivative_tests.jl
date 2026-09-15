@@ -230,6 +230,40 @@ end
     )
 end
 
+@testitem "the interior-point adjoint derivative matches finite differences on a polished solution" begin
+    # Mirrors the ADMM item above: polishing is what identifies the active set exactly, and
+    # an interior-point solution needs it more, since its inactive-row multipliers sit at
+    # `μ_final` rather than at zero.
+    using LinearAlgebra, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    Random.seed!(11)
+    n, m = 4, 6
+    X = randn(n, n)
+    P = Matrix(X'X + I)
+    q = randn(n)
+    A = randn(m, n)
+    b = A * randn(n)
+    l, u = b .- rand(m), b .+ rand(m)
+    opts = (algorithm = :ipm, eps_abs = 1.0e-12, eps_rel = 1.0e-12, polishing = true)
+
+    ws = setup(P, q, A, l, u; opts...)
+    @test PureOSQP.solve!(ws).status == SOLVED
+
+    gx, gy = randn(n), randn(m)
+    d = adjoint_derivative(ws, gx, gy)
+
+    L(P, q, A, l, u) = (w = PureOSQP.solve(P, q, A, l, u; opts...); dot(gx, w.x) + dot(gy, w.y))
+    h = 1.0e-6
+    fd(f) = (f(h) - f(-h)) / 2h
+
+    dq = randn(n)
+    @test dot(d.dq, dq) ≈ fd(t -> L(P, q + t * dq, A, l, u)) rtol = 1.0e-5
+
+    dq2 = randn(n)
+    fx, fy = forward_derivative(ws; dq = dq2)
+    @test dot(gx, fx) + dot(gy, fy) ≈ dot(d.dq, dq2) rtol = 1.0e-8
+end
+
 @testitem "a one-sided row's missing bound does not make every row weakly active" begin
     using LinearAlgebra, Random
     # The absent upper bound is stored as a large finite number. The weak-activity gap must

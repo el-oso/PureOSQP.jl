@@ -105,9 +105,11 @@ end
     active_kkt(ws) -> (F, M, act, lower, x, y)
 
 Check that `ws` holds a converged, host-resident solution, unscale it into problem space,
-and delegate to the `active_kkt(prob, x, y, z)` method above.
+and delegate to the `active_kkt(prob, x, y, z)` method above. One method serves both
+[`Workspace`](@ref) and [`IPMWorkspace`](@ref): each holds its iterate the same way, scaled
+by the same `D`, `E`, `c`.
 """
-function active_kkt(ws::Workspace{T}) where {T}
+function active_kkt(ws::Union{Workspace{T}, IPMWorkspace{T}}) where {T}
     # The derivative is of the solution map at a solution. An unconverged point is not one,
     # and an infeasible run has already been cold started, so differentiating either returns
     # a number for a question that was not asked.
@@ -168,7 +170,7 @@ units while being a different quantity, and nothing downstream could tell the di
 gradient consumer has no such test.
 """
 function adjoint_derivative(
-        ws::Workspace{T}, dx::AbstractVector, dy::AbstractVector
+        ws::Union{Workspace{T}, IPMWorkspace{T}}, dx::AbstractVector, dy::AbstractVector
     ) where {T}
     n, m = ws.prob.n, ws.prob.m
     length(dx) == n || throw(ArgumentError("length(dx) = $(length(dx)) must equal n = $n"))
@@ -219,7 +221,7 @@ arguments are zero. Solves the same `M` as [`adjoint_derivative`](@ref), against
 and scatters `Δν` back into the active rows to give `dy`.
 """
 function forward_derivative(
-        ws::Workspace{T}; dP = nothing, dq = nothing, dA = nothing,
+        ws::Union{Workspace{T}, IPMWorkspace{T}}; dP = nothing, dq = nothing, dA = nothing,
         dl = nothing, du = nothing
     ) where {T}
     n, m = ws.prob.n, ws.prob.m

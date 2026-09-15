@@ -546,6 +546,8 @@ function solve!(ws::IPMWorkspace{T}) where {T}
     s = ws.settings
     s.warm_starting || (ws.seeded = false)
     ws.status = UNSOLVED
+    ws.polished = false
+    ws.status_polish = POLISH_NOT_PERFORMED
     ws.iter = 0
     ws.reg_bumps = 0
     set_regularization!(ws, s.reg_primal, s.reg_dual)
@@ -554,6 +556,7 @@ function solve!(ws::IPMWorkspace{T}) where {T}
     ws.last_merit = INFTY(T)
     ws.alert = false
     ws.cg_misses = 0
+    ws.polish_time = 0.0
     bound = iterate_bound(ws)
     inner_before = inner_iterations(ws.linsys)
     # As in ADMM's loop: the clock is read only when a limit is set.
@@ -614,10 +617,43 @@ function solve!(ws::IPMWorkspace{T}) where {T}
     end
     ws.solve_time = (time_ns() - started) / 1.0e9
     ws.cg_iters = inner_iterations(ws.linsys) - inner_before
+    if (ws.status == SOLVED || ws.status == SOLVED_INACCURATE) && s.polishing
+        t_polish = time_ns()
+        ws.status_polish = polish!(ws)
+        ws.polished = ws.status_polish === POLISH_SUCCESS
+        ws.polish_time = (time_ns() - t_polish) / 1.0e9
+    end
     sol = build_solution(ws)
     ws.first_run = false
+    # The updates belonged to this run and are now reported; the next solve counts only the
+    # ones made after it.
+    ws.update_time = 0.0
     ws.seeded = has_solution(ws.status)
     return sol
+end
+
+"""
+    polish!(ws::IPMWorkspace) -> PolishStatus
+
+Guess the active set from the interior-point iterates `(ws.x, ws.y, ws.z)` — `ws.z` is
+already `clamp(Ãx, l̃, ũ)` — solve the resulting equality-constrained QP exactly, and adopt
+the result only if both residuals improve. Delegates to [`polish_kernel!`](@ref). On
+`POLISH_SUCCESS` it copies the polished point into `ws.x` and `ws.y` and recomputes the
+residuals with [`ipm_residuals!`](@ref), which rebuilds `ws.z` from the polished `x` rather
+than adopting the kernel's own candidate, keeping `z` the same `clamp(Ãx, l̃, ũ)` it is
+everywhere else in the interior-point method.
+"""
+function polish!(ws::IPMWorkspace{T}) where {T}
+    prob = ws.prob
+    status, xpol, ypol, _ = polish_kernel!(
+        prob, ws.x, ws.y, ws.z, ws.prim_res, ws.dual_res, ws.Ax, ws.Px, ws.Aty;
+        delta = ws.settings.delta, refine_iter = ws.settings.polish_refine_iter
+    )
+    status === POLISH_SUCCESS || return status
+    copyto!(ws.x, xpol)
+    copyto!(ws.y, ypol)
+    ipm_residuals!(ws)
+    return POLISH_SUCCESS
 end
 
 """
@@ -632,9 +668,9 @@ function ipm_solution(
     return Solution{T}(
         Vector{T}(x), Vector{T}(y), ws.status, obj, dual_obj, gap,
         ws.prim_res, ws.dual_res, ws.rel_kkt_error, ws.iter,
-        0.0, 0.0, zero(T), 0, 0, ws.cg_iters, false, POLISH_NOT_PERFORMED,
-        ws.setup_time, 0.0, ws.solve_time, 0.0,
-        (ws.first_run ? ws.setup_time : 0.0) + ws.solve_time,
+        0.0, 0.0, zero(T), 0, 0, ws.cg_iters, ws.polished, ws.status_polish,
+        ws.setup_time, ws.update_time, ws.solve_time, ws.polish_time,
+        (ws.first_run ? ws.setup_time : 0.0) + ws.update_time + ws.solve_time + ws.polish_time,
         Vector{T}(prim_cert), Vector{T}(dual_cert),
     )
 end

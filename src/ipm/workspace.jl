@@ -4,6 +4,35 @@ const ROW_INEQUALITY = Int8(0)
 const ROW_EQUALITY = Int8(1)
 
 """
+    classify_rows!(rclass, has_l, has_u, prob) -> n_sides
+
+Set every row's class and side masks from `prob`'s current bounds, and return the number of
+inequality sides across all rows. Used at workspace construction and by [`update!`](@ref)
+whenever `l` or `u` changes.
+"""
+function classify_rows!(rclass::AbstractVector{Int8}, has_l::AbstractVector{Bool}, has_u::AbstractVector{Bool}, prob::Problem{T}) where {T}
+    loose = INFTY(T) * MIN_SCALING(T)
+    sides = 0
+    for i in eachindex(rclass)
+        if prob.l0[i] == prob.u0[i]
+            rclass[i] = ROW_EQUALITY
+            has_l[i] = false
+            has_u[i] = false
+        elseif prob.l[i] < -loose && prob.u[i] > loose
+            rclass[i] = ROW_FREE
+            has_l[i] = false
+            has_u[i] = false
+        else
+            rclass[i] = ROW_INEQUALITY
+            has_l[i] = prob.l[i] > -loose
+            has_u[i] = prob.u[i] < loose
+            sides += has_l[i] + has_u[i]
+        end
+    end
+    return sides
+end
+
+"""
     IPMWorkspace{T,MP,MA,V,VI,VB,LS}
 
 Solver state of the interior-point method, built by [`setup`](@ref) with `algorithm = :ipm`.
@@ -32,7 +61,9 @@ mutable struct IPMWorkspace{
     const rclass::VI
     const has_l::VB
     const has_u::VB
-    const n_sides::Int
+    # Inequality sides across every row; recomputed by `update!` whenever `l` or `u` changes
+    # a row's class.
+    n_sides::Int
     const x::V
     const y::V
     const s_l::V
@@ -106,8 +137,14 @@ mutable struct IPMWorkspace{
     status::Status
     seeded::Bool
     first_run::Bool
+    polished::Bool
+    status_polish::PolishStatus
     setup_time::Float64
+    # Accumulated across the `update!` calls made since the previous solve, and charged to
+    # the next one; reset once reported, as in `Workspace`.
+    update_time::Float64
     solve_time::Float64
+    polish_time::Float64
     settings::IPMSettings{T}
 end
 
@@ -132,19 +169,7 @@ function ipm_workspace(ls::LinearSystem, prob::Problem{T}, wt::SystemWeights{T},
     rclass = fill!(similar(q0, Int8, m), ROW_INEQUALITY)
     has_l = fill!(similar(q0, Bool, m), false)
     has_u = fill!(similar(q0, Bool, m), false)
-    loose = INFTY(T) * MIN_SCALING(T)
-    sides = 0
-    for i in eachindex(rclass)
-        if prob.l0[i] == prob.u0[i]
-            rclass[i] = ROW_EQUALITY
-        elseif prob.l[i] < -loose && prob.u[i] > loose
-            rclass[i] = ROW_FREE
-        else
-            has_l[i] = prob.l[i] > -loose
-            has_u[i] = prob.u[i] < loose
-            sides += has_l[i] + has_u[i]
-        end
-    end
+    sides = classify_rows!(rclass, has_l, has_u, prob)
     ws = IPMWorkspace{T, typeof(prob.P), typeof(prob.A), typeof(q0), typeof(rclass), typeof(has_l), typeof(ls)}(
         prob, ls, wt, rclass, has_l, has_u, sides,
         buf(n), buf(m), buf(m), buf(m), buf(m), buf(m),
@@ -158,7 +183,7 @@ function ipm_workspace(ls::LinearSystem, prob::Problem{T}, wt::SystemWeights{T},
         zero(T), zero(T), zero(T),
         zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), zero(T),
         zero(T), zero(T), zero(T), zero(T),
-        0, 0, 0, UNSOLVED, false, true, 0.0, 0.0,
+        0, 0, 0, UNSOLVED, false, true, false, POLISH_NOT_PERFORMED, 0.0, 0.0, 0.0, 0.0,
         settings,
     )
     return ws
@@ -382,5 +407,72 @@ function cold_start!(ws::IPMWorkspace{T}) where {T}
     fill!(ws.x, zero(T))
     fill!(ws.y, zero(T))
     ws.seeded = false
+    return ws
+end
+
+"""
+    update!(ws::IPMWorkspace; q, l, u, P, A) -> ws
+
+Replace problem data in an existing interior-point workspace, as [`update!`](@ref) does for
+[`Workspace`](@ref): the same validation and adoption, checked against convexity at
+`reg_primal`. A row whose bounds move into or out of equality or freeness is reclassified;
+`s_l`, `s_u`, `z_l` and `z_u` are left as they are, since `starting_point!` rebuilds
+them from `x`, `y` and the current classes at the next solve.
+
+No factorization happens here: every outer iteration factorizes the Newton system at its own
+weights regardless, and a solve resets the regularization from `settings` before its first
+one, so a later solve picks up the new data whether or not `P` or `A` changed.
+"""
+function update!(
+        ws::IPMWorkspace{T}; q = nothing, l = nothing, u = nothing, P = nothing, A = nothing
+    ) where {T}
+    t0 = time_ns()
+    prob = ws.prob
+    validate_update!(prob, ws.linsys; P, A, q, l, u)
+    !isnothing(P) && !is_convex(T, P, ws.settings.reg_primal) &&
+        throw(
+        ArgumentError(
+            "P + reg_primal*I is not positive definite: P is indefinite, so the problem is not convex."
+        )
+    )
+    adopt_update!(prob; P, A, q, l, u)
+    if !isnothing(l) || !isnothing(u)
+        ws.n_sides = classify_rows!(ws.rclass, ws.has_l, ws.has_u, prob)
+    end
+    ws.update_time += (time_ns() - t0) / 1.0e9
+    return ws
+end
+
+"""
+    update_settings!(ws::IPMWorkspace; kwargs...) -> ws
+
+Replace the workspace's settings, keeping every field not named in `kwargs`, exactly as
+[`update_settings!`](@ref) does for [`Workspace`](@ref): the keywords are those of
+[`IPMSettings`](@ref) and are validated the same way, `linsys` and `scaling` are rejected
+because the backend and the equilibration are fixed once the workspace is built, and a
+`:indirect` backend's own copy of the conjugate-gradient settings is refreshed at once.
+
+Every other field, `reg_primal` and `reg_dual` included, is free: a solve resets the
+regularization from `settings` before its first iteration and refactorizes every iteration
+after, so nothing here needs to trigger a refactorization the way a `ρ` or `σ` change does
+for ADMM.
+"""
+function update_settings!(ws::IPMWorkspace{T}; kwargs...) where {T}
+    old = ws.settings
+    new = IPMSettings{T}(; settings_tuple(old)..., kwargs...)
+    new.linsys === old.linsys || throw(
+        ArgumentError(
+            "linsys is fixed once the workspace is built, because the backend is part of " *
+                "its type. Call setup again to change it."
+        )
+    )
+    new.scaling == old.scaling || throw(
+        ArgumentError(
+            "scaling is fixed once the workspace is built, because the equilibration " *
+                "factors come from the data setup saw. Call setup again to change it."
+        )
+    )
+    ws.settings = new
+    adopt_settings!(ws.linsys, new)
     return ws
 end

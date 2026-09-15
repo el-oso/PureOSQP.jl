@@ -24,6 +24,36 @@
     )
 end
 
+@testitem "the MathOptInterface wrapper passes MOI.Test at algorithm = :ipm" begin
+    using MathOptInterface, LinearAlgebra, SparseArrays
+    const MOI = MathOptInterface
+
+    # A narrower subset than the ADMM run above: the interior-point method is measured
+    # end to end against the structural corpus and the c-suite (`test/ipm_tests.jl`), and
+    # this only checks that the MOI wrapper itself dispatches to it and reports its numbers,
+    # not a second full pass of MOI.Test.
+    model = MOI.Utilities.CachingOptimizer(
+        MOI.Utilities.UniversalFallback(MOI.Utilities.Model{Float64}()),
+        MOI.instantiate(PureOSQP.Optimizer; with_bridge_type = Float64),
+    )
+    MOI.set(model, MOI.Silent(), true)
+    MOI.set(model, MOI.RawOptimizerAttribute("algorithm"), :ipm)
+    # Default IPM tolerances (`1e-8`) already clear the `1e-4` MOI.Test checks, unlike the
+    # ADMM run above, whose `1e-3` defaults do not, so nothing is tightened here.
+    #
+    # The three exclusions are the same the ADMM run needs (neither algorithm tracks a basis,
+    # and this solver has no bound on the objective to report). No exclusion beyond those was
+    # needed to pass this subset.
+    MOI.Test.runtests(
+        model,
+        MOI.Test.Config(;
+            atol = 1.0e-4, rtol = 1.0e-4,
+            exclude = Any[MOI.ConstraintBasisStatus, MOI.VariableBasisStatus, MOI.ObjectiveBound],
+        ),
+        include = ["test_linear_", "test_quadratic_"],
+    )
+end
+
 @testitem "the wrapper reports the solver's own numbers" begin
     using MathOptInterface, LinearAlgebra, SparseArrays
     const MOI = MathOptInterface
@@ -90,6 +120,32 @@ end
 
     MOI.set(o, MOI.RawOptimizerAttribute("linsys"), "kkt")
     @test MOI.get(o, MOI.RawOptimizerAttribute("linsys")) === :kkt
+end
+
+@testitem "the algorithm attribute selects which settings the raw attributes validate against" begin
+    using MathOptInterface
+    const MOI = MathOptInterface
+
+    o = PureOSQP.Optimizer()
+    @test MOI.supports(o, MOI.RawOptimizerAttribute("algorithm"))
+    @test MOI.get(o, MOI.RawOptimizerAttribute("algorithm")) === :admm
+    @test_throws "algorithm must be :admm or :ipm" MOI.set(
+        o, MOI.RawOptimizerAttribute("algorithm"), :nope
+    )
+
+    # An ADMM-only field, checked against `Settings` by default.
+    MOI.set(o, MOI.RawOptimizerAttribute("rho"), 0.2)
+    @test MOI.get(o, MOI.RawOptimizerAttribute("rho")) == 0.2
+
+    MOI.set(o, MOI.RawOptimizerAttribute("algorithm"), "ipm")
+    @test MOI.get(o, MOI.RawOptimizerAttribute("algorithm")) === :ipm
+    # `rho` belongs to `Settings`, not `IPMSettings`, so it is no longer a raw attribute here.
+    @test !MOI.supports(o, MOI.RawOptimizerAttribute("rho"))
+    # An IPM-only field, checked against `IPMSettings` once `algorithm` names it.
+    @test MOI.supports(o, MOI.RawOptimizerAttribute("max_reg_bumps"))
+    MOI.set(o, MOI.RawOptimizerAttribute("max_reg_bumps"), 3)
+    @test MOI.get(o, MOI.RawOptimizerAttribute("max_reg_bumps")) == 3
+    @test_throws "must be non-negative" MOI.set(o, MOI.RawOptimizerAttribute("max_reg_bumps"), -1)
 end
 
 @testitem "NUMERICAL_ERROR maps to MOI.NUMERICAL_ERROR with no result" begin

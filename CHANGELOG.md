@@ -24,9 +24,7 @@ what is true now; this file is where the history lives.
   `sqrt(eps(T))` in coarser arithmetic, so `Float32` data solves at the defaults; `BigFloat` and
   `ForwardDiff.Dual` run as well, dual numbers on the reduced Cholesky only, where
   `bunchkaufman!` is not needed. In this version it refuses by name GPU arrays,
-  `linsys = :kronecker` and `linsys = :lowrank`, and it has no
-  polishing, derivatives, `update!`, `update_settings!`, verbose output or
-  MathOptInterface support.
+  `linsys = :kronecker` and `linsys = :lowrank`, and it has no verbose output.
 - **The interior-point method runs on operators with a caller-supplied preconditioner.**
   `algorithm = :ipm` takes `linsys = :indirect` with a `preconditioner` other than the built-in
   ones and `scaling = 0`, for matrices and for operators that supply products only
@@ -69,6 +67,25 @@ what is true now; this file is where the history lives.
   other object is applied through `LinearAlgebra.ldiv!`, so a `Cholesky` works as it is, and is
   refreshed by a method of `update_preconditioner!` whenever `ρ` or `σ` changes. A caller's own
   preconditioner requires `scaling = 0`.
+- **The interior-point method supports polishing, derivatives, `update!`, `update_settings!`
+  and MathOptInterface.** `IPMSettings` gains `polishing`, `polish_refine_iter`, `delta` and
+  `verbose`, matching `Settings`; a `SOLVED` or `SOLVED_INACCURATE` run polishes exactly as
+  ADMM does and reports `Solution.polished`/`status_polish`. `adjoint_derivative` and
+  `forward_derivative` accept an `IPMWorkspace`, taking the derivative at its unscaled point
+  through the same active-set KKT matrix ADMM uses; polishing first is recommended, since an
+  interior-point solution's inactive-row multipliers sit at `μ_final` rather than at zero.
+  `update!` validates and adopts `q`, `l`, `u`, `P` and `A` through the same path as ADMM and
+  reclassifies rows, without refactorizing: every outer iteration refactorizes at its own
+  weights regardless. `update_settings!` rebuilds `IPMSettings`, rejecting a changed `linsys`
+  or `scaling`; every other field, including the two regularizations, takes effect on the
+  next solve without any refactorization here, since a solve always resets them from
+  `settings` before its first iteration. `MOI.RawOptimizerAttribute("algorithm")` selects
+  `:admm` or `:ipm`, and every other raw setting is then checked against `IPMSettings` or
+  `Settings` accordingly; `MOI.optimize!` dispatches to whichever `setup` returns, and
+  `MOI.BarrierIterations` reports `Solution.iter` for either.
+- **ChainRulesCore's `rrule` and `frule` for `solve` work at `algorithm = :ipm`.** Both call
+  `adjoint_derivative`/`forward_derivative`, which now accept either workspace, so no change
+  to the rules themselves was needed.
 
 ### Changed
 
@@ -118,6 +135,8 @@ what is true now; this file is where the history lives.
 - The finiteness check in `setup` reads a `SparseMatrixCSC`'s stored entries only. It had read
   every position, one search each, which made `setup` 13× slower on the suite's Huber class
   (6.9 ms against 0.52 ms) and the whole solve 3.4× slower.
+- `polish_kernel!` no longer allocates three zero vectors on a path it declines: it returns
+  the caller's own `x`, `y`, `z` instead, which the caller already knows not to use.
 
 ### Added
 

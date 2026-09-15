@@ -41,7 +41,8 @@ set gives `POLISH_NO_ACTIVE_SET_FOUND`, which means there was nothing to polish 
 than that anything went wrong; a singular reduced KKT gives `POLISH_LINSYS_ERROR`; and a
 point that was computed but is no improvement gives `POLISH_FAILED`. Only
 `POLISH_SUCCESS` reports a genuinely polished `(xpol, ypol, zpol)`; every other status
-returns zero vectors the caller must not use.
+returns the caller's own `x`, `y`, `z` unchanged, which the caller must not mistake for a
+polished point.
 
 The reduced KKT system is regularized by `delta` and corrected by `refine_iter` steps of
 iterative refinement against the unregularized operator.
@@ -66,7 +67,7 @@ function polish_kernel!(
         end
     end
     k = length(active)
-    iszero(k) && return (POLISH_NO_ACTIVE_SET_FOUND, zeros(T, n), zeros(T, m), zeros(T, m))
+    iszero(k) && return (POLISH_NO_ACTIVE_SET_FOUND, x, y, z)
     Ared = Matrix{T}(undef, k, n)
     for j in 1:n
         dj = prob.D[j]
@@ -90,7 +91,7 @@ function polish_kernel!(
         Kp[n + r, n + r] = -delta
     end
     F = bunchkaufman!(Symmetric(copy(Kp), :L); check = false)
-    issuccess(F) || return (POLISH_LINSYS_ERROR, zeros(T, n), zeros(T, m), zeros(T, m))
+    issuccess(F) || return (POLISH_LINSYS_ERROR, x, y, z)
     rhs = Vector{T}(undef, n + k)
     for j in 1:n
         rhs[j] = -prob.q[j]
@@ -131,7 +132,7 @@ function polish_kernel!(
     ok = (pr < prim_res && dr < dual_res) ||
         (pr < prim_res && dual_res < tiny) ||
         (dr < dual_res && prim_res < tiny)
-    ok || return (POLISH_FAILED, zeros(T, n), zeros(T, m), zeros(T, m))
+    ok || return (POLISH_FAILED, x, y, z)
     return (POLISH_SUCCESS, xpol, ypol, zpol)
 end
 

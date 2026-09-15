@@ -96,21 +96,45 @@ MOI.set(o::Optimizer, ::MOI.TimeLimitSec, v::Real) = (o.settings[:time_limit] = 
 MOI.set(o::Optimizer, ::MOI.TimeLimitSec, ::Nothing) = (delete!(o.settings, :time_limit); nothing)
 MOI.get(o::Optimizer, ::MOI.TimeLimitSec) = get(o.settings, :time_limit, nothing)
 
-MOI.supports(::Optimizer, a::MOI.RawOptimizerAttribute) = Symbol(a.name) in fieldnames(PureOSQP.Settings)
-# A value is checked by building `Settings` from it when it is set, so a bad one throws here
-# rather than at `optimize!`. Settings that take a Symbol also accept its name as a String.
+"""
+    _settings_type(o) -> Type
+
+The settings struct the raw attributes validate against: [`PureOSQP.IPMSettings`](@ref)
+once `algorithm` is set to `:ipm`, [`PureOSQP.Settings`](@ref) otherwise.
+"""
+_settings_type(o::Optimizer{T}) where {T} =
+    get(o.settings, :algorithm, :admm) === :ipm ? PureOSQP.IPMSettings{T} : PureOSQP.Settings{T}
+
+# `algorithm` picks which of the two settings structs every other raw attribute is checked
+# against, so it is supported unconditionally rather than being a field of either.
+function MOI.supports(o::Optimizer, a::MOI.RawOptimizerAttribute)
+    name = Symbol(a.name)
+    return name === :algorithm || name in fieldnames(_settings_type(o))
+end
+# A value is checked by building the settings struct from it when it is set, so a bad one
+# throws here rather than at `optimize!`. Settings that take a Symbol also accept its name as
+# a String.
 function MOI.set(o::Optimizer{T}, a::MOI.RawOptimizerAttribute, v) where {T}
     MOI.supports(o, a) || throw(MOI.UnsupportedAttribute(a))
     name = Symbol(a.name)
-    v isa AbstractString && fieldtype(PureOSQP.Settings{T}, name) === Symbol && (v = Symbol(v))
-    PureOSQP.Settings{T}(; o.settings..., name => v)
+    if name === :algorithm
+        alg = Symbol(v)
+        alg in (:admm, :ipm) || throw(ArgumentError("algorithm must be :admm or :ipm, got :$alg"))
+        o.settings[:algorithm] = alg
+        return
+    end
+    ST = _settings_type(o)
+    v isa AbstractString && fieldtype(ST, name) === Symbol && (v = Symbol(v))
+    current = Dict(k => val for (k, val) in o.settings if k in fieldnames(ST))
+    ST(; current..., name => v)
     o.settings[name] = v
     return
 end
 function MOI.get(o::Optimizer{T}, a::MOI.RawOptimizerAttribute) where {T}
     MOI.supports(o, a) || throw(MOI.UnsupportedAttribute(a))
     name = Symbol(a.name)
-    return haskey(o.settings, name) ? o.settings[name] : getfield(PureOSQP.Settings{T}(), name)
+    name === :algorithm && return get(o.settings, :algorithm, :admm)
+    return haskey(o.settings, name) ? o.settings[name] : getfield(_settings_type(o)(), name)
 end
 
 _csc(A::MOI.Utilities.MutableSparseMatrixCSC{T, Int, MOI.Utilities.OneBasedIndexing}) where {T} =
@@ -168,7 +192,7 @@ end
 
 function MOI.optimize!(o::Optimizer{T}) where {T}
     settings = copy(o.settings)
-    o.silent && (settings[:verbose] = false)
+    o.silent && :verbose in fieldnames(_settings_type(o)) && (settings[:verbose] = false)
     ws = PureOSQP.setup(T, o.P, o.q, o.A, o.l, o.u; settings...)
     o.sol = PureOSQP.solve!(ws)
     xr = _is_cert(o.sol.status) ? o.sol.dual_inf_cert : o.sol.x

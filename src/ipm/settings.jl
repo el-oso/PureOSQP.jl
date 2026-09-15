@@ -36,6 +36,13 @@ and [`solve`](@ref). The keyword arguments of those two functions are then these
   residual is below this fraction of `min(μ, ‖r‖∞)`, the barrier parameter and the largest
   Newton residual, floored at `eps(T)` relative to the right-hand side.
 - `cg_fail_limit = 3` — this many missed solves in a row end the run `NUMERICAL_ERROR`.
+- `polishing = false` — refine the solution by [`polish_kernel!`](@ref) once the run ends
+  `SOLVED` or `SOLVED_INACCURATE`, as in [`Settings`](@ref). Recommended before taking a
+  derivative: an interior-point solution carries inactive-row multipliers of size
+  `μ_final`, which is small but not the near-zero `active_kkt` requires.
+- `polish_refine_iter = 3`, `delta = 1e-6` — iterative-refinement steps and the
+  regularization of the polishing solve, as in [`Settings`](@ref).
+- `verbose = false` — reserved for a per-iteration report; nothing is printed yet.
 
 A reduced backend solves `P̃ + δ_p I + Ãᵀ diag(w) Ã`, whose weights reach `1/δ_d` on
 equality rows and on active inequality rows, so its conditioning is bounded by
@@ -68,6 +75,10 @@ struct IPMSettings{T <: Real}
     cg_max_iter::Int
     cg_tol_fraction::T
     cg_fail_limit::Int
+    polishing::Bool
+    polish_refine_iter::Int
+    delta::T
+    verbose::Bool
 end
 
 """
@@ -97,6 +108,7 @@ function IPMSettings{T}(;
         linsys = :auto, reg_primal = ipm_floor(T), reg_dual = ipm_floor(T), max_reg_bumps = 5,
         refine_iter = linsys === :indirect ? 0 : 1, step_fraction = 0.99, warm_starting = true,
         cg_max_iter = 500, cg_tol_fraction = 0.1, cg_fail_limit = 3,
+        polishing = false, polish_refine_iter = 3, delta = 1.0e-6, verbose = false,
     ) where {T <: Real}
     linsys in LINSYS_OPTIONS || throw(
         ArgumentError("linsys must be one of $(join(LINSYS_OPTIONS, ", ")), got :$linsys")
@@ -116,11 +128,14 @@ function IPMSettings{T}(;
     cg_max_iter > 0 || throw(ArgumentError("cg_max_iter must be positive, got $cg_max_iter"))
     cg_tol_fraction > 0 || throw(ArgumentError("cg_tol_fraction must be positive, got $cg_tol_fraction"))
     cg_fail_limit > 0 || throw(ArgumentError("cg_fail_limit must be positive, got $cg_fail_limit"))
+    polish_refine_iter >= 0 || throw(ArgumentError("polish_refine_iter must be non-negative"))
+    delta > 0 || throw(ArgumentError("delta must be positive, got $delta"))
     return IPMSettings{T}(
         Int(max_iter), T(time_limit), T(eps_abs), T(eps_rel), T(eps_prim_inf),
         T(eps_dual_inf), Int(scaling), Int(check_termination),
         Bool(check_dualgap), Bool(scaled_termination), T(reg_primal), T(reg_dual),
         Int(max_reg_bumps), Int(refine_iter), T(step_fraction), Bool(warm_starting), Symbol(linsys),
         Int(cg_max_iter), T(cg_tol_fraction), Int(cg_fail_limit),
+        Bool(polishing), Int(polish_refine_iter), T(delta), Bool(verbose),
     )
 end
