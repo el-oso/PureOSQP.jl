@@ -567,8 +567,7 @@ corpus items pass unchanged and the snapshot matches. **M** mechanical, **J** ju
 | S6 | **`solve_multiplier!`** default + `FullKKT`/`SparseKKT`/`LDLKKT` overrides; test at `w_inv = 1e-12`. | suite; audit unchanged | M |
 | S7 | **Directory move** to `src/core`, `src/admm`, `src/ipm` (empty). | identical; audit; trim | M |
 | S8 | **IPM skeleton on direct backends.** Builds `src/ipm/{settings,workspace,ipm}.jl`; `setup_backend` takes a leading `Val{:admm}`/`Val{:ipm}`; `IPMSettings` holds only the fields the solve uses so far (time limit, infeasibility tolerances, `max_reg_bumps`, CG settings, polishing and verbose arrive with the steps that use them); factorization failure and non-finite residuals throw until S9; `update!`, `update_settings!`, polishing and derivatives are not defined for `IPMWorkspace` until S12; `linsys = :dense` builds `ReducedCholesky` under `:ipm`; GPU arrays are refused by `:auto` selection, while a named backend with GPU arrays fails with the scalar-indexing error as under ADMM. Additionally, `IPMWorkspace`, `setup(…; algorithm = :ipm)` via `Val`, `seeded`, starting point, `ipm_step!` with the per-side recovery and the σ floor of §8.2/§8.4 (`τ = 0.99`), regularization of §8.5, residuals through S4 kernels, `SOLVED`/`SOLVED_INACCURATE`/`MAX_ITER_REACHED`, `solve!`, `build_solution`; `IPMSelection` methods of §5 (FullKKT routing, KKT-first sparse, kronecker decline, GPU refusal, operator refusal: unconditional in S8, lifted by name in S11), the `N_s = 0` rule of §8.4. Corpus items under `:ipm` with `:auto`/`:kkt`, referee `< 1e-5`, backend name asserted for the dense-`P`/sparse-`A` and LP cases; objective vs `osqp_ref`; a reproduction test item on the spike-1 dense generator (`make_instance`) at `n = 200`, `κ ∈ {1, 1e3, 1e6}`, fractions `{0.1, 0.5, 0.9}`, in the spike's two-sided form and in spike 3's `mixed` row form, with `scaling = 0`, the spike's iteration count (outer iterations before the `1e-8` termination check passes), reproducing the exact-solve outer counts (`δ = 1e-8`: 6–11) within ±2 through `FullKKT` with `refine_iter = 0` and through `SparseKKT` with `refine_iter = 1`. | new items pass; ADMM gates identical | J |
-| S9 | **Robustness.** Dynamic regularization bump; `NUMERICAL_ERROR` (+ every switch of §8.6); certificate buffers, stall rule, certificate tests on step and normalized iterates; `time_limit`, interrupt. Tests: c-suite ported cases under `:ipm`; a random infeasible `n = 20, m = 40` primal case and a dual one; equality-only (`N_s = 0`) and free-row corpus cases; a `Float32` item as §10.8 question 3 decides (the refusal message under the recommended answer). | items pass | J |
-| S9b | **HSD decision point** (§9.6, §10): implement the bordered solve on `solve_system!` only if S9's infeasible cases are not detected. | — | J |
+| S9 | **Robustness.** Dynamic regularization bump; `NUMERICAL_ERROR` (+ every switch of §8.6); certificate buffers, stall rule, certificate tests on step and normalized iterates; `time_limit`, interrupt. Tests: c-suite ported cases under `:ipm`; a random infeasible `n = 20, m = 40` primal case and a dual one; equality-only (`N_s = 0`) and free-row corpus cases; a `Float32` item as §10.8 question 3 decides (the refusal message under the recommended answer). Built as commit ba1bc19; S9b not needed. | items pass | J |
 | S10 | **Structured backends under IPM, measured.** Each structured family through its recorded backend under `:ipm`: referee tolerance and iteration count recorded per backend into the snapshot; a family whose count exceeds `2×` the `FullKKT` count on the same problem is routed to `FullKKT` under `IPMSelection` (materialized). A sparse pair whose sparse KKT factor fails the fill gate lands on the sparse reduced backend (`:cholmod`), observed on `banded_qp(200, 300)`. `Float32` as §10.8 question 3 decides. | items pass; table in docs | J |
 | S11 | **IPM `:indirect` with a caller-supplied preconditioner** (§9): `preconditioner` keyword, `update_preconditioner!(M, prob, wt, k)`, refusal by name without one (matrices and operators) and without `scaling = 0`, inner stopping and miss rule, zero start, budgets, `cg_fail_limit`, reporting; reference preconditioners in `bench/` and `test/` (lagged Cholesky over the dense reduced matrix, refreshed every 3 outer iterations; limited-memory LDLᵀ over the sparse one); test items: a `Diagonal` preconditioner with a negative entry ends `NUMERICAL_ERROR` with the message naming the preconditioner; `update_preconditioner!` returning another type throws the `ArgumentError`; a counting preconditioner sees `k = −1, 0, 1, …` and the same `k` after a bump; `bench/ipm_matrixfree.jl` per §9.6. Ships if the §9.6 gates pass. | items pass; bench under `bench/results/`; gate verdict recorded in docs | J |
 | S12 | **Polish, derivatives, `update!`, warm start, MOI for IPM.** | `derivative_tests`, `update_tests`, `moi_tests` parametrized where semantics carry | J |
@@ -607,8 +606,11 @@ operator support.
    equality rows included (`kktldl` groups). The structured reduced backends (diagonal,
    tridiagonal, banded, block, low-rank) are not measured; S10 does it. Larger `δ` is not a
    remedy: it costs outer convergence (§8.5, **measured**).
-6. **Infeasibility detection is heuristic** (§8.7); the S9 random infeasible cases decide
-   whether S9b (HSD) is needed. The spikes ran no infeasible instance.
+6. **Infeasibility detection.** Certificate tests pass on all 40 random infeasible runs
+   (`n = 20, m = 40`, seeds 1–10, scaling 0 and 10, primal and dual cases). Primal infeasibility
+   detected at iteration 5, dual at iteration 3. A stall-based rule (before S9) would lose
+   detections because primal-infeasible mu rises for up to 16 iterations before the certificate
+   appears. HSD is not needed.
 7. **Derivatives after an IPM solve**: inactive-row multipliers are `O(μ_final)`, above the
    `sqrt(eps)` threshold at default tolerances (`derivative.jl:52`); polishing cleans the
    active set and is required for IPM derivatives in v1.
@@ -836,27 +838,26 @@ certificate, NaN residual — an IPM NaN after `is_convex` passed is a numerical
 `MathOptInterfaceExt.jl:203-206`), `docs/src/algorithm.md:383-386`, the API table.
 `has_solution` is `false` for it.
 
-### 8.7 Infeasibility detection (decision §10.4)
+### 8.7 Infeasibility detection
 
 v1: certificate tests, not a homogeneous embedding.
 
 - The tests are the package's, formulation-independent, after S4 on `(prob, buffer, eps)`.
   They project the buffer in place (`termination.jl:209`), so `IPMWorkspace` owns `cert_x`,
   `cert_y`; `build_solution` reads them.
-- At every termination check, and every iteration once the stall or divergence guard fires,
-  the IPM copies `(Δx, Δy)` of the last step and `(x/‖x‖∞, y/‖y‖∞)` into the buffers and runs
-  both tests at `eps_prim_inf`/`eps_dual_inf`, with the `*_INACCURATE` retry at ten times.
-- Stall rule: `α < 1e-8` on three consecutive iterations, or `μ` (`‖r‖∞` when `N_s = 0`) not
-  decreasing for ten, triggers the tests; if neither fires the run ends `NUMERICAL_ERROR` with the last point.
-  Divergence guard: `‖x‖∞` or `‖y‖∞` above `1/sqrt(eps(T))` relative to the data.
-- Whether a Mehrotra IPM's direction on an infeasible problem converges to a Farkas
-  certificate or merely stalls is not established for this code; S9's random infeasible
-  cases (`n = 20, m = 40`, primal and dual) decide. The c-suite six
-  (`c_suite_tests.jl:104-123`) are a regression, not the evidence. The spikes ran no
-  infeasible instance.
-- HSD (S9b) stays available: a bordered solve built entirely on `solve_system!` (two backend
-  solves plus a rank-one update per system, no backend change). Its cost is exactly a doubled
-  product count for operators, which is why it is not the v1 default.
+- Every termination check runs the certificate tests at `eps_prim_inf`/`eps_dual_inf` on
+  `(x/‖x‖∞, y/‖y‖∞)` if a certificate exists; with the `*_INACCURATE` retry at ten times. If
+  a certificate does not exist at max_iter, the run returns `MAX_ITER_REACHED`.
+- Short-step rule: once `α < 1e-8` on three consecutive iterations, or `μ` (`‖r‖∞` when
+  `N_s = 0`) not decreasing for ten consecutive iterations, the tests run every iteration
+  on `(Δx_k, Δy_k)` (step direction) and normalized iterates. If neither certificate passes,
+  the run ends `NUMERICAL_ERROR` with the last point. Divergence guard: `‖x‖∞` or `‖y‖∞`
+  above `1/sqrt(eps(T))` relative to the data triggers every-iteration testing without ending
+  the run; exceeding a multiple of that ceiling ends `NUMERICAL_ERROR`.
+- Measurements (S9, 40 random infeasible runs, `n = 20, m = 40`, seeds 1–10, scaling 0 and 10):
+  primal-infeasible and dual-infeasible cases detected at iterations 5 and 3 respectively,
+  before any stall condition fires. A rule that ended runs on a flat `μ` lost detections because
+  primal-infeasible `μ` rises for up to 16 iterations before the certificate appears.
 
 ### 8.8 Backends and selection
 
@@ -885,7 +886,7 @@ preconditioner in v1.
 | MOI | `algorithm = :ipm`; `BarrierIterations = iter`; `NUMERICAL_ERROR` mapped |
 | `time_limit`, `Ctrl-C` | as ADMM |
 | `verbose` | `Core.stdout`, row: `iter obj prim_res dual_res μ α cg_iters` |
-| `linsys = :indirect` (matrices or operators: `ProductOperator`, LinearMaps, SciMLOperators) | only with a caller-supplied `preconditioner` (§9) and `scaling = 0`; operators: `P` declared `posdef`, no polishing, no derivatives, no `:kkt`; never chosen by `:auto`. Without a preconditioner, or with `scaling ≠ 0`, `setup` refuses by name. |
+| `linsys = :indirect` (matrices or operators: `ProductOperator`, LinearMaps, SciMLOperators) | only with a caller-supplied `preconditioner` (§9) and `scaling = 0`; operators: `P` declared `posdef`, no polishing, no derivatives, no `:kkt`; never chosen by `:auto`. Without a preconditioner, or with `scaling ≠ 0`, `setup` refuses by name. `update_settings!` does not change `linsys`; a refactorize on regularization change runs `update_preconditioner!`. |
 | accelerator, GPU arrays, `profile_primdual` | refused by name / absent |
 | `T` with `eps(T) > eps(Float64)` (`Float32`) | per §10.8 question 3 (recommended: refused by name) |
 | `ForwardDiff.Dual` | not yet exercised under `:ipm` |
@@ -900,6 +901,14 @@ whose maxima were 618 and 678), `cg_tol_fraction = 0.1`, `cg_fail_limit = 3`,
 `polishing = false`, `polish_refine_iter = 3`, `delta = 1e-6`, `warm_starting = true`,
 `verbose = false`, `linsys = :auto`. Validated in the constructor as `Settings{T}` is.
 (`cg_tol_reduction` is ADMM's idle-solve rule and has no IPM counterpart.)
+
+**Fields used by `solve!`:** `time_limit` (clock includes starting point); `eps_prim_inf`,
+`eps_dual_inf` (certificate tolerances); `max_reg_bumps` (limit on regularization bumps, each
+multiplies both `reg_primal` and `reg_dual` by 10 and triggers a full `factorize!`; counted
+per solve); `reg_primal`, `reg_dual` (run in scaled space, changeable through `update_settings!`
+without refactorization on direct backends; triggers refactorize on `:indirect` with
+`update_preconditioner!`). A starting point without seeding returns `NaN` for `x` and `y` while
+the workspace keeps the last iterate and clears `seeded`. Verbose output not yet implemented.
 
 ### 8.11 Validation plan
 
@@ -922,6 +931,10 @@ whose maxima were 618 and 678), `cg_tol_fraction = 0.1`, `cg_fail_limit = 3`,
    `BigFloat` on one small case; `Float32` as §10.8 question 3 decides (refusal message, or a
    referee test at `eps = 1e-4`).
 8. **Operators**: §9.6.
+9. **Ambiguous status**: a problem that is both primal-infeasible and dual-infeasible may be
+   reported as either status, provided its certificate passes the independent check
+   (`is_primal_infeasible` or `is_dual_infeasible`). Example: test case `c_suite_tests.jl`
+   A34, `u = [0, 3, Inf]`, returns `DUAL_INFEASIBLE` under `:ipm`.
 
 ### 8.12 StrictMode and trim
 
