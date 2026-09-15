@@ -79,7 +79,7 @@ const BandedLike = Union{
 # The types PureOSQP itself has no backend for. The two methods below split so that neither
 # overlaps the other, nor the `(Diagonal, Diagonal)`,
 # `(SymTridiagonal|Tridiagonal, Diagonal)` and
-# `(Diagonal|SymTridiagonal|Tridiagonal, Bidiagonal)` methods in `src/linsys.jl`, whose
+# `(Diagonal|SymTridiagonal|Tridiagonal, Bidiagonal)` methods in `src/core/linsys.jl`, whose
 # reduced matrices are narrow enough for the LinearAlgebra backends. A `Tridiagonal` `A`
 # squares past those, which is why it is a `WideBand`; a `Tridiagonal` `P` does not, so the
 # second method's `P` position stops at the types BandedMatrices itself supplies.

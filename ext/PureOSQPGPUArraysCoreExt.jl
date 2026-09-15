@@ -4,7 +4,7 @@
 Backend routing and whole-matrix traversals for GPU arrays.
 
 The per-iteration work is already storage-generic: every elementwise update and reduction
-has a schedule that does not index (see `src/elementwise.jl`), and the matrix-vector
+has a schedule that does not index (see `src/core/elementwise.jl`), and the matrix-vector
 products go through `mul!` on the caller's own matrices. What is left is choosing a backend
 that can run, and reading `P` and `A` during setup without indexing them.
 

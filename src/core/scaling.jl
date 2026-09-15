@@ -252,7 +252,7 @@ function mul_A!(out::AbstractVector{T}, prob::Problem{T}, x::AbstractVector{T}) 
     mul!(out, prob.A, prob.tmp_n)
     # `scale_by!` rather than `out .*= prob.E`: an in-place broadcast has `out` on both
     # sides, which leaves an `unaliascopy` branch that AllocCheck reports as a possible
-    # allocation even though it never fires. See src/elementwise.jl.
+    # allocation even though it never fires. See src/core/elementwise.jl.
     scale_by!(out, prob.E)
     return out
 end
