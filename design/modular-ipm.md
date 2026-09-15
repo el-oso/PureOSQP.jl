@@ -377,6 +377,7 @@ update_x!(…); update_zy!(…, ws.weights.w, ws.weights.w_inv, …)
 weights!(ws)                        # §8.2: w = z_l/(s_l + δ_d z_l) + z_u/(s_u + δ_d z_u), masked;
                                     # equality rows w_inv = δ_d, free rows w_inv = 1/δ_d
 set_refresh_index!(ws.linsys, k)    # outer iteration; −1 for the starting-point solve (§9.3)
+use_residual_stop!(ws.linsys, true) # §9.4: turn on the inner stopping rule for IPM (off by default for ADMM)
 refactor_weights!(ws.linsys, ws.prob, ws.weights) || bump_regularization!(ws)
 # ipm_step!: two solves on the same factorization, no allocation
 set_tolerance_level!(ws.linsys, min(μ, ‖r‖∞))
@@ -391,8 +392,8 @@ For `IndirectCG`, `refactor_weights!` is where `update_preconditioner!` runs (§
 `IndirectCG{T,V,K,M}` holds a preconditioner `M` (§9.3), a mutable `level::T` to track the
 tolerance, a mutable `refresh_index::Int` handed to `update_preconditioner!`, and counters
 `total_iters::Int`, `misses::Int`. The three CG settings (max_iter,
-tol_fraction, tol_reduction) are not stored at construction; `indirect_backend(proto, n, m)`
-has no such parameters.
+tol_fraction, tol_reduction) are not stored at construction; `indirect_backend(proto, n, m, preconditioner)`
+takes the preconditioner as its fourth argument, with CG settings arriving through `adopt_settings!`.
 
 ```julia
 adopt_settings!(ls::LinearSystem, settings) = nothing       # direct backends
@@ -406,7 +407,9 @@ set_tolerance_level!(ls::IndirectCG, level) = (ls.level = level; nothing)
 set_refresh_index!(ls::LinearSystem, k) = nothing           # direct backends
 set_refresh_index!(ls::IndirectCG, k) = (ls.refresh_index = k; nothing)
 last_solve_converged(ls::LinearSystem) = true
-last_solve_converged(ls::IndirectCG) = ls.last_reached     # set by the miss rule of §9.4
+last_solve_converged(ls::IndirectCG) = ls.last_reached     # set by the miss rule of §9.4; consecutive misses counted by the IPM from this
+use_residual_stop!(ls::LinearSystem, flag) = nothing        # direct backends; no-op by default
+use_residual_stop!(ls::IndirectCG, flag) = (ls.use_residual_stop = flag; nothing)  # §9.4; off by default, ADMM keeps tolerance stop
 ```
 
 `refresh_index` is owned by the algorithm: the IPM sets it to the outer iteration before
@@ -560,7 +563,7 @@ corpus items pass unchanged and the snapshot matches. **M** mechanical, **J** ju
 | S1+S2b | **Weights and backend signatures, one pass.** `SystemWeights`; `factorize!(ls, prob, wt)`, `refactor_weights!`, `solve_system!(ls, prob, wt, rhs_x, rhs_z, x, z)`; every `rho_vec/rho_inv_vec/settings.sigma` read of §1.2 → `wt`; `Workspace.weights`; `update_settings!` rebuilds `weights` (+ test that changes `sigma` and checks the factorized matrix); `set_rho_vec!`, `pack/unpack_fixed_point!`, `admm_step!` follow; `reduced_rhs!(prob, wt, …)`; `ReducedOperator(prob, wt)`; `check_update` + Kronecker `mu` in `factorize!`; `update!` split; contract; tests/bench/audit signatures `(LS, PB, WT, V, V, V, V)`, `(LS, PB, WT)`. CG seam: `set_tolerance_level!(ls::LinearSystem, level) = nothing` (default), mutable `level::T` field on `IndirectCG`, `admm_step!` sets it to `max(scaled_prim_res, scaled_dual_res)` immediately before `solve_system!`; `adopt_settings!(ls::LinearSystem, settings) = nothing` (default) with `IndirectCG` method filling `max_iter`, `tol_fraction`, `tol_reduction` from settings, called by `setup_backend` after workspace build and by `update_settings!` on every settings change; CG warm-starts from `x` argument. | identical; audit; trim | M |
 | S3 | **Selection tag.** `SelectionFor`; collapse rung signatures; `ADMMSelection` threaded from `setup`; no `IPMSelection` methods yet. | identical; `selection_tests` backends unchanged | M |
 | S4 | **Shared kernels.** `residuals_at!`, `gap_terms`, `eps_*`, certificate tests on `(prob, buffer, eps)`, `polish_kernel!`, `active_kkt(prob, x, y, z)`; ADMM wrappers keep names and order. | identical; audit (`update_residuals!` row); trim (`derivatives`, `solve_polish`) | M |
-| S5 | **CG seam continued.** Counters `total_iters`, `misses`, `last_reached`; `last_solve_converged(ls)`; `inner_iterations(ls)`; `Solution.cg_iters`; the preconditioner slot `M` applied through `ldiv!` (Krylov `ldiv = true`) with `update_preconditioner!(M, prob, wt, ls.refresh_index)` called from `factorize!`/`refactor_weights!`, `set_refresh_index!` (§3.6), and the default `JacobiPreconditioner` whose `ldiv!(y, J, x)` is `y .= J.dinv .* x`, reproducing today's `Diagonal(ls.prec)` product (§9.3); the stopping and miss rule of §9.4 (callback on Krylov's recursively updated `r`; miss only on budget or breakdown) behind a setting that keeps ADMM's `atol`/`rtol` path bit-identical by default. | identical on `:indirect` (`indirect_tests`, `solve_indirect` trim entry) | J |
+| S5 | **CG seam continued.** Counters `total_iters`, `misses`, `last_reached`; `last_solve_converged(ls)`; `inner_iterations(ls)`; `Solution.cg_iters`; the preconditioner slot `M` applied through `ldiv!` (Krylov `ldiv = true`) with `update_preconditioner!(M, prob, wt, ls.refresh_index)` called from `factorize!`/`refactor_weights!`, `set_refresh_index!` (§3.6), and the default `JacobiPreconditioner` whose `ldiv!(y, J, x)` is `y .= J.dinv .* x`, reproducing today's `Diagonal(ls.prec)` product (§9.3); `IdentityPreconditioner` and `JacobiPreconditioner` defined; a caller-supplied preconditioner requires `scaling = 0` under every algorithm, ADMM included; `indirect_backend(proto, n, m, preconditioner)` signature; passing `preconditioner` with `linsys ≠ :indirect` throws; the stopping and miss rule of §9.4 (callback on Krylov's recursively updated `r`; miss only on budget or breakdown) switched on by `use_residual_stop!(ls, true)`, off by default so ADMM stays bit-identical; consecutive miss counter counted by the IPM from `last_solve_converged`; functions in `src/core/preconditioner.jl`. | identical on `:indirect` (`indirect_tests`, `solve_indirect` trim entry) | J |
 | S6 | **`solve_multiplier!`** default + `FullKKT`/`SparseKKT`/`LDLKKT` overrides; test at `w_inv = 1e-12`. | suite; audit unchanged | M |
 | S7 | **Directory move** to `src/core`, `src/admm`, `src/ipm` (empty). | identical; audit; trim | M |
 | S8 | **IPM skeleton on direct backends.** `IPMSettings`, `IPMWorkspace`, `setup(…; algorithm = :ipm)` via `Val`, `seeded`, starting point, `ipm_step!` with the per-side recovery and the σ floor of §8.2/§8.4 (`τ = 0.99`), regularization of §8.5, residuals through S4 kernels, `SOLVED`/`SOLVED_INACCURATE`/`MAX_ITER_REACHED`, `solve!`, `build_solution`; `IPMSelection` methods of §5 (FullKKT routing, KKT-first sparse, kronecker decline, GPU refusal, operator refusal: unconditional in S8, lifted by name in S11), the `N_s = 0` rule of §8.4. Corpus items under `:ipm` with `:auto`/`:kkt`, referee `< 1e-5`, backend name asserted for the dense-`P`/sparse-`A` and LP cases; objective vs `osqp_ref`; a reproduction test item on the spike-1 dense generator (`make_instance`) at `n = 200`, `κ ∈ {1, 1e3, 1e6}`, fractions `{0.1, 0.5, 0.9}`, in the spike's two-sided form and in spike 3's `mixed` row form, with `scaling = 0`, the spike's iteration count (outer iterations before the `1e-8` termination check passes), reproducing the exact-solve outer counts (`δ = 1e-8`: 6–11) within ±2 through `FullKKT` with `refine_iter = 0` and through `SparseKKT` with `refine_iter = 1`. | new items pass; ADMM gates identical | J |
@@ -1005,6 +1008,10 @@ only when the caller supplies one.
 - `setup(P, q, A, l, u; algorithm = :ipm, linsys = :indirect, preconditioner = M, scaling = 0)`
   with an operator pair or with matrices: allowed. `IndirectCG` is built with `M`; the ladder
   never chooses it (§5).
+- A caller-supplied `preconditioner` (anything other than `nothing`, `IdentityPreconditioner()` or `JacobiPreconditioner`)
+  requires `scaling = 0` under every algorithm, ADMM included: the preconditioner approximates the caller's own
+  `P + σI + Aᵀdiag(w)A`, which equilibration would change.
+- Passing `preconditioner` with any `linsys` other than `:indirect` throws an `ArgumentError`, so it is never silently ignored.
 - The same without `preconditioner`, or an operator pair with `linsys = :auto`: `setup` throws
   an `ArgumentError` naming the requirement — "the interior-point method uses conjugate
   gradients only with a caller-supplied `preconditioner`; measured without one, or with the
@@ -1012,9 +1019,8 @@ only when the caller supplies one.
   `linsys`, or use `algorithm = :admm`." Unpreconditioned and exact-Jacobi CG failed G1 (§9.1:
   16/27 and 17/27 dense, 16/30 and 21/30 sparse), so decision §10.2 refuses them for matrices
   as for operators. `JacobiPreconditioner` stays the ADMM default.
-- With a `preconditioner` and `scaling ≠ 0` (or `probe = true`): `setup` throws an
-  `ArgumentError` — the preconditioner must approximate the caller's own `P + σI + Aᵀdiag(w)A`,
-  which equilibration would change.
+- With a `preconditioner` and `probe = true`: `setup` throws an `ArgumentError` — the preconditioner must
+  approximate the caller's own `P + σI + Aᵀdiag(w)A` without equilibration.
 - There is no experimental product-only path.
 
 ### 9.3 Preconditioner interface
@@ -1049,9 +1055,11 @@ update_preconditioner!(M, prob, wt, k::Int) = M          # default: never refres
   must return that type (checked, `ArgumentError` otherwise). `k` is `ls.refresh_index`
   (§3.6).
 - Krylov is called with `ldiv = true`, so the user writes one method: `ldiv!(y, M, x)`.
+  `IdentityPreconditioner` exists: it maps to Krylov's `I`, so CG skips the preconditioned vector.
+  `JacobiPreconditioner` is a mutable struct with a `const dinv` field; it is the default everywhere.
   Built-in `JacobiPreconditioner{V}` holds `dinv` from `reduced_diagonal!` (the hook at
   `operator.jl:208-228`, refreshed at every `update_preconditioner!` with the current `wt.w`;
-  identity for an operator pair) and defines `LinearAlgebra.ldiv!(y, J::JacobiPreconditioner,
+  identity for an operator pair, so `dinv` holds ones) and defines `LinearAlgebra.ldiv!(y, J::JacobiPreconditioner,
   x) = (y .= J.dinv .* x)` through the elementwise-multiply kernel. That is the product today's
   `Diagonal(ls.prec)` computes under `ldiv = false`, so ADMM's `:indirect` iterates stay bit
   for bit. A `Diagonal` cannot stand in: `ldiv!(y, Diagonal(dinv), x)` applies `diag` rather
@@ -1072,6 +1080,9 @@ update_preconditioner!(M, prob, wt, k::Int) = M          # default: never refres
   `cholesky!` per the refresh rule above; a `Cholesky` object) and `IncompleteLDL`
   (limited-memory LDLᵀ through LimitedLDLFactorizations, with the shift search of
   `spike2.jl:295-302`). Whether they become an extension is §10.8.
+- Core functions live in `src/core/preconditioner.jl`: `update_preconditioner!`, `IdentityPreconditioner`,
+  `JacobiPreconditioner`, `set_refresh_index!`, `use_residual_stop!`, `last_solve_converged`, `inner_iterations`.
+  `Solution.cg_iters` exists and holds total inner iterations of the solve under both algorithms.
 
 ### 9.4 Inner stopping test, budgets, reporting, failure
 
@@ -1079,16 +1090,17 @@ update_preconditioner!(M, prob, wt, k::Int) = M          # default: never refres
 `eps(T)·max(1, ‖rhs‖∞)`, set through `set_tolerance_level!` before each iteration's solves.
 This is the rule all three spikes ran (`spike.jl:398, 418`).
 
-**Stopping test.** CG starts from zero (§3.6). Krylov is called with `atol = rtol = 0` and a
-`callback` that returns `‖ws.r‖₂ ≤ atol_k`; `CgWorkspace.r` is the unpreconditioned residual,
-updated recursively (`cg.jl:158,240`), so the test costs `O(n)` per iteration and no products.
-Krylov also stops by itself when the preconditioned norm satisfies `‖r‖_M + 1 ≤ 1`
-(`cg.jl:249`); that stop is treated like the callback's. No residual is recomputed after the
-solve.
+**Stopping test.** CG starts from zero (§3.6). The inner stopping and miss rule of §9.4 is switched on by
+the internal `use_residual_stop!(ls, true)` (§3.6); it is off by default, so ADMM keeps its tolerance stop.
+Krylov is called with `atol = rtol = 0` and a `callback` that returns `‖ws.r‖₂ ≤ atol_k`; `CgWorkspace.r`
+is the unpreconditioned residual, updated recursively (`cg.jl:158,240`), so the test costs `O(n)` per
+iteration and no products. Krylov also stops by itself when the preconditioned norm satisfies `‖r‖_M + 1 ≤ 1`
+(`cg.jl:249`); that stop is treated like the callback's. No residual is recomputed after the solve.
 
 **Miss rule.** A solve is missed when it spends `cg_max_iter` iterations or Krylov throws
 (§9.3); `last_reached` is `false` exactly then. A solve that stopped on either test above is
-reached, whatever its explicit residual.
+reached, whatever its explicit residual. The miss counter on `IndirectCG` counts over the backend's
+life; consecutive misses for `cg_fail_limit` are counted by the IPM from `last_solve_converged`.
 
 **Why the explicit residual is not tested (measured, `ipm_rowtypes_spike.json`).**
 - On two-sided rows (spike 2's 18 dense instances with `cg_lagchol3`, 30 sparse with
