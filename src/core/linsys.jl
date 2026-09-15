@@ -225,25 +225,41 @@ Factors the full `(n+m)×(n+m)` quasi-definite matrix with `bunchkaufman!`, whic
 the reference implementation does. Slower than [`ReducedCholesky`](@ref), but it does not
 square the conditioning of `Ã`, so it is the more accurate factorization at moderate
 conditioning and the better choice when a result is in question.
+
+`K0` caches the lower triangle of the scaled `P` and `A` blocks — the part of `K` that
+depends on `P`, `A` and the equilibration `D`, `E`, `c` but not on the weights `wt`.
+`k0_current` is `false` until [`assemble_kkt0!`](@ref) has filled it for the data currently
+in `prob`, and is cleared by [`check_update`](@ref) whenever `P` or `A` is about to change.
+`bunchkaufman!` reads only the lower triangle of `Symmetric(K, :L)`, so `K0`'s upper
+triangle and its `m×m` diagonal block — entirely the weights' `-w_inv`, never `P` or `A` —
+are never written past the zero the constructor sets once.
 """
 mutable struct FullKKT{T <: Real, M <: AbstractMatrix{T}, V <: AbstractVector{T}, F} <: LinearSystem
-    K::M
-    rhs::V
+    const K::M
+    const K0::M
+    const rhs::V
     fact::F
+    k0_current::Bool
 end
 
 """
     FullKKT(proto::AbstractVector, n, m)
 
 Build the backend's storage as `similar(proto, ...)`, following the array type of the data
-it was given. See [`ReducedCholesky`](@ref) on why `proto` is a vector.
+it was given. See [`ReducedCholesky`](@ref) on why `proto` is a vector. `K0` starts zeroed
+and `k0_current = false`, so the first [`factorize!`](@ref) assembles it.
 """
 function FullKKT(proto::AbstractVector{T}, n::Integer, m::Integer) where {T <: Real}
     K = similar(proto, T, n + m, n + m)
+    K0 = fill!(similar(K), zero(T))
     rhs = similar(proto, T, n + m)
     fact = bunchkaufman!(Symmetric(fill(one(T), 1, 1)))
-    return FullKKT{T, typeof(K), typeof(rhs), typeof(fact)}(K, rhs, fact)
+    return FullKKT{T, typeof(K), typeof(rhs), typeof(fact)}(K, K0, rhs, fact, false)
 end
+
+# `P` or `A` is about to change, so the cached scaled lower triangle no longer reflects the
+# data it will be factored against.
+check_update(ls::FullKKT, P, A) = (ls.k0_current = false; nothing)
 
 """
     DiagonalReduced{T,V} <: LinearSystem
@@ -740,25 +756,37 @@ function factorize!(ls::TridiagonalReduced{T}, prob, wt)::Bool where {T}
     return all(>(zero(T)), ls.fact.data.dv)
 end
 
-function factorize!(ls::FullKKT{T}, prob, wt)::Bool where {T}
+"""
+    assemble_kkt0!(ls::FullKKT, prob) -> Nothing
+
+Fill `ls.K0` with the lower triangle of the scaled `P` and `A` blocks — `c·D[i]·P[i,j]·D[j]`
+for `i ∈ j:n` (the P block's own lower triangle, diagonal included but without `σ`) and
+`E[i]·A[i,j]·D[j]` for the `A` block, which occupies rows `n+1:n+m` and so is entirely below
+the diagonal already. Neither block's upper-triangle mirror is written: `bunchkaufman!` reads
+only the lower triangle of `Symmetric(ls.K, :L)`.
+"""
+function assemble_kkt0!(ls::FullKKT{T}, prob) where {T}
     P, A, D, E, c, n, m = prob.P, prob.A, prob.D, prob.E, prob.c, prob.n, prob.m
-    fill!(ls.K, zero(T))
-    # The P block is an indexed `n²` loop rather than the fused `c · (D ⊙ P) ⊙ Dᵀ` broadcast:
-    # measured at `n = m = 400` on this factorization, the broadcast costs two extra passes
-    # and two `n²` temporaries and runs 5.4 ms against 5.1 ms median for this form, which
-    # already writes each entry once. The A block scatters one entry into two transposed
-    # positions and stays indexed either way.
+    K0 = ls.K0
     for j in 1:n
         dj = D[j]
-        for i in 1:n
-            ls.K[i, j] = c * D[i] * T(P[i, j]) * dj
+        for i in j:n
+            K0[i, j] = c * D[i] * T(P[i, j]) * dj
         end
-        ls.K[j, j] += wt.sigma
         for i in 1:m
-            aij = E[i] * T(A[i, j]) * dj
-            ls.K[n + i, j] = aij
-            ls.K[j, n + i] = aij
+            K0[n + i, j] = E[i] * T(A[i, j]) * dj
         end
+    end
+    ls.k0_current = true
+    return nothing
+end
+
+function factorize!(ls::FullKKT{T}, prob, wt)::Bool where {T}
+    ls.k0_current || assemble_kkt0!(ls, prob)
+    n, m = prob.n, prob.m
+    copyto!(ls.K, ls.K0)
+    for j in 1:n
+        ls.K[j, j] += wt.sigma
     end
     for i in 1:m
         ls.K[n + i, n + i] = -wt.w_inv[i]

@@ -66,6 +66,27 @@ end
     @test maximum(kkt_residuals(P2, q, A2, l2, u2, got.x, got.y)) < 1.0e-5
 end
 
+@testitem "update! of P and A on the full-KKT backend matches a fresh setup" begin
+    using LinearAlgebra, SparseArrays, OSQP, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    # `linsys = :kkt` pins the backend whose cached scaled lower triangle `check_update`
+    # must invalidate whenever `update!` replaces `P` or `A`.
+    P, q, A, l, u = random_qp(8, 20; seed = 70)
+    P2, _, A2, _, _ = random_qp(8, 20; seed = 71)
+    opts = (eps_abs = 1.0e-9, eps_rel = 1.0e-9, max_iter = 100_000, linsys = :kkt)
+    ws = setup(P, q, A, l, u; opts...)
+    @test ws.linsys isa PureOSQP.FullKKT
+    PureOSQP.solve!(ws)
+    b = A2 * randn(8)
+    l2, u2 = b .- rand(20), b .+ rand(20)
+    update!(ws; P = P2, A = A2, l = l2, u = u2)
+    got = PureOSQP.solve!(ws)
+    want = PureOSQP.solve(P2, q, A2, l2, u2; opts...)
+    @test got.status == SOLVED
+    @test got.x ≈ want.x rtol = 1.0e-5
+    @test maximum(kkt_residuals(P2, q, A2, l2, u2, got.x, got.y)) < 1.0e-5
+end
+
 @testitem "update! warm starts the next solve" begin
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
