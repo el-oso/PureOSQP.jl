@@ -52,7 +52,7 @@ All backends take `ws` and read `n m P A D E c` (neutral) and `rho_vec | rho_inv
 | `ReducedCholesky` | `linsys.jl:573`, `:593` | via `reduced_rhs!` `:697` | writes `xtilde` `:713`, `ztilde` `:714`; binds locals at entry `:573` |
 | `DiagonalReduced` | `:604` | `:719` | |
 | `TridiagonalReduced` | `:623` | `:726` | |
-| `FullKKT` | `:671` (`sigma`), `:679` (`rho_inv_vec`) | `:748` | reads `ws.D[j]`, `ws.c` per entry `:666-679` (no local binding) |
+| `FullKKT` | `:671` (`sigma`), `:679` (`rho_inv_vec`) | `:748` | reads `ws.D[j]`, `ws.c` per entry `:666-679` (no local binding); reads `A[i, j]` entry by entry at every factorization |
 | `BlockReduced` | `block.jl:76` | `:107` | `colrange(ws.A, i)` `:111` |
 | `DiagonalLowRank` | `lowrank.jl:114`, `:98` | `:157` | `refactor_rho!` override `:154` — the only one |
 | `KroneckerReduced` | `kronsolve.jl:93-94` | `:111` | `mu` set by rung `:88`, refreshed by `update!` `update.jl:161` |
@@ -535,8 +535,8 @@ as extra methods:
 | rung / backend | `ADMMSelection` | `IPMSelection` |
 |---|---|---|
 | `kronecker_rung` | as today (uniform `wt.w`, identity scaling) | `nothing` |
-| `sparse_kkt_backend` | KKT considered only when the reduced form would densify (`:596`) | pre-gate skipped; KKT factorization tried first, fill gate unchanged |
-| `density_gate_rung`, `formed_rung`, `dense_rung` | as today | `FullKKT(proto, n, m)` for `T <: BlasFloat` (materializes `A` once; covers dense-`P`/sparse-`A` and LP pairs); `ReducedCholesky` otherwise (`bunchkaufman!` has no generic method) |
+| `sparse_kkt_backend` | KKT considered only when the reduced form would densify (`:596`) | density pre-gate checked; KKT factorization tried first. On failure of the fill gate, routes to sparse reduced backend (`:cholmod`); observed on `banded_qp(200, 300)` |
+| `density_gate_rung`, `formed_rung`, `dense_rung` | as today | `FullKKT(proto, n, m)` for `T <: BlasFloat` (reads `A[i, j]` entry by entry at every factorization; covers dense-`P`/sparse-`A` and LP pairs); `ReducedCholesky` otherwise (`bunchkaufman!` has no generic method) |
 | structured reduced backends (diagonal, tridiagonal, banded, block, lowrank), `SparseCholmod/SparseLDL` | as today | as today; reached only when the pair has that structure; gated by measurement (S10) |
 | `indirect_rung` (operator pairs) | as today | declines; an operator pair under `:ipm` is served only by `linsys = :indirect` **with** a caller-supplied preconditioner (§9.2); without one `setup` refuses by name |
 | GPU ext `choose_backend` | refusal as today | `choose_backend(P::AbstractGPUMatrix, …, ::IPMSelection)` refuses `:ipm` by name (v1 is CPU-only) |
@@ -566,10 +566,10 @@ corpus items pass unchanged and the snapshot matches. **M** mechanical, **J** ju
 | S5 | **CG seam continued.** Counters `total_iters`, `misses`, `last_reached`; `last_solve_converged(ls)`; `inner_iterations(ls)`; `Solution.cg_iters`; the preconditioner slot `M` applied through `ldiv!` (Krylov `ldiv = true`) with `update_preconditioner!(M, prob, wt, ls.refresh_index)` called from `factorize!`/`refactor_weights!`, `set_refresh_index!` (§3.6), and the default `JacobiPreconditioner` whose `ldiv!(y, J, x)` is `y .= J.dinv .* x`, reproducing today's `Diagonal(ls.prec)` product (§9.3); `IdentityPreconditioner` and `JacobiPreconditioner` defined; a caller-supplied preconditioner requires `scaling = 0` under every algorithm, ADMM included; `indirect_backend(proto, n, m, preconditioner)` signature; passing `preconditioner` with `linsys ≠ :indirect` throws; the stopping and miss rule of §9.4 (callback on Krylov's recursively updated `r`; miss only on budget or breakdown) switched on by `use_residual_stop!(ls, true)`, off by default so ADMM stays bit-identical; consecutive miss counter counted by the IPM from `last_solve_converged`; functions in `src/core/preconditioner.jl`. | identical on `:indirect` (`indirect_tests`, `solve_indirect` trim entry) | J |
 | S6 | **`solve_multiplier!`** default + `FullKKT`/`SparseKKT`/`LDLKKT` overrides; test at `w_inv = 1e-12`. | suite; audit unchanged | M |
 | S7 | **Directory move** to `src/core`, `src/admm`, `src/ipm` (empty). | identical; audit; trim | M |
-| S8 | **IPM skeleton on direct backends.** `IPMSettings`, `IPMWorkspace`, `setup(…; algorithm = :ipm)` via `Val`, `seeded`, starting point, `ipm_step!` with the per-side recovery and the σ floor of §8.2/§8.4 (`τ = 0.99`), regularization of §8.5, residuals through S4 kernels, `SOLVED`/`SOLVED_INACCURATE`/`MAX_ITER_REACHED`, `solve!`, `build_solution`; `IPMSelection` methods of §5 (FullKKT routing, KKT-first sparse, kronecker decline, GPU refusal, operator refusal: unconditional in S8, lifted by name in S11), the `N_s = 0` rule of §8.4. Corpus items under `:ipm` with `:auto`/`:kkt`, referee `< 1e-5`, backend name asserted for the dense-`P`/sparse-`A` and LP cases; objective vs `osqp_ref`; a reproduction test item on the spike-1 dense generator (`make_instance`) at `n = 200`, `κ ∈ {1, 1e3, 1e6}`, fractions `{0.1, 0.5, 0.9}`, in the spike's two-sided form and in spike 3's `mixed` row form, with `scaling = 0`, the spike's iteration count (outer iterations before the `1e-8` termination check passes), reproducing the exact-solve outer counts (`δ = 1e-8`: 6–11) within ±2 through `FullKKT` with `refine_iter = 0` and through `SparseKKT` with `refine_iter = 1`. | new items pass; ADMM gates identical | J |
+| S8 | **IPM skeleton on direct backends.** Builds `src/ipm/{settings,workspace,ipm}.jl`; `setup_backend` takes a leading `Val{:admm}`/`Val{:ipm}`; `IPMSettings` holds only the fields the solve uses so far (time limit, infeasibility tolerances, `max_reg_bumps`, CG settings, polishing and verbose arrive with the steps that use them); factorization failure and non-finite residuals throw until S9; `update!`, `update_settings!`, polishing and derivatives are not defined for `IPMWorkspace` until S12; `linsys = :dense` builds `ReducedCholesky` under `:ipm`; GPU arrays are refused by `:auto` selection, while a named backend with GPU arrays fails with the scalar-indexing error as under ADMM. Additionally, `IPMWorkspace`, `setup(…; algorithm = :ipm)` via `Val`, `seeded`, starting point, `ipm_step!` with the per-side recovery and the σ floor of §8.2/§8.4 (`τ = 0.99`), regularization of §8.5, residuals through S4 kernels, `SOLVED`/`SOLVED_INACCURATE`/`MAX_ITER_REACHED`, `solve!`, `build_solution`; `IPMSelection` methods of §5 (FullKKT routing, KKT-first sparse, kronecker decline, GPU refusal, operator refusal: unconditional in S8, lifted by name in S11), the `N_s = 0` rule of §8.4. Corpus items under `:ipm` with `:auto`/`:kkt`, referee `< 1e-5`, backend name asserted for the dense-`P`/sparse-`A` and LP cases; objective vs `osqp_ref`; a reproduction test item on the spike-1 dense generator (`make_instance`) at `n = 200`, `κ ∈ {1, 1e3, 1e6}`, fractions `{0.1, 0.5, 0.9}`, in the spike's two-sided form and in spike 3's `mixed` row form, with `scaling = 0`, the spike's iteration count (outer iterations before the `1e-8` termination check passes), reproducing the exact-solve outer counts (`δ = 1e-8`: 6–11) within ±2 through `FullKKT` with `refine_iter = 0` and through `SparseKKT` with `refine_iter = 1`. | new items pass; ADMM gates identical | J |
 | S9 | **Robustness.** Dynamic regularization bump; `NUMERICAL_ERROR` (+ every switch of §8.6); certificate buffers, stall rule, certificate tests on step and normalized iterates; `time_limit`, interrupt. Tests: c-suite ported cases under `:ipm`; a random infeasible `n = 20, m = 40` primal case and a dual one; equality-only (`N_s = 0`) and free-row corpus cases; a `Float32` item as §10.8 question 3 decides (the refusal message under the recommended answer). | items pass | J |
 | S9b | **HSD decision point** (§9.6, §10): implement the bordered solve on `solve_system!` only if S9's infeasible cases are not detected. | — | J |
-| S10 | **Structured backends under IPM, measured.** Each structured family through its recorded backend under `:ipm`: referee tolerance and iteration count recorded per backend into the snapshot; a family whose count exceeds `2×` the `FullKKT` count on the same problem is routed to `FullKKT` under `IPMSelection` (materialized). `Dual` on `:auto`; `Float32` as §10.8 question 3 decides. | items pass; table in docs | J |
+| S10 | **Structured backends under IPM, measured.** Each structured family through its recorded backend under `:ipm`: referee tolerance and iteration count recorded per backend into the snapshot; a family whose count exceeds `2×` the `FullKKT` count on the same problem is routed to `FullKKT` under `IPMSelection` (materialized). A sparse pair whose sparse KKT factor fails the fill gate lands on the sparse reduced backend (`:cholmod`), observed on `banded_qp(200, 300)`. `Float32` as §10.8 question 3 decides. | items pass; table in docs | J |
 | S11 | **IPM `:indirect` with a caller-supplied preconditioner** (§9): `preconditioner` keyword, `update_preconditioner!(M, prob, wt, k)`, refusal by name without one (matrices and operators) and without `scaling = 0`, inner stopping and miss rule, zero start, budgets, `cg_fail_limit`, reporting; reference preconditioners in `bench/` and `test/` (lagged Cholesky over the dense reduced matrix, refreshed every 3 outer iterations; limited-memory LDLᵀ over the sparse one); test items: a `Diagonal` preconditioner with a negative entry ends `NUMERICAL_ERROR` with the message naming the preconditioner; `update_preconditioner!` returning another type throws the `ArgumentError`; a counting preconditioner sees `k = −1, 0, 1, …` and the same `k` after a bump; `bench/ipm_matrixfree.jl` per §9.6. Ships if the §9.6 gates pass. | items pass; bench under `bench/results/`; gate verdict recorded in docs | J |
 | S12 | **Polish, derivatives, `update!`, warm start, MOI for IPM.** | `derivative_tests`, `update_tests`, `moi_tests` parametrized where semantics carry | J |
 | S13 | **StrictMode + trim for IPM; Clarabel bench; docs.** Audit rows of §8.12; trim entries; `bench/ipm_vs_clarabel.jl`; iteration bounds; API/guarantees/algorithm pages. | audit green; trim green; bench committed | J |
@@ -599,7 +599,9 @@ operator support.
    `n ≤ 200` for the caller-supplied preconditioners, plus three dense `n = 1000`, `κ = 1e6`
    instances). Preconditioner build cost was not counted in the spikes. S11 measures both;
    until then the docs say "measured at `n ≤ 200`".
-5. **Reduced backends under IPM** carry `w` up to `1/δ_d`; with `δ = 1e-8` the reduced
+5. **FullKKT reads `A[i, j]` entry by entry at every factorization.** Under the IPM, which
+   refactorizes every iteration, this cost is paid every iteration; S10 and S13 measure it.
+   Reduced backends under IPM carry `w` up to `1/δ_d`; with `δ = 1e-8` the reduced
    matrix's conditioning bound is `~1e8‖Ã‖²`. **Measured** at `n ≤ 200`: a Cholesky of that
    matrix (dense and CHOLMOD) reproduces the Bunch–Kaufman KKT outer counts on 96 of 96 runs,
    equality rows included (`kktldl` groups). The structured reduced backends (diagonal,
@@ -708,7 +710,7 @@ to 24; at `1e-2` convergence stays at 15 and G1 rises from 15 to 18. It costs on
 ### 8.3 Starting point and `seeded`
 
 `IPMWorkspace.seeded::Bool` is set by `warm_start!`, by `x0`/`y0`, and by a completed
-`solve!`; cleared by `cold_start!`. A solve starts:
+`solve!`; cleared by `cold_start!`. With default equilibration (`scaling = 10`), equality-only problems converge in 1 outer iteration; with `scaling = 0`, they converge in 2. A solve starts:
 
 1. If `!seeded`: one factorization and one `solve_system!` with `w = w_inv = 1`, `sigma =
    δ_p`, `rhs_x = −q̃`, `rhs_z = t` (`t_i` = midpoint of a two-sided row, the finite bound of a
@@ -791,9 +793,10 @@ of §9.1 confirm that their G1 ceiling equals the exact one at the same `δ` and
   S8; the structured reduced backends (diagonal, tridiagonal, banded, block, low-rank) in S10.
   Held in `IPMSettings` in scaled space, changeable through `update_settings!` without
   refactorization.
-- **`Float32`** (and any `T` with `sqrt(eps(T)) > 1e-8`): no IPM run in that arithmetic exists;
+- **`Float32`** (and any `T` with `eps(T) > eps(Float64)`): no IPM run in that arithmetic exists;
   the `1e-4`/`1e-2` columns above are `Float64` runs. v1 behavior is §10.8 question 3; the
-  recommended answer refuses `:ipm` for such `T` by name in `setup`.
+  recommended answer refuses `:ipm` for such `T` by name in `setup`. (`sqrt(eps(Float64))` is
+  `1.49e-8`, so a `sqrt(eps)` threshold of `1e-8` would refuse `Float64` as well.)
 - `is_convex(T, P, reg_primal)` at setup; documented as the IPM's shift.
 - Dynamic: on `factorize!` returning `false`, multiply both by `10` and retry, up to
   `max_reg_bumps = 5`; then `NUMERICAL_ERROR` with the last point. The table says what each
@@ -857,7 +860,7 @@ v1: certificate tests, not a homogeneous embedding.
 
 ### 8.8 Backends and selection
 
-`IPMSelection` (§5). `IndirectCG` under `:ipm` follows §9. Kronecker declines. GPU arrays are
+`IPMSelection` (§5). The IPM ladder has no `formed_rung` step and ends at `FullKKT`. The `sparse_kkt_backend` is split into the density pre-gate and `factored_kkt_backend`, which the IPM path calls directly; a sparse pair whose sparse KKT factor fails the fill gate lands on the sparse reduced backend (`:cholmod`), observed on `banded_qp(200, 300)`. `IndirectCG` under `:ipm` follows §9. Kronecker declines. GPU arrays are
 refused for `:ipm` through the GPU extension's `choose_backend` method.
 
 ### 8.9 Equilibration
@@ -884,7 +887,8 @@ preconditioner in v1.
 | `verbose` | `Core.stdout`, row: `iter obj prim_res dual_res μ α cg_iters` |
 | `linsys = :indirect` (matrices or operators: `ProductOperator`, LinearMaps, SciMLOperators) | only with a caller-supplied `preconditioner` (§9) and `scaling = 0`; operators: `P` declared `posdef`, no polishing, no derivatives, no `:kkt`; never chosen by `:auto`. Without a preconditioner, or with `scaling ≠ 0`, `setup` refuses by name. |
 | accelerator, GPU arrays, `profile_primdual` | refused by name / absent |
-| `T` with `sqrt(eps(T)) > 1e-8` (`Float32`) | per §10.8 question 3 (recommended: refused by name) |
+| `T` with `eps(T) > eps(Float64)` (`Float32`) | per §10.8 question 3 (recommended: refused by name) |
+| `ForwardDiff.Dual` | not yet exercised under `:ipm` |
 
 `IPMSettings{T}`: `max_iter = 100`, `time_limit = Inf`, `eps_abs = eps_rel = 1e-8`,
 `eps_prim_inf = eps_dual_inf = 1e-8`, `scaling = 10`,
@@ -1226,7 +1230,7 @@ them.
    **Recommended: (a).** The incomplete LDLᵀ is the weakest evidence (question 1) and needed a
    diagonal shift on 1182 of 6801 builds; an extension adds a dependency for a path the ladder
    never chooses.
-3. **What does `:ipm` do for `Float32` (any `T` with `sqrt(eps(T)) > 1e-8`) in v1?**
+3. **What does `:ipm` do for `Float32` (any `T` with `eps(T) > eps(Float64)`) in v1?**
    (a) Refuse by name in `setup`; S10 may lift it after one `Float32` run (spike dense generator,
    `n = 200`, `FullKKT`, `eps = 1e-4`, `δ = sqrt(eps(Float32))`, gated like G1). (b) Allow with
    `eps = 1e-4`, `δ = sqrt(eps(T))`, `FullKKT` routing and a documented reduced ceiling.
