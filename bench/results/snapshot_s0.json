@@ -1,0 +1,334 @@
+{
+  "blas_threads": 1,
+  "cases": {
+    "adaptive_rho/kkt_error/auto": {
+      "backend_name": "cholesky",
+      "iter": 1225,
+      "refactor_count": 2,
+      "status": "solved",
+      "obj_val": 120.9243702963,
+      "accel_declined": 0
+    },
+    "anderson/auto": {
+      "backend_name": "cholesky",
+      "iter": 100,
+      "refactor_count": 1,
+      "status": "solved",
+      "obj_val": 47.9967545702,
+      "accel_declined": 0
+    },
+    "block/auto": {
+      "backend_name": "block",
+      "iter": 75,
+      "refactor_count": 2,
+      "status": "solved",
+      "obj_val": 42.2196592393,
+      "accel_declined": 0
+    },
+    "block/block": {
+      "backend_name": "block",
+      "iter": 75,
+      "refactor_count": 2,
+      "status": "solved",
+      "obj_val": 42.2196592393,
+      "accel_declined": 0
+    },
+    "family/banded_tridiag/auto": {
+      "backend_name": "banded",
+      "iter": 75,
+      "refactor_count": 2,
+      "status": "solved",
+      "obj_val": -9.6767463155,
+      "accel_declined": 0
+    },
+    "family/banded_wide_inside/auto": {
+      "backend_name": "banded",
+      "iter": 75,
+      "refactor_count": 2,
+      "status": "solved",
+      "obj_val": -8.9571141894,
+      "accel_declined": 0
+    },
+    "family/cholesky_rank11/auto": {
+      "backend_name": "cholesky",
+      "iter": 100,
+      "refactor_count": 2,
+      "status": "solved",
+      "obj_val": -22.4248770706,
+      "accel_declined": 0
+    },
+    "family/cholesky_symmetric_banded/auto": {
+      "backend_name": "cholesky",
+      "iter": 75,
+      "refactor_count": 2,
+      "status": "solved",
+      "obj_val": -9.2230848543,
+      "accel_declined": 0
+    },
+    "family/cholesky_wide_outside/auto": {
+      "backend_name": "cholesky",
+      "iter": 75,
+      "refactor_count": 2,
+      "status": "solved",
+      "obj_val": -11.8178988656,
+      "accel_declined": 0
+    },
+    "family/diagonal/auto": {
+      "backend_name": "diagonal",
+      "iter": 50,
+      "refactor_count": 1,
+      "status": "solved",
+      "obj_val": -26.7099036412,
+      "accel_declined": 0
+    },
+    "family/diagonal/diagonal": {
+      "backend_name": "diagonal",
+      "iter": 50,
+      "refactor_count": 1,
+      "status": "solved",
+      "obj_val": -26.7099036412,
+      "accel_declined": 0
+    },
+    "family/diagonal/indirect": {
+      "backend_name": "indirect",
+      "iter": 175,
+      "refactor_count": 1,
+      "status": "solved",
+      "obj_val": -26.7098988126,
+      "accel_declined": 0
+    },
+    "family/lowrank_rank10/auto": {
+      "backend_name": "lowrank",
+      "iter": 75,
+      "refactor_count": 1,
+      "status": "solved",
+      "obj_val": -27.6812987708,
+      "accel_declined": 0
+    },
+    "family/lowrank_rank10/lowrank": {
+      "backend_name": "lowrank",
+      "iter": 75,
+      "refactor_count": 1,
+      "status": "solved",
+      "obj_val": -27.6812987708,
+      "accel_declined": 0
+    },
+    "family/lowrank_rank3/auto": {
+      "backend_name": "lowrank",
+      "iter": 75,
+      "refactor_count": 2,
+      "status": "solved",
+      "obj_val": -29.1213841237,
+      "accel_declined": 0
+    },
+    "family/lowrank_rank3/lowrank": {
+      "backend_name": "lowrank",
+      "iter": 75,
+      "refactor_count": 2,
+      "status": "solved",
+      "obj_val": -29.1213841237,
+      "accel_declined": 0
+    },
+    "family/tridiagonal_bidiag/auto": {
+      "backend_name": "tridiagonal",
+      "iter": 75,
+      "refactor_count": 2,
+      "status": "solved",
+      "obj_val": -9.6286632055,
+      "accel_declined": 0
+    },
+    "family/tridiagonal_bidiag/tridiagonal": {
+      "backend_name": "tridiagonal",
+      "iter": 75,
+      "refactor_count": 2,
+      "status": "solved",
+      "obj_val": -9.6286632055,
+      "accel_declined": 0
+    },
+    "family/tridiagonal_diag/auto": {
+      "backend_name": "tridiagonal",
+      "iter": 75,
+      "refactor_count": 2,
+      "status": "solved",
+      "obj_val": -11.1772652439,
+      "accel_declined": 0
+    },
+    "family/tridiagonal_diag/tridiagonal": {
+      "backend_name": "tridiagonal",
+      "iter": 75,
+      "refactor_count": 2,
+      "status": "solved",
+      "obj_val": -11.1772652439,
+      "accel_declined": 0
+    },
+    "kronecker/auto": {
+      "backend_name": "kronecker",
+      "iter": 325,
+      "refactor_count": 1,
+      "status": "solved",
+      "obj_val": 121.0452234035,
+      "accel_declined": 0
+    },
+    "kronecker/kronecker": {
+      "backend_name": "kronecker",
+      "iter": 325,
+      "refactor_count": 1,
+      "status": "solved",
+      "obj_val": 121.0452234035,
+      "accel_declined": 0
+    },
+    "operator/linearmap/auto": {
+      "backend_name": "indirect",
+      "iter": 150,
+      "refactor_count": 2,
+      "status": "solved",
+      "obj_val": 70.6796330174,
+      "accel_declined": 0
+    },
+    "operator/productoperator/auto": {
+      "backend_name": "indirect",
+      "iter": 325,
+      "refactor_count": 3,
+      "status": "solved",
+      "obj_val": 2261.4576956596,
+      "accel_declined": 0
+    },
+    "suite/Control/auto": {
+      "backend_name": "sparse_formed",
+      "iter": 450,
+      "refactor_count": 1,
+      "status": "solved",
+      "obj_val": 4.6237972797,
+      "accel_declined": 0
+    },
+    "suite/Control/sparse": {
+      "backend_name": "sparse_formed",
+      "iter": 450,
+      "refactor_count": 1,
+      "status": "solved",
+      "obj_val": 4.6237972797,
+      "accel_declined": 0
+    },
+    "suite/Eq QP/auto": {
+      "backend_name": "cholesky",
+      "iter": 50,
+      "refactor_count": 1,
+      "status": "solved",
+      "obj_val": 554.7911457186,
+      "accel_declined": 0
+    },
+    "suite/Eq QP/dense": {
+      "backend_name": "cholesky",
+      "iter": 50,
+      "refactor_count": 1,
+      "status": "solved",
+      "obj_val": 554.7911457186,
+      "accel_declined": 0
+    },
+    "suite/Huber/auto": {
+      "backend_name": "ldlfactorizations",
+      "iter": 125,
+      "refactor_count": 2,
+      "status": "solved",
+      "obj_val": 168.3537362136,
+      "accel_declined": 0
+    },
+    "suite/Huber/sparse": {
+      "backend_name": "ldlfactorizations",
+      "iter": 125,
+      "refactor_count": 1,
+      "status": "solved",
+      "obj_val": 168.3537362136,
+      "accel_declined": 0
+    },
+    "suite/Lasso/auto": {
+      "backend_name": "ldlfactorizations",
+      "iter": 125,
+      "refactor_count": 2,
+      "status": "solved",
+      "obj_val": 837.7309215058,
+      "accel_declined": 0
+    },
+    "suite/Lasso/sparse": {
+      "backend_name": "ldlfactorizations",
+      "iter": 125,
+      "refactor_count": 1,
+      "status": "solved",
+      "obj_val": 837.7309215058,
+      "accel_declined": 0
+    },
+    "suite/Portfolio/auto": {
+      "backend_name": "ldl_kkt",
+      "iter": 600,
+      "refactor_count": 2,
+      "status": "solved",
+      "obj_val": -2.3419514762,
+      "accel_declined": 0
+    },
+    "suite/Portfolio/kkt": {
+      "backend_name": "bunchkaufman",
+      "iter": 600,
+      "refactor_count": 2,
+      "status": "solved",
+      "obj_val": -2.3419514762,
+      "accel_declined": 0
+    },
+    "suite/Random QP/auto": {
+      "backend_name": "cholesky",
+      "iter": 1225,
+      "refactor_count": 2,
+      "status": "solved",
+      "obj_val": 120.9243702963,
+      "accel_declined": 0
+    },
+    "suite/Random QP/dense": {
+      "backend_name": "cholesky",
+      "iter": 1225,
+      "refactor_count": 2,
+      "status": "solved",
+      "obj_val": 120.9243702963,
+      "accel_declined": 0
+    },
+    "suite/Random QP/indirect": {
+      "backend_name": "indirect",
+      "iter": 2325,
+      "refactor_count": 2,
+      "status": "solved",
+      "obj_val": 120.9243702062,
+      "accel_declined": 0
+    },
+    "suite/Random QP/sparse": {
+      "backend_name": "sparse_formed",
+      "iter": 1225,
+      "refactor_count": 2,
+      "status": "solved",
+      "obj_val": 120.9243702963,
+      "accel_declined": 0
+    },
+    "suite/SVM/auto": {
+      "backend_name": "ldlfactorizations",
+      "iter": 325,
+      "refactor_count": 2,
+      "status": "solved",
+      "obj_val": 331.6255888183,
+      "accel_declined": 0
+    },
+    "suite/SVM/sparse": {
+      "backend_name": "ldlfactorizations",
+      "iter": 325,
+      "refactor_count": 1,
+      "status": "solved",
+      "obj_val": 331.6255888183,
+      "accel_declined": 0
+    },
+    "update/resolve/auto": {
+      "backend_name": "cholesky",
+      "iter": 1050,
+      "refactor_count": 1,
+      "status": "solved",
+      "obj_val": 41.1187324285,
+      "accel_declined": 0
+    }
+  },
+  "julia_version": "1.12.7"
+}
