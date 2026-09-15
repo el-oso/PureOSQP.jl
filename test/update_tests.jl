@@ -242,13 +242,13 @@ end
     A = [1.0 1.0; 1.0 0.0; 0.0 1.0]
     l, u = [1.0, 0.0, 0.0], [1.0, 0.7, 0.7]
     ws = setup(P, [1.0, 1.0], A, l, u)
-    q0, l0, u0, P0, A0 = copy(ws.q0), copy(ws.l0), copy(ws.u0), ws.P, ws.A
+    q0, l0, u0, P0, A0 = copy(ws.prob.q0), copy(ws.prob.l0), copy(ws.prob.u0), ws.prob.P, ws.prob.A
     # Each call pairs a valid argument with an invalid one; the valid one must not land.
     @test_throws "length(l) must be 3" PureOSQP.update!(ws; q = [5.0, 5.0], l = [0.0])
     @test_throws "A must stay 3×2" PureOSQP.update!(ws; P = [5.0 0.0; 0.0 5.0], A = ones(4, 2))
     @test_throws "violated at index 2" PureOSQP.update!(ws; l = [0.0, 0.8, 0.0], u = [1.0, 0.5, 0.7])
-    @test ws.q0 == q0 && ws.l0 == l0 && ws.u0 == u0
-    @test ws.P === P0 && ws.A === A0
+    @test ws.prob.q0 == q0 && ws.prob.l0 == l0 && ws.prob.u0 == u0
+    @test ws.prob.P === P0 && ws.prob.A === A0
     ref = solve(P, [1.0, 1.0], A, l, u)
     sol = solve!(ws)
     @test sol.status === SOLVED

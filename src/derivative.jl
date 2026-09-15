@@ -37,23 +37,24 @@ function active_kkt(ws::Workspace{T}) where {T}
                 "until it converges."
         )
     )
+    prob = ws.prob
     require_host(ws.x, "differentiating the solution")
     require_entries(
-        ws.P, ws.A, "differentiating the solution",
+        prob.P, prob.A, "differentiating the solution",
         "`adjoint_derivative` and `forward_derivative` need the active-set KKT matrix, which " *
             "has no matrix-free form: re-express the problem with a matrix `P` and `A` to " *
             "differentiate it."
     )
-    n, m = ws.n, ws.m
-    x = ws.D .* ws.x
-    y = (ws.E .* ws.y) ./ ws.c
-    z = ws.z ./ ws.E
+    n, m = prob.n, prob.m
+    x = prob.D .* ws.x
+    y = (prob.E .* ws.y) ./ prob.c
+    z = ws.z ./ prob.E
 
     τ = sqrt(eps(T)) * max(norm_inf(y), one(T))
     act = Int[]
     lower = Bool[]
     for i in 1:m
-        li, ui = ws.l0[i], ws.u0[i]
+        li, ui = prob.l0[i], prob.u0[i]
         if li == ui
             # An equality row is always active, but which bound the derivative belongs to
             # is still decided by the sign of the multiplier, exactly as for an inequality.
@@ -97,10 +98,10 @@ function active_kkt(ws::Workspace{T}) where {T}
 
     M = zeros(T, n + k, n + k)
     for j in 1:n, i in 1:n
-        M[i, j] = T(ws.P[i, j])
+        M[i, j] = T(prob.P[i, j])
     end
     for (r, i) in enumerate(act), j in 1:n
-        a = T(ws.A[i, j])
+        a = T(prob.A[i, j])
         M[n + r, j] = a
         M[j, n + r] = a
     end
@@ -158,7 +159,7 @@ gradient consumer has no such test.
 function adjoint_derivative(
         ws::Workspace{T}, dx::AbstractVector, dy::AbstractVector
     ) where {T}
-    n, m = ws.n, ws.m
+    n, m = ws.prob.n, ws.prob.m
     length(dx) == n || throw(ArgumentError("length(dx) = $(length(dx)) must equal n = $n"))
     length(dy) == m || throw(ArgumentError("length(dy) = $(length(dy)) must equal m = $m"))
 
@@ -210,7 +211,7 @@ function forward_derivative(
         ws::Workspace{T}; dP = nothing, dq = nothing, dA = nothing,
         dl = nothing, du = nothing
     ) where {T}
-    n, m = ws.n, ws.m
+    n, m = ws.prob.n, ws.prob.m
     F, M, act, lower, x, y = active_kkt(ws)
     k = length(act)
 

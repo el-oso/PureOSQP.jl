@@ -95,7 +95,7 @@ Depends on the data and the equilibration factors, not on `ρ`, which is why
 [`refactor_rho!`](@ref) leaves it alone.
 """
 function scale_coupling!(ls::DiagonalLowRank, ws)
-    A, D, E, V = ws.A, ws.D, ws.E, ls.V
+    A, D, E, V = ws.prob.A, ws.prob.D, ws.prob.E, ls.V
     for i in axes(V, 1), j in axes(V, 2)
         V[i, j] = E[i] * A.coupling[i, j] * D[j]
     end
@@ -109,9 +109,10 @@ Rebuild everything `ρ` enters: the diagonal core `C⁻¹`, `Y = V C⁻¹`, and 
 capacitance and its factorization. Reads `V` and does not write it.
 """
 function refresh_core!(ls::DiagonalLowRank{T}, ws)::Bool where {T}
-    n = ws.n
-    A, P, D, E = ws.A, ws.P, ws.D, ws.E
-    c, rho, sigma = ws.c, ws.rho_vec, ws.settings.sigma
+    prob = ws.prob
+    n = prob.n
+    A, P, D, E, c = prob.A, prob.P, prob.D, prob.E, prob.c
+    rho, sigma = ws.rho_vec, ws.settings.sigma
     k = size(ls.V, 1)
     # The core: `P`'s diagonal, `σ`, and the one-entry rows, each of which touches a single
     # column and so contributes only to the diagonal.
@@ -154,13 +155,14 @@ end
 refactor_rho!(ls::DiagonalLowRank, ws) = refresh_core!(ls, ws)
 
 function solve_system!(ls::DiagonalLowRank, ws, rhs_x, rhs_z)::Nothing
+    prob = ws.prob
     reduced_rhs!(ws, rhs_x, rhs_z)
-    b, x = ws.work_n, ws.xtilde
+    b, x = prob.work_n, ws.xtilde
     multiply!(x, ls.cinv, b)          # C⁻¹b
     mul!(ls.ky, ls.Y, b)              # V C⁻¹ b
     ldiv!(ls.fact, ls.ky)             # (W⁻¹ + V C⁻¹ Vᵀ)⁻¹ V C⁻¹ b
     mul!(ls.ty, ls.Y', ls.ky)         # C⁻¹ Vᵀ (…)
     subtract!(x, x, ls.ty)
-    ws.m > 0 && mul_A!(ws.ztilde, ws, x)
+    prob.m > 0 && mul_A!(ws.ztilde, prob, x)
     return nothing
 end

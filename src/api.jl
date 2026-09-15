@@ -76,7 +76,7 @@ end
 
 Number of variables and of constraint rows.
 """
-dimensions(ws::Workspace) = (ws.n, ws.m)
+dimensions(ws::Workspace) = (ws.prob.n, ws.prob.m)
 
 """
     capabilities() -> NamedTuple
@@ -113,17 +113,18 @@ bound of `±1e30` here, far enough that it never reports a violation of its own.
 `out` must have one entry per constraint row. Nothing is allocated.
 """
 function constraint_violation!(out::AbstractVector{T}, ws::Workspace{T}) where {T}
-    length(out) == ws.m || throw(
+    prob = ws.prob
+    length(out) == prob.m || throw(
         DimensionMismatch("out must have one entry per constraint row")
     )
-    ws.m == 0 && return out
-    mul_A!(ws.Ax, ws, ws.x)
-    scaled = ws.settings.scaling > 0
+    iszero(prob.m) && return out
+    mul_A!(ws.Ax, prob, ws.x)
+    scaled = prob.scaling > 0
     for i in eachindex(out)
         # `l`, `u` and `Ax` are all equilibrated by the same row factor, so the violation
         # comes back to the caller's units by dividing it out once.
-        gap = max(ws.l[i] - ws.Ax[i], ws.Ax[i] - ws.u[i], zero(T))
-        out[i] = scaled ? gap / ws.E[i] : gap
+        gap = max(prob.l[i] - ws.Ax[i], ws.Ax[i] - prob.u[i], zero(T))
+        out[i] = scaled ? gap / prob.E[i] : gap
     end
     return out
 end
@@ -137,5 +138,5 @@ Allocates the result; [`constraint_violation!`](@ref) writes into a vector you s
 carries the description of what the entries mean.
 """
 function constraint_violation(ws::Workspace{T}) where {T}
-    return constraint_violation!(similar(ws.x, T, ws.m), ws)
+    return constraint_violation!(similar(ws.x, T, ws.prob.m), ws)
 end

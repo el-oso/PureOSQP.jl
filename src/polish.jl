@@ -7,21 +7,22 @@ a polished point is an improvement.
 function residuals_at(
         ws::Workspace{T}, x::AbstractVector{T}, y::AbstractVector{T}, z::AbstractVector{T}
     ) where {T}
-    scaled = ws.settings.scaling > 0
+    prob = ws.prob
+    scaled = prob.scaling > 0
     pr = zero(T)
-    if ws.m > 0
-        mul_A!(ws.work_m, ws, x)
-        ws.work_m .-= z
-        pr = scaled ? invscaled_norm_inf(ws.E, ws.work_m) : norm_inf(ws.work_m)
+    if prob.m > 0
+        mul_A!(prob.work_m, prob, x)
+        prob.work_m .-= z
+        pr = scaled ? invscaled_norm_inf(prob.E, prob.work_m) : norm_inf(prob.work_m)
     end
-    mul_P!(ws.Px, ws, x)
-    ws.work_n .= ws.q .+ ws.Px
-    if ws.m > 0
-        mul_At!(ws.Aty, ws, y)
-        ws.work_n .+= ws.Aty
+    mul_P!(ws.Px, prob, x)
+    prob.work_n .= prob.q .+ ws.Px
+    if prob.m > 0
+        mul_At!(ws.Aty, prob, y)
+        prob.work_n .+= ws.Aty
     end
-    dr = scaled ? invscaled_norm_inf(ws.D, ws.work_n) / ws.c : norm_inf(ws.work_n)
-    obj = (dot(ws.Px, x) / 2 + dot(ws.q, x)) / ws.c
+    dr = scaled ? invscaled_norm_inf(prob.D, prob.work_n) / prob.c : norm_inf(prob.work_n)
+    obj = (dot(ws.Px, x) / 2 + dot(prob.q, x)) / prob.c
     return (pr, dr, obj)
 end
 
@@ -41,17 +42,18 @@ The reduced KKT system is regularized by `δ` and corrected by `polish_refine_it
 of iterative refinement against the unregularized operator.
 """
 function polish!(ws::Workspace{T}) where {T}
+    prob = ws.prob
     require_host(ws.x, "polishing")
-    require_entries(ws.P, ws.A, "polishing", "Leave `polishing = false` and take the ADMM iterate.")
-    n, m = ws.n, ws.m
+    require_entries(prob.P, prob.A, "polishing", "Leave `polishing = false` and take the ADMM iterate.")
+    n, m = prob.n, prob.m
     δ = ws.settings.delta
     active = Int[]
     lower = Bool[]
     for i in 1:m
-        if ws.z[i] - ws.l[i] < -ws.y[i] || ws.l[i] == ws.u[i]
+        if ws.z[i] - prob.l[i] < -ws.y[i] || prob.l[i] == prob.u[i]
             push!(active, i)
             push!(lower, true)
-        elseif ws.u[i] - ws.z[i] < ws.y[i]
+        elseif prob.u[i] - ws.z[i] < ws.y[i]
             push!(active, i)
             push!(lower, false)
         end
@@ -60,16 +62,16 @@ function polish!(ws::Workspace{T}) where {T}
     iszero(k) && return POLISH_NO_ACTIVE_SET_FOUND
     Ared = Matrix{T}(undef, k, n)
     for j in 1:n
-        dj = ws.D[j]
+        dj = prob.D[j]
         for (r, i) in enumerate(active)
-            Ared[r, j] = ws.E[i] * T(ws.A[i, j]) * dj
+            Ared[r, j] = prob.E[i] * T(prob.A[i, j]) * dj
         end
     end
     Kp = zeros(T, n + k, n + k)
     for j in 1:n
-        dj = ws.D[j]
+        dj = prob.D[j]
         for i in 1:n
-            Kp[i, j] = ws.c * ws.D[i] * T(ws.P[i, j]) * dj
+            Kp[i, j] = prob.c * prob.D[i] * T(prob.P[i, j]) * dj
         end
         Kp[j, j] += δ
         for r in 1:k
@@ -84,11 +86,11 @@ function polish!(ws::Workspace{T}) where {T}
     issuccess(F) || return POLISH_LINSYS_ERROR
     rhs = Vector{T}(undef, n + k)
     for j in 1:n
-        rhs[j] = -ws.q[j]
+        rhs[j] = -prob.q[j]
     end
     for r in 1:k
         i = active[r]
-        rhs[n + r] = lower[r] ? ws.l[i] : ws.u[i]
+        rhs[n + r] = lower[r] ? prob.l[i] : prob.u[i]
     end
     sol = F \ rhs
     # Iterative refinement against the unregularized operator [P̃ Aredᵀ; Ared 0].
@@ -97,9 +99,9 @@ function polish!(ws::Workspace{T}) where {T}
     yv = view(sol, (n + 1):(n + k))
     for _ in 1:ws.settings.polish_refine_iter
         copyto!(res, rhs)
-        mul_P!(ws.work_n, ws, xv)
+        mul_P!(prob.work_n, prob, xv)
         for j in 1:n
-            res[j] -= ws.work_n[j]
+            res[j] -= prob.work_n[j]
         end
         mul!(view(res, 1:n), Ared', yv, -one(T), one(T))
         mul!(view(res, (n + 1):(n + k)), Ared, xv, -one(T), one(T))
@@ -112,10 +114,10 @@ function polish!(ws::Workspace{T}) where {T}
         ypol[active[r]] = sol[n + r]
     end
     zpol = zeros(T, m)
-    m > 0 && mul_A!(zpol, ws, xpol)
+    m > 0 && mul_A!(zpol, prob, xpol)
     # Put z in [l,u] and y in the normal cone at z.
     ypol .+= zpol
-    zpol .= clamp.(ypol, ws.l, ws.u)
+    zpol .= clamp.(ypol, prob.l, prob.u)
     ypol .-= zpol
     pr, dr, obj = residuals_at(ws, xpol, ypol, zpol)
     tiny = T(1.0e-10)

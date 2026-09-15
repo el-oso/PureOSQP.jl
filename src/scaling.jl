@@ -241,33 +241,33 @@ end
 
 
 """
-    mul_A!(out, ws, x)
+    mul_A!(out, prob, x)
 
 `out = Ã x = E ⊙ (A (D ⊙ x))`, using the caller's `A` unchanged.
 
-`out` must not alias `ws.tmp_n`, which is used as scratch.
+`out` must not alias `prob.tmp_n`, which is used as scratch.
 """
-function mul_A!(out::AbstractVector{T}, ws::Workspace{T}, x::AbstractVector{T}) where {T}
-    multiply!(ws.tmp_n, ws.D, x)
-    mul!(out, ws.A, ws.tmp_n)
-    # `scale_by!` rather than `out .*= ws.E`: an in-place broadcast has `out` on both
+function mul_A!(out::AbstractVector{T}, prob::Problem{T}, x::AbstractVector{T}) where {T}
+    multiply!(prob.tmp_n, prob.D, x)
+    mul!(out, prob.A, prob.tmp_n)
+    # `scale_by!` rather than `out .*= prob.E`: an in-place broadcast has `out` on both
     # sides, which leaves an `unaliascopy` branch that AllocCheck reports as a possible
     # allocation even though it never fires. See src/elementwise.jl.
-    scale_by!(out, ws.E)
+    scale_by!(out, prob.E)
     return out
 end
 
 """
-    mul_At!(out, ws, y)
+    mul_At!(out, prob, y)
 
 `out = Ãᵀ y = D ⊙ (Aᵀ(E ⊙ y))`, using the caller's `A` unchanged.
 
-`out` must not alias `ws.tmp_m`, which is used as scratch.
+`out` must not alias `prob.tmp_m`, which is used as scratch.
 """
-function mul_At!(out::AbstractVector{T}, ws::Workspace{T}, y::AbstractVector{T}) where {T}
-    multiply!(ws.tmp_m, ws.E, y)
-    mul!(out, ws.A', ws.tmp_m)
-    scale_by!(out, ws.D)
+function mul_At!(out::AbstractVector{T}, prob::Problem{T}, y::AbstractVector{T}) where {T}
+    multiply!(prob.tmp_m, prob.E, y)
+    mul!(out, prob.A', prob.tmp_m)
+    scale_by!(out, prob.D)
     return out
 end
 
@@ -276,11 +276,11 @@ end
 # losing it. The three bands give `Aᵀ t` directly: `(Aᵀt)[j] = d[j]t[j] + dl[j]t[j+1] +
 # du[j-1]t[j-1]`.
 function mul_At!(
-        out::AbstractVector{T}, ws::Workspace{T, <:AbstractMatrix, <:Tridiagonal},
+        out::AbstractVector{T}, prob::Problem{T, <:AbstractMatrix, <:Tridiagonal},
         y::AbstractVector{T}
     ) where {T}
-    multiply!(ws.tmp_m, ws.E, y)
-    A, t, n = ws.A, ws.tmp_m, ws.n
+    multiply!(prob.tmp_m, prob.E, y)
+    A, t, n = prob.A, prob.tmp_m, prob.n
     dl, d, du = A.dl, A.d, A.du
     # Summed in ascending `i`, which is the order `mul!` against the adjoint uses. Any other
     # order rounds differently, and a representation is supposed to change how the entries
@@ -291,21 +291,21 @@ function mul_At!(
         j < n && (v += dl[j] * t[j + 1])
         out[j] = v
     end
-    scale_by!(out, ws.D)
+    scale_by!(out, prob.D)
     return out
 end
 
 """
-    mul_P!(out, ws, x)
+    mul_P!(out, prob, x)
 
 `out = P̃ x = c (D ⊙ (P (D ⊙ x)))`, using the caller's `P` unchanged.
 
-`out` must not alias `ws.tmp_n`, which is used as scratch.
+`out` must not alias `prob.tmp_n`, which is used as scratch.
 """
-function mul_P!(out::AbstractVector{T}, ws::Workspace{T}, x::AbstractVector{T}) where {T}
-    multiply!(ws.tmp_n, ws.D, x)
-    mul!(out, ws.P, ws.tmp_n)
-    scale_by!(out, ws.D, ws.c)
+function mul_P!(out::AbstractVector{T}, prob::Problem{T}, x::AbstractVector{T}) where {T}
+    multiply!(prob.tmp_n, prob.D, x)
+    mul!(out, prob.P, prob.tmp_n)
+    scale_by!(out, prob.D, prob.c)
     return out
 end
 

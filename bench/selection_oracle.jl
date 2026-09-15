@@ -82,8 +82,8 @@ function probe(name, P, q, A, l, u)
     ws = PureOSQP.setup(P, q, A, l, u)
     return (;
         problem = name,
-        n = ws.n,
-        m = ws.m,
+        n = ws.prob.n,
+        m = ws.prob.m,
         P_type = string(typeof(P)),
         A_type = string(typeof(A)),
         backend = string(PureOSQP.backend_name(ws.linsys)),

@@ -72,8 +72,9 @@ function block_rung(
 end
 
 function factorize!(ls::BlockReduced{T}, ws)::Bool where {T}
-    A, P, D, E = ws.A, ws.P, ws.D, ws.E
-    c, rho, sigma = ws.c, ws.rho_vec, ws.settings.sigma
+    prob = ws.prob
+    A, P, D, E, c = prob.A, prob.P, prob.D, prob.E, prob.c
+    rho, sigma = ws.rho_vec, ws.settings.sigma
     for i in eachindex(ls.blocks)
         R = ls.blocks[i]
         cols, rows = colrange(A, i), rowrange(A, i)
@@ -104,13 +105,14 @@ function factorize!(ls::BlockReduced{T}, ws)::Bool where {T}
 end
 
 function solve_system!(ls::BlockReduced, ws, rhs_x, rhs_z)::Nothing
+    prob = ws.prob
     reduced_rhs!(ws, rhs_x, rhs_z)
-    b, x = ws.work_n, ws.xtilde
-    A = ws.A
+    b, x = prob.work_n, ws.xtilde
+    A = prob.A
     for i in eachindex(ls.blocks)
         cols = colrange(A, i)
         mul!(view(x, cols), Symmetric(ls.blocks[i], :U), view(b, cols))
     end
-    ws.m > 0 && mul_A!(ws.ztilde, ws, x)
+    prob.m > 0 && mul_A!(ws.ztilde, prob, x)
     return nothing
 end

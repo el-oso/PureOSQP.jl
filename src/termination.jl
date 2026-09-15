@@ -32,28 +32,29 @@ Recompute `‖Ãx − z‖∞` and `‖P̃x + q̃ + Ãᵀy‖∞`, both in scale
 estimate) and unscaled (used for termination and reporting), plus the objective value.
 """
 function update_residuals!(ws::Workspace{T}) where {T}
-    m = ws.m
-    scaled = ws.settings.scaling > 0
+    prob = ws.prob
+    m = prob.m
+    scaled = prob.scaling > 0
     if m > 0
-        mul_A!(ws.Ax, ws, ws.x)
-        subtract!(ws.work_m, ws.Ax, ws.z)
-        ws.scaled_prim_res = norm_inf(ws.work_m)
-        ws.prim_res = scaled ? invscaled_norm_inf(ws.E, ws.work_m) : ws.scaled_prim_res
+        mul_A!(ws.Ax, prob, ws.x)
+        subtract!(prob.work_m, ws.Ax, ws.z)
+        ws.scaled_prim_res = norm_inf(prob.work_m)
+        ws.prim_res = scaled ? invscaled_norm_inf(prob.E, prob.work_m) : ws.scaled_prim_res
     else
         ws.prim_res = zero(T)
         ws.scaled_prim_res = zero(T)
     end
-    mul_P!(ws.Px, ws, ws.x)
-    add!(ws.work_n, ws.q, ws.Px)
+    mul_P!(ws.Px, prob, ws.x)
+    add!(prob.work_n, prob.q, ws.Px)
     if m > 0
-        mul_At!(ws.Aty, ws, ws.y)
-        increment!(ws.work_n, ws.Aty)
+        mul_At!(ws.Aty, prob, ws.y)
+        increment!(prob.work_n, ws.Aty)
     else
         fill!(ws.Aty, zero(T))
     end
-    ws.scaled_dual_res = norm_inf(ws.work_n)
+    ws.scaled_dual_res = norm_inf(prob.work_n)
     ws.dual_res = if scaled
-        invscaled_norm_inf(ws.D, ws.work_n) / ws.c
+        invscaled_norm_inf(prob.D, prob.work_n) / prob.c
     else
         ws.scaled_dual_res
     end
@@ -65,18 +66,18 @@ function update_residuals!(ws::Workspace{T}) where {T}
     #
     # `tmp_m` is free here: it is `mul_At!`'s scratch, and the last call to it is above.
     quad = dot(ws.Px, ws.x)
-    lin = dot(ws.q, ws.x)
+    lin = dot(prob.q, ws.x)
     sup = zero(T)
     if m > 0
-        copyto!(ws.tmp_m, ws.y)
-        project_polar_reccone!(ws.tmp_m, ws.l, ws.u)
-        sup = support_sum(ws.tmp_m, ws.l, ws.u)
+        copyto!(prob.tmp_m, ws.y)
+        project_polar_reccone!(prob.tmp_m, prob.l, prob.u)
+        sup = support_sum(prob.tmp_m, prob.l, prob.u)
     end
     ws.xtPx = quad
     ws.qtx = lin
     ws.SCy = sup
     ws.scaled_duality_gap = quad + lin + sup
-    cinv = inv(ws.c)
+    cinv = inv(prob.c)
     ws.obj_val = (quad / 2 + lin) * cinv
     ws.dual_obj_val = (-quad / 2 - sup) * cinv
     ws.duality_gap = ws.scaled_duality_gap * cinv
@@ -115,8 +116,8 @@ end
 
 function eps_prim(ws::Workspace{T}) where {T}
     s = ws.settings
-    mx = if s.scaling > 0
-        max(invscaled_norm_inf(ws.E, ws.z), invscaled_norm_inf(ws.E, ws.Ax))
+    mx = if ws.prob.scaling > 0
+        max(invscaled_norm_inf(ws.prob.E, ws.z), invscaled_norm_inf(ws.prob.E, ws.Ax))
     else
         max(norm_inf(ws.z), norm_inf(ws.Ax))
     end
@@ -124,11 +125,11 @@ function eps_prim(ws::Workspace{T}) where {T}
 end
 
 function eps_dual(ws::Workspace{T}) where {T}
-    s = ws.settings
-    mx = if s.scaling > 0
-        max(invscaled_norm_inf(ws.D, ws.q), invscaled_norm_inf(ws.D, ws.Aty), invscaled_norm_inf(ws.D, ws.Px)) / ws.c
+    s, prob = ws.settings, ws.prob
+    mx = if prob.scaling > 0
+        max(invscaled_norm_inf(prob.D, prob.q), invscaled_norm_inf(prob.D, ws.Aty), invscaled_norm_inf(prob.D, ws.Px)) / prob.c
     else
-        max(norm_inf(ws.q), norm_inf(ws.Aty), norm_inf(ws.Px))
+        max(norm_inf(prob.q), norm_inf(ws.Aty), norm_inf(ws.Px))
     end
     return s.eps_abs + s.eps_rel * mx
 end
@@ -143,7 +144,7 @@ function eps_duality_gap(ws::Workspace{T}) where {T}
     s = ws.settings
     mx = max(abs(ws.xtPx), abs(ws.qtx), abs(ws.SCy))
     # The stored terms are scaled; unscale unless termination is being judged scaled.
-    (s.scaling > 0 && !s.scaled_termination) && (mx /= ws.c)
+    (ws.prob.scaling > 0 && !s.scaled_termination) && (mx /= ws.prob.c)
     return s.eps_abs + s.eps_rel * mx
 end
 
@@ -205,19 +206,20 @@ The support function is tested against zero rather than against `ε‖δy‖`. A
 admits directions that do not separate, and a certificate is a proof or it is nothing.
 """
 function is_primal_infeasible(ws::Workspace{T}, eps::T) where {T}
-    ws.m == 0 && return false
-    project_polar_reccone!(ws.delta_y, ws.l, ws.u)
-    ndy = ws.settings.scaling > 0 ? scaled_norm_inf(ws.E, ws.delta_y) : norm_inf(ws.delta_y)
+    prob = ws.prob
+    iszero(prob.m) && return false
+    project_polar_reccone!(ws.delta_y, prob.l, prob.u)
+    ndy = prob.scaling > 0 ? scaled_norm_inf(prob.E, ws.delta_y) : norm_inf(ws.delta_y)
     ndy > DIVISION_TOL(T) || return false
     # Strict, as libosqp 1.0 has it: the support function of the direction must be
     # negative, not merely under a tolerance that scales with the direction's own norm.
-    support_plain(ws.delta_y, ws.l, ws.u) < zero(T) || return false
-    mul_At!(ws.work_n, ws, ws.delta_y)
-    if ws.settings.scaling > 0
+    support_plain(ws.delta_y, prob.l, prob.u) < zero(T) || return false
+    mul_At!(prob.work_n, prob, ws.delta_y)
+    if prob.scaling > 0
         # mul_At! applies D; the unscaled test is Aᵀ(E ⊙ δy), so divide it back out once.
-        divide!(ws.work_n, ws.work_n, ws.D)
+        divide!(prob.work_n, prob.work_n, prob.D)
     end
-    return norm_inf(ws.work_n) < eps * ndy
+    return norm_inf(prob.work_n) < eps * ndy
 end
 
 "Whether `Aδx` leaves the recession cone of `[l, u]` at any row, to within `tol`."
@@ -244,21 +246,22 @@ Certificate test on `δx`: `qᵀδx < 0`, `‖Pδx‖ < ε‖δx‖`, and `Aδx`
 of `[l, u]` to within `ε‖δx‖`.
 """
 function is_dual_infeasible(ws::Workspace{T}, eps::T) where {T}
-    scaled = ws.settings.scaling > 0
-    ndx = scaled ? scaled_norm_inf(ws.D, ws.delta_x) : norm_inf(ws.delta_x)
-    cost = scaled ? ws.c : one(T)
+    prob = ws.prob
+    scaled = prob.scaling > 0
+    ndx = scaled ? scaled_norm_inf(prob.D, ws.delta_x) : norm_inf(ws.delta_x)
+    cost = scaled ? prob.c : one(T)
     ndx > DIVISION_TOL(T) || return false
     # A strict sign test, as libosqp 1.0 has it. Allowing `qᵀδx` up to `+ε‖δx‖` certifies a
     # direction that does not descend, and on an ill-conditioned `A` the near-null directions
     # clear the two remaining tests, so a bounded problem is declared unbounded.
-    dot(ws.q, ws.delta_x) < zero(T) || return false
-    mul_P!(ws.work_n, ws, ws.delta_x)
-    scaled && divide!(ws.work_n, ws.work_n, ws.D)
-    norm_inf(ws.work_n) < cost * eps * ndx || return false
-    ws.m == 0 && return true
-    mul_A!(ws.work_m, ws, ws.delta_x)
-    scaled && divide!(ws.work_m, ws.work_m, ws.E)
-    return !leaves_reccone(ws.work_m, ws.l, ws.u, INFTY(T) * MIN_SCALING(T), eps * ndx)
+    dot(prob.q, ws.delta_x) < zero(T) || return false
+    mul_P!(prob.work_n, prob, ws.delta_x)
+    scaled && divide!(prob.work_n, prob.work_n, prob.D)
+    norm_inf(prob.work_n) < cost * eps * ndx || return false
+    iszero(prob.m) && return true
+    mul_A!(prob.work_m, prob, ws.delta_x)
+    scaled && divide!(prob.work_m, prob.work_m, prob.E)
+    return !leaves_reccone(prob.work_m, prob.l, prob.u, INFTY(T) * MIN_SCALING(T), eps * ndx)
 end
 
 """
@@ -278,10 +281,10 @@ function check_termination(ws::Workspace{T}, approximate::Bool = false) where {T
     (isnan(ws.prim_res) || isnan(ws.dual_res)) && return NON_CONVEX
     (ws.prim_res > inf || ws.dual_res > inf) && return NON_CONVEX
     f = approximate ? T(10) : one(T)
-    scaled_term = s.scaled_termination && s.scaling > 0
+    scaled_term = s.scaled_termination && ws.prob.scaling > 0
     pres = scaled_term ? ws.scaled_prim_res : ws.prim_res
     dres = scaled_term ? ws.scaled_dual_res : ws.dual_res
-    prim_ok = iszero(ws.m) || pres < f * eps_prim(ws)
+    prim_ok = iszero(ws.prob.m) || pres < f * eps_prim(ws)
     if !prim_ok && is_primal_infeasible(ws, f * s.eps_prim_inf)
         return approximate ? PRIMAL_INFEASIBLE_INACCURATE : PRIMAL_INFEASIBLE
     end

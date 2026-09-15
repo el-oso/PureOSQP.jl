@@ -596,7 +596,7 @@ end
     end
 
     ws.rhs_x .= randn(n)
-    ws.rhs_z .= randn(ws.m)
+    ws.rhs_z .= randn(ws.prob.m)
     PureOSQP.set_rho_vec!(ws, 3.7)
     @test PureOSQP.refactor_rho!(ws.linsys, ws)
     cheap = applied(ws)
@@ -653,7 +653,7 @@ end
     ws = setup(SymTridiagonal(copy(dv), copy(ev)), randn(rng, n), Diagonal(ones(n)), -rand(rng, n), rand(rng, n); scaling = 0, sigma = sigma)
     @test PureOSQP.backend_name(ws.linsys) === :tridiagonal
     @test !PureOSQP.is_convex(Float64, bad, sigma)
-    ws.P = bad
+    ws.prob.P = bad
     PureOSQP.set_rho_vec!(ws, 50.0)
     @test PureOSQP.factorize!(ws.linsys, ws)
 end

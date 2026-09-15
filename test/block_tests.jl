@@ -30,8 +30,8 @@
 
     # Equilibration reads the blocks and nothing else, so it produces the same factors the
     # dense form does rather than merely close ones.
-    @test ws.D == setup(Matrix(P), q, Matrix(A), l, u; opts...).D
-    @test ws.E == setup(Matrix(P), q, Matrix(A), l, u; opts...).E
+    @test ws.prob.D == setup(Matrix(P), q, Matrix(A), l, u; opts...).prob.D
+    @test ws.prob.E == setup(Matrix(P), q, Matrix(A), l, u; opts...).prob.E
 
     # `Σ nᵢ²` stored against `n²`, which is what the tier is for.
     info = PureOSQP.backend_info(ws.linsys)

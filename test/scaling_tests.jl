@@ -9,16 +9,16 @@
     l = -rand(m)
     u = rand(m)
     ws = setup(P, q, A, l, u; scaling = 10)
-    Pt = ws.c .* (Diagonal(ws.D) * P * Diagonal(ws.D))
-    At = Diagonal(ws.E) * A * Diagonal(ws.D)
+    Pt = ws.prob.c .* (Diagonal(ws.prob.D) * P * Diagonal(ws.prob.D))
+    At = Diagonal(ws.prob.E) * A * Diagonal(ws.prob.D)
     x = randn(n)
     y = randn(m)
-    @test PureOSQP.mul_A!(similar(y), ws, x) ≈ At * x
-    @test PureOSQP.mul_At!(similar(x), ws, y) ≈ At' * y
-    @test PureOSQP.mul_P!(similar(x), ws, x) ≈ Pt * x
-    @test ws.q ≈ ws.c .* (ws.D .* q)
-    @test ws.l ≈ ws.E .* l
-    @test ws.u ≈ ws.E .* u
+    @test PureOSQP.mul_A!(similar(y), ws.prob, x) ≈ At * x
+    @test PureOSQP.mul_At!(similar(x), ws.prob, y) ≈ At' * y
+    @test PureOSQP.mul_P!(similar(x), ws.prob, x) ≈ Pt * x
+    @test ws.prob.q ≈ ws.prob.c .* (ws.prob.D .* q)
+    @test ws.prob.l ≈ ws.prob.E .* l
+    @test ws.prob.u ≈ ws.prob.E .* u
 end
 
 @testitem "equilibration reduces the column-norm spread" begin
@@ -28,7 +28,7 @@ end
     n, m = 20, 60
     A = randn(m, n) * Diagonal(exp10.(range(-4, 4; length = n)))
     ws = setup(zeros(n, n), zeros(n), A, -ones(m), ones(m); scaling = 10)
-    At = Diagonal(ws.E) * A * Diagonal(ws.D)
+    At = Diagonal(ws.prob.E) * A * Diagonal(ws.prob.D)
     spread(M) = (v = [maximum(abs, view(M, :, j)) for j in axes(M, 2)]; maximum(v) / minimum(v))
     @test spread(A) > 1.0e6
     @test spread(At) < 10
@@ -54,10 +54,10 @@ end
     P = (X = randn(3, 3); Matrix(X'X))
     q = randn(3)
     ws = setup(P, q, A, -ones(5), ones(5); scaling = 0)
-    @test all(isone, ws.D)
-    @test all(isone, ws.E)
-    @test isone(ws.c)
-    @test ws.q == q
+    @test all(isone, ws.prob.D)
+    @test all(isone, ws.prob.E)
+    @test isone(ws.prob.c)
+    @test ws.prob.q == q
 end
 
 @testitem "storage type never changes the scaling factors" begin
@@ -78,9 +78,9 @@ end
 
     dense = setup(Matrix(Psp), q, Matrix(Asp), l, u; opts...)
     sprse = setup(Psp, q, Asp, l, u; opts...)
-    @test dense.D == sprse.D
-    @test dense.E == sprse.E
-    @test dense.c == sprse.c
+    @test dense.prob.D == sprse.prob.D
+    @test dense.prob.E == sprse.prob.E
+    @test dense.prob.c == sprse.prob.c
 
     sd = PureOSQP.solve(Matrix(Psp), q, Matrix(Asp), l, u; opts...)
     ss = PureOSQP.solve(Psp, q, Asp, l, u; opts...)
@@ -112,16 +112,16 @@ end
     viewed = setup(Pd, q, view(big, 1:m, 1:n), l, u)
     symwrapped = setup(Symmetric(Pd), q, Ad, l, u)
     for w in (viewed, symwrapped)
-        @test w.D ≈ plain.D
-        @test w.E ≈ plain.E
-        @test w.c ≈ plain.c
+        @test w.prob.D ≈ plain.prob.D
+        @test w.prob.E ≈ plain.prob.E
+        @test w.prob.c ≈ plain.prob.c
     end
 
     Ssp = sparse(Symmetric((S = sprandn(n, n, 0.1); Matrix(S'S) + 3I)))
     sym_sparse = setup(Symmetric(Ssp), q, Ad, l, u)
     plain_sparse = setup(Matrix(Ssp), q, Ad, l, u)
-    @test sym_sparse.D ≈ plain_sparse.D
-    @test sym_sparse.E ≈ plain_sparse.E
+    @test sym_sparse.prob.D ≈ plain_sparse.prob.D
+    @test sym_sparse.prob.E ≈ plain_sparse.prob.E
 end
 
 @testitem "a band type never changes the scaling factors" begin
@@ -154,9 +154,9 @@ end
         issymmetric(Pd) || continue
         structured = setup(Ps, q, A, l, u; opts...)
         dense = setup(Pd, q, A, l, u; opts...)
-        @test structured.D == dense.D
-        @test structured.E == dense.E
-        @test structured.c == dense.c
+        @test structured.prob.D == dense.prob.D
+        @test structured.prob.E == dense.prob.E
+        @test structured.prob.c == dense.prob.c
 
         ss = PureOSQP.solve!(structured)
         sd = PureOSQP.solve!(dense)
@@ -193,9 +193,9 @@ end
     formed = setup(sparse(P), q, sparse(Matrix(A)), l, u; opts...)
     @test PureOSQP.backend_name(structured.linsys) == :lowrank
     @test PureOSQP.backend_name(formed.linsys) != :lowrank
-    @test structured.D == formed.D
-    @test structured.E == formed.E
-    @test structured.c == formed.c
+    @test structured.prob.D == formed.prob.D
+    @test structured.prob.E == formed.prob.E
+    @test structured.prob.c == formed.prob.c
 
     ss = PureOSQP.solve!(structured)
     sf = PureOSQP.solve!(formed)

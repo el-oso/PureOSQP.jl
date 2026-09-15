@@ -138,23 +138,24 @@ function PureOSQP.ldl_posdef(P::SparseMatrixCSC, sigma)
 end
 
 function PureOSQP.factorize!(ls::SparseLDL{T}, ws)::Bool where {T}
-    P, A = ws.P, ws.A
+    prob = ws.prob
+    P, A = prob.P, prob.A
     Ext = Base.get_extension(PureOSQP, :PureOSQPSparseArraysExt)
     if !Ext.describes(ls.gram, P, A)
         # `update!` replaced P or A with one storing entries elsewhere, so both the slot map
         # and the analysis built on its pattern are stale.
-        ls.gram = Ext.reduced_gram(T, P, A, ws.n)
-        R = Ext.refill!(ls.gram, P, A, ws.rho_vec, ws.E, ws.D, ws.c, ws.settings.sigma)
+        ls.gram = Ext.reduced_gram(T, P, A, prob.n)
+        R = Ext.refill!(ls.gram, P, A, ws.rho_vec, prob.E, prob.D, prob.c, ws.settings.sigma)
         ls.fact = ldl_analyze(Symmetric(R, :U))
     else
-        Ext.refill!(ls.gram, P, A, ws.rho_vec, ws.E, ws.D, ws.c, ws.settings.sigma)
+        Ext.refill!(ls.gram, P, A, ws.rho_vec, prob.E, prob.D, prob.c, ws.settings.sigma)
     end
     ldl_factorize!(Symmetric(ls.gram.R, :U), ls.fact)
     d = ls.fact.d
     any(iszero, d) && return false
     ls.L = fact_L(ls.fact)
     ls.perm = fact_perm(ls.fact)
-    Ext.check_factor(ls.L, ws.n)
+    Ext.check_factor(ls.L, prob.n)
     # In place: `D` has the same length every time, and a refactorization runs inside the
     # solve loop whenever `ρ` is retuned.
     length(ls.dinv) == length(d) || resize!(ls.dinv, length(d))
@@ -205,7 +206,7 @@ end
 
 function PureOSQP.solve_system!(ls::SparseLDL{T}, ws, rhs_x, rhs_z)::Nothing where {T}
     rhs = PureOSQP.reduced_rhs!(ws, rhs_x, rhs_z)
-    perm, work, n = ls.perm, ls.permuted, ws.n
+    perm, work, n = ls.perm, ls.permuted, ws.prob.n
     L, dinv = ls.L, ls.dinv
     # R[perm, perm] = Lᵤ D Lᵤᵀ, so the solve is a permutation, two substitutions and the
     # diagonal, all over buffers this backend owns.
@@ -221,7 +222,7 @@ function PureOSQP.solve_system!(ls::SparseLDL{T}, ws, rhs_x, rhs_z)::Nothing whe
     for i in 1:n
         x[perm[i]] = work[i]
     end
-    ws.m > 0 && PureOSQP.mul_A!(ws.ztilde, ws, x)
+    ws.prob.m > 0 && PureOSQP.mul_A!(ws.ztilde, ws.prob, x)
     return nothing
 end
 
@@ -278,29 +279,30 @@ end
 
 function PureOSQP.factorize!(ls::LDLKKT{T}, ws)::Bool where {T}
     Ext = Base.get_extension(PureOSQP, :PureOSQPSparseArraysExt)
-    P, A = ws.P, ws.A
+    prob = ws.prob
+    P, A = prob.P, prob.A
     if !Ext.describes(ls.gram, P, A)
         # `update!` replaced P or A with one storing entries elsewhere, so the slot map and
         # the analysis built on its pattern are both stale.
-        ls.gram = Ext.kkt_gram(T, P, A, ws.n, ws.m)
-        K = Ext.refill_kkt!(ls.gram, P, A, ws.rho_inv_vec, ws.E, ws.D, ws.c, ws.settings.sigma)
+        ls.gram = Ext.kkt_gram(T, P, A, prob.n, prob.m)
+        K = Ext.refill_kkt!(ls.gram, P, A, ws.rho_inv_vec, prob.E, prob.D, prob.c, ws.settings.sigma)
         ls.fact = ldl_analyze(Symmetric(K, :U))
     else
-        Ext.refill_kkt!(ls.gram, P, A, ws.rho_inv_vec, ws.E, ws.D, ws.c, ws.settings.sigma)
+        Ext.refill_kkt!(ls.gram, P, A, ws.rho_inv_vec, prob.E, prob.D, prob.c, ws.settings.sigma)
     end
     ldl_factorize!(Symmetric(ls.gram.K, :U), ls.fact)
     d = ls.fact.d
     any(iszero, d) && return false
     ls.L = fact_L(ls.fact)
     ls.perm = fact_perm(ls.fact)
-    Base.get_extension(PureOSQP, :PureOSQPSparseArraysExt).check_factor(ls.L, ws.n + ws.m)
+    Base.get_extension(PureOSQP, :PureOSQPSparseArraysExt).check_factor(ls.L, prob.n + prob.m)
     length(ls.dinv) == length(d) || resize!(ls.dinv, length(d))
     ls.dinv .= inv.(d)
     return true
 end
 
 function PureOSQP.solve_system!(ls::LDLKKT{T}, ws, rhs_x, rhs_z)::Nothing where {T}
-    n, m = ws.n, ws.m
+    n, m = ws.prob.n, ws.prob.m
     N = n + m
     perm, work = ls.perm, ls.work
     L, dinv = ls.L, ls.dinv

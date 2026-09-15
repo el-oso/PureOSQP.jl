@@ -296,19 +296,7 @@ mutable struct Workspace{
         V <: AbstractVector{T}, VI <: AbstractVector{Int8}, LS <: LinearSystem,
         AC,
     }
-    P::MP
-    A::MA
-    n::Int
-    m::Int
-    q0::V
-    l0::V
-    u0::V
-    q::V
-    l::V
-    u::V
-    D::V
-    E::V
-    c::T
+    prob::Problem{T, MP, MA, V}
     x::V
     y::V
     z::V
@@ -323,10 +311,6 @@ mutable struct Workspace{
     Aty::V
     rhs_x::V
     rhs_z::V
-    tmp_n::V
-    tmp_m::V
-    work_n::V
-    work_m::V
     rho::T
     rho_vec::V
     rho_inv_vec::V
@@ -398,7 +382,7 @@ end
 """
 function Base.show(io::IO, ws::Workspace)
     print(
-        io, "PureOSQP Workspace: ", ws.n, "×", ws.m,
+        io, "PureOSQP Workspace: ", ws.prob.n, "×", ws.prob.m,
         ", backend ", backend_name(ws.linsys),
         ", status ", status_name(ws.status),
         ", rho ", ws.rho,
@@ -543,17 +527,16 @@ function setup_backend(
         l::AbstractVector, u::AbstractVector; accelerator = nothing, kwargs...
     ) where {LS, T <: Real}
     t0 = time_ns()
-    n, m = validate(P, q, A, l, u)
+    nv, mv = validate(P, q, A, l, u)
     settings = Settings{T}(; linsys = LS, kwargs...)
     if !is_convex(T, P, settings.sigma)
         throw(ArgumentError("P + sigma*I is not positive definite: P is indefinite, so the problem is not convex. Increase sigma if P + sigma*I can be made positive definite."))
     end
-    inf = INFTY(T)
-    # `similar`, not `collect`: the buffers inherit the caller's array type, and every
-    # later buffer is `similar` to `q0` in turn.
-    q0 = copyto!(similar(q, T, n), q)
-    l0 = max.(copyto!(similar(l, T, m), l), -inf)
-    u0 = min.(copyto!(similar(u, T, m), u), inf)
+    # Equilibration and the ρ split run before the backend exists, because choosing a backend
+    # well means building the reduced matrix and factoring it, and doing that with the values
+    # the solver will actually use makes that factorization the setup factorization.
+    prob = validated_problem(T, nv, mv, P, q, A, l, u, settings.scaling)
+    n, m, q0, D, E, c, l, u = prob.n, prob.m, prob.q0, prob.D, prob.E, prob.c, prob.l, prob.u
     # A single definition, and no default argument: a local function assigned more than
     # once is boxed, which turns every call through it into a dynamic dispatch and makes
     # the entry points fail `--trim`.
@@ -561,14 +544,6 @@ function setup_backend(
     z = zero(T)
     o = one(T)
     ctype = fill!(similar(q0, Int8, m), zero(Int8))
-    # Equilibration and the ρ split run before the backend exists, because choosing a backend
-    # well means building the reduced matrix and factoring it, and doing that with the values
-    # the solver will actually use makes that factorization the setup factorization. The
-    # buffers they fill are the ones the workspace then adopts.
-    q, l, u = copy(q0), copy(l0), copy(u0)
-    D, E = buf(n, o), buf(m, o)
-    tmp_n, tmp_m, work_n = buf(n, z), buf(m, z), buf(n, z)
-    c = equilibrate!(T, P, A, q0, l0, u0, q, l, u, D, E, tmp_n, tmp_m, work_n, n, settings.scaling)
     rho = clamp(settings.rho, RHO_MIN(T), RHO_MAX(T))
     rho_vec, rho_inv_vec = buf(m, o), buf(m, o)
     classify_rho!(
@@ -579,13 +554,10 @@ function setup_backend(
     make(ls) = Workspace{
         T, typeof(P), typeof(A), typeof(q0), typeof(ctype), typeof(ls), typeof(ac),
     }(
-        P, A, n, m,
-        q0, l0, u0,
-        q, l, u,
-        D, E, c,
+        prob,
         buf(n, z), buf(m, z), buf(m, z), buf(n, z), buf(m, z), buf(n, z), buf(m, z), buf(n, z), buf(m, z),
         buf(m, z), buf(n, z), buf(n, z),
-        buf(n, z), buf(m, z), tmp_n, tmp_m, work_n, buf(m, z),
+        buf(n, z), buf(m, z),
         rho, rho_vec, rho_inv_vec, ctype,
         ls, ac, 0,
         zero(T), zero(T), zero(T), zero(T), zero(T),
@@ -709,17 +681,18 @@ end
 Seed the iterates in problem space. `z` is set to the scaled `Ax`.
 """
 function warm_start!(ws::Workspace{T}; x = nothing, y = nothing) where {T}
+    prob = ws.prob
     if !isnothing(x)
-        length(x) == ws.n || throw(ArgumentError("length(x) must be $(ws.n)"))
+        length(x) == prob.n || throw(ArgumentError("length(x) must be $(prob.n)"))
         all(isfinite, x) || throw(ArgumentError("x must be finite, found NaN or Inf"))
-        ws.x .= T.(x) ./ ws.D
+        ws.x .= T.(x) ./ prob.D
     end
     if !isnothing(y)
-        length(y) == ws.m || throw(ArgumentError("length(y) must be $(ws.m)"))
+        length(y) == prob.m || throw(ArgumentError("length(y) must be $(prob.m)"))
         all(isfinite, y) || throw(ArgumentError("y must be finite, found NaN or Inf"))
-        ws.y .= ws.c .* T.(y) ./ ws.E
+        ws.y .= prob.c .* T.(y) ./ prob.E
     end
-    ws.m > 0 && mul_A!(ws.z, ws, ws.x)
+    prob.m > 0 && mul_A!(ws.z, prob, ws.x)
     return ws
 end
 

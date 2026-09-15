@@ -44,7 +44,7 @@ end
 
 "A `BandedReduced` for this workspace's data, built without asking the rung's permission."
 function banded_for(ws, b)
-    n = ws.n
+    n = ws.prob.n
     R = BandedMatrix{Float64}(undef, (n, n), (b, b))
     fill!(R.data, 0.0)
     for i in 1:n

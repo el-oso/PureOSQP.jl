@@ -114,9 +114,9 @@ end
 
     # `A * eⱼ` copies column `j` when the wrapped operator selects stored entries, so the
     # factors are the same numbers by the same arithmetic, not merely close.
-    @test probed.D == walked.D
-    @test probed.E == walked.E
-    @test probed.c == walked.c
+    @test probed.prob.D == walked.prob.D
+    @test probed.prob.E == walked.prob.E
+    @test probed.prob.c == walked.prob.c
 
     # Without `probe`, the same operator refuses and names every way out.
     bare = PureOSQP.ProductOperator{Float64}(Matrix(P); symmetric = true, posdef = true)
@@ -142,9 +142,9 @@ end
 
     # `symmetric` and `posdef` come from the map's own traits rather than from the caller.
     ws = setup(Pmap, q, Amap, l, u; opts...)
-    @test ws.P isa PureOSQP.ProductOperator
-    @test PureOSQP.is_symmetric(ws.P)
-    @test PureOSQP.is_convex(Float64, ws.P, 1.0e-6)
+    @test ws.prob.P isa PureOSQP.ProductOperator
+    @test PureOSQP.is_symmetric(ws.prob.P)
+    @test PureOSQP.is_convex(Float64, ws.prob.P, 1.0e-6)
 
     dense = solve(P, q, A, l, u; opts...)
     mapped = solve(Pmap, q, Amap, l, u; opts...)
@@ -153,8 +153,8 @@ end
 
     # A map and a matrix mix: only the map is wrapped.
     mixed = setup(Pmap, q, A, l, u; opts...)
-    @test mixed.P isa PureOSQP.ProductOperator
-    @test mixed.A isa Matrix
+    @test mixed.prob.P isa PureOSQP.ProductOperator
+    @test mixed.prob.A isa Matrix
     @test solve(Pmap, q, A, l, u; opts...).status === PureOSQP.SOLVED
 end
 
@@ -188,9 +188,9 @@ end
 
     # `symmetric` and `posdef` come from the operator's own traits rather than the caller.
     ws = setup(Pop, q, Aop, l, u; opts...)
-    @test ws.P isa PureOSQP.ProductOperator
-    @test PureOSQP.is_symmetric(ws.P)
-    @test PureOSQP.is_convex(Float64, ws.P, 1.0e-6)
+    @test ws.prob.P isa PureOSQP.ProductOperator
+    @test PureOSQP.is_symmetric(ws.prob.P)
+    @test PureOSQP.is_convex(Float64, ws.prob.P, 1.0e-6)
 
     dense = solve(P, q, A, l, u; opts...)
     opped = solve(Pop, q, Aop, l, u; opts...)
@@ -199,21 +199,21 @@ end
 
     # An operator and a matrix mix: only the operator is wrapped.
     mixed = setup(Pop, q, A, l, u; opts...)
-    @test mixed.P isa PureOSQP.ProductOperator
-    @test mixed.A isa Matrix
+    @test mixed.prob.P isa PureOSQP.ProductOperator
+    @test mixed.prob.A isa Matrix
 
     # An operator holding entries is unwrapped, not wrapped: its entries are what the
     # equilibration and the factoring backends need, and the matrix itself is what the
     # workspace holds.
     Pmat = Matrix(P)
     ws_mat = setup(MatrixOperator(Pmat), q, A, l, u)
-    @test ws_mat.P === Pmat
+    @test ws_mat.prob.P === Pmat
 
     # Unwrapping keeps the type, so a diagonal operator still reaches the diagonal backend
     # rather than a dense one.
     d = 2.0 .+ rand(n)
     ws_diag = setup(DiagonalOperator(d), q, Diagonal(ones(n)), fill(-1.0, n), fill(1.0, n))
-    @test ws_diag.P isa Diagonal
+    @test ws_diag.prob.P isa Diagonal
 
     # `Aᵀ` runs every iteration, so an operator that cannot supply one is refused at setup
     # rather than failing inside the first product.

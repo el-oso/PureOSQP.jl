@@ -36,23 +36,24 @@ end
 # a generic `eltype` of the workspace type.
 ReducedOperator(ws::Workspace{T}) where {T} = ReducedOperator{T, typeof(ws)}(ws)
 
-Base.size(op::ReducedOperator) = (op.ws.n, op.ws.n)
-Base.size(op::ReducedOperator, d::Integer) = op.ws.n
+Base.size(op::ReducedOperator) = (op.ws.prob.n, op.ws.prob.n)
+Base.size(op::ReducedOperator, d::Integer) = op.ws.prob.n
 Base.eltype(::ReducedOperator{T}) where {T} = T
 
 function LinearAlgebra.mul!(y::AbstractVector, op::ReducedOperator, x::AbstractVector)
     ws = op.ws
-    # `mul_A!` and `mul_At!` use `ws.tmp_m`/`ws.tmp_n` as scratch, so `work_m` carries the
-    # intermediate here rather than aliasing theirs.
-    if ws.m > 0
-        mul_A!(ws.work_m, ws, x)
-        PureOSQP.multiply!(ws.work_m, ws.work_m, ws.rho_vec)
-        mul_At!(y, ws, ws.work_m)
+    prob = ws.prob
+    # `mul_A!` and `mul_At!` use `prob.tmp_m`/`prob.tmp_n` as scratch, so `work_m` carries
+    # the intermediate here rather than aliasing theirs.
+    if prob.m > 0
+        mul_A!(prob.work_m, prob, x)
+        PureOSQP.multiply!(prob.work_m, prob.work_m, ws.rho_vec)
+        mul_At!(y, prob, prob.work_m)
     else
         fill!(y, zero(eltype(y)))
     end
-    mul_P!(ws.work_n, ws, x)
-    PureOSQP.add_scaled!(y, ws.work_n, ws.settings.sigma, x)
+    mul_P!(prob.work_n, prob, x)
+    PureOSQP.add_scaled!(y, prob.work_n, ws.settings.sigma, x)
     return y
 end
 
@@ -103,8 +104,9 @@ Always succeeds: there is nothing here that can be singular, since `σ > 0` keep
 diagonal entry positive.
 """
 function PureOSQP.factorize!(ls::IndirectCG{T}, ws)::Bool where {T}
+    prob = ws.prob
     PureOSQP.reduced_diagonal!(
-        ls.prec, T, ws.P, ws.A, ws.rho_vec, ws.E, ws.D, ws.settings.sigma, ws.c
+        ls.prec, T, prob.P, prob.A, ws.rho_vec, prob.E, prob.D, ws.settings.sigma, prob.c
     )
     return true
 end
@@ -127,10 +129,11 @@ relative rather than a fixed `sqrt(eps)` because a fixed floor sits above tight 
 tolerances, and no amount of halving gets below it.
 """
 function PureOSQP.solve_system!(ls::IndirectCG{T}, ws, rhs_x, rhs_z)::Nothing where {T}
-    m = ws.m
+    prob = ws.prob
+    m = prob.m
     if m > 0
-        PureOSQP.multiply!(ws.work_m, ws.rho_vec, rhs_z)
-        mul_At!(ls.rhs, ws, ws.work_m)
+        PureOSQP.multiply!(prob.work_m, ws.rho_vec, rhs_z)
+        mul_At!(ls.rhs, prob, prob.work_m)
         PureOSQP.increment!(ls.rhs, rhs_x)
     else
         copyto!(ls.rhs, rhs_x)
@@ -156,7 +159,7 @@ function PureOSQP.solve_system!(ls::IndirectCG{T}, ws, rhs_x, rhs_z)::Nothing wh
         ls.idle_solves = 0
     end
     copyto!(ws.xtilde, ls.kws.x)
-    m > 0 && mul_A!(ws.ztilde, ws, ws.xtilde)
+    m > 0 && mul_A!(ws.ztilde, prob, ws.xtilde)
     return nothing
 end
 

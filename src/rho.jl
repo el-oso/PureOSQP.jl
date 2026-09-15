@@ -27,7 +27,7 @@ function set_rho_vec!(ws::Workspace{T}, rho::T) where {T}
     # uniform. The classification still runs, because it is what decides whether a
     # refactorization is needed when bounds move between classes.
     return classify_rho!(
-        ws.constr_type, ws.rho_vec, ws.rho_inv_vec, ws.l, ws.u, ws.rho,
+        ws.constr_type, ws.rho_vec, ws.rho_inv_vec, ws.prob.l, ws.prob.u, ws.rho,
         INFTY(T) * MIN_SCALING(T), ws.settings.rho_is_vec
     )
 end
@@ -66,7 +66,7 @@ more than `adaptive_rho_tolerance`. Returns `true` when a refactorization happen
 function adapt_rho!(ws::Workspace{T}) where {T}
     tol = DIVISION_TOL(T)
     pnorm = max(norm_inf(ws.z), norm_inf(ws.Ax))
-    dnorm = max(norm_inf(ws.q), norm_inf(ws.Aty), norm_inf(ws.Px))
+    dnorm = max(norm_inf(ws.prob.q), norm_inf(ws.Aty), norm_inf(ws.Px))
     pr = ws.scaled_prim_res / (pnorm + tol)
     dr = ws.scaled_dual_res / (dnorm + tol)
     rho_new = clamp(ws.rho * sqrt(pr / dr), RHO_MIN(T), RHO_MAX(T))

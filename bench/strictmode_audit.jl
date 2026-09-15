@@ -287,7 +287,7 @@ for backend in (
         # allocation here would land inside the solve loop, not just at setup.
         Ext = Base.get_extension(PureOSQP, :PureOSQPSparseArraysExt)
         G = typeof(ws.linsys.gram)
-        M = typeof(ws.P)
+        M = typeof(ws.prob.P)
         push!(
             checks,
             (Ext.refill!, (G, M, M, V, V, V, Float64, Float64), :hot, nothing)

@@ -89,9 +89,10 @@ function kronecker_rung(
 end
 
 function factorize!(ls::KroneckerReduced{T}, ws)::Bool where {T}
-    A = ws.A
+    prob = ws.prob
+    A = prob.A
     rho = first(ws.rho_vec)
-    shift = ws.c * ls.mu + ws.settings.sigma
+    shift = prob.c * ls.mu + ws.settings.sigma
     # `Gᵢ = AᵢᵀAᵢ` is formed at factor size and thrown away; only its eigenbasis is kept.
     F1 = eigen(Symmetric(A.A1' * A.A1))
     F2 = eigen(Symmetric(A.A2' * A.A2))
@@ -108,10 +109,11 @@ function factorize!(ls::KroneckerReduced{T}, ws)::Bool where {T}
 end
 
 function solve_system!(ls::KroneckerReduced, ws, rhs_x, rhs_z)::Nothing
+    prob = ws.prob
     reduced_rhs!(ws, rhs_x, rhs_z)
     # Copied into the backend's own `n₂×n₁` scratch rather than reshaped in place: `reshape`
     # of a vector allocates an array header, and this runs every iteration.
-    copyto!(ls.X, ws.work_n)
+    copyto!(ls.X, prob.work_n)
     mul!(ls.Z, ls.Q2', ls.X)          # Q₂ᵀ X
     mul!(ls.X, ls.Z, ls.Q1)           # Q₂ᵀ X Q₁
     # A loop, not `ls.X .*= ls.dinv`: an in-place broadcast has `X` on both sides, which
@@ -123,6 +125,6 @@ function solve_system!(ls::KroneckerReduced, ws, rhs_x, rhs_z)::Nothing
     mul!(ls.Z, ls.Q2, ls.X)           # Q₂ (…)
     mul!(ls.X, ls.Z, ls.Q1')          # Q₂ (…) Q₁ᵀ
     copyto!(ws.xtilde, ls.X)
-    ws.m > 0 && mul_A!(ws.ztilde, ws, ws.xtilde)
+    prob.m > 0 && mul_A!(ws.ztilde, prob, ws.xtilde)
     return nothing
 end

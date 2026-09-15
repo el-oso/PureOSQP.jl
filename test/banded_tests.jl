@@ -82,7 +82,7 @@ end
     # zero moves neither a running maximum nor a scaling factor. So the two forms must agree
     # exactly, not approximately -- equilibration is what the libosqp iteration-count
     # comparison rests on.
-    @test banded.D == dense.D
-    @test banded.E == dense.E
-    @test banded.c == dense.c
+    @test banded.prob.D == dense.prob.D
+    @test banded.prob.E == dense.prob.E
+    @test banded.prob.c == dense.prob.c
 end

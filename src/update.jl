@@ -37,7 +37,8 @@ function update!(
         P = nothing, A = nothing
     ) where {T, MP, MA}
     t0 = time_ns()
-    n, m = ws.n, ws.m
+    prob = ws.prob
+    n, m = prob.n, prob.m
     refactor_needed = false
 
     if !isnothing(P)
@@ -50,7 +51,7 @@ function update!(
             )
         )
         is_symmetric(P) || throw(ArgumentError("P must be symmetric"))
-        is_materializable(P) || check_symmetric_products(P, ws.q0)
+        is_materializable(P) || check_symmetric_products(P, prob.q0)
         is_convex(T, P, ws.settings.sigma) ||
             throw(ArgumentError("P + sigma*I is not positive definite: P is indefinite, so the problem is not convex."))
         is_materializable(P) && check_finite(P, n, n, "P")
@@ -87,8 +88,8 @@ function update!(
     if (!isnothing(P) || !isnothing(A)) && ws.linsys isa BlockReduced
         # The block backend factors over the partition it was built with; a new block run
         # of the same type is a different partition and would read the wrong blocks.
-        Pcur = isnothing(P) ? ws.P : P
-        Acur = isnothing(A) ? ws.A : A
+        Pcur = isnothing(P) ? prob.P : P
+        Acur = isnothing(A) ? prob.A : A
         same_column_partition(Pcur, Acur) || throw(
             ArgumentError(
                 "P and A must keep the block partition the workspace was built with: the " *
@@ -116,14 +117,14 @@ function update!(
             throw(ArgumentError("length(u) must be $m, got $(length(u))"))
         # The kronecker backend requires a uniform ρ, which the classification of the
         # proposed bounds must preserve.
-        if ws.linsys isa KroneckerReduced && ws.m > 0
+        if ws.linsys isa KroneckerReduced && prob.m > 0
             loose = INFTY(T) * MIN_SCALING(T)
             split = ws.settings.rho_is_vec
-            lprop = isnothing(l) ? ws.l0 : max.(T.(l), -INFTY(T))
-            uprop = isnothing(u) ? ws.u0 : min.(T.(u), INFTY(T))
-            first_class = rho_class(ws.E[1] * lprop[1], ws.E[1] * uprop[1], loose, split)
-            for i in 2:ws.m
-                rho_class(ws.E[i] * lprop[i], ws.E[i] * uprop[i], loose, split) !=
+            lprop = isnothing(l) ? prob.l0 : max.(T.(l), -INFTY(T))
+            uprop = isnothing(u) ? prob.u0 : min.(T.(u), INFTY(T))
+            first_class = rho_class(prob.E[1] * lprop[1], prob.E[1] * uprop[1], loose, split)
+            for i in 2:prob.m
+                rho_class(prob.E[i] * lprop[i], prob.E[i] * uprop[i], loose, split) !=
                     first_class && throw(
                     ArgumentError(
                         "the new bounds put constraint rows in different ρ classes: the " *
@@ -145,8 +146,8 @@ function update!(
         # The ordering test runs on the clamped proposals, not on what the workspace holds,
         # so a pair that fails it leaves the old bounds in place.
         for i in 1:m
-            li = isnothing(l) ? ws.l0[i] : max(T(l[i]), -inf)
-            ui = isnothing(u) ? ws.u0[i] : min(T(u[i]), inf)
+            li = isnothing(l) ? prob.l0[i] : max(T(l[i]), -inf)
+            ui = isnothing(u) ? prob.u0[i] : min(T(u[i]), inf)
             li <= ui ||
                 throw(ArgumentError("l must be elementwise ≤ u, violated at index $i: $li > $ui"))
         end
@@ -157,19 +158,19 @@ function update!(
     # replaced `P` or `A` would leave the workspace holding a matrix its factorization and
     # its buffers were not built for, and the next solve reads out of range.
     if !isnothing(P)
-        ws.P = P
+        prob.P = P
         ws.linsys isa KroneckerReduced && (ws.linsys.mu = T(scalar_multiple(P)))
     end
-    isnothing(A) || (ws.A = A)
-    isnothing(q) || (ws.q0 .= q)
-    isnothing(l) || (ws.l0 .= max.(T.(l), -INFTY(T)))
-    isnothing(u) || (ws.u0 .= min.(T.(u), INFTY(T)))
+    isnothing(A) || (prob.A = A)
+    isnothing(q) || (prob.q0 .= q)
+    isnothing(l) || (prob.l0 .= max.(T.(l), -INFTY(T)))
+    isnothing(u) || (prob.u0 .= min.(T.(u), INFTY(T)))
 
     # Reapply the existing equilibration to whatever changed.
-    isnothing(q) || (ws.q .= ws.c .* ws.D .* ws.q0)
+    isnothing(q) || (prob.q .= prob.c .* prob.D .* prob.q0)
     if !isnothing(l) || !isnothing(u)
-        ws.l .= ws.E .* ws.l0
-        ws.u .= ws.E .* ws.u0
+        prob.l .= prob.E .* prob.l0
+        prob.u .= prob.E .* prob.u0
         # A row that becomes (or stops being) an equality or a free row changes its rho,
         # and rho is baked into the factorization.
         refactor_needed |= set_rho_vec!(ws, ws.rho)

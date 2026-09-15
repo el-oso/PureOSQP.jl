@@ -273,7 +273,7 @@ ref = solve!(reference)
 ref_backend = PureOSQP.backend_name(reference.linsys)
 for (name, (Pr, Ar)) in reps
     ws = setup(Pr, q, Ar, l, u; eps_abs = 1e-9, eps_rel = 1e-9)
-    @assert ws.P === Pr && ws.A === Ar          # held by reference, not copied
+    @assert ws.prob.P === Pr && ws.prob.A === Ar          # held by reference, not copied
     sol = solve!(ws)
     backend = PureOSQP.backend_name(ws.linsys)
     @assert sol.iter == ref.iter                       # same trajectory

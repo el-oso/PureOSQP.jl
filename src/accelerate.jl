@@ -60,7 +60,7 @@ accelerate_post!(::Nothing, ws, iter::Integer) = ws
 Write `[x; ρ⁻¹ ⊙ y + z]`, the vector the ADMM iteration is a fixed point of.
 """
 function pack_fixed_point!(w::AbstractVector{T}, ws::Workspace{T}) where {T}
-    n = ws.n
+    n = ws.prob.n
     @views w[1:n] .= ws.x
     @views w[(n + 1):end] .= ws.rho_inv_vec .* ws.y .+ ws.z
     return w
@@ -76,10 +76,11 @@ is the part inside, `y` is what is left scaled by `ρ`. Carrying the previous `y
 instead leaves the pair inconsistent, and the iteration does not recover from that.
 """
 function unpack_fixed_point!(ws::Workspace{T}, w::AbstractVector{T}) where {T}
-    n = ws.n
+    prob = ws.prob
+    n = prob.n
     @views ws.x .= w[1:n]
     v = @view w[(n + 1):end]
-    @. ws.z = clamp(v, ws.l, ws.u)
+    @. ws.z = clamp(v, prob.l, prob.u)
     @. ws.y = ws.rho_vec * (v - ws.z)
     return ws
 end

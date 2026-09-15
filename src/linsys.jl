@@ -54,7 +54,7 @@ thresholds are stated and the only form in which two backends' fills compare.
 solving the reduced system, so normalizing by `dim²` would divide the two families by
 different denominators. This takes `n` from the workspace instead.
 """
-factor_fill(ws) = backend_info(ws.linsys).factor_nnz / ws.n^2
+factor_fill(ws) = backend_info(ws.linsys).factor_nnz / ws.prob.n^2
 
 """
     LinearSystem
@@ -566,28 +566,28 @@ turned out not to be factorizable by this backend, which for [`ReducedCholesky`]
 means it was not positive definite.
 """
 function factorize!(ls::ReducedCholesky{T}, ws)::Bool where {T}
-    n, m = ws.n, ws.m
+    prob = ws.prob
+    P, A, D, E, c, n, m = prob.P, prob.A, prob.D, prob.E, prob.c, prob.n, prob.m
     R = ls.Rinv
     # `scaled_col!` writes only the entries the matrix actually has, so W is zeroed first.
     fill!(ls.W, zero(T))
-    rho, E, D = ws.rho_vec, ws.E, ws.D
-    # `m` square roots instead of `m*n`: the per-entry closure used to pay one for every
-    # entry of `W`, which is most of a refactorization's setup at the sizes the dense
-    # backend serves.
+    rho = ws.rho_vec
+    # `m` square roots instead of `m*n`: a per-entry closure would pay one for every entry
+    # of `W`, which is most of a refactorization's setup at the sizes the dense backend
+    # serves.
     sr = sqrt.(rho) .* E
     for j in 1:n
         dj = D[j]
-        scaled_col!(T, ls.W, ws.A, j, (a, i) -> sr[i] * a * dj)
+        scaled_col!(T, ls.W, A, j, (a, i) -> sr[i] * a * dj)
     end
     if m > 0
         mul!(R, ls.W', ls.W)
     else
         fill!(R, zero(T))
     end
-    c = ws.c
     for j in 1:n
         dj = D[j]
-        add_scaled_col!(T, R, ws.P, j, (p, i) -> c * D[i] * p * dj)
+        add_scaled_col!(T, R, P, j, (p, i) -> c * D[i] * p * dj)
     end
     for i in 1:n
         R[i, i] += ws.settings.sigma
@@ -599,9 +599,9 @@ function factorize!(ls::ReducedCholesky{T}, ws)::Bool where {T}
 end
 
 function factorize!(ls::DiagonalReduced{T}, ws)::Bool where {T}
-    n, m = ws.n, ws.m
-    P, A, D, E = ws.P, ws.A, ws.D, ws.E
-    c, rho, sigma = ws.c, ws.rho_vec, ws.settings.sigma
+    prob = ws.prob
+    P, A, D, E, c, n, m = prob.P, prob.A, prob.D, prob.E, prob.c, prob.n, prob.m
+    rho, sigma = ws.rho_vec, ws.settings.sigma
     for j in 1:n
         dj = D[j]
         r = c * dj * P[j, j] * dj + sigma
@@ -618,9 +618,9 @@ function factorize!(ls::DiagonalReduced{T}, ws)::Bool where {T}
 end
 
 function factorize!(ls::TridiagonalReduced{T}, ws)::Bool where {T}
-    n, m = ws.n, ws.m
-    P, A, D, E = ws.P, ws.A, ws.D, ws.E
-    c, rho, sigma = ws.c, ws.rho_vec, ws.settings.sigma
+    prob = ws.prob
+    P, A, D, E, c, n, m = prob.P, prob.A, prob.D, prob.E, prob.c, prob.n, prob.m
+    rho, sigma = ws.rho_vec, ws.settings.sigma
     dv, ev = ls.dv, ls.ev
     for j in 1:n
         dv[j] = c * D[j] * P[j, j] * D[j] + sigma
@@ -656,7 +656,8 @@ function factorize!(ls::TridiagonalReduced{T}, ws)::Bool where {T}
 end
 
 function factorize!(ls::FullKKT{T}, ws)::Bool where {T}
-    n, m = ws.n, ws.m
+    prob = ws.prob
+    P, A, D, E, c, n, m = prob.P, prob.A, prob.D, prob.E, prob.c, prob.n, prob.m
     fill!(ls.K, zero(T))
     # The P block is an indexed `n²` loop rather than the fused `c · (D ⊙ P) ⊙ Dᵀ` broadcast:
     # measured at `n = m = 400` on this factorization, the broadcast costs two extra passes
@@ -664,13 +665,13 @@ function factorize!(ls::FullKKT{T}, ws)::Bool where {T}
     # already writes each entry once. The A block scatters one entry into two transposed
     # positions and stays indexed either way.
     for j in 1:n
-        dj = ws.D[j]
+        dj = D[j]
         for i in 1:n
-            ls.K[i, j] = ws.c * ws.D[i] * T(ws.P[i, j]) * dj
+            ls.K[i, j] = c * D[i] * T(P[i, j]) * dj
         end
         ls.K[j, j] += ws.settings.sigma
         for i in 1:m
-            aij = ws.E[i] * T(ws.A[i, j]) * dj
+            aij = E[i] * T(A[i, j]) * dj
             ls.K[n + i, j] = aij
             ls.K[j, n + i] = aij
         end
@@ -685,7 +686,7 @@ function factorize!(ls::FullKKT{T}, ws)::Bool where {T}
 end
 
 """
-    reduced_rhs!(ws, rhs_x, rhs_z) -> ws.work_n
+    reduced_rhs!(ws, rhs_x, rhs_z) -> ws.prob.work_n
 
 Assemble `rhs_x + Ãᵀ(ρ ⊙ rhs_z)`, the right-hand side of the reduced system.
 
@@ -693,14 +694,15 @@ Written into `work_n` rather than over an argument because the solves that consu
 not alias their input and output — `symv` in particular.
 """
 function reduced_rhs!(ws, rhs_x, rhs_z)
-    if ws.m > 0
-        multiply!(ws.work_m, ws.rho_vec, rhs_z)
-        mul_At!(ws.work_n, ws, ws.work_m)
-        increment!(ws.work_n, rhs_x)
+    prob = ws.prob
+    if prob.m > 0
+        multiply!(prob.work_m, ws.rho_vec, rhs_z)
+        mul_At!(prob.work_n, prob, prob.work_m)
+        increment!(prob.work_n, rhs_x)
     else
-        copyto!(ws.work_n, rhs_x)
+        copyto!(prob.work_n, rhs_x)
     end
-    return ws.work_n
+    return prob.work_n
 end
 
 """
@@ -709,29 +711,32 @@ end
 Solve the subproblem, writing `x̃` into `ws.xtilde` and `z̃` into `ws.ztilde`.
 """
 function solve_system!(ls::ReducedInverse, ws, rhs_x, rhs_z)::Nothing
+    prob = ws.prob
     reduced_rhs!(ws, rhs_x, rhs_z)
-    mul!(ws.xtilde, Symmetric(ls.Rinv, :U), ws.work_n)
-    ws.m > 0 && mul_A!(ws.ztilde, ws, ws.xtilde)
+    mul!(ws.xtilde, Symmetric(ls.Rinv, :U), prob.work_n)
+    prob.m > 0 && mul_A!(ws.ztilde, prob, ws.xtilde)
     return nothing
 end
 
 function solve_system!(ls::DiagonalReduced, ws, rhs_x, rhs_z)::Nothing
+    prob = ws.prob
     reduced_rhs!(ws, rhs_x, rhs_z)
-    multiply!(ws.xtilde, ls.dinv, ws.work_n)
-    ws.m > 0 && mul_A!(ws.ztilde, ws, ws.xtilde)
+    multiply!(ws.xtilde, ls.dinv, prob.work_n)
+    prob.m > 0 && mul_A!(ws.ztilde, prob, ws.xtilde)
     return nothing
 end
 
 function solve_system!(ls::TridiagonalReduced, ws, rhs_x, rhs_z)::Nothing
+    prob = ws.prob
     reduced_rhs!(ws, rhs_x, rhs_z)
-    copyto!(ws.xtilde, ws.work_n)
+    copyto!(ws.xtilde, prob.work_n)
     ldiv!(ls.fact, ws.xtilde)
-    ws.m > 0 && mul_A!(ws.ztilde, ws, ws.xtilde)
+    prob.m > 0 && mul_A!(ws.ztilde, prob, ws.xtilde)
     return nothing
 end
 
 function solve_system!(ls::FullKKT, ws, rhs_x, rhs_z)::Nothing
-    n, m = ws.n, ws.m
+    n, m = ws.prob.n, ws.prob.m
     # Indexed rather than `copyto!(view(...), ...)`: the views leave allocation sites that
     # AllocCheck reports, and the loops make the no-allocation property provable.
     for i in 1:n

@@ -138,9 +138,10 @@ function PureOSQP.backend_info(ls::BandedReduced)
 end
 
 function PureOSQP.factorize!(ls::BandedReduced{T}, ws)::Bool where {T}
-    n, m, b = ws.n, ws.m, ls.bw
-    P, A, D, E = ws.P, ws.A, ws.D, ws.E
-    c, rho, sigma = ws.c, ws.rho_vec, ws.settings.sigma
+    prob = ws.prob
+    n, m, b = prob.n, prob.m, ls.bw
+    P, A, D, E, c = prob.P, prob.A, prob.D, prob.E, prob.c
+    rho, sigma = ws.rho_vec, ws.settings.sigma
     R = ls.R
     fill!(R.data, zero(T))
     # `c D P D + σI`, over the entries the band holds.
@@ -172,10 +173,11 @@ function PureOSQP.factorize!(ls::BandedReduced{T}, ws)::Bool where {T}
 end
 
 function PureOSQP.solve_system!(ls::BandedReduced, ws, rhs_x, rhs_z)::Nothing
+    prob = ws.prob
     reduced_rhs!(ws, rhs_x, rhs_z)
-    copyto!(ws.xtilde, ws.work_n)
+    copyto!(ws.xtilde, prob.work_n)
     ldiv!(ls.fact, ws.xtilde)
-    ws.m > 0 && mul_A!(ws.ztilde, ws, ws.xtilde)
+    prob.m > 0 && mul_A!(ws.ztilde, prob, ws.xtilde)
     return nothing
 end
 

@@ -11,15 +11,16 @@ One ADMM iteration:
 `x_prev` and `z_prev` are swapped rather than copied.
 """
 function admm_step!(ws::Workspace{T}) where {T}
+    prob = ws.prob
     ws.x, ws.x_prev = ws.x_prev, ws.x
     ws.z, ws.z_prev = ws.z_prev, ws.z
-    scale_subtract!(ws.rhs_x, ws.settings.sigma, ws.x_prev, ws.q)
+    scale_subtract!(ws.rhs_x, ws.settings.sigma, ws.x_prev, prob.q)
     subtract_scaled!(ws.rhs_z, ws.z_prev, ws.rho_inv_vec, ws.y)
     solve_system!(ws.linsys, ws, ws.rhs_x, ws.rhs_z)
     update_x!(ws.x, ws.delta_x, ws.xtilde, ws.x_prev, ws.settings.alpha)
-    ws.m > 0 && update_zy!(
+    prob.m > 0 && update_zy!(
         ws.z, ws.y, ws.delta_y, ws.ztilde, ws.z_prev,
-        ws.rho_vec, ws.rho_inv_vec, ws.l, ws.u, ws.settings.alpha, ws.work_m
+        ws.rho_vec, ws.rho_inv_vec, prob.l, prob.u, ws.settings.alpha, prob.work_m
     )
     return ws
 end
@@ -64,9 +65,9 @@ function print_header(ws::Workspace)
     println(Core.stdout, VERBOSE_RULE)
     println(Core.stdout, "            PureOSQP - operator splitting QP solver")
     print(Core.stdout, "     n = ")
-    print(Core.stdout, ws.n)
+    print(Core.stdout, ws.prob.n)
     print(Core.stdout, ", m = ")
-    print(Core.stdout, ws.m)
+    print(Core.stdout, ws.prob.m)
     print(Core.stdout, ", backend = ")
     println(Core.stdout, backend_name(ws.linsys))
     print(Core.stdout, "     eps_abs = ")
@@ -280,17 +281,18 @@ function solution_from(
 end
 
 function build_solution(ws::Workspace{T}) where {T}
-    n, m = ws.n, ws.m
+    prob = ws.prob
+    n, m = prob.n, prob.m
     nan = T(NaN)
     if ws.status == PRIMAL_INFEASIBLE || ws.status == PRIMAL_INFEASIBLE_INACCURATE
-        cert = ws.settings.scaling > 0 ? ws.E .* ws.delta_y : copy(ws.delta_y)
+        cert = prob.scaling > 0 ? prob.E .* ws.delta_y : copy(ws.delta_y)
         nc = norm_inf(cert)
         nc > zero(T) && (cert ./= nc)
         return solution_from(
             ws, fill(nan, n), fill(nan, m), T(Inf), nan, nan, cert, T[]
         )
     elseif ws.status == DUAL_INFEASIBLE || ws.status == DUAL_INFEASIBLE_INACCURATE
-        cert = ws.settings.scaling > 0 ? ws.D .* ws.delta_x : copy(ws.delta_x)
+        cert = prob.scaling > 0 ? prob.D .* ws.delta_x : copy(ws.delta_x)
         nc = norm_inf(cert)
         nc > zero(T) && (cert ./= nc)
         return solution_from(
@@ -301,8 +303,8 @@ function build_solution(ws::Workspace{T}) where {T}
         # mean anything, so do not hand back one that looks like a solution.
         return solution_from(ws, fill(nan, n), fill(nan, m), nan, nan, nan, T[], T[])
     end
-    x = ws.D .* ws.x
-    y = (ws.E .* ws.y) ./ ws.c
+    x = prob.D .* ws.x
+    y = (prob.E .* ws.y) ./ prob.c
     return solution_from(
         ws, x, y, ws.obj_val, ws.dual_obj_val, ws.duality_gap, T[], T[]
     )

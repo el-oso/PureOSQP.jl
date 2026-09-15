@@ -272,20 +272,20 @@ function gram_upper!(
 end
 
 function PureOSQP.factorize!(ls::SparseFormedInverse{T}, ws)::Bool where {T}
-    n, m = ws.n, ws.m
+    prob = ws.prob
+    P, A, D, E, c, n, m = prob.P, prob.A, prob.D, prob.E, prob.c, prob.n, prob.m
     R = ls.Rinv
     fill!(R, zero(T))
     if m > 0
-        # Rebuilt rather than cached: `update!` may replace `ws.A`, and a cached grouping
+        # Rebuilt rather than cached: `update!` may replace `prob.A`, and a cached grouping
         # would then describe a matrix the solver no longer holds. It costs O(nnz), against
         # the O(mn²) product it replaces.
-        rowptr, colind, nzval = csr_rows(ws.A)
-        gram_upper!(R, rowptr, colind, nzval, ws.rho_vec, ws.E, ws.D)
+        rowptr, colind, nzval = csr_rows(A)
+        gram_upper!(R, rowptr, colind, nzval, ws.rho_vec, E, D)
     end
-    c, D = ws.c, ws.D
     for j in 1:n
         dj = D[j]
-        PureOSQP.add_scaled_col!(T, R, ws.P, j, (p, i) -> c * D[i] * p * dj)
+        PureOSQP.add_scaled_col!(T, R, P, j, (p, i) -> c * D[i] * p * dj)
     end
     for i in 1:n
         R[i, i] += ws.settings.sigma
@@ -479,17 +479,18 @@ function refill_kkt!(
 end
 
 function PureOSQP.factorize!(ls::SparseKKT{T}, ws)::Bool where {T}
-    P, A = ws.P, ws.A
+    prob = ws.prob
+    P, A = prob.P, prob.A
     if !describes(ls.gram, P, A)
         # `update!` replaced P or A with one storing entries elsewhere, so the slot map and
         # the analysis built on its pattern are both stale.
-        ls.gram = kkt_gram(T, P, A, ws.n, ws.m)
-        K = refill_kkt!(ls.gram, P, A, ws.rho_inv_vec, ws.E, ws.D, ws.c, ws.settings.sigma)
+        ls.gram = kkt_gram(T, P, A, prob.n, prob.m)
+        K = refill_kkt!(ls.gram, P, A, ws.rho_inv_vec, prob.E, prob.D, prob.c, ws.settings.sigma)
         ls.fact = ldlt(Symmetric(K, :U); check = false)
     else
         # The pattern does not depend on ρ or the equilibration factors, so every
         # refactorization after the first reuses the ordering and the symbolic phase.
-        K = refill_kkt!(ls.gram, P, A, ws.rho_inv_vec, ws.E, ws.D, ws.c, ws.settings.sigma)
+        K = refill_kkt!(ls.gram, P, A, ws.rho_inv_vec, prob.E, prob.D, prob.c, ws.settings.sigma)
         ldlt!(ls.fact, Symmetric(K, :U); check = false)
     end
     issuccess(ls.fact) || return false
@@ -500,7 +501,7 @@ function PureOSQP.factorize!(ls::SparseKKT{T}, ws)::Bool where {T}
     # `LD` packs `D` on the diagonal of a unit-triangular `L`; the solve below uses
     # `UnitLowerTriangular`, which ignores the stored diagonal.
     ls.L = LD
-    check_factor(LD, ws.n + ws.m)
+    check_factor(LD, prob.n + prob.m)
     ls.perm = ls.fact.p::Vector{Int}
     return true
 end
@@ -544,7 +545,7 @@ function ldl_backward!(x::AbstractVector, L::SparseMatrixCSC, N::Integer)
 end
 
 function PureOSQP.solve_system!(ls::SparseKKT{T}, ws, rhs_x, rhs_z)::Nothing where {T}
-    n, m = ws.n, ws.m
+    n, m = ws.prob.n, ws.prob.m
     N = n + m
     perm, work = ls.perm, ls.work
     # Permute straight out of the two right-hand sides: `K[perm, perm] = L D Lᵀ`, and the
@@ -974,17 +975,18 @@ function refill!(
 end
 
 function PureOSQP.factorize!(ls::SparseCholmod{T}, ws)::Bool where {T}
-    P, A = ws.P, ws.A
+    prob = ws.prob
+    P, A = prob.P, prob.A
     if !describes(ls.gram, P, A)
         # `update!` replaced P or A with one storing entries somewhere else, so every slot
         # the map holds is stale.
-        ls.gram = reduced_gram(T, P, A, ws.n)
-        R = refill!(ls.gram, P, A, ws.rho_vec, ws.E, ws.D, ws.c, ws.settings.sigma)
+        ls.gram = reduced_gram(T, P, A, prob.n)
+        R = refill!(ls.gram, P, A, ws.rho_vec, prob.E, prob.D, prob.c, ws.settings.sigma)
         ls.fact = cholesky(Symmetric(R, :U); check = false)
     else
         # The pattern is unchanged, so the symbolic factorization still describes it and
         # only the values need redoing. This is the case every time `ρ` moves.
-        R = refill!(ls.gram, P, A, ws.rho_vec, ws.E, ws.D, ws.c, ws.settings.sigma)
+        R = refill!(ls.gram, P, A, ws.rho_vec, prob.E, prob.D, prob.c, ws.settings.sigma)
         cholesky!(ls.fact, Symmetric(R, :U); check = false)
     end
     issuccess(ls.fact) || return false
@@ -995,8 +997,8 @@ function PureOSQP.factorize!(ls::SparseCholmod{T}, ws)::Bool where {T}
     # is not inferrable, and an unannotated result costs `factorize!` type stability.
     ls.L = sparse(ls.fact.L)::SparseMatrixCSC{T, Int}
     ls.Lt = SparseMatrixCSC(transpose(ls.L))
-    check_factor(ls.L, ws.n)
-    check_factor(ls.Lt, ws.n)
+    check_factor(ls.L, prob.n)
+    check_factor(ls.Lt, prob.n)
     ls.perm = ls.fact.p::Vector{Int}
     return true
 end
@@ -1093,7 +1095,7 @@ end
 
 function PureOSQP.solve_system!(ls::SparseCholmod{T}, ws, rhs_x, rhs_z)::Nothing where {T}
     rhs = PureOSQP.reduced_rhs!(ws, rhs_x, rhs_z)
-    perm, work, n = ls.perm, ls.permuted, ws.n
+    perm, work, n = ls.perm, ls.permuted, ws.prob.n
     # R[perm, perm] = L Lᵀ, so the solve is a permutation, two triangular solves, and the
     # inverse permutation -- all over buffers this backend owns.
     for i in 1:n
@@ -1105,7 +1107,7 @@ function PureOSQP.solve_system!(ls::SparseCholmod{T}, ws, rhs_x, rhs_z)::Nothing
     for i in 1:n
         x[perm[i]] = work[i]
     end
-    ws.m > 0 && PureOSQP.mul_A!(ws.ztilde, ws, x)
+    ws.prob.m > 0 && PureOSQP.mul_A!(ws.ztilde, ws.prob, x)
     return nothing
 end
 
