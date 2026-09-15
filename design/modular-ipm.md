@@ -372,12 +372,16 @@ update_x!(…); update_zy!(…, ws.weights.w, ws.weights.w_inv, …)
 
 ### 3.5 How IPM calls it
 
+`setup_backend(:ipm)` calls `use_residual_stop!(ws.linsys, true)` once, after the workspace is
+built — a no-op for every direct backend, and for `IndirectCG` the switch that turns on the
+inner stopping rule of §9.4 for the rest of the workspace's life. `setup_backend(:admm)` never
+calls it, so ADMM keeps its tolerance stop.
+
 ```julia
 # outside ipm_step!, once per outer iteration (the backend's allocation lives here):
 weights!(ws)                        # §8.2: w = z_l/(s_l + δ_d z_l) + z_u/(s_u + δ_d z_u), masked;
                                     # equality rows w_inv = δ_d, free rows w_inv = 1/δ_d
 set_refresh_index!(ws.linsys, k)    # outer iteration; −1 for the starting-point solve (§9.3)
-use_residual_stop!(ws.linsys, true) # §9.4: turn on the inner stopping rule for IPM (off by default for ADMM)
 refactor_weights!(ws.linsys, ws.prob, ws.weights) || bump_regularization!(ws)
 # ipm_step!: two solves on the same factorization, no allocation
 set_tolerance_level!(ws.linsys, min(μ, ‖r‖∞))
@@ -385,7 +389,10 @@ solve_multiplier!(ws.linsys, ws.prob, ws.weights, rhs_x, rhs_z, dx_aff, dy_aff) 
 …                                                                                # corrector
 ```
 
-For `IndirectCG`, `refactor_weights!` is where `update_preconditioner!` runs (§9.3).
+For `IndirectCG`, `refactor_weights!` is where `update_preconditioner!` runs (§9.3). With the
+residual stop on, `IndirectCG.solve_system!` skips `Krylov.warm_start!` and starts CG from zero
+on its own, at no extra product; the IPM also zeroes `dx_aff`/the corrector's `Δx` before each
+`solve_multiplier!` call (§8.4), so the `x` argument holds zero either way.
 
 ### 3.6 The CG seam (Krylov ext)
 
@@ -397,9 +404,13 @@ takes the preconditioner as its fourth argument, with CG settings arriving throu
 
 ```julia
 adopt_settings!(ls::LinearSystem, settings) = nothing       # direct backends
-adopt_settings!(ls::IndirectCG, settings) = (ls.max_iter = settings.cg_max_iter;
+adopt_settings!(ls::IndirectCG, settings::Settings) = (ls.max_iter = settings.cg_max_iter;
                                              ls.tol_fraction = settings.cg_tol_fraction;
                                              ls.tol_reduction = settings.cg_tol_reduction;
+                                             nothing)
+adopt_settings!(ls::IndirectCG, settings::IPMSettings) = (ls.max_iter = settings.cg_max_iter;
+                                             ls.tol_fraction = settings.cg_tol_fraction;
+                                             ls.tol_reduction = typemax(Int);   # IPMSettings has no idle-solve rule (§8.10)
                                              nothing)
 
 set_tolerance_level!(ls::LinearSystem, level) = nothing     # direct backends
@@ -423,11 +434,12 @@ after the workspace is built and by `update_settings!` whenever settings change.
 
 ADMM calls `set_tolerance_level!` immediately before `solve_system!` with
 `max(scaled_prim_res, scaled_dual_res)`; the backend computes `atol` exactly as at
-`KrylovExt.jl:140-142`, so `:indirect` iterates do not move. CG warm-starts from the `x` argument,
-which holds the previous solution (the same values as `ws.xtilde` today). The IPM zeroes `x`
-before each `solve_multiplier!` on `IndirectCG`: a warm start from the previous step measured no
-G1 gain, 1.02× (dense) and 1.21× (sparse) the median products, and five extra misses from
-Krylov's machine-precision stop (**measured**, `ipm_rowtypes_spike.json`, `cgstart` groups).
+`KrylovExt.jl:140-142`, so `:indirect` iterates do not move. With the residual stop off (ADMM),
+CG warm-starts from the `x` argument, which holds the previous solution (the same values as
+`ws.xtilde` today). With the residual stop on (IPM only, §3.5), `solve_system!` does not call
+`Krylov.warm_start!` at all: a warm start from the previous step measured no G1 gain, 1.02×
+(dense) and 1.21× (sparse) the median products, and five extra misses from Krylov's
+machine-precision stop (**measured**, `ipm_rowtypes_spike.json`, `cgstart` groups).
 `ReducedOperator{T,PB,WT}(prob, wt)` replaces `ReducedOperator(ws)`.
 
 ---
@@ -571,7 +583,7 @@ corpus items pass unchanged and the snapshot matches. **M** mechanical, **J** ju
 | S9 | **Robustness.** Dynamic regularization bump; `NUMERICAL_ERROR` (+ every switch of §8.6); certificate buffers, stall rule, certificate tests on step and normalized iterates; `time_limit`, interrupt. Tests: c-suite ported cases under `:ipm`; a random infeasible `n = 20, m = 40` primal case and a dual one; equality-only (`N_s = 0`) and free-row corpus cases; a `Float32` item as §10.8 question 3 decides. Built as commit ba1bc19; S9b not needed. | items pass | J |
 | S10 | **Structured backends under IPM, measured.** Each structured family through its recorded backend under `:ipm`: referee tolerance and iteration count recorded per backend into `bench/results/ipm_backends.json` (`bench/ipm_backends.jl`), not the snapshot. Result: only the low-rank family is routed, for failing the referee on its linear programs; no other backend exceeds `2×` the `FullKKT` iterations. `SparseFormedInverse` is unreachable under `:ipm` — the ladder has no formed rung. A sparse pair whose sparse KKT factor fails the fill gate lands on the sparse reduced backend, observed on `banded_qp(200, 300)`. `Float32` as §10.8 question 3 decides. Built as commit c1745cd. | items pass; table in docs | J |
 | S10b | **Generic element types under IPM** (§10.8 question 3). The `Float32` refusal is removed; `ipm_floor(T)` supplies the defaults of the tolerances, regularizations and short-step threshold, `precision_eps(T)` the divergence bound (§8.5); test items for `Float32`, `BigFloat`, `ForwardDiff.Dual` (§8.10). | items pass | J |
-| S11 | **IPM `:indirect` with a caller-supplied preconditioner** (§9): `preconditioner` keyword, `update_preconditioner!(M, prob, wt, k)`, refusal by name without one (matrices and operators) and without `scaling = 0`, inner stopping and miss rule, zero start, budgets, `cg_fail_limit`, reporting; reference preconditioners in `bench/` and `test/` (lagged Cholesky over the dense reduced matrix, refreshed every 3 outer iterations; limited-memory LDLᵀ over the sparse one); test items: a `Diagonal` preconditioner with a negative entry ends `NUMERICAL_ERROR` with the message naming the preconditioner; `update_preconditioner!` returning another type throws the `ArgumentError`; a counting preconditioner sees `k = −1, 0, 1, …` and the same `k` after a bump; `bench/ipm_matrixfree.jl` per §9.6. Ships if the §9.6 gates pass. | items pass; bench under `bench/results/`; gate verdict recorded in docs | J |
+| S11 | **IPM `:indirect` with a caller-supplied preconditioner** (§9): `preconditioner` keyword, `update_preconditioner!(M, prob, wt, k)`, refusal by name without one (matrices and operators) and without `scaling = 0`, inner stopping and miss rule, zero start, budgets, `cg_fail_limit`, reporting; reference preconditioners in `bench/ipm_preconditioners.jl` (lagged Cholesky over the dense reduced matrix with an in-place `WA`/`K` buffer, refreshed every 3 outer iterations; limited-memory LDLᵀ over the sparse one, §9.3); the test suite's own inline `LaggedCholesky` logs the refresh index `k` it is called with (`M.ks == -1:(iter-1)`) — `IndirectCG.factorize!` never fails, so the bump case that would repeat a `k` is not reachable and is not tested; a `Diagonal` preconditioner with a negative entry ends `NUMERICAL_ERROR` (the cause is named in documentation, not carried in `Solution`, §9.3); `update_preconditioner!` returning another type throws the `ArgumentError`; `bench/ipm_matrixfree.jl` per §9.6, run on the reduced grid of decision 1(a). Verdict: **SHIP** — G1 24/24 and G2 24/24 on the dense `LaggedCholesky` grid (`n ∈ {500, 1000, 2000}`, `κ ∈ {1, 1e6}`, fractions `{0.1, 0.9}`, two-sided and mixed rows, G1 at `eps = 1e-6`), outer counts equal to `FullKKT` on all 24; the sparse `IncompleteLDL` family includes one instance that ends `NUMERICAL_ERROR`, capped at outer iteration 8. Built as commit 2951256. | items pass; bench under `bench/results/`; SHIP recorded in docs | J |
 | S12 | **Polish, derivatives, `update!`, warm start, MOI for IPM.** | `derivative_tests`, `update_tests`, `moi_tests` parametrized where semantics carry | J |
 | S13 | **StrictMode + trim for IPM; Clarabel bench; docs.** Audit rows of §8.12; trim entries; `bench/ipm_vs_clarabel.jl`; iteration bounds; API/guarantees/algorithm pages. | audit green; trim green; bench committed | J |
 
@@ -590,16 +602,21 @@ operator support.
 2. **`@constprop` fragility in `setup`** (`types.jl:514-527`). `Problem` takes only
    `scaling::Int`; `linsys` stays a `Val`; trim entries `solve_kronecker`,
    `solve_lowrank_scaled`, `setup_kronecker` are the detectors.
-3. **The inner stopping and miss rule of §9.4 is measured at `n ≤ 200` only.** It reproduces
-   the spikes' explicit-residual oracle on two-sided rows (identical inner and outer counts on
-   96 runs) and keeps the exact solver's G1 with equality rows where the oracle does not
-   (`ipm_rowtypes_spike.json`). It accepts steps whose reduced residual exceeds `atol_k`, which
-   the exact solver's steps also do; a step that is poor for another reason is caught only by
-   the outer stall rule (§8.7). S11 records the recomputed residual in the bench at `n ≥ 500`.
-4. **Operator IPM at `n ≥ 500` and its wall clock are unmeasured** (**measured** only at
-   `n ≤ 200` for the caller-supplied preconditioners, plus three dense `n = 1000`, `κ = 1e6`
-   instances). Preconditioner build cost was not counted in the spikes. S11 measures both;
-   until then the docs say "measured at `n ≤ 200`".
+3. **The inner stopping and miss rule of §9.4 is measured at `n ≤ 200` from the spikes, and at
+   `n ∈ {500, 1000, 2000}` from S11's reduced grid** (§9.6: G1 24/24, G2 24/24, `FullKKT`-equal
+   outer counts on all 24). It reproduces the spikes' explicit-residual oracle on two-sided rows
+   at `n ≤ 200` (identical inner and outer counts on 96 runs) and keeps the exact solver's G1
+   with equality rows where the oracle does not (`ipm_rowtypes_spike.json`). It accepts steps
+   whose reduced residual exceeds `atol_k`, which the exact solver's steps also do; a step that
+   is poor for another reason is caught only by the outer stall rule (§8.7). S11's grid does not
+   record the per-solve explicit residual over `atol_k` at `n ≥ 500`; the fuller §9.6 sweep that
+   would (`κ = 1e3`, fraction `0.5`, the Kronecker family, sparse `n = 5000`, G1 at `1e-8`) is
+   not run.
+4. **Operator IPM wall clock, `n ≥ 500`.** **Measured** by S11 (`bench/ipm_matrixfree.jl`) on
+   the dense `LaggedCholesky` grid of decision 1(a) (`n ∈ {500, 1000, 2000}`, `κ ∈ {1, 1e6}`,
+   fractions `{0.1, 0.9}`, two-sided and mixed rows), wall clock including every
+   `update_preconditioner!` call: G1 24/24, G2 24/24 (§9.6). Not measured: the full sweep's
+   `κ = 1e3`, fraction `0.5`, the Kronecker family, sparse `n = 5000`, and G1 at `1e-8`.
 5. **FullKKT reads `A[i, j]` entry by entry at every factorization.** Under the IPM, which
    refactorizes every iteration, this cost is paid every iteration; **measured** (S10,
    `bench/ipm_backends.jl`, `fill_ms` against one factorization): 3% of an iteration on a
@@ -725,7 +742,10 @@ to 24; at `1e-2` convergence stays at 15 and G1 rises from 15 to 18. It costs on
 1. If `!seeded`: one factorization and one `solve_system!` with `w = w_inv = 1`, `sigma =
    δ_p`, `rhs_x = −q̃`, `rhs_z = t` (`t_i` = midpoint of a two-sided row, the finite bound of a
    one-sided one, `l̃_i` of an equality, `0` of a free row), i.e.
-   `(P̃ + δ_p I + ÃᵀÃ) x = −q̃ + Ãᵀt`. If `seeded`: `x` is the workspace's.
+   `(P̃ + δ_p I + ÃᵀÃ) x = −q̃ + Ãᵀt`. If `seeded`: `x` is the workspace's. On an iterative
+   backend this solve runs at tolerance level `0` (`set_tolerance_level!(ls, 0)`), so it solves
+   from `x = 0` to the `eps(T)·max(1, ‖rhs‖)` floor; it counts toward
+   `IPMWorkspace.cg_misses` (§9.4) like every other solve.
 2. `s_l = Ãx − l̃`, `s_u = ũ − Ãx` (masked); `θ = max(0, −1.5·min(s))`; `s .+= θ`; `z .= 1`
    on masked entries, or from `y`: `z_u = max(y, 0) + 1`, `z_l = max(−y, 0) + 1`.
 3. Mehrotra's balancing: `δ_s = ½(sᵀz)/(eᵀz)`, `δ_z = ½(sᵀz)/(eᵀs)`; `s .+= δ_s`, `z .+= δ_z`.
@@ -918,7 +938,9 @@ preconditioner in v1.
 `eps_prim_inf = eps_dual_inf = 1e-8`, `scaling = 10`,
 `check_termination = 1`, `check_dualgap = true`, `scaled_termination = false`,
 `reg_primal = reg_dual = 1e-8` (the six `1e-8` values are `ipm_floor(T)`: `sqrt(eps(T))` for
-`T` coarser than `Float64`), `max_reg_bumps = 5`, `refine_iter = 1`,
+`T` coarser than `Float64`), `max_reg_bumps = 5`, `refine_iter = 1` (the constructor's keyword
+default reads `linsys` and is `0` when `linsys = :indirect`, per §8.5; an explicit value is
+honored under either default),
 `step_fraction = 0.99`, `cg_max_iter = 500` (spike 2's cap; spike 1 and spike 2's three
 `n = 1000` records ran 2000; at 500, `cg_lagchol5` would have hit the cap on two of those three,
 whose maxima were 618 and 678), `cg_tol_fraction = 0.1`, `cg_fail_limit = 3`,
@@ -975,9 +997,9 @@ verbose via `Core.stdout`. The `try`/`catch` that turns Krylov's definiteness th
 (§9.3) lives in a `@noinline` helper outside the audited `solve_system!` kernel, so the
 `noalloc` row does not see the catch path. Trim entries: `solve_ipm_default`, `solve_ipm_kkt`,
 `solve_ipm_unscaled`, `solve_ipm_polish`, `solve_ipm_diagonal`, `solve_ipm_sparse_kkt`,
-`solve_ipm_indirect` (dense pair, `:indirect` with a `Cholesky` preconditioner),
-`solve_ipm_operator` (`ProductOperator` pair with the same), `setup_ipm_update`,
-`derivatives_ipm`.
+`solve_ipm_indirect` (dense pair, `:indirect` with a `Cholesky` preconditioner, added in S11),
+`setup_ipm_update`, `derivatives_ipm`; `solve_ipm_operator` (`ProductOperator` pair with the
+same) is added in S13.
 
 ---
 
@@ -1061,8 +1083,10 @@ only when the caller supplies one.
   `linsys`, or use `algorithm = :admm`." Unpreconditioned and exact-Jacobi CG failed G1 (§9.1:
   16/27 and 17/27 dense, 16/30 and 21/30 sparse), so decision §10.2 refuses them for matrices
   as for operators. `JacobiPreconditioner` stays the ADMM default.
-- With a `preconditioner` and `probe = true`: `setup` throws an `ArgumentError` — the preconditioner must
-  approximate the caller's own `P + σI + Aᵀdiag(w)A` without equilibration.
+- Under `algorithm = :ipm`, a `preconditioner` and `probe = true`: `setup` throws an
+  `ArgumentError` — the preconditioner must approximate the caller's own `P + σI + Aᵀdiag(w)A`
+  without equilibration. The refusal is implemented under `:ipm` only; `algorithm = :admm` with
+  a `preconditioner` and `probe = true` is not refused by this check.
 - There is no experimental product-only path.
 
 ### 9.3 Preconditioner interface
@@ -1111,17 +1135,24 @@ update_preconditioner!(M, prob, wt, k::Int) = M          # default: never refres
   `ErrorException("The linear operator `A` or the preconditioner `M` is not symmetric positive
   definite.")` when `rᵀM⁻¹r` is negative or NaN (`cg.jl:163,243`; **measured** with a
   `Diagonal` preconditioner holding a `-1` and one holding a `NaN`). `IndirectCG.solve_system!`
-  calls `cg!` through a `@noinline` helper that catches exactly that exception and message: a
-  throw counts as a missed solve, the run ends `NUMERICAL_ERROR` after `cg_fail_limit` misses,
-  and the message names the preconditioner as the likely cause. An indefinite `M` that does
+  calls `cg!` through `residual_stop_cg!`, a `@noinline` helper that matches on that exact
+  message as a `String` (an exception-type match does not survive `juliac --trim`): a caught
+  throw zeroes `x` and counts as a missed solve without adding its iterations to
+  `Solution.cg_iters`, and the run ends `NUMERICAL_ERROR` after `cg_fail_limit` misses.
+  `Solution` carries no message field, so the preconditioner is named as the likely cause only
+  in documentation — the `Status` table entry and the `solve!`/`IPMSettings` docstrings — never
+  in the returned `Solution`. An indefinite `M` that does
   not trigger the throw stalls CG to `cg_max_iter`, which is also a miss (§9.4). No SPD
   pre-check is made: the one-application check `dot(x, M⁻¹x) > 0` on the right-hand side proves
   nothing about definiteness.
-- Reference preconditioners ship in `bench/ipm_preconditioners.jl` and are used by the
-  tests, not in `src/`: `LaggedCholesky` (reduced matrix formed from the caller's matrices,
-  `cholesky!` per the refresh rule above; a `Cholesky` object) and `IncompleteLDL`
-  (limited-memory LDLᵀ through LimitedLDLFactorizations, with the shift search of
-  `spike2.jl:295-302`). Whether they become an extension is §10.8.
+- Reference preconditioners for the ship gate live in `bench/ipm_preconditioners.jl`, not in
+  `src/`: `LaggedCholesky` keeps an in-place `WA` (weighted `Ã`) and `K` (reduced matrix) buffer
+  across refreshes, so a lagged rebuild reuses both rather than reallocating; `IncompleteLDL` is
+  limited-memory LDLᵀ through LimitedLDLFactorizations, with the shift search of
+  `spike2.jl:295-302`. The test suite (`test/ipm_tests.jl`) defines its own `LaggedCholesky`
+  inline, under 30 lines, logging the sequence of refresh indices `k` it is called with (the
+  `M.ks == -1:(iter-1)` check, §9.6); `docs/src/operators.md` carries the same worked example.
+  Whether the bench version becomes an extension is §10.8.
 - Core functions live in `src/core/preconditioner.jl`: `update_preconditioner!`, `IdentityPreconditioner`,
   `JacobiPreconditioner`, `set_refresh_index!`, `use_residual_stop!`, `last_solve_converged`, `inner_iterations`.
   `Solution.cg_iters` exists and holds total inner iterations of the solve under both algorithms.
@@ -1141,8 +1172,10 @@ iteration and no products. Krylov also stops by itself when the preconditioned n
 
 **Miss rule.** A solve is missed when it spends `cg_max_iter` iterations or Krylov throws
 (§9.3); `last_reached` is `false` exactly then. A solve that stopped on either test above is
-reached, whatever its explicit residual. The miss counter on `IndirectCG` counts over the backend's
-life; consecutive misses for `cg_fail_limit` are counted by the IPM from `last_solve_converged`.
+reached, whatever its explicit residual. `IndirectCG` counts its misses over the backend's
+life; `IPMWorkspace.cg_misses` counts consecutive misses from `last_solve_converged`, checked
+with `finite_residuals` after every step and after the starting-point solve, and is what
+`cg_fail_limit` compares against.
 
 **Why the explicit residual is not tested (measured, `ipm_rowtypes_spike.json`).**
 - On two-sided rows (spike 2's 18 dense instances with `cg_lagchol3`, 30 sparse with
@@ -1217,11 +1250,22 @@ matching certificate status, recorded; a `SOLVED` fails the gate.
   passes the floor-100 form at `t = 88.5`.
 - **G3 speed against ADMM-operator**: measured and published; decides nothing (§10.3).
 
-Verdicts: G1 and G2 pass on the dense `LaggedCholesky` grid, two-sided and mixed rows ⇒ the
-`:indirect` path of §9.2 is documented as supported "with a caller-supplied preconditioner,
-measured on these families"; G1 or G2 fails there ⇒ `:ipm` refuses operators by name (§10.2).
-The sparse and Kronecker rows are published per (family, preconditioner), each labeled with
-its own G1/G2 result; how they enter the verdict is §10.8 question 1.
+**Ship verdict (S11).** The grid that decided it is decision 1(a)'s dense `LaggedCholesky`
+family, reduced to `n ∈ {500, 1000, 2000}`, `κ(A) ∈ {1, 1e6}`, active fractions `{0.1, 0.9}`,
+two-sided and mixed rows, G1 evaluated at `eps = 1e-6` only: 24 instances, G1 24/24 and G2
+24/24, outer counts equal to `FullKKT` on all 24. The sparse family with `IncompleteLDL`
+includes one instance that ends `NUMERICAL_ERROR`, capped at outer iteration 8. Not run: the
+full sweep's `κ = 1e3`, fraction `0.5`, the Kronecker family, sparse `n = 5000`, G1 at `1e-8`,
+and the per-solve explicit residual over `atol_k`; the ADMM-operator comparison (G3) runs at
+`n = 500` only. ADMM's own path through `IndirectCG.solve_system!` runs the same calls in the
+same order regardless of the preconditioner keyword, confirmed by the unchanged S0 snapshot and
+`indirect_tests`.
+
+Verdict: **SHIP** — G1 and G2 pass on the dense `LaggedCholesky` grid, two-sided and mixed rows,
+so the `:indirect` path of §9.2 is documented as supported "with a caller-supplied
+preconditioner, measured on these families" (§10.2). The sparse and Kronecker rows are
+published per (family, preconditioner), each labeled with its own G1/G2 result; how they enter
+the verdict is §10.8 question 1.
 
 ### 9.7 Ordering
 
@@ -1234,11 +1278,12 @@ decided after S9's infeasible cases, before S11, because its cost lands on the o
 ## 10. Decisions (taken with the user, 2026-09-15)
 
 1. **Regularization model:** primal–dual proximal regularization for every backend (§8.5).
-2. **Operator IPM in v1:** implemented in S11; ships if G1 and G2 pass (§9.6), otherwise
-   `:ipm` refuses operators by name. No automatic choice selects the IPM for operators in v1.
+2. **Operator IPM in v1:** implemented in S11 (commit 2951256); G1 and G2 pass on the reduced
+   grid of decision 1(a) (§9.6), so `:ipm` supports `linsys = :indirect` with a caller-supplied
+   preconditioner. No automatic choice selects the IPM for operators in v1.
 3. **Gates:** G1 as stated; G2 at `10×`; G3 measured and published, not a gate. The spike and
-   the S11 benchmark use the §9.6 sweep (LinearMap over dense, `n` 200–2000) and run on
-   neuromancer; timings there are indicative.
+   the S11 benchmark use the §9.6 sweep (LinearMap over dense, `n` 200–2000, reduced to decision
+   1(a)'s grid for the ship verdict) and run on neuromancer; timings there are indicative.
 4. **Infeasibility:** certificate tests on directions with a stall rule (§8.7); HSD only if
    S9's random infeasible cases are not detected.
 5. **`NUMERICAL_ERROR`** is added to `Status`, with the MOI mapping and docs changes.
