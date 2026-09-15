@@ -252,6 +252,9 @@ The object is a field of each workspace, not built per call, so the hot path con
 nothing. `rho_vec`/`rho_inv_vec` as `Workspace` fields are removed; the tests in §1.9 read
 `ws.weights.w`.
 
+`refactor_weights!(ls, prob, wt)` is the backend-level function; the workspace-level
+`refactor_rho!(ws)` keeps its name.
+
 ### 3.2 Contract
 
 ```julia
@@ -326,9 +329,10 @@ without the cancellation of `w ⊙ (z − rhs_z)` on a KKT backend near converge
 (`linsys.jl:695-704`) with `wt.w` for `ws.rho_vec`.
 
 `check_update(ls::LinearSystem, P, A) -> Nothing` (default no-op) hosts the three backend
-invariants `update!` tests today through `ws.linsys isa …` (`update.jl:58,78,87-105`).
-`KroneckerReduced.factorize!` reads `mu = scalar_multiple(prob.P)` itself, removing the
-refresh at `update.jl:161`.
+invariants that `update!` tests today through `ws.linsys isa …` (`update.jl:58,78,87-105`).
+`update!` calls it with the effective matrices (the replacement if given, otherwise the current
+`prob.P`/`prob.A`) whenever either is replaced. `KroneckerReduced.factorize!` returns `false`
+when `P` is not a scalar multiple, removing the separate refresh at `update.jl:161`.
 
 `inner_iterations(ls::LinearSystem) -> Int` (default `0`) reports the inner iterations an
 iterative backend has spent over its life; `IndirectCG` counts `stats.niter` per solve.
@@ -347,12 +351,14 @@ checked against.
 # admm_step!
 scale_subtract!(ws.rhs_x, ws.weights.sigma, ws.x_prev, ws.prob.q)
 subtract_scaled!(ws.rhs_z, ws.z_prev, ws.weights.w_inv, ws.y)
+# set_tolerance_level!(ws.linsys, max(scaled_prim_res, scaled_dual_res))  immediately before:
 solve_system!(ws.linsys, ws.prob, ws.weights, ws.rhs_x, ws.rhs_z, ws.xtilde, ws.ztilde)
 update_x!(…); update_zy!(…, ws.weights.w, ws.weights.w_inv, …)
 
 # refactor!(ws)     = refactored!(ws, factorize!(ws.linsys, ws.prob, ws.weights))
 # refactor_rho!(ws) = refactored!(ws, refactor_weights!(ws.linsys, ws.prob, ws.weights))
 # refactored! keeps the count, the throw and accelerator_reset! (ADMM policy)
+# setup_backend and update_settings! call adopt_settings!(ws.linsys, ws.settings) after the workspace is built
 ```
 
 ### 3.5 How IPM calls it
@@ -369,22 +375,32 @@ solve_multiplier!(ws.linsys, ws.prob, ws.weights, rhs_x, rhs_z, dx_aff, dy_aff) 
 
 ### 3.6 The CG seam (Krylov ext)
 
-`IndirectCG{T,V,K,M}` holds the three CG settings as fields at construction
-(`indirect_backend(proto, n, m; max_iter, tol_fraction, tol_reduction, preconditioner)`),
-a preconditioner `M` (§9.3), a mutable `level::T`, and counters `total_iters::Int`,
-`misses::Int`.
+`IndirectCG{T,V,K,M}` holds a preconditioner `M` (§9.3), a mutable `level::T` to track the
+tolerance, and counters `total_iters::Int`, `misses::Int`. The three CG settings (max_iter,
+tol_fraction, tol_reduction) are not stored at construction; `indirect_backend(proto, n, m)`
+has no such parameters.
 
 ```julia
+adopt_settings!(ls::LinearSystem, settings) = nothing       # direct backends
+adopt_settings!(ls::IndirectCG, settings) = (ls.max_iter = settings.cg_max_iter;
+                                             ls.tol_fraction = settings.cg_tol_fraction;
+                                             ls.tol_reduction = settings.cg_tol_reduction;
+                                             nothing)
+
 set_tolerance_level!(ls::LinearSystem, level) = nothing     # direct backends
 set_tolerance_level!(ls::IndirectCG, level) = (ls.level = level; nothing)
 last_solve_converged(ls::LinearSystem) = true
 last_solve_converged(ls::IndirectCG) = ls.kws.stats.solved   # verify field name: unverified
 ```
 
-ADMM calls `set_tolerance_level!` wherever `update_residuals!` ran with
+Settings passed at construction do not reach the `:auto` operator path through `indirect_rung`,
+and nothing would refresh them on `update_settings!`; `adopt_settings!` is called by `setup_backend`
+after the workspace is built and by `update_settings!` whenever settings change.
+
+ADMM calls `set_tolerance_level!` immediately before `solve_system!` with
 `max(scaled_prim_res, scaled_dual_res)`; the backend computes `atol` exactly as at
-`KrylovExt.jl:140-142`, so `:indirect` iterates do not move. The warm start comes from the
-`x` argument, which holds the previous solution (the same values as `ws.xtilde` today).
+`KrylovExt.jl:140-142`, so `:indirect` iterates do not move. CG warm-starts from the `x` argument,
+which holds the previous solution (the same values as `ws.xtilde` today).
 `ReducedOperator{T,PB,WT}(prob, wt)` replaces `ReducedOperator(ws)`.
 
 ---
@@ -409,9 +425,11 @@ end
 ```
 
 `Problem(T, P, q, A, l, u; scaling)` runs `validate`, allocates with the `similar(q0, …)`
-discipline (`types.jl:553-560`), and calls `equilibrate!`. It does not run `is_convex`: the
-shift is the algorithm's (`σ` for ADMM, `δ_p` for IPM), so each `setup` calls
-`is_convex(T, P, shift)` where `types.jl:548` does today, and each documents its shift.
+discipline (`types.jl:553-560`), and calls `equilibrate!`. `validated_problem(T, n, m, P, q, A, l, u, scaling)`
+builds a `Problem` from already-validated data, bypassing the validation step; `setup` validates
+once and uses it. It does not run `is_convex`: the shift is the algorithm's (`σ` for ADMM, `δ_p`
+for IPM), so each `setup` calls `is_convex(T, P, shift)` where `types.jl:548` does today, and each
+documents its shift.
 
 ### 4.2 ADMM `Workspace`
 
@@ -454,10 +472,12 @@ wt, ADMMSelection())`.
   ADMM; `cert_y`, `cert_x` for IPM, §8.7).
 - **`update!`**: `validate_update!(prob, ls; P, A, q, l, u)` (`update.jl:43-153` minus the
   ADMM and backend lines of §1.5, which become `check_update` and the ADMM tail) and
-  `adopt_update!(prob; …)` (`:159-172`). ADMM: validate (+ `is_convex` with `σ`, the Kronecker
-  ρ-class guard) → adopt → `set_rho_vec!` if bounds moved → `refactor!`. IPM: validate (with
-  `δ_p`) → adopt → recompute row classes; `s z` are untouched until the next starting point;
-  no refactorization, the next iteration factorizes anyway.
+  `adopt_update!(prob; …)` (`:159-172`). `update!` calls `check_update(ls, P, A)` with the
+  effective matrices (the replacement if given, otherwise the current `prob.P`/`prob.A`) whenever
+  either is replaced. ADMM: validate (+ `is_convex` with `σ`, the Kronecker ρ-class guard) →
+  adopt → `set_rho_vec!` if bounds moved → `refactor!`. IPM: validate (with `δ_p`) → adopt →
+  recompute row classes; `s z` are untouched until the next starting point; no refactorization,
+  the next iteration factorizes anyway.
 - **Derivatives**: `active_kkt(prob, x, y, z)` on the problem-space point; each workspace's
   method checks `status === SOLVED`, `require_host`, unscales, delegates.
 - **Polishing**: `polish_kernel!(prob, x, y, z, prim_res, dual_res, Ax, Px, Aty; delta,
@@ -513,10 +533,10 @@ corpus items pass unchanged and the snapshot matches. **M** mechanical, **J** ju
 | S0 | **Snapshot artifact.** `bench/snapshot.jl`: for every suite class in `bench/suite_problems.jl` and every structured family in `selection_tests.jl`, record `(backend_name, iter, refactor_count, status, round(obj_val, 10))` at fixed settings with `BLAS.set_num_threads(1)`, on the S0 tree, into `bench/results/snapshot_s0.json`; a bench check compares the current tree to it. Not a committed test item; `meta_tests.jl` unchanged. | artifact generated | M |
 | **S-spike** | **Matrix-free measurement, before any refactor** (§9.5). `bench/ipm_matrixfree_spike.jl`: a throwaway dense Mehrotra prototype (bench-only, `Float64`, dense `bunchkaufman!` on the regularized KKT) produces the `(x_k, W_k)` sequence on LinearMap-over-dense QPs; for each `k` the reduced system is solved by `Krylov.cg!` under `δ ∈ {1e-8, 1e-4, 1e-2}` and each preconditioner (none, exact Jacobi, probed Woodbury `k ∈ {5, 20}`), recording iterations to `atol_k`. Answers §9.5 (i)–(iv). Results under `bench/results/`. | numbers committed; §10 decisions taken | J |
 | S2a | **`Problem` extraction.** `core/problem.jl`; `Workspace.prob`; every `ws.<moved field>` rewritten; `mul_*` on `prob`; `settings.scaling` reads → `prob.scaling`; backends keep `(ls, ws)` for now but bind `P A D E c n m` to locals at entry; docs lines in §1.9. Gate adds `bench/loop_breakdown.jl` step timings against S0 on neuromancer, ABBA-interleaved with the S0 tree (indicative, §10.7). | identical; audit; trim; timings within noise | M |
-| S1+S2b | **Weights and backend signatures, one pass.** `SystemWeights`; `factorize!(ls, prob, wt)`, `refactor_weights!`, `solve_system!(ls, prob, wt, rhs_x, rhs_z, x, z)`; every `rho_vec/rho_inv_vec/settings.sigma` read of §1.2 → `wt`; `Workspace.weights`; `update_settings!` rebuilds `weights` (+ test that changes `sigma` and checks the factorized matrix); `set_rho_vec!`, `pack/unpack_fixed_point!`, `admm_step!` follow; `reduced_rhs!(prob, wt, …)`; `ReducedOperator(prob, wt)`; `check_update` + Kronecker `mu` in `factorize!`; `update!` split; contract; tests/bench/audit signatures `(LS, PB, WT, V, V, V, V)`, `(LS, PB, WT)`. | identical; audit; trim | M |
+| S1+S2b | **Weights and backend signatures, one pass.** `SystemWeights`; `factorize!(ls, prob, wt)`, `refactor_weights!`, `solve_system!(ls, prob, wt, rhs_x, rhs_z, x, z)`; every `rho_vec/rho_inv_vec/settings.sigma` read of §1.2 → `wt`; `Workspace.weights`; `update_settings!` rebuilds `weights` (+ test that changes `sigma` and checks the factorized matrix); `set_rho_vec!`, `pack/unpack_fixed_point!`, `admm_step!` follow; `reduced_rhs!(prob, wt, …)`; `ReducedOperator(prob, wt)`; `check_update` + Kronecker `mu` in `factorize!`; `update!` split; contract; tests/bench/audit signatures `(LS, PB, WT, V, V, V, V)`, `(LS, PB, WT)`. CG seam: `set_tolerance_level!(ls::LinearSystem, level) = nothing` (default), mutable `level::T` field on `IndirectCG`, `admm_step!` sets it to `max(scaled_prim_res, scaled_dual_res)` immediately before `solve_system!`; `adopt_settings!(ls::LinearSystem, settings) = nothing` (default) with `IndirectCG` method filling `max_iter`, `tol_fraction`, `tol_reduction` from settings, called by `setup_backend` after workspace build and by `update_settings!` on every settings change; CG warm-starts from `x` argument. | identical; audit; trim | M |
 | S3 | **Selection tag.** `SelectionFor`; collapse rung signatures; `ADMMSelection` threaded from `setup`; no `IPMSelection` methods yet. | identical; `selection_tests` backends unchanged | M |
 | S4 | **Shared kernels.** `residuals_at!`, `gap_terms`, `eps_*`, certificate tests on `(prob, buffer, eps)`, `polish_kernel!`, `active_kkt(prob, x, y, z)`; ADMM wrappers keep names and order. | identical; audit (`update_residuals!` row); trim (`derivatives`, `solve_polish`) | M |
-| S5 | **CG seam.** `set_tolerance_level!`, CG settings and counters into `IndirectCG`, `inner_iterations`, `Solution.cg_iters`, warm start from `x`; preconditioner slot with `IdentityPreconditioner`/`JacobiPreconditioner` reproducing today's `Diagonal(ls.prec)` (§9.3). | identical on `:indirect` (`indirect_tests`, `solve_indirect` trim entry) | J |
+| S5 | **CG seam continued.** Counters `total_iters`, `misses`; `last_solve_converged(ls)` reporting CG success; `inner_iterations(ls)` total lifetime CG iterations; `Solution.cg_iters` per-solve count; preconditioner slot with `IdentityPreconditioner`/`JacobiPreconditioner` reproducing today's `Diagonal(ls.prec)` (§9.3). | identical on `:indirect` (`indirect_tests`, `solve_indirect` trim entry) | J |
 | S6 | **`solve_multiplier!`** default + `FullKKT`/`SparseKKT`/`LDLKKT` overrides; test at `w_inv = 1e-12`. | suite; audit unchanged | M |
 | S7 | **Directory move** to `src/core`, `src/admm`, `src/ipm` (empty). | identical; audit; trim | M |
 | S8 | **IPM skeleton on direct backends.** `IPMSettings`, `IPMWorkspace`, `setup(…; algorithm = :ipm)` via `Val`, `seeded`, starting point, `ipm_step!` (predictor–corrector, `τ = 0.99`), proximal regularization (§8.5), residuals through S4 kernels, `SOLVED`/`SOLVED_INACCURATE`/`MAX_ITER_REACHED`, `solve!`, `build_solution`; `IPMSelection` methods of §5 (FullKKT routing, KKT-first sparse, kronecker decline, GPU refusal). Corpus items under `:ipm` with `:auto`/`:kkt`, referee `< 1e-5`, backend name asserted for the dense-`P`/sparse-`A` and LP cases; objective vs `osqp_ref`. | new items pass; ADMM gates identical | J |
