@@ -72,8 +72,11 @@ call dispatches statically.
 Implementations must provide the three methods below; the contract is enforced at
 precompilation. A method leaves the `Problem` and `SystemWeights` slots unannotated (or
 annotates them with exactly those types) and annotates its return.
-[`refactor_weights!`](@ref), [`check_update`](@ref), [`set_tolerance_level!`](@ref) and
-[`adopt_settings!`](@ref) are optional.
+[`refactor_weights!`](@ref), [`solve_multiplier!`](@ref), [`check_update`](@ref),
+[`set_tolerance_level!`](@ref), [`set_refresh_index!`](@ref), [`adopt_settings!`](@ref),
+[`use_residual_stop!`](@ref), [`last_solve_converged`](@ref) and [`inner_iterations`](@ref)
+are optional, each with a default for every backend. `TypeContracts.describe(LinearSystem)`
+lists the whole interface.
 """
 abstract type LinearSystem end
 
@@ -100,6 +103,18 @@ function solve_system! end
     factorize!(::Self, ::Problem, ::SystemWeights)::Bool
     solve_system!(::Self, ::Problem, ::SystemWeights, ::Any, ::Any, ::Any, ::Any)::Nothing
     backend_info(::Self)::BackendInfo
+    # Every optional method has a default for `LinearSystem`, so a backend overrides only
+    # what it needs.
+    :optional
+    refactor_weights!(::Self, ::Problem, ::SystemWeights)::Bool => "refresh after only the weights changed"
+    solve_multiplier!(::Self, ::Problem, ::SystemWeights, ::Any, ::Any, ::Any, ::Any)::Nothing => "solve for `x` and the multiplier `ν`"
+    check_update(::Self, ::Any, ::Any)::Nothing => "throw unless the backend can serve the replacement `P` and `A`"
+    set_tolerance_level!(::Self, ::Any)::Nothing => "the residual level an inexact backend's next solves are relative to"
+    set_refresh_index!(::Self, ::Int)::Nothing => "the refresh index the next preconditioner update receives"
+    adopt_settings!(::Self, ::QPAlgorithm, ::Options)::Nothing => "copy in the algorithm parameters and options the backend reads"
+    use_residual_stop!(::Self, ::Bool)::Nothing => "choose an iterative backend's inner stopping rule"
+    last_solve_converged(::Self)::Bool => "whether the most recent solve met its stopping test"
+    inner_iterations(::Self)::Int => "inner iterations spent over the backend's life"
 end
 
 """

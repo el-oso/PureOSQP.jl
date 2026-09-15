@@ -211,6 +211,7 @@ end
     # A refresh must hand back the type the backend was built with.
     struct Retyping end
     PureOSQP.update_preconditioner!(::Retyping, prob, wt, k::Int) = I
+    LinearAlgebra.ldiv!(y::AbstractVector, ::Retyping, x::AbstractVector) = copyto!(y, x)
     @test_throws "update_preconditioner! must return a preconditioner of the type" setup(
         P, q, A, l, u; opts..., preconditioner = Retyping()
     )

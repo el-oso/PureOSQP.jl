@@ -136,7 +136,12 @@ end
     include(joinpath(@__DIR__, "helpers.jl"))
     LS = PureOSQP.LinearSystem
     spec = TypeContracts.list_contract(LS)
-    @test length(spec) == 3
+    @test [nameof(s.f) for s in spec if !s.optional] == [:factorize!, :solve_system!, :backend_info]
+    @test [nameof(s.f) for s in spec if s.optional] == [
+        :refactor_weights!, :solve_multiplier!, :check_update, :set_tolerance_level!,
+        :set_refresh_index!, :adopt_settings!, :use_residual_stop!, :last_solve_converged,
+        :inner_iterations,
+    ]
 
     # Both shipped backends satisfy it.
     for B in (

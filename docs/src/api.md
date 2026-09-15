@@ -150,6 +150,8 @@ PureOSQP.use_residual_stop!
 PureOSQP.last_solve_converged
 PureOSQP.inner_iterations
 PureOSQP.update_preconditioner!
+PureOSQP.Preconditioner
+PureOSQP.check_preconditioner
 PureOSQP.IdentityPreconditioner
 PureOSQP.JacobiPreconditioner
 PureOSQP.choose_backend

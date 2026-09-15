@@ -26,7 +26,7 @@ export backend_info, backend_name, factor_fill, BackendInfo
 export PolishStatus
 export adjoint_derivative, forward_derivative
 export LinearSystem, ReducedCholesky, FullKKT
-export IdentityPreconditioner, JacobiPreconditioner, update_preconditioner!
+export Preconditioner, IdentityPreconditioner, JacobiPreconditioner, update_preconditioner!
 export SOLVED, PRIMAL_INFEASIBLE, DUAL_INFEASIBLE, MAX_ITER_REACHED, NON_CONVEX, UNSOLVED
 export TIME_LIMIT_REACHED, INTERRUPTED, NUMERICAL_ERROR
 export PolishStatus, POLISH_SUCCESS, POLISH_FAILED, POLISH_NOT_PERFORMED
@@ -76,11 +76,15 @@ it; this name is the only part of it the core owns.
 """
 function Optimizer end
 
-# Every [`LinearSystem`](@ref) in this module must be `--trim` compatible, asserted here rather
-# than backend by backend: a per-backend `@verify` is opt-in, so a new backend acquires the
-# guarantee only if whoever wrote it remembered to ask. This sees every subtype defined by the
-# time the module finishes, so forgetting is not possible. An extension's backends load later
-# and carry the same declaration at the end of the extension.
+# Every [`LinearSystem`](@ref), workspace, algorithm and built-in preconditioner in this module
+# must satisfy its contract and be `--trim` compatible, asserted here rather than type by type:
+# a per-type `@verify` is opt-in, so a new type acquires the guarantee only if whoever wrote it
+# remembered to ask. This sees every subtype defined by the time the module finishes, so
+# forgetting is not possible. An extension's backends load later and carry the same
+# declaration at the end of the extension.
 @verify LinearSystem subtypes = true trim_compat = true
+@verify QPWorkspace subtypes = true trim_compat = true
+@verify QPAlgorithm subtypes = true trim_compat = true
+@verify Preconditioner subtypes = true trim_compat = true
 
 end # module PureOSQP

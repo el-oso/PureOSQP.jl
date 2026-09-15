@@ -24,6 +24,7 @@ makedocs(;
         "Reference" => [
             "API" => "api.md",
             "Algorithm" => "algorithm.md",
+            "Interfaces" => "interfaces.md",
             "Benchmarks" => "benchmarks.md",
             "Guarantees" => "guarantees.md",
         ],

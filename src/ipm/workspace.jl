@@ -282,6 +282,7 @@ function setup_backend(
     elseif LS === :dense
         ws = ipm_workspace(ReducedCholesky(q0, n, m), prob, wt, algorithm, options)
     elseif LS === :indirect
+        check_preconditioner(preconditioner, typeof(q0))
         ws = ipm_workspace(indirect_backend(q0, n, m, preconditioner), prob, wt, algorithm, options)
         adopt_settings!(ws.linsys, algorithm, options)
         use_residual_stop!(ws.linsys, true)

@@ -276,8 +276,51 @@ abstract type LinearSystem end
     factorize!(::Self, ::Problem, ::SystemWeights)::Bool
     solve_system!(::Self, ::Problem, ::SystemWeights, ::Any, ::Any, ::Any, ::Any)::Nothing
     backend_info(::Self)::BackendInfo
+    :optional                                   # every one has a LinearSystem default
+    refactor_weights!(::Self, ::Problem, ::SystemWeights)::Bool
+    solve_multiplier!(::Self, ::Problem, ::SystemWeights, ::Any, ::Any, ::Any, ::Any)::Nothing
+    check_update(::Self, ::Any, ::Any)::Nothing
+    set_tolerance_level!(::Self, ::Any)::Nothing
+    set_refresh_index!(::Self, ::Int)::Nothing
+    adopt_settings!(::Self, ::QPAlgorithm, ::Options)::Nothing
+    use_residual_stop!(::Self, ::Bool)::Nothing
+    last_solve_converged(::Self)::Bool
+    inner_iterations(::Self)::Int
 end
 ```
+
+**As built (S13b).** The optional section above is in `src/core/linsys.jl`, each entry with a
+one-line description, so `describe(LinearSystem)` lists the whole backend interface. TypeContracts
+checks an optional entry by `hasmethod` only, never its return type, and every optional function
+has a `LinearSystem` default, so the section documents rather than constrains.
+`@verify LinearSystem subtypes = true trim_compat = true` is unchanged and passes.
+
+**Preconditioner contract (S13b, `src/core/preconditioner.jl`).**
+
+```julia
+abstract type Preconditioner end          # exported; IdentityPreconditioner and JacobiPreconditioner subtype it
+@contract Preconditioner begin
+    update_preconditioner!(::Self, ::Problem, ::SystemWeights, ::Int)::Self
+    LinearAlgebra.ldiv!(::AbstractVector, ::Self, ::AbstractVector)
+end
+@verify Preconditioner subtypes = true trim_compat = true
+```
+
+- The vector slots of `ldiv!` are `AbstractVector`, not `Any`: `hasmethod(ldiv!, Tuple{Any,
+  Cholesky, Any})` is false, since LinearAlgebra's factorization method restricts both vectors
+  to `AbstractVecOrMat`, while `Tuple{AbstractVector, Cholesky, AbstractVector}` is covered.
+  The backend only ever passes its own vectors.
+- `IdentityPreconditioner` gains `ldiv!(y, ::IdentityPreconditioner, x) = copyto!(y, x)` to
+  satisfy it; the Krylov extension still maps it to `I`, so the method is never on the solve path.
+- `update_preconditioner!` has an `Any` default (§9.3), so every type has it; the refresh-index
+  form is the only form.
+- A caller's preconditioner is not a subtype. `check_preconditioner(M, typeof(q0))` runs in both
+  `setup_backend` methods on the `:indirect` branch, after the problem is built and before the
+  backend: `hasmethod(LinearAlgebra.ldiv!, Tuple{V, typeof(M), V})` with `V` the backend's vector
+  type, throwing an `ArgumentError` that names the missing `ldiv!` signature. `nothing` passes.
+  `update_preconditioner!` is not checked (its default applies). `TypeContracts.check_contract`
+  passes for `Cholesky{Float64, Matrix{Float64}}` and for both bench references
+  (`LaggedCholesky`, `IncompleteLDL`), asserted in `test/contract_tests.jl`.
 
 TypeContracts 0.14 checks `hasmethod(f, Tuple{Self, arg_types...})` then infers the return
 (`~/.julia/packages/TypeContracts/wFVz0/src/check.jl:167-175`). With `::Problem` and
@@ -531,6 +574,64 @@ wt, ADMMSelection())`.
   and the `NUMERICAL_ERROR` rows (§8.6).
 - **`Solution`**: one struct; new field `cg_iters::Int` (both algorithms). IPM fills
   `rho_estimate rho_updates accel_declined primdual_int*` with zeros and documents it.
+
+### 4.4 Workspace and algorithm contracts (as built, S13b)
+
+Declared in `src/types.jl`, after `Solution` (the return types need it), and verified at the end of
+`src/PureOSQP.jl` with `@verify QPWorkspace subtypes = true trim_compat = true` and
+`@verify QPAlgorithm subtypes = true trim_compat = true`. No supertype changed: both workspaces
+and both algorithm objects already subtyped these types (S12b).
+
+```julia
+@contract QPWorkspace begin
+    solve!(::Self)::Solution
+    warm_start!(::Self)::Self                         # keywords x, y
+    cold_start!(::Self)::Self
+    update!(::Self)::Self                             # keywords q, l, u, P, A
+    update_settings!(::Self)::Self                    # options form; QPWorkspace default
+    update_settings!(::Self, ::QPAlgorithm)::Self     # algorithm-object form
+    dimensions(::Self)::Tuple{Int, Int}               # now a QPWorkspace method
+    :optional
+    update_rho!(::Self, ::Real)::Self                 # ADMM only
+    constraint_violation(::Self)::AbstractVector      # ADMM only
+end
+
+@contract QPAlgorithm begin
+    setup_backend(::Self, ::Val, ::Type{<:Real}, ::AbstractMatrix, ::AbstractVector,
+                  ::AbstractMatrix, ::AbstractVector, ::AbstractVector)
+    algorithm_defaults(::Self, ::Type{<:Real})::NamedTuple
+    default_options(::Self, ::Type{<:Real})::Options  # QPAlgorithm default
+    element_typed(::Self, ::Type{<:Real}, ::Options)::QPAlgorithm
+    :optional
+    adopt_settings!(::LinearSystem, ::Self, ::Options)::Nothing
+end
+```
+
+- Keyword methods are checked through their positional signature, all `hasmethod` sees.
+- `dimensions` was defined for `OperatorSplittingWorkspace` only; it is now
+  `dimensions(ws::QPWorkspace) = (ws.prob.n, ws.prob.m)`, so the IPM workspace has it.
+- Left out of the workspace contract: `polish!`, `check_termination`, `build_solution` and the
+  step functions. Both workspaces have the first three, but only each algorithm's own `solve!`
+  calls them, so nothing outside the algorithm depends on their shape. `constraint_violation!`
+  is left out because its method is `(::AbstractVector{T}, ::OperatorSplittingWorkspace{T})`,
+  which `hasmethod` on `Tuple{AbstractVector, Self}` does not find; the allocating form stands for
+  both. Fields are not expressible in a contract; the `QPWorkspace` docstring lists the ones the
+  shared methods read (`prob linsys algorithm options x y z status polished`).
+- `Type{<:Real}`, not `Type`, in the algorithm slots: the methods take `::Type{T} where {T <:
+  Real}`, which `Tuple{…, Type, …}` is not covered by.
+- `setup_backend` has no return type: `Base.return_types` through the contract's abstract data
+  arguments is `Any`. An annotation on `setup_backend` would put a conversion on setup's return
+  path for no gain in what is checked, so none was added.
+- The selection tags are not an algorithm hook: each `setup_backend` constructs `ADMMSelection()`
+  or `IPMSelection()` itself (§11), so `setup_backend` is the whole dispatch surface.
+- Precompile time of PureOSQP with the three new `@verify` lines: 4.5 s against 3.3 s before
+  (one cold precompile each, neuromancer).
+- Measured (S13b): ADMM snapshot 41/41 identical; StrictMode audit unchanged; trim item green.
+  `admm_step!` minimums, A/B/B/A on one core, 100 steps from a fresh setup (base/new): Random QP
+  3.086/3.107 µs (+0.7%), SVM 6.820/6.786 µs, Huber 13.600/13.480 µs.
+- Two existing tests built a caller preconditioner with no `ldiv!` to reach the
+  `update_preconditioner!` retyping error; they now define `ldiv!` so that error is still the
+  one reached.
 
 ---
 

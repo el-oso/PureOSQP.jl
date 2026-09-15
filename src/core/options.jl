@@ -5,6 +5,9 @@ The method a solve runs, passed as the sixth positional argument of [`setup`](@r
 [`solve`](@ref): [`OperatorSplitting`](@ref) (the default) or [`InteriorPoint`](@ref). An
 algorithm object holds the parameters only that method reads; everything both methods read
 is an [`Options`](@ref) field, passed as a keyword argument.
+
+A subtype implements the methods `TypeContracts.describe(QPAlgorithm)` lists, checked at
+precompilation; see [Interfaces](@ref).
 """
 abstract type QPAlgorithm end
 
@@ -14,6 +17,10 @@ abstract type QPAlgorithm end
 Solver state built by [`setup`](@ref): an [`OperatorSplittingWorkspace`](@ref) or an
 [`InteriorPointWorkspace`](@ref). Both hold `algorithm`, the element-typed algorithm
 parameters, and `options`, the [`Options`](@ref) in force.
+
+A subtype implements the methods `TypeContracts.describe(QPWorkspace)` lists, checked at
+precompilation, and holds the fields the methods written for every workspace read: `prob`,
+`linsys`, `algorithm`, `options`, `x`, `y`, `z`, `status` and `polished`. See [Interfaces](@ref).
 """
 abstract type QPWorkspace{T <: Real} end
 

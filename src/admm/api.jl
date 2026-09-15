@@ -93,7 +93,7 @@ end
 
 Number of variables and of constraint rows.
 """
-dimensions(ws::OperatorSplittingWorkspace) = (ws.prob.n, ws.prob.m)
+dimensions(ws::QPWorkspace) = (ws.prob.n, ws.prob.m)
 
 """
     capabilities() -> NamedTuple

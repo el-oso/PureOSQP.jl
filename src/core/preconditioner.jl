@@ -24,12 +24,52 @@ default method never refreshes.
 update_preconditioner!(M, prob, wt, k::Int) = M
 
 """
+    Preconditioner
+
+The built-in preconditioners of the matrix-free backend, [`IdentityPreconditioner`](@ref) and
+[`JacobiPreconditioner`](@ref). A preconditioner is used through two methods:
+[`update_preconditioner!`](@ref), whose default never refreshes, and
+`LinearAlgebra.ldiv!(y, M, x)`, which has no default.
+
+A caller's preconditioner need not be a subtype, so a `Cholesky` or any other factorization
+object is usable as it is; `TypeContracts.check_contract(typeof(M), Preconditioner)` checks one
+against the same contract. [`setup`](@ref) refuses a preconditioner with no `ldiv!` method for
+the backend's vectors.
+"""
+abstract type Preconditioner end
+
+@contract Preconditioner begin
+    update_preconditioner!(::Self, ::Problem, ::SystemWeights, ::Int)::Self => "refresh for the current weights and return the preconditioner, of the same type"
+    LinearAlgebra.ldiv!(::AbstractVector, ::Self, ::AbstractVector) => "write the preconditioned vector into `y`"
+end
+
+"""
+    check_preconditioner(M, V) -> Nothing
+
+Throw unless `ldiv!(y::V, M, x::V)` has a method, `V` being the matrix-free backend's vector
+type. `nothing` selects the default preconditioner and passes. [`update_preconditioner!`](@ref)
+is not checked, since its default applies to any object.
+"""
+function check_preconditioner(M, ::Type{V}) where {V}
+    isnothing(M) && return nothing
+    hasmethod(LinearAlgebra.ldiv!, Tuple{V, typeof(M), V}) || throw(
+        ArgumentError(
+            lazy"the preconditioner, a $(typeof(M)), has no method LinearAlgebra.ldiv!(y::$V, M, x::$V), through which conjugate gradients applies it: define one."
+        )
+    )
+    return nothing
+end
+
+"""
     IdentityPreconditioner()
 
 No preconditioning: conjugate gradients on the reduced system as it stands. Needs nothing
-from `P` or `A`, so it runs with equilibration on.
+from `P` or `A`, so it runs with equilibration on. The matrix-free backend skips it rather
+than calling `ldiv!`, which copies.
 """
-struct IdentityPreconditioner end
+struct IdentityPreconditioner <: Preconditioner end
+
+LinearAlgebra.ldiv!(y::AbstractVector, ::IdentityPreconditioner, x::AbstractVector) = copyto!(y, x)
 
 """
     JacobiPreconditioner(dinv)
@@ -42,7 +82,7 @@ default, and it runs with equilibration on.
 dividing by the diagonal, and the two differ in the last bit on about a quarter of entries,
 so a `Diagonal` of either vector is not a substitute.
 """
-mutable struct JacobiPreconditioner{V <: AbstractVector}
+mutable struct JacobiPreconditioner{V <: AbstractVector} <: Preconditioner
     const dinv::V
 end
 

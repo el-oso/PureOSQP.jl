@@ -272,6 +272,33 @@ struct Solution{T <: Real}
     dual_inf_cert::Vector{T}
 end
 
+# The keyword forms (`warm_start!(ws; x, y)`, `update!(ws; q, l, u, P, A)`,
+# `update_settings!(ws; kwargs...)`) are checked through their positional signature, which is
+# all `hasmethod` sees of a keyword method.
+@contract QPWorkspace begin
+    solve!(::Self)::Solution => "run the algorithm from the workspace's state and return the result"
+    warm_start!(::Self)::Self => "seed the next solve with `x` and `y`, given as keywords in problem space"
+    cold_start!(::Self)::Self => "discard the iterates, so the next solve starts from its own starting point"
+    update!(::Self)::Self => "replace `q`, `l`, `u`, `P` or `A`, given as keywords"
+    update_settings!(::Self)::Self => "merge the keywords into `ws.options`"
+    update_settings!(::Self, ::QPAlgorithm)::Self => "replace `ws.algorithm`; throws for another algorithm's object"
+    dimensions(::Self)::Tuple{Int, Int} => "the number of variables and of constraint rows"
+    :optional
+    update_rho!(::Self, ::Real)::Self => "set the ADMM step size and refactorize"
+    constraint_violation(::Self)::AbstractVector => "the violation of each row at the current iterate; `constraint_violation!` writes it in place"
+end
+
+# `setup_backend` declares no return type: inferred through the abstract data arguments of this
+# signature it is `Any`, although every call with concrete arguments returns a concrete workspace.
+@contract QPAlgorithm begin
+    setup_backend(::Self, ::Val, ::Type{<:Real}, ::AbstractMatrix, ::AbstractVector, ::AbstractMatrix, ::AbstractVector, ::AbstractVector) => "build and factorize the workspace; `setup` calls it with the backend name lifted into the `Val`"
+    algorithm_defaults(::Self, ::Type{<:Real})::NamedTuple => "the `Options` defaults of this algorithm that have no common default"
+    default_options(::Self, ::Type{<:Real})::Options => "the `Options` a solve runs with when no keyword is passed"
+    element_typed(::Self, ::Type{<:Real}, ::Options)::QPAlgorithm => "the object in the solve's element type, every default resolved"
+    :optional
+    adopt_settings!(::LinearSystem, ::Self, ::Options)::Nothing => "copy the parameters a backend reads into it; needed for the matrix-free backend"
+end
+
 """
     OperatorSplittingWorkspace{T,MP,MA,V,VI,LS,AC} <: QPWorkspace{T}
 
@@ -619,6 +646,7 @@ function setup_backend(
         refactor!(ws)
         return finish_setup!(ws, t0)
     elseif LS === :indirect
+        check_preconditioner(preconditioner, typeof(q0))
         ws = make(indirect_backend(q0, n, m, preconditioner))
         refactor!(ws)
         return finish_setup!(ws, t0)

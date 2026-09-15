@@ -87,6 +87,14 @@ what is true now; this file is where the history lives.
 - **ChainRulesCore's `rrule` and `frule` for `solve` work with `InteriorPoint()`.** Both call
   `adjoint_derivative`/`forward_derivative`, which now accept either workspace, so no change
   to the rules themselves was needed.
+- **`QPAlgorithm`, `QPWorkspace` and `Preconditioner` declare interface contracts**, and
+  `LinearSystem`'s contract lists its optional methods too, so `TypeContracts.describe` prints
+  what a new algorithm, workspace, backend or preconditioner implements. Every subtype in the
+  package is checked at precompilation. The Interfaces page of the documentation states the
+  same lists. `IdentityPreconditioner` and `JacobiPreconditioner` are subtypes of the new
+  `Preconditioner`; a caller's preconditioner need not be one, and `setup` refuses one that has
+  no `LinearAlgebra.ldiv!` method for the backend's vectors, naming the method.
+  `dimensions` accepts an `InteriorPointWorkspace`.
 
 ### Changed
 
