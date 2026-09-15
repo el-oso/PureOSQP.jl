@@ -63,14 +63,14 @@ function backend_info(ls::DiagonalLowRank)
 end
 
 """
-    lowrank_rung(P, A, prob, wt, sel::ADMMSelection) -> (LinearSystem, Bool) or nothing
+    lowrank_rung(P, A, prob, wt, sel) -> (LinearSystem, Bool) or nothing
 
 Ladder rung for a reduced matrix that is a diagonal plus a low-rank correction. Declines when
 the correction is wide enough that `O(nk)` stops beating the dense `O(n²)` apply.
 """
-lowrank_rung(P, A, prob, wt, sel::ADMMSelection) = nothing
+lowrank_rung(P, A, prob, wt, sel::SelectionFor) = nothing
 
-function lowrank_rung(P::Diagonal, A::RowCoupled, prob, wt, sel::ADMMSelection)
+function lowrank_rung(P::Diagonal, A::RowCoupled, prob, wt, sel::SelectionFor)
     k = coupling_rank(A)
     n = prob.n
     # The apply is two `gemv`s against a `k×n` block where the rung below does one `symv`

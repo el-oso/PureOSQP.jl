@@ -87,16 +87,16 @@ const WideBand = Union{Tridiagonal, BandedMatrix, Symmetric{<:Any, <:BandedMatri
 const NarrowBand = Union{Diagonal, Bidiagonal}
 
 PureOSQP.choose_backend(
-    P::BandedLike, A::WideBand, prob, wt, sel::PureOSQP.ADMMSelection
+    P::BandedLike, A::WideBand, prob, wt, sel::PureOSQP.SelectionFor
 ) = banded_backend(P, A, prob, sel)
 
 PureOSQP.choose_backend(
     P::Union{BandedMatrix, Symmetric{<:Any, <:BandedMatrix}}, A::NarrowBand,
-    prob, wt, sel::PureOSQP.ADMMSelection
+    prob, wt, sel::PureOSQP.SelectionFor
 ) = banded_backend(P, A, prob, sel)
 
 function banded_backend(
-        P, A, prob::PureOSQP.Problem{T}, sel::PureOSQP.ADMMSelection
+        P, A, prob::PureOSQP.Problem{T}, sel::PureOSQP.SelectionFor
     ) where {T <: Real}
     n = prob.n
     b = reduced_bandwidth(P, A)

@@ -122,9 +122,11 @@ end
 """
     eps_prim(prob, s, z, Ax)
 
-Tolerance for the primal residual test, relative to the larger of `‖z‖∞` and `‖Ax‖∞`.
+Tolerance for the primal residual test, relative to the larger of `‖z‖∞` and `‖Ax‖∞`. `s` is
+a [`Settings`](@ref) or an [`IPMSettings`](@ref); the three tolerances read `eps_abs`,
+`eps_rel` and `scaled_termination` from it.
 """
-function eps_prim(prob::Problem{T}, s::Settings{T}, z::AbstractVector{T}, Ax::AbstractVector{T}) where {T}
+function eps_prim(prob::Problem{T}, s, z::AbstractVector{T}, Ax::AbstractVector{T}) where {T}
     mx = if prob.scaling > 0
         max(invscaled_norm_inf(prob.E, z), invscaled_norm_inf(prob.E, Ax))
     else
@@ -140,7 +142,7 @@ eps_prim(ws::Workspace) = eps_prim(ws.prob, ws.settings, ws.z, ws.Ax)
 Tolerance for the dual residual test, relative to the largest of `‖q‖∞`, `‖Aᵀy‖∞` and
 `‖Px‖∞`.
 """
-function eps_dual(prob::Problem{T}, s::Settings{T}, Aty::AbstractVector{T}, Px::AbstractVector{T}) where {T}
+function eps_dual(prob::Problem{T}, s, Aty::AbstractVector{T}, Px::AbstractVector{T}) where {T}
     mx = if prob.scaling > 0
         max(invscaled_norm_inf(prob.D, prob.q), invscaled_norm_inf(prob.D, Aty), invscaled_norm_inf(prob.D, Px)) / prob.c
     else
@@ -156,7 +158,7 @@ eps_dual(ws::Workspace) = eps_dual(ws.prob, ws.settings, ws.Aty, ws.Px)
 Tolerance for the duality-gap test, relative to the size of the terms that make up the
 gap. Without the relative part a problem whose objective is `1e8` could never pass.
 """
-function eps_duality_gap(prob::Problem{T}, s::Settings{T}, xtPx::T, qtx::T, SCy::T) where {T}
+function eps_duality_gap(prob::Problem{T}, s, xtPx::T, qtx::T, SCy::T) where {T}
     mx = max(abs(xtPx), abs(qtx), abs(SCy))
     # The stored terms are scaled; unscale unless termination is being judged scaled.
     (prob.scaling > 0 && !s.scaled_termination) && (mx /= prob.c)

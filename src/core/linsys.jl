@@ -426,13 +426,15 @@ struct ADMMSelection <: SelectionFor end
 """
     IPMSelection <: SelectionFor
 
-Selecting a backend for an interior-point iteration's Newton system. No rung defines a
-method for it.
+Selecting a backend for the interior-point method's Newton system,
+`P̃ + δ_p I + Ãᵀ diag(w) Ã` in reduced form, whose weights differ from row to row and reach
+`1/δ_d`. Its ladder is its own [`select_backend`](@ref) method; the rungs whose choice does
+not depend on the algorithm serve it unchanged.
 """
 struct IPMSelection <: SelectionFor end
 
 """
-    choose_backend(P, A, prob, wt, sel::ADMMSelection) -> (LinearSystem, Bool)
+    choose_backend(P, A, prob, wt, sel) -> (LinearSystem, Bool)
 
 The backend `linsys = :auto` builds for these matrices, and whether it already carries a
 factorization of the current data.
@@ -453,7 +455,7 @@ representation returns `false`.
 A `(P, A)` pair with no method of its own descends [`select_backend`](@ref)'s ladder, whose
 named terminal rung is the dense reduced matrix.
 """
-choose_backend(P, A, prob, wt, sel::ADMMSelection) = select_backend(P, A, prob, wt, sel)
+choose_backend(P, A, prob, wt, sel::SelectionFor) = select_backend(P, A, prob, wt, sel)
 
 """
     select_backend(P, A, prob, wt, sel::ADMMSelection) -> (LinearSystem, Bool)
@@ -524,34 +526,36 @@ function select_backend(P, A, prob, wt, sel::ADMMSelection)
 end
 
 """
-    density_gate_rung(P, A, prob, sel::ADMMSelection) -> (LinearSystem, Bool) or nothing
+    density_gate_rung(P, A, prob, sel) -> (LinearSystem, Bool) or nothing
 
 Ladder rung 1: send a pair whose stored entries are too dense for sparse assembly to pay
 straight to [`dense_rung`](@ref), skipping the rungs between.
 
 Declines for a representation with no density to measure.
 """
-density_gate_rung(P, A, prob, sel::ADMMSelection) = nothing
+density_gate_rung(P, A, prob, sel::SelectionFor) = nothing
 
 """
-    kkt_rung(P, A, prob, wt, sel::ADMMSelection) -> (LinearSystem, Bool) or nothing
+    kkt_rung(P, A, prob, wt, sel) -> (LinearSystem, Bool) or nothing
 
 Ladder rung 2: factor the full quasi-definite KKT matrix sparsely, when its factor stays
 sparse enough to clear the gate. Decides by factoring, so what it returns is already factored.
+Under `ADMMSelection` it is considered only where the reduced form would densify; under
+`IPMSelection` it is tried first.
 
 The gate is a fill threshold, not a comparison against the dense path: it accepts where the
 sparse factor is small, which is a sufficient condition for the sparse route to win and not a
 necessary one. A pair it declines is not thereby known to be better served densely.
 """
-kkt_rung(P, A, prob, wt, sel::ADMMSelection) = nothing
+kkt_rung(P, A, prob, wt, sel::SelectionFor) = nothing
 
 """
-    reduced_rung(P, A, prob, wt, sel::ADMMSelection) -> (LinearSystem, Bool) or nothing
+    reduced_rung(P, A, prob, wt, sel) -> (LinearSystem, Bool) or nothing
 
 Ladder rung 3: factor the reduced matrix sparsely, when its factor stays sparse. Decides by
 factoring, so what it returns is already factored.
 """
-reduced_rung(P, A, prob, wt, sel::ADMMSelection) = nothing
+reduced_rung(P, A, prob, wt, sel::SelectionFor) = nothing
 
 """
     formed_rung(P, A, prob, sel::ADMMSelection) -> (LinearSystem, Bool) or nothing
@@ -597,7 +601,7 @@ no such backend and [`indirect_backend`](@ref) says so.
 indirect_rung(P, A, prob, sel::ADMMSelection) =
     (indirect_backend(prob.q0, prob.n, prob.m, nothing), false)
 
-choose_backend(P::Diagonal, A::Diagonal, prob, wt, sel::ADMMSelection) =
+choose_backend(P::Diagonal, A::Diagonal, prob, wt, sel::SelectionFor) =
     (DiagonalReduced(prob.q0, prob.n), false)
 
 # The pairs whose reduced matrix has bandwidth 1. `Bidiagonal` is as wide an `A` as this
@@ -608,11 +612,11 @@ choose_backend(P::Diagonal, A::Diagonal, prob, wt, sel::ADMMSelection) =
 # reads it through `P[j, j]` and `P[j, j+1]` alone; `validate` has already established that
 # `P` is symmetric, so the subdiagonal it also stores holds the same numbers.
 choose_backend(
-    P::Union{SymTridiagonal, Tridiagonal}, A::Diagonal, prob, wt, sel::ADMMSelection
+    P::Union{SymTridiagonal, Tridiagonal}, A::Diagonal, prob, wt, sel::SelectionFor
 ) = (TridiagonalReduced(prob.q0, prob.n), false)
 
 choose_backend(
-    P::Union{Diagonal, SymTridiagonal, Tridiagonal}, A::Bidiagonal, prob, wt, sel::ADMMSelection
+    P::Union{Diagonal, SymTridiagonal, Tridiagonal}, A::Bidiagonal, prob, wt, sel::SelectionFor
 ) = (TridiagonalReduced(prob.q0, prob.n), false)
 
 "Name of the backend, for reporting."

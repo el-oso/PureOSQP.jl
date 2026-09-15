@@ -51,6 +51,27 @@ PureOSQP.choose_backend(
     P::AbstractGPUMatrix, A::AbstractGPUMatrix, prob, wt, sel::PureOSQP.ADMMSelection
 ) = unsupported_backend()
 
+"What a GPU array gets from `algorithm = :ipm`, which has no matrix-free backend to offer."
+function unsupported_ipm()
+    throw(
+        ArgumentError(
+            "algorithm = :ipm runs on the host: its backends factor a matrix, and none has " *
+                "a GPU counterpart. Move the problem to the host with `Array`, or use " *
+                "algorithm = :admm with linsys = :indirect."
+        )
+    )
+end
+
+PureOSQP.choose_backend(
+    P, A::AbstractGPUMatrix, prob, wt, sel::PureOSQP.IPMSelection
+) = unsupported_ipm()
+PureOSQP.choose_backend(
+    P::AbstractGPUMatrix, A, prob, wt, sel::PureOSQP.IPMSelection
+) = unsupported_ipm()
+PureOSQP.choose_backend(
+    P::AbstractGPUMatrix, A::AbstractGPUMatrix, prob, wt, sel::PureOSQP.IPMSelection
+) = unsupported_ipm()
+
 """
     PureOSQP.check_finite(M::AbstractGPUMatrix, rows, cols, name)
 

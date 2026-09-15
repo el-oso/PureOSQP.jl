@@ -48,15 +48,15 @@ function backend_info(ls::BlockReduced)
 end
 
 """
-    block_rung(P, A, prob, wt, sel::ADMMSelection) -> (LinearSystem, Bool) or nothing
+    block_rung(P, A, prob, wt, sel) -> (LinearSystem, Bool) or nothing
 
 Ladder rung for a reduced matrix that decouples into independent blocks. Declines unless both
 operands are [`BlockDiagonal`](@ref) over the same column partition, and declines a single
 block, which is the dense terminal wearing a wrapper.
 """
-block_rung(P, A, prob, wt, sel::ADMMSelection) = nothing
+block_rung(P, A, prob, wt, sel::SelectionFor) = nothing
 
-function block_rung(P::BlockDiagonal, A::BlockDiagonal, prob, wt, sel::ADMMSelection)
+function block_rung(P::BlockDiagonal, A::BlockDiagonal, prob, wt, sel::SelectionFor)
     (nblocks(P) > 1 && same_column_partition(P, A)) || return nothing
     return (
         BlockReduced(

@@ -148,7 +148,7 @@ matches the density above which callers are already advised to hand over dense c
 """
 const DENSE_FORM_DENSITY = 0.1
 
-function PureOSQP.density_gate_rung(P, A::SparseMatrixCSC, prob, sel::PureOSQP.ADMMSelection)
+function PureOSQP.density_gate_rung(P, A::SparseMatrixCSC, prob, sel::PureOSQP.SelectionFor)
     n, m = prob.n, prob.m
     (n > 0 && m > 0 && nnz(A) > DENSE_FORM_DENSITY * m * n) || return nothing
     return PureOSQP.dense_rung(P, A, prob, sel)
@@ -162,7 +162,14 @@ function PureOSQP.kkt_rung(P, A::SparseMatrixCSC, prob, wt, sel::PureOSQP.ADMMSe
     return isnothing(ls) ? nothing : (ls, true)
 end
 
-function PureOSQP.reduced_rung(P, A::SparseMatrixCSC, prob, wt, sel::PureOSQP.ADMMSelection)
+# The interior-point Newton system's weights reach `1/δ_d`, which the reduced form squares into
+# its conditioning, so the KKT factorization is tried whether or not the reduced one densifies.
+function PureOSQP.kkt_rung(P, A::SparseMatrixCSC, prob, wt, sel::PureOSQP.IPMSelection)
+    ls = factored_kkt_backend(P, A, prob, wt)
+    return isnothing(ls) ? nothing : (ls, true)
+end
+
+function PureOSQP.reduced_rung(P, A::SparseMatrixCSC, prob, wt, sel::PureOSQP.SelectionFor)
     ls = cholmod_backend(P, A, prob, wt)
     return isnothing(ls) ? nothing : (ls, true)
 end
@@ -618,6 +625,19 @@ function sparse_kkt_backend(P, A, prob::PureOSQP.Problem{T}, wt::PureOSQP.System
     (P isa SparseMatrixCSC && n > 0 && m > 0) || return nothing
     # Only worth considering where the reduced form loses, which is what the dense row means.
     densest_row(A)^2 < DENSE_FACTOR_FILL * n^2 && return nothing
+    return factored_kkt_backend(P, A, prob, wt)
+end
+
+"""
+    factored_kkt_backend(P, A, prob, wt) -> SparseKKT or nothing
+
+Factor the full KKT matrix sparsely and keep the backend when its factor clears the fill gate
+of [`sparse_kkt_backend`](@ref), without that function's test of whether the reduced form
+would densify.
+"""
+function factored_kkt_backend(P, A, prob::PureOSQP.Problem{T}, wt::PureOSQP.SystemWeights{T}) where {T <: Real}
+    n, m = prob.n, prob.m
+    (P isa SparseMatrixCSC && n > 0 && m > 0) || return nothing
     gram = kkt_gram(T, P, A, n, m)
     K = refill_kkt!(gram, P, A, wt.w_inv, prob.E, prob.D, prob.c, wt.sigma)
     # As for the reduced matrix: a pure-Julia LDLᵀ, where one is loaded, factors this faster

@@ -18,7 +18,7 @@ using TypeContracts: TypeContracts, @contract, @verify
 
 export setup, solve, solve!, update!, update_settings!, update_rho!, warm_start!, cold_start!
 export dimensions, capabilities, constraint_violation, constraint_violation!
-export Optimizer, Settings, Solution, Status, Workspace
+export Optimizer, Settings, Solution, Status, Workspace, IPMSettings, IPMWorkspace
 export has_solution, status_name
 export backend_info, backend_name, factor_fill, BackendInfo
 export PolishStatus
@@ -53,6 +53,9 @@ include("core/polish.jl")
 include("core/derivative.jl")
 include("core/update.jl")
 include("admm/api.jl")
+include("ipm/settings.jl")
+include("ipm/workspace.jl")
+include("ipm/ipm.jl")
 
 """
     Optimizer(; kwargs...)

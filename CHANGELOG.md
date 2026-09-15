@@ -7,6 +7,19 @@ what is true now; this file is where the history lives.
 
 ### Added
 
+- **`setup` and `solve` take `algorithm = :ipm`**, a Mehrotra predictor–corrector
+  interior-point method, alongside the default `algorithm = :admm`. `setup` returns an
+  `IPMWorkspace`, configured by the fields of `IPMSettings`; its default tolerances are
+  `1e-8`, not ADMM's `1e-3`. It handles equality, one-sided, two-sided and free rows, uses
+  equilibration as ADMM does, and solves its Newton systems with the direct backends: the
+  dense full KKT factorization for dense data and for a dense `P` with a sparse `A`, and for
+  a sparse pair the sparse KKT factorization first. A re-solve starts from the previous
+  point. It reports `SOLVED`, `SOLVED_INACCURATE` or `MAX_ITER_REACHED`, and throws when
+  its Newton system cannot be factorized or a residual stops being finite. In this version
+  it refuses by name `Float32` data, GPU arrays, operators that supply products only,
+  `linsys = :indirect` and `linsys = :kronecker`, and it has no infeasibility detection,
+  polishing, derivatives, `update!`, `update_settings!`, time limit, verbose output or
+  MathOptInterface support.
 - **`Solution.cg_iters`** reports how many conjugate-gradient iterations a solve took on
   `linsys = :indirect`. It is zero on every direct backend.
 - **`setup` and `solve` take a `preconditioner` keyword** for `linsys = :indirect`. The default

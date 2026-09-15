@@ -19,6 +19,8 @@ PureOSQP.forward_derivative
 PureOSQP.Settings
 PureOSQP.Solution
 PureOSQP.Workspace
+PureOSQP.IPMSettings
+PureOSQP.IPMWorkspace
 ```
 
 ## Status values
@@ -112,6 +114,9 @@ PureOSQP.residuals_at!
 PureOSQP.polish_kernel!
 PureOSQP.polish!
 PureOSQP.active_kkt
+PureOSQP.ipm_step!
+PureOSQP.ipm_residuals!
+PureOSQP.weights!
 PureOSQP.has_solution
 PureOSQP.PolishStatus
 ```

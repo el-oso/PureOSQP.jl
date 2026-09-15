@@ -487,6 +487,12 @@ Build a workspace for `min ½xᵀPx + qᵀx  s.t.  l ≤ Ax ≤ u`.
 `P` and `A` may be any `AbstractMatrix` and are not copied or modified. Keyword arguments
 are the fields of [`Settings`](@ref), plus `accelerator` and `preconditioner`.
 
+`algorithm = :admm`, the default, builds this [`Workspace`](@ref). `algorithm = :ipm` builds
+an [`IPMWorkspace`](@ref) for the interior-point method instead, whose keyword arguments are
+the fields of [`IPMSettings`](@ref). It runs on the host in `Float64` or a finer element type,
+on direct backends only: it refuses `Float32`, GPU arrays, operators that supply products
+only, `linsys = :indirect` and `linsys = :kronecker`, each by name.
+
 `preconditioner` applies to `linsys = :indirect` only, and is refused with any other
 `linsys`. The default, `nothing`, is a [`JacobiPreconditioner`](@ref);
 [`IdentityPreconditioner`](@ref) turns preconditioning off. Any other object is used through
@@ -523,19 +529,23 @@ end
 # carried as a type parameter and the dead branches are gone by specialization instead.
 Base.@constprop :aggressive function setup(
         ::Type{T}, P::AbstractMatrix, q::AbstractVector, A::AbstractMatrix,
-        l::AbstractVector, u::AbstractVector; linsys::Symbol = :auto, kwargs...
+        l::AbstractVector, u::AbstractVector; linsys::Symbol = :auto,
+        algorithm::Symbol = :admm, kwargs...
     ) where {T <: Real}
     # Rejected here rather than left to `Settings`: past this point the name becomes a type
     # parameter, and an unusable one would specialize the whole of `setup_backend` before the
-    # settings it cannot satisfy are ever built.
+    # settings it cannot satisfy are ever built. `algorithm` is lifted the same way.
     linsys in LINSYS_OPTIONS || throw(
         ArgumentError("linsys must be one of $(join(LINSYS_OPTIONS, ", ")), got :$linsys")
     )
-    return setup_backend(Val(linsys), T, P, q, A, l, u; kwargs...)
+    algorithm in (:admm, :ipm) || throw(
+        ArgumentError("algorithm must be :admm or :ipm, got :$algorithm")
+    )
+    return setup_backend(Val(algorithm), Val(linsys), T, P, q, A, l, u; kwargs...)
 end
 
 function setup_backend(
-        ::Val{LS}, ::Type{T}, P::AbstractMatrix, q::AbstractVector, A::AbstractMatrix,
+        ::Val{:admm}, ::Val{LS}, ::Type{T}, P::AbstractMatrix, q::AbstractVector, A::AbstractMatrix,
         l::AbstractVector, u::AbstractVector; accelerator = nothing, preconditioner = nothing,
         kwargs...
     ) where {LS, T <: Real}

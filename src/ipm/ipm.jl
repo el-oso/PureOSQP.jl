@@ -1,0 +1,457 @@
+# The Mehrotra predictor–corrector interior-point method on the equilibrated problem.
+#
+# Each inequality side `i` has the regularized slack row `±Ã_iΔx − Δs + δ_d Δz = −r` and the
+# complementarity row `z Δs + s Δz = −r_c`. Eliminating `Δs` and `Δz` side by side leaves
+#
+#     ⎡P̃ + δ_p I      Ãᵀ     ⎤ ⎡Δx⎤   ⎡   −r_d     ⎤
+#     ⎣Ã         −diag(w_inv)⎦ ⎣Δy⎦ = ⎣−w_inv ⊙ g ⎦
+#
+# with `d_l = s_l + δ_d z_l`, `d_u = s_u + δ_d z_u`, `w = z_l/d_l + z_u/d_u` and
+# `g = (r_cl + z_l r_l)/d_l − (r_cu + z_u r_u)/d_u`, which is exactly the system every
+# `LinearSystem` backend solves. The slack and multiplier steps are then recovered side by side
+# from `ÃΔx`, so the recovered `Δz_u − Δz_l` equals the solved `Δy`: a harmonic weight
+# `1/(1/W + δ_d)` with `Δs = ÃΔx + r` would not, and the step would solve no single Newton
+# system. An equality row is `Ã_iΔx − δ_d Δy_i = −r_e`; a free row has `w_inv = 1/δ_d` and its
+# `Δy` is zeroed after the solve.
+
+"`max|v|` with a start value, for the Newton residual norm."
+@inline absmax(acc, v) = max(acc, abs(v))
+
+"""
+    throw_factorization_failure(ws)
+
+The Newton system could not be factorized. Raising the regularization would recover, and is
+not attempted.
+"""
+@noinline function throw_factorization_failure(ws::IPMWorkspace)
+    name = backend_name(ws.linsys)
+    rp, rd = ws.settings.reg_primal, ws.settings.reg_dual
+    throw(
+        ErrorException(
+            lazy"the interior-point Newton system could not be factorized with the $name backend at reg_primal = $rp and reg_dual = $rd."
+        )
+    )
+end
+
+@noinline function throw_nonfinite_residual()
+    throw(
+        ErrorException(
+            "the interior-point iteration produced a non-finite residual; the problem is " *
+                "numerically out of reach at this regularization."
+        )
+    )
+end
+
+"""
+    starting_point!(ws)
+
+Build the starting slacks and multipliers. Unseeded, `x` solves
+`(P̃ + δ_p I + ÃᵀÃ) x = −q̃ + Ãᵀt` with `t` the midpoint of a two-sided row, the finite bound of
+a one-sided one, `l̃` of an equality and `0` of a free row, and `y` starts at zero; seeded, `x`
+and `y` are the workspace's. The slacks are `Ãx − l̃` and `ũ − Ãx`, shifted up by
+`1.5·max(0, −min s)`; the multipliers are one, or `max(∓y, 0) + 1` when seeded; both then take
+Mehrotra's balancing shift `½ sᵀz / eᵀz` and `½ sᵀz / eᵀs`. With no inequality side only `x`
+and `y` are set.
+"""
+function starting_point!(ws::IPMWorkspace{T}) where {T}
+    prob, wt, ls = ws.prob, ws.weights, ws.linsys
+    l, u, rclass, has_l, has_u = prob.l, prob.u, ws.rclass, ws.has_l, ws.has_u
+    x, y, s_l, s_u, z_l, z_u = ws.x, ws.y, ws.s_l, ws.s_u, ws.z_l, ws.z_u
+    o, zr = one(T), zero(T)
+    if !ws.seeded
+        fill!(wt.w, o)
+        fill!(wt.w_inv, o)
+        set_refresh_index!(ls, -1)
+        factorize!(ls, prob, wt) || throw_factorization_failure(ws)
+        for j in eachindex(ws.rhs_x)
+            ws.rhs_x[j] = -prob.q[j]
+        end
+        for i in eachindex(ws.rhs_z)
+            c = rclass[i]
+            ws.rhs_z[i] = c == ROW_EQUALITY ? l[i] : c == ROW_FREE ? zr :
+                has_l[i] && has_u[i] ? (l[i] + u[i]) / 2 : has_l[i] ? l[i] : u[i]
+        end
+        solve_system!(ls, prob, wt, ws.rhs_x, ws.rhs_z, x, ws.Adx)
+        fill!(y, zr)
+    end
+    prob.m > 0 && mul_A!(ws.Ax, prob, x)
+    Ax = ws.Ax
+    smin = zr
+    for i in eachindex(s_l)
+        s_l[i] = has_l[i] ? Ax[i] - l[i] : o
+        s_u[i] = has_u[i] ? u[i] - Ax[i] : o
+        z_l[i] = has_l[i] ? (ws.seeded ? max(-y[i], zr) + o : o) : zr
+        z_u[i] = has_u[i] ? (ws.seeded ? max(y[i], zr) + o : o) : zr
+        has_l[i] && (smin = min(smin, s_l[i]))
+        has_u[i] && (smin = min(smin, s_u[i]))
+        rclass[i] == ROW_FREE && (y[i] = zr)
+    end
+    ws.n_sides > 0 || return ws
+    theta = max(zr, -T(1.5) * smin)
+    sz, sums, sumz = zr, zr, zr
+    for i in eachindex(s_l)
+        has_l[i] && (s_l[i] += theta; sums += s_l[i])
+        has_u[i] && (s_u[i] += theta; sums += s_u[i])
+        sz += s_l[i] * z_l[i] + s_u[i] * z_u[i]
+        sumz += z_l[i] + z_u[i]
+    end
+    shift_s = sz / (2 * sumz)
+    shift_z = sz / (2 * sums)
+    for i in eachindex(s_l)
+        if has_l[i]
+            s_l[i] += shift_s
+            z_l[i] += shift_z
+        end
+        if has_u[i]
+            s_u[i] += shift_s
+            z_u[i] += shift_z
+        end
+        rclass[i] == ROW_INEQUALITY && (y[i] = z_u[i] - z_l[i])
+    end
+    return ws
+end
+
+"""
+    ipm_residuals!(ws) -> ws
+
+At the current `(x, y, s)`: the primal and dual residuals, the duality gap and the objective,
+exactly as ADMM reports them with `z = clamp(Ãx, l̃, ũ)`, and the Newton residuals `r_d`,
+`r_l`, `r_u` and their largest magnitude `rnorm`, in scaled space.
+"""
+function ipm_residuals!(ws::IPMWorkspace{T}) where {T}
+    prob = ws.prob
+    m = prob.m
+    scaled = prob.scaling > 0
+    l, u, Ax, z = prob.l, prob.u, ws.Ax, ws.z
+    if m > 0
+        mul_A!(Ax, prob, ws.x)
+        for i in eachindex(z)
+            z[i] = clamp(Ax[i], l[i], u[i])
+        end
+        subtract!(prob.work_m, Ax, z)
+        ws.scaled_prim_res = norm_inf(prob.work_m)
+        ws.prim_res = scaled ? invscaled_norm_inf(prob.E, prob.work_m) : ws.scaled_prim_res
+    else
+        ws.scaled_prim_res = zero(T)
+        ws.prim_res = zero(T)
+    end
+    mul_P!(ws.Px, prob, ws.x)
+    add!(ws.r_d, prob.q, ws.Px)
+    if m > 0
+        mul_At!(ws.Aty, prob, ws.y)
+        increment!(ws.r_d, ws.Aty)
+    else
+        fill!(ws.Aty, zero(T))
+    end
+    ws.scaled_dual_res = norm_inf(ws.r_d)
+    ws.dual_res = scaled ? invscaled_norm_inf(prob.D, ws.r_d) / prob.c : ws.scaled_dual_res
+    quad, lin, sup = gap_terms(prob, ws.y, ws.Px, ws.x)
+    ws.xtPx = quad
+    ws.qtx = lin
+    ws.SCy = sup
+    ws.scaled_duality_gap = quad + lin + sup
+    cinv = inv(prob.c)
+    ws.obj_val = (quad / 2 + lin) * cinv
+    ws.dual_obj_val = (-quad / 2 - sup) * cinv
+    ws.duality_gap = ws.scaled_duality_gap * cinv
+    ws.rel_kkt_error = max(ws.prim_res, ws.dual_res, abs(ws.duality_gap))
+    rclass, has_l, has_u, r_l, r_u = ws.rclass, ws.has_l, ws.has_u, ws.r_l, ws.r_u
+    rn = ws.scaled_dual_res
+    for i in eachindex(r_l)
+        c = rclass[i]
+        rl = c == ROW_EQUALITY ? Ax[i] - l[i] : has_l[i] ? Ax[i] - l[i] - ws.s_l[i] : zero(T)
+        ru = has_u[i] ? u[i] - Ax[i] - ws.s_u[i] : zero(T)
+        r_l[i] = rl
+        r_u[i] = ru
+        rn = absmax(absmax(rn, rl), ru)
+    end
+    ws.rnorm = rn
+    return ws
+end
+
+"""
+    weights!(ws) -> ws
+
+`μ = (s_lᵀz_l + s_uᵀz_u)/N_s` (zero without an inequality side) and the system weights of the
+current point: `w = z_l/(s_l + δ_d z_l) + z_u/(s_u + δ_d z_u)` and `w_inv = 1/w` on inequality
+rows, `w_inv = δ_d` on equality rows, `w_inv = 1/δ_d` on free rows.
+"""
+function weights!(ws::IPMWorkspace{T}) where {T}
+    delta = ws.settings.reg_dual
+    w, w_inv = ws.weights.w, ws.weights.w_inv
+    s_l, s_u, z_l, z_u, rclass = ws.s_l, ws.s_u, ws.z_l, ws.z_u, ws.rclass
+    sz = zero(T)
+    for i in eachindex(w)
+        sz += s_l[i] * z_l[i] + s_u[i] * z_u[i]
+        c = rclass[i]
+        if c == ROW_EQUALITY
+            w[i] = inv(delta)
+            w_inv[i] = delta
+        elseif c == ROW_FREE
+            w[i] = delta
+            w_inv[i] = inv(delta)
+        else
+            wi = z_l[i] / (s_l[i] + delta * z_l[i]) + z_u[i] / (s_u[i] + delta * z_u[i])
+            w[i] = wi
+            w_inv[i] = inv(wi)
+        end
+    end
+    ws.mu = ws.n_sides > 0 ? sz / ws.n_sides : zero(T)
+    return ws
+end
+
+"""
+    refine!(ws) -> ws
+
+One refinement step of `(dx, dy)` against the regularized system the backend factored.
+"""
+function refine!(ws::IPMWorkspace{T}) where {T}
+    prob, wt = ws.prob, ws.weights
+    sigma, w_inv = wt.sigma, wt.w_inv
+    dx, dy, res_x, res_z = ws.dx, ws.dy, ws.res_x, ws.res_z
+    mul_P!(res_x, prob, dx)
+    if prob.m > 0
+        mul_At!(ws.corr_x, prob, dy)
+    else
+        fill!(ws.corr_x, zero(T))
+    end
+    for j in eachindex(res_x)
+        res_x[j] = ws.rhs_x[j] - (res_x[j] + sigma * dx[j] + ws.corr_x[j])
+    end
+    if prob.m > 0
+        mul_A!(res_z, prob, dx)
+        for i in eachindex(res_z)
+            res_z[i] = ws.rhs_z[i] - (res_z[i] - w_inv[i] * dy[i])
+        end
+    end
+    solve_multiplier!(ws.linsys, prob, wt, res_x, res_z, ws.corr_x, ws.corr_y)
+    increment!(dx, ws.corr_x)
+    increment!(dy, ws.corr_y)
+    return ws
+end
+
+"""
+    direction!(ws) -> ws
+
+Solve the Newton system for the complementarity terms in `rc_l`, `rc_u`, and recover the slack
+and multiplier steps side by side.
+"""
+function direction!(ws::IPMWorkspace{T}) where {T}
+    prob, wt, s = ws.prob, ws.weights, ws.settings
+    delta = s.reg_dual
+    rclass, has_l, has_u = ws.rclass, ws.has_l, ws.has_u
+    s_l, s_u, z_l, z_u, r_l, r_u, rc_l, rc_u = ws.s_l, ws.s_u, ws.z_l, ws.z_u, ws.r_l, ws.r_u, ws.rc_l, ws.rc_u
+    w_inv, rhs_z, dy = wt.w_inv, ws.rhs_z, ws.dy
+    zr = zero(T)
+    for i in eachindex(rhs_z)
+        c = rclass[i]
+        if c == ROW_EQUALITY
+            rhs_z[i] = -r_l[i]
+        elseif c == ROW_FREE
+            rhs_z[i] = zr
+        else
+            gl = has_l[i] ? (rc_l[i] + z_l[i] * r_l[i]) / (s_l[i] + delta * z_l[i]) : zr
+            gu = has_u[i] ? (rc_u[i] + z_u[i] * r_u[i]) / (s_u[i] + delta * z_u[i]) : zr
+            rhs_z[i] = -w_inv[i] * (gl - gu)
+        end
+    end
+    fill!(ws.dx, zr)
+    solve_multiplier!(ws.linsys, prob, wt, ws.rhs_x, rhs_z, ws.dx, dy)
+    for _ in 1:s.refine_iter
+        refine!(ws)
+    end
+    prob.m > 0 && mul_A!(ws.Adx, prob, ws.dx)
+    Adx = ws.Adx
+    for i in eachindex(dy)
+        rclass[i] == ROW_FREE && (dy[i] = zr)
+        if has_l[i]
+            dzl = -(rc_l[i] + z_l[i] * (Adx[i] + r_l[i])) / (s_l[i] + delta * z_l[i])
+            ws.dz_l[i] = dzl
+            ws.ds_l[i] = Adx[i] + r_l[i] + delta * dzl
+        else
+            ws.dz_l[i] = zr
+            ws.ds_l[i] = zr
+        end
+        if has_u[i]
+            dzu = -(rc_u[i] + z_u[i] * (-Adx[i] + r_u[i])) / (s_u[i] + delta * z_u[i])
+            ws.dz_u[i] = dzu
+            ws.ds_u[i] = -Adx[i] + r_u[i] + delta * dzu
+        else
+            ws.dz_u[i] = zr
+            ws.ds_u[i] = zr
+        end
+    end
+    return ws
+end
+
+"The largest step in `(0, cap]` along the current direction that keeps every slack and multiplier nonnegative."
+function max_step(ws::IPMWorkspace{T}, cap::T) where {T}
+    a = cap
+    s_l, s_u, z_l, z_u, ds_l, ds_u, dz_l, dz_u = ws.s_l, ws.s_u, ws.z_l, ws.z_u, ws.ds_l, ws.ds_u, ws.dz_l, ws.dz_u
+    for i in eachindex(s_l)
+        ds_l[i] < zero(T) && (a = min(a, -s_l[i] / ds_l[i]))
+        ds_u[i] < zero(T) && (a = min(a, -s_u[i] / ds_u[i]))
+        dz_l[i] < zero(T) && (a = min(a, -z_l[i] / dz_l[i]))
+        dz_u[i] < zero(T) && (a = min(a, -z_u[i] / dz_u[i]))
+    end
+    return a
+end
+
+"""
+    ipm_step!(ws) -> ws
+
+One predictor–corrector step from the residuals of [`ipm_residuals!`](@ref) and the
+factorization of the weights of [`weights!`](@ref). The predictor's step length `α_a` gives
+`μ_a` and the centering `σ = max((μ_a/μ)³, min(1, 0.1‖r‖∞/μ))`, whose floor keeps `μ` from
+being driven to zero while the Newton residuals are still large. The corrector adds
+`Δs_a ∘ Δz_a − σμ` to the complementarity terms, and the step taken is `step_fraction` of the
+way to the boundary, capped at one, for primal and dual alike.
+
+With no inequality side there is no complementarity: one solve, and the full step.
+"""
+function ipm_step!(ws::IPMWorkspace{T}) where {T}
+    s = ws.settings
+    zr, o = zero(T), one(T)
+    for j in eachindex(ws.rhs_x)
+        ws.rhs_x[j] = -ws.r_d[j]
+    end
+    s_l, s_u, z_l, z_u, rc_l, rc_u = ws.s_l, ws.s_u, ws.z_l, ws.z_u, ws.rc_l, ws.rc_u
+    mu = ws.mu
+    if ws.n_sides > 0
+        set_tolerance_level!(ws.linsys, min(mu, ws.rnorm))
+        # Absent sides hold `z = 0`, so their products vanish without a mask.
+        multiply!(rc_l, s_l, z_l)
+        multiply!(rc_u, s_u, z_u)
+        direction!(ws)
+        alpha_a = max_step(ws, o)
+        sz = zr
+        for i in eachindex(s_l)
+            sz += (s_l[i] + alpha_a * ws.ds_l[i]) * (z_l[i] + alpha_a * ws.dz_l[i]) +
+                (s_u[i] + alpha_a * ws.ds_u[i]) * (z_u[i] + alpha_a * ws.dz_u[i])
+        end
+        sigma = max((sz / ws.n_sides / mu)^3, min(o, T(0.1) * ws.rnorm / mu))
+        target = sigma * mu
+        has_l, has_u = ws.has_l, ws.has_u
+        for i in eachindex(rc_l)
+            rc_l[i] = has_l[i] ? s_l[i] * z_l[i] + ws.ds_l[i] * ws.dz_l[i] - target : zr
+            rc_u[i] = has_u[i] ? s_u[i] * z_u[i] + ws.ds_u[i] * ws.dz_u[i] - target : zr
+        end
+        direction!(ws)
+        alpha = min(o, s.step_fraction * max_step(ws, INFTY(T)))
+    else
+        set_tolerance_level!(ws.linsys, ws.rnorm)
+        fill!(rc_l, zr)
+        fill!(rc_u, zr)
+        direction!(ws)
+        alpha = o
+    end
+    ws.alpha = alpha
+    x, y, rclass = ws.x, ws.y, ws.rclass
+    for j in eachindex(x)
+        x[j] += alpha * ws.dx[j]
+    end
+    for i in eachindex(y)
+        c = rclass[i]
+        if c == ROW_EQUALITY
+            y[i] += alpha * ws.dy[i]
+        elseif c == ROW_INEQUALITY
+            s_l[i] += alpha * ws.ds_l[i]
+            s_u[i] += alpha * ws.ds_u[i]
+            z_l[i] += alpha * ws.dz_l[i]
+            z_u[i] += alpha * ws.dz_u[i]
+            y[i] = z_u[i] - z_l[i]
+        end
+    end
+    return ws
+end
+
+"""
+    check_termination(ws::IPMWorkspace, approximate = false) -> Status
+
+`SOLVED` when the primal residual, the dual residual and, with `check_dualgap`, the duality
+gap pass the tolerances [`eps_prim`](@ref), [`eps_dual`](@ref) and
+[`eps_duality_gap`](@ref), exactly as ADMM tests them; `UNSOLVED` otherwise. With
+`approximate = true` the tolerances are ten times larger and the pass is
+`SOLVED_INACCURATE`.
+"""
+function check_termination(ws::IPMWorkspace{T}, approximate::Bool = false) where {T}
+    s, prob = ws.settings, ws.prob
+    f = approximate ? T(10) : one(T)
+    scaled_term = s.scaled_termination && prob.scaling > 0
+    pres = scaled_term ? ws.scaled_prim_res : ws.prim_res
+    dres = scaled_term ? ws.scaled_dual_res : ws.dual_res
+    prim_ok = iszero(prob.m) || pres < f * eps_prim(prob, s, ws.z, ws.Ax)
+    dual_ok = dres < f * eps_dual(prob, s, ws.Aty, ws.Px)
+    (prim_ok && dual_ok) || return UNSOLVED
+    if s.check_dualgap
+        gap = scaled_term ? ws.scaled_duality_gap : ws.duality_gap
+        abs(gap) < f * eps_duality_gap(prob, s, ws.xtPx, ws.qtx, ws.SCy) || return UNSOLVED
+    end
+    return approximate ? SOLVED_INACCURATE : SOLVED
+end
+
+"""
+    solve!(ws::IPMWorkspace) -> Solution
+
+Run the interior-point method. Each outer iteration refactorizes the Newton system at the
+current weights, takes one predictor–corrector step and recomputes the residuals, testing
+for termination every `check_termination` iterations. At `max_iter` the tests are retried at
+ten times the tolerances for `SOLVED_INACCURATE`, and otherwise the status is
+`MAX_ITER_REACHED`.
+
+The point is seeded from the previous solve with `warm_starting = true`, from
+[`warm_start!`](@ref), and otherwise computed (see [`IPMWorkspace`](@ref)). A factorization
+failure or a non-finite residual throws.
+"""
+function solve!(ws::IPMWorkspace{T}) where {T}
+    s = ws.settings
+    s.warm_starting || (ws.seeded = false)
+    ws.status = UNSOLVED
+    ws.iter = 0
+    inner_before = inner_iterations(ws.linsys)
+    started = time_ns()
+    starting_point!(ws)
+    ipm_residuals!(ws)
+    for iter in 1:s.max_iter
+        ws.iter = iter
+        weights!(ws)
+        set_refresh_index!(ws.linsys, iter - 1)
+        refactor_weights!(ws.linsys, ws.prob, ws.weights) || throw_factorization_failure(ws)
+        ipm_step!(ws)
+        ipm_residuals!(ws)
+        (isfinite(ws.rnorm) && isfinite(ws.prim_res) && isfinite(ws.dual_res)) ||
+            throw_nonfinite_residual()
+        if s.check_termination > 0 && iszero(iter % s.check_termination)
+            st = check_termination(ws, false)
+            if st != UNSOLVED
+                ws.status = st
+                break
+            end
+        end
+    end
+    if ws.status == UNSOLVED
+        st = check_termination(ws, false)
+        st == UNSOLVED && (st = check_termination(ws, true))
+        ws.status = st == UNSOLVED ? MAX_ITER_REACHED : st
+    end
+    ws.solve_time = (time_ns() - started) / 1.0e9
+    ws.cg_iters = inner_iterations(ws.linsys) - inner_before
+    sol = build_solution(ws)
+    ws.first_run = false
+    ws.seeded = true
+    return sol
+end
+
+function build_solution(ws::IPMWorkspace{T}) where {T}
+    prob = ws.prob
+    x = prob.D .* ws.x
+    y = (prob.E .* ws.y) ./ prob.c
+    return Solution{T}(
+        Vector{T}(x), Vector{T}(y), ws.status, ws.obj_val, ws.dual_obj_val, ws.duality_gap,
+        ws.prim_res, ws.dual_res, ws.rel_kkt_error, ws.iter,
+        0.0, 0.0, zero(T), 0, 0, ws.cg_iters, false, POLISH_NOT_PERFORMED,
+        ws.setup_time, 0.0, ws.solve_time, 0.0,
+        (ws.first_run ? ws.setup_time : 0.0) + ws.solve_time,
+        T[], T[],
+    )
+end
