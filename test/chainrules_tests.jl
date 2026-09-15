@@ -102,6 +102,38 @@ end
     @test abs(dot(gq, v)) > 1.0e-3        # the quantity being compared is not zero
 end
 
+@testitem "the rrule and the frule work at algorithm = :ipm" begin
+    # Neither rule dispatches on `Workspace`: both call `adjoint_derivative`/
+    # `forward_derivative`, which accept an `IPMWorkspace` too, so this only needs to confirm
+    # nothing about the rules themselves assumes ADMM.
+    using ChainRulesCore, Zygote, LinearAlgebra
+
+    P = [4.0 1.0; 1.0 2.0]
+    q = [1.0, 1.0]
+    A = [1.0 1.0; 1.0 0.0; 0.0 1.0]
+    l = [1.0, 0.0, 0.0]
+    u = [1.0, 1.0, 1.0]
+    tol = (algorithm = :ipm, eps_abs = 1.0e-10, eps_rel = 1.0e-10)
+
+    loss(qq) = sum(solve(P, qq, A, l, u; tol...).x .^ 2)
+    g = only(Zygote.gradient(loss, q))
+    h = 1.0e-6
+    fd = map(1:2) do i
+        e = zeros(2)
+        e[i] = h
+        (loss(q .+ e) - loss(q .- e)) / 2h
+    end
+    @test g ≈ fd rtol = 1.0e-5
+
+    v = [1.0, -0.5]
+    _, tangent = ChainRulesCore.frule(
+        (NoTangent(), ZeroTangent(), v, ZeroTangent(), ZeroTangent(), ZeroTangent()),
+        solve, P, q, A, l, u; tol...
+    )
+    x = solve(P, q, A, l, u; tol...).x
+    @test dot(2 .* x, tangent.x) ≈ dot(g, v) rtol = 1.0e-6
+end
+
 @testitem "differentiating an unconverged solve is refused" begin
     using ChainRulesCore, Zygote, LinearAlgebra
     # The rules differentiate the KKT conditions, which hold at the solution and nowhere else,
