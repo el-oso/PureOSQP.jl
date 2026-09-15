@@ -329,15 +329,22 @@ one core, that copy is 3% of an iteration on a dense QP (`n = 200`, `m = 400`), 
 (`n = m = 816`, sparse `A`) and 16% on `banded_qp(200, 300)`; the `bunchkaufman!`
 factorization is the rest of the factorization and most of the iteration.
 
-`Float32` is refused by `setup` under `algorithm = :ipm`. Run past that refusal on the dense
-test generator (`n = 200`, 18 instances), `:kkt` in `Float32` with `eps_abs = eps_rel = 1e-4`
-and `reg_primal = reg_dual = sqrt(eps(Float32))` solves all 18 in 4–8 iterations with no
-regularization increase, with referees from `1.1e-5` to `1.0e-4`; `Float64` at the same
-tolerances takes 4–6 iterations with referees from `2.4e-6` to `8.1e-5`.
+The interior-point method is generic over the element type `T <: Real`, as ADMM is. Its four
+tolerances, its two regularizations and its short-step threshold default to `1e-8` in `Float64`
+and finer arithmetic (`BigFloat`) and to `sqrt(eps(T))` in coarser arithmetic (`Float32`:
+`3.5e-4`); the divergence bound is `1/sqrt(eps(T))` times the size of the data. A number type
+that wraps another, such as `ForwardDiff.Dual`, takes the precision of `float(T)`.
 
-Dual numbers (`ForwardDiff.Dual`) run under `algorithm = :ipm` on the dense reduced Cholesky,
-since `bunchkaufman!` has no generic method. One test differentiates an objective through a
-solve; dual numbers are not otherwise part of the interior-point method's stated support.
+On the dense test generator (`n = 200`, 18 instances, two-sided and mixed rows), `:kkt` in
+`Float32` at `eps_abs = eps_rel = 1e-4` and `reg_primal = reg_dual = sqrt(eps(Float32))`
+without equilibration solves all 18 in 4–8 iterations with no regularization increase, with
+referees from `1.1e-5` to `1.0e-4`; `Float64` at the same tolerances takes 4–6 iterations
+with referees from `2.4e-6` to `8.1e-5`.
+
+`BigFloat` runs on `:kkt` and on the dense reduced Cholesky. Dual numbers
+(`ForwardDiff.Dual`) run on the dense reduced Cholesky, which `:auto` chooses for them, but not
+on `:kkt`, since `bunchkaufman!` has no method for them; the derivative of the objective
+through a solve matches a central difference of the `Float64` objective.
 
 ## Equilibration
 

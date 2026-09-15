@@ -491,9 +491,9 @@ are the fields of [`Settings`](@ref), plus `accelerator` and `preconditioner`.
 
 `algorithm = :admm`, the default, builds this [`Workspace`](@ref). `algorithm = :ipm` builds
 an [`IPMWorkspace`](@ref) for the interior-point method instead, whose keyword arguments are
-the fields of [`IPMSettings`](@ref). It runs on the host in `Float64` or a finer element type,
-on direct backends only: it refuses `Float32`, GPU arrays, operators that supply products
-only, `linsys = :indirect` and `linsys = :kronecker`, each by name.
+the fields of [`IPMSettings`](@ref). It runs on the host for any real element type, on direct
+backends only: it refuses GPU arrays, operators that supply products only,
+`linsys = :indirect` and `linsys = :kronecker`, each by name.
 
 `preconditioner` applies to `linsys = :indirect` only, and is refused with any other
 `linsys`. The default, `nothing`, is a [`JacobiPreconditioner`](@ref);

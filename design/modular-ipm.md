@@ -568,8 +568,9 @@ corpus items pass unchanged and the snapshot matches. **M** mechanical, **J** ju
 | S6 | **`solve_multiplier!`** default + `FullKKT`/`SparseKKT`/`LDLKKT` overrides; test at `w_inv = 1e-12`. | suite; audit unchanged | M |
 | S7 | **Directory move** to `src/core`, `src/admm`, `src/ipm` (empty). | identical; audit; trim | M |
 | S8 | **IPM skeleton on direct backends.** Builds `src/ipm/{settings,workspace,ipm}.jl`; `setup_backend` takes a leading `Val{:admm}`/`Val{:ipm}`; `IPMSettings` holds only the fields the solve uses so far (time limit, infeasibility tolerances, `max_reg_bumps`, CG settings, polishing and verbose arrive with the steps that use them); factorization failure and non-finite residuals throw until S9; `update!`, `update_settings!`, polishing and derivatives are not defined for `IPMWorkspace` until S12; `linsys = :dense` builds `ReducedCholesky` under `:ipm`; GPU arrays are refused by `:auto` selection, while a named backend with GPU arrays fails with the scalar-indexing error as under ADMM. Additionally, `IPMWorkspace`, `setup(…; algorithm = :ipm)` via `Val`, `seeded`, starting point, `ipm_step!` with the per-side recovery and the σ floor of §8.2/§8.4 (`τ = 0.99`), regularization of §8.5, residuals through S4 kernels, `SOLVED`/`SOLVED_INACCURATE`/`MAX_ITER_REACHED`, `solve!`, `build_solution`; `IPMSelection` methods of §5 (FullKKT routing, KKT-first sparse, kronecker decline, GPU refusal, operator refusal: unconditional in S8, lifted by name in S11), the `N_s = 0` rule of §8.4. Corpus items under `:ipm` with `:auto`/`:kkt`, referee `< 1e-5`, backend name asserted for the dense-`P`/sparse-`A` and LP cases; objective vs `osqp_ref`; a reproduction test item on the spike-1 dense generator (`make_instance`) at `n = 200`, `κ ∈ {1, 1e3, 1e6}`, fractions `{0.1, 0.5, 0.9}`, in the spike's two-sided form and in spike 3's `mixed` row form, with `scaling = 0`, the spike's iteration count (outer iterations before the `1e-8` termination check passes), reproducing the exact-solve outer counts (`δ = 1e-8`: 6–11) within ±2 through `FullKKT` with `refine_iter = 0` and through `SparseKKT` with `refine_iter = 1`. | new items pass; ADMM gates identical | J |
-| S9 | **Robustness.** Dynamic regularization bump; `NUMERICAL_ERROR` (+ every switch of §8.6); certificate buffers, stall rule, certificate tests on step and normalized iterates; `time_limit`, interrupt. Tests: c-suite ported cases under `:ipm`; a random infeasible `n = 20, m = 40` primal case and a dual one; equality-only (`N_s = 0`) and free-row corpus cases; a `Float32` item as §10.8 question 3 decides (the refusal message under the recommended answer). Built as commit ba1bc19; S9b not needed. | items pass | J |
+| S9 | **Robustness.** Dynamic regularization bump; `NUMERICAL_ERROR` (+ every switch of §8.6); certificate buffers, stall rule, certificate tests on step and normalized iterates; `time_limit`, interrupt. Tests: c-suite ported cases under `:ipm`; a random infeasible `n = 20, m = 40` primal case and a dual one; equality-only (`N_s = 0`) and free-row corpus cases; a `Float32` item as §10.8 question 3 decides. Built as commit ba1bc19; S9b not needed. | items pass | J |
 | S10 | **Structured backends under IPM, measured.** Each structured family through its recorded backend under `:ipm`: referee tolerance and iteration count recorded per backend into `bench/results/ipm_backends.json` (`bench/ipm_backends.jl`), not the snapshot. Result: only the low-rank family is routed, for failing the referee on its linear programs; no other backend exceeds `2×` the `FullKKT` iterations. `SparseFormedInverse` is unreachable under `:ipm` — the ladder has no formed rung. A sparse pair whose sparse KKT factor fails the fill gate lands on the sparse reduced backend, observed on `banded_qp(200, 300)`. `Float32` as §10.8 question 3 decides. Built as commit c1745cd. | items pass; table in docs | J |
+| S10b | **Generic element types under IPM** (§10.8 question 3). The `Float32` refusal is removed; `ipm_floor(T)` supplies the defaults of the tolerances, regularizations and short-step threshold, `precision_eps(T)` the divergence bound (§8.5); test items for `Float32`, `BigFloat`, `ForwardDiff.Dual` (§8.10). | items pass | J |
 | S11 | **IPM `:indirect` with a caller-supplied preconditioner** (§9): `preconditioner` keyword, `update_preconditioner!(M, prob, wt, k)`, refusal by name without one (matrices and operators) and without `scaling = 0`, inner stopping and miss rule, zero start, budgets, `cg_fail_limit`, reporting; reference preconditioners in `bench/` and `test/` (lagged Cholesky over the dense reduced matrix, refreshed every 3 outer iterations; limited-memory LDLᵀ over the sparse one); test items: a `Diagonal` preconditioner with a negative entry ends `NUMERICAL_ERROR` with the message naming the preconditioner; `update_preconditioner!` returning another type throws the `ArgumentError`; a counting preconditioner sees `k = −1, 0, 1, …` and the same `k` after a bump; `bench/ipm_matrixfree.jl` per §9.6. Ships if the §9.6 gates pass. | items pass; bench under `bench/results/`; gate verdict recorded in docs | J |
 | S12 | **Polish, derivatives, `update!`, warm start, MOI for IPM.** | `derivative_tests`, `update_tests`, `moi_tests` parametrized where semantics carry | J |
 | S13 | **StrictMode + trim for IPM; Clarabel bench; docs.** Audit rows of §8.12; trim entries; `bench/ipm_vs_clarabel.jl`; iteration bounds; API/guarantees/algorithm pages. | audit green; trim green; bench committed | J |
@@ -804,13 +805,20 @@ of §9.1 confirm that their G1 ceiling equals the exact one at the same `δ` and
   `FullKKT` outer count within `2×`; the low-rank family does not (§5, §8.8).
   Held in `IPMSettings` in scaled space, changeable through `update_settings!` without
   refactorization.
-- **`Float32`** (and any `T` with `eps(T) > eps(Float64)`): `setup` refuses `:ipm` for such `T`
-  by name (§10.8 question 3). The `1e-4`/`1e-2` columns above are `Float64` runs;
-  S10 ran the 18-instance dense grid in `Float32` past that refusal (`FullKKT`, `eps = 1e-4`,
-  `δ = sqrt(eps(Float32))`) — all 18 solve, referee `1.1e-5`–`1.0e-4`, iteration count equal to
-  the same `Float64` tolerance on 15/18 and within 2 on the rest (§8.10, §10.8 question 3).
-  (`sqrt(eps(Float64))` is `1.49e-8`, so a `sqrt(eps)` threshold of `1e-8` would refuse
-  `Float64` as well.)
+- **Element types** (§10.8 question 3): the IPM is generic over `T <: Real` and refuses none.
+  The `1e-8` defaults above (`reg_primal`, `reg_dual`, `eps_abs`, `eps_rel`, `eps_prim_inf`,
+  `eps_dual_inf`) and the short-step threshold of §8.7 come from `ipm_floor(T)`: `1e-8` when
+  `precision_eps(T) ≤ eps(Float64)`, `sqrt(precision_eps(T))` otherwise, with
+  `precision_eps(T) = eps(float(T))` (a wrapper type such as `ForwardDiff.Dual` defines `eps`
+  through its value type; no dependency is added). The divergence bound is
+  `1/sqrt(precision_eps(T))`. A value passed explicitly is used as given. `Float64` keeps
+  exactly `1e-8` (decisions 5 and 6); `sqrt(eps(Float64))` is `1.49e-8`, so a plain
+  `max(1e-8, sqrt(eps(T)))` would move the `Float64` defaults. The `1e-4`/`1e-2` columns above
+  are `Float64` runs. **Measured in `Float32`**: S10's 18-instance dense grid (`FullKKT`,
+  `eps = 1e-4`, `δ = sqrt(eps(Float32))`, `scaling = 0`) — all 18 solve, referee
+  `1.1e-5`–`1.0e-4`, iteration count equal to the same `Float64` tolerance on 15/18 and within
+  2 on the rest (`ipm_backends.json` `float32`). The `Float32` defaults
+  (`eps = δ = 3.45e-4`) are covered by the §8.10 test items, not by a saved benchmark.
 - `is_convex(T, P, reg_primal)` at setup; documented as the IPM's shift.
 - Dynamic: on `factorize!` returning `false`, multiply both by `10` and retry, up to
   `max_reg_bumps = 5`; then `NUMERICAL_ERROR` with the last point. The table says what each
@@ -861,7 +869,7 @@ v1: certificate tests, not a homogeneous embedding.
 - Every termination check runs the certificate tests at `eps_prim_inf`/`eps_dual_inf` on
   `(x/‖x‖∞, y/‖y‖∞)` if a certificate exists; with the `*_INACCURATE` retry at ten times. If
   a certificate does not exist at max_iter, the run returns `MAX_ITER_REACHED`.
-- Short-step rule: once `α < 1e-8` on three consecutive iterations, or `μ` (`‖r‖∞` when
+- Short-step rule: once `α < ipm_floor(T)` (`1e-8` in `Float64`, §8.5) on three consecutive iterations, or `μ` (`‖r‖∞` when
   `N_s = 0`) not decreasing for ten consecutive iterations, the tests run every iteration
   on `(Δx_k, Δy_k)` (step direction) and normalized iterates. If neither certificate passes,
   the run ends `NUMERICAL_ERROR` with the last point. Divergence guard: `‖x‖∞` or `‖y‖∞`
@@ -901,13 +909,16 @@ preconditioner in v1.
 | `verbose` | `Core.stdout`, row: `iter obj prim_res dual_res μ α cg_iters` |
 | `linsys = :indirect` (matrices or operators: `ProductOperator`, LinearMaps, SciMLOperators) | only with a caller-supplied `preconditioner` (§9) and `scaling = 0`; operators: `P` declared `posdef`, no polishing, no derivatives, no `:kkt`; never chosen by `:auto`. Without a preconditioner, or with `scaling ≠ 0`, `setup` refuses by name. `update_settings!` does not change `linsys`; a refactorize on regularization change runs `update_preconditioner!`. |
 | accelerator, GPU arrays, `profile_primdual` | refused by name / absent |
-| `T` with `eps(T) > eps(Float64)` (`Float32`) | refused by name in `setup` (§10.8 question 3); measured on the 18-instance dense grid at `n = 200`, `FullKKT`, `eps = 1e-4`, `δ = sqrt(eps(Float32))` (S10, `bench/ipm_backends.jl`, `float32_run`) — a lift is a decision pending with the user (§10.8 question 3) |
-| `ForwardDiff.Dual` | exercised: one test on the reduced Cholesky (`test/ipm_backends_tests.jl`); support otherwise unclaimed |
+| element type `T <: Real` | generic, none refused (§10.8 question 3); defaults from `ipm_floor(T)` (§8.5) |
+| `Float32` | `FullKKT` and reduced backends; tests: dense QP, LP, equality/one-sided/free rows through `:kkt` and `:dense`, referee `< 10·sqrt(eps(Float32))` (`test/ipm_tests.jl`); measured per §8.5 |
+| `BigFloat` | `FullKKT` and `ReducedCholesky`; test: tiny QP through `:kkt` at `eps = 1e-20`, referee `< 1e-18` |
+| `ForwardDiff.Dual` | reduced backends (`:auto` reaches `ReducedCholesky`); `FullKKT` fails with a `MethodError` (`bunchkaufman!` has no `Dual` method), documented in `docs/src/algorithm.md`; tests: objective derivative vs `x[1]` (`test/ipm_backends_tests.jl`) and vs a central difference of the `Float64` objective to `1e-6` (`test/ipm_tests.jl`) |
 
 `IPMSettings{T}`: `max_iter = 100`, `time_limit = Inf`, `eps_abs = eps_rel = 1e-8`,
 `eps_prim_inf = eps_dual_inf = 1e-8`, `scaling = 10`,
 `check_termination = 1`, `check_dualgap = true`, `scaled_termination = false`,
-`reg_primal = reg_dual = 1e-8`, `max_reg_bumps = 5`, `refine_iter = 1`,
+`reg_primal = reg_dual = 1e-8` (the six `1e-8` values are `ipm_floor(T)`: `sqrt(eps(T))` for
+`T` coarser than `Float64`), `max_reg_bumps = 5`, `refine_iter = 1`,
 `step_fraction = 0.99`, `cg_max_iter = 500` (spike 2's cap; spike 1 and spike 2's three
 `n = 1000` records ran 2000; at 500, `cg_lagchol5` would have hit the cap on two of those three,
 whose maxima were 618 and 678), `cg_tol_fraction = 0.1`, `cg_fail_limit = 3`,
@@ -940,10 +951,10 @@ the workspace keeps the last iterate and clears `seeded`. Verbose output not yet
 5. **Iteration sanity** (test): `iter ≤ 40` on corpus and c-suite; `≤ 25` on the dense random
    QPs. The warm-started re-solve count is recorded in the snapshot, not asserted.
 6. **c-suite** under `:ipm`, plus S9's random infeasible cases.
-7. **Generic `T`**: `ForwardDiff.Dual` on `:auto` (reduced path, no `bunchkaufman!`) — done,
-   `test/ipm_backends_tests.jl`; `BigFloat` on one small case; `Float32` refused by name in
-   `setup` (§10.8 question 3), its reduced ceiling read off the S10 `float32_run` numbers
-   (§8.5, §8.10).
+7. **Generic `T`** (§8.10 rows): `Float32` end to end through `:kkt` and `:dense`;
+   `BigFloat` on a tiny QP through `:kkt`; `ForwardDiff.Dual` on `:auto` (reduced path, no
+   `bunchkaufman!`) against a central finite difference — done, `test/ipm_tests.jl`,
+   `test/ipm_backends_tests.jl`.
 8. **Operators**: §9.6.
 9. **Ambiguous status**: a problem that is both primal-infeasible and dual-infeasible may be
    reported as either status, provided its certificate passes the independent check
@@ -1257,14 +1268,18 @@ them.
    **Recommended: (a).** The incomplete LDLᵀ is the weakest evidence (question 1) and needed a
    diagonal shift on 1182 of 6801 builds; an extension adds a dependency for a path the ladder
    never chooses.
-3. **What does `:ipm` do for `Float32` (any `T` with `eps(T) > eps(Float64)`) in v1?**
-   (a) Refuse by name in `setup`. (b) Allow with `eps = 1e-4`, `δ = sqrt(eps(T))`, `FullKKT`
-   routing and a documented reduced ceiling.
-   **In v1: (a).** S10 ran the spike dense generator at `n = 200`, `FullKKT`, `eps = 1e-4`,
+3. **What does `:ipm` do for `Float32` (any `T` with `eps(T) > eps(Float64)`)?**
+   **Decided: the IPM is generic over `T <: Real`; defaults derive from `T`; no element type
+   is refused.** `Complex` is excluded by the type bound, since the method orders
+   `l ≤ Ax ≤ u` and takes minimum step ratios. The defaults are `ipm_floor(T)` (§8.5).
+   Evidence: the S10 `Float32` runs below and the
+   `Float32`, `BigFloat` and `ForwardDiff.Dual` test items (§8.10). This supersedes the earlier
+   options (a) refuse by name in `setup` and (b) allow with `eps = 1e-4`, `δ = sqrt(eps(T))`
+   and `FullKKT` routing. S10 ran the spike dense generator at `n = 200`, `FullKKT`, `eps = 1e-4`,
    `δ = sqrt(eps(Float32))`, over the 18-instance grid (`κ ∈ {1, 1e3, 1e6}`, active fractions
    `{0.1, 0.5, 0.9}`, two-sided and mixed rows): all 18 solve, referee `1.1e-5`–`1.0e-4`,
    iteration count equal to the `Float64` run at the same tolerance on 15/18 and within 2 on
-   the rest. Whether to lift the refusal on these numbers is a decision pending with the user.
+   the rest.
 4. **What is G2?**
    (a) `t ≤ max(10·f, min(100, n/10))`, no solve at `cg_max_iter`, largest inner count below
    `n`, evaluated at `n ≥ 500`. (b) `t ≤ max(10·f, 100)` at every size. (c) `t/f ≤ 10` as in

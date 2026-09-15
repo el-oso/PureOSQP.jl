@@ -271,9 +271,6 @@ end
     A = randn(m, n)
     q, l, u = randn(n), -rand(m), rand(m)
 
-    @test_throws "needs Float64 or a finer element type" setup(
-        Float32.(P), Float32.(q), Float32.(A), Float32.(l), Float32.(u); algorithm = :ipm
-    )
     Pop = PureOSQP.ProductOperator{Float64}(P; symmetric = true, posdef = true)
     Aop = PureOSQP.ProductOperator{Float64}(A)
     @test_throws "supplies products only" setup(Pop, q, Aop, l, u; algorithm = :ipm)
@@ -332,6 +329,80 @@ end
     s3 = solve!(ws)
     @test s3.iter == s1.iter
     @test s3.x == s1.x
+end
+
+@testitem "interior point: Float32 on the full KKT and the reduced Cholesky" begin
+    using LinearAlgebra, SparseArrays, OSQP, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    rng = Xoshiro(84)
+    n, m = 10, 15
+    X = randn(rng, n, n)
+    P = X'X / n + I
+    A = randn(rng, m, n)
+    b = A * randn(rng, n)
+    q, l, u = randn(rng, n), b .- rand(rng, m), b .+ rand(rng, m)
+    # A square `A` with full rank and finite bounds keeps the linear program bounded.
+    Al = randn(rng, n, n) + 3I
+    le, ue = copy(l), copy(u)
+    le[1:4] .= b[1:4]
+    ue[1:4] .= b[1:4]
+    le[5:7] .= -Inf
+    ue[8:9] .= Inf
+    cases = (
+        qp = (P, q, A, l, u),
+        lp = (zeros(n, n), randn(rng, n), Al, -rand(rng, n), rand(rng, n)),
+        equality = (P, q, A, le, ue),
+    )
+    tol = sqrt(eps(Float32))
+    for data in cases, (linsys, backend) in ((:kkt, :bunchkaufman), (:dense, :cholesky))
+        ws = setup(map(v -> Float32.(v), data)...; algorithm = :ipm, linsys)
+        @test PureOSQP.backend_name(ws.linsys) === backend
+        s = solve!(ws)
+        @test s isa Solution{Float32}
+        @test s.status == SOLVED
+        @test maximum(kkt_residuals(data..., Float64.(s.x), Float64.(s.y))) < tol
+    end
+
+    # The defaults follow the element type; a value passed explicitly is kept.
+    s32 = IPMSettings{Float32}()
+    @test s32.eps_abs == s32.eps_rel == s32.eps_prim_inf == s32.eps_dual_inf == tol
+    @test s32.reg_primal == s32.reg_dual == tol
+    s64 = IPMSettings{Float64}()
+    @test s64.eps_abs == s64.reg_primal == 1.0e-8
+    @test IPMSettings{BigFloat}().reg_dual == BigFloat(1.0e-8)
+    @test IPMSettings{Float32}(; eps_abs = 1.0e-3, reg_primal = 1.0e-6).eps_abs == 1.0f-3
+    @test IPMSettings{Float32}(; reg_primal = 1.0e-6).reg_primal == 1.0f-6
+end
+
+@testitem "interior point: BigFloat and dual numbers" begin
+    using LinearAlgebra, SparseArrays, OSQP, Random, ForwardDiff
+    include(joinpath(@__DIR__, "helpers.jl"))
+    P, q, A, l, u = random_qp(8, 12; seed = 1)
+
+    B = BigFloat
+    s = PureOSQP.solve(
+        B.(P), B.(q), B.(A), B.(l), B.(u); algorithm = :ipm, linsys = :kkt, eps_abs = 1.0e-20, eps_rel = 1.0e-20
+    )
+    @test s isa Solution{BigFloat}
+    @test s.status == SOLVED
+    @test maximum(kkt_residuals(B.(P), B.(q), B.(A), B.(l), B.(u), s.x, s.y)) < 1.0e-18
+
+    # `bunchkaufman!` has no method for dual numbers, so they run on the reduced Cholesky.
+    D = ForwardDiff.Dual{Nothing, Float64, 1}
+    qd = D.(q)
+    qd[1] = ForwardDiff.Dual{Nothing}(q[1], 1.0)
+    ws = setup(D.(P), qd, D.(A), D.(l), D.(u); algorithm = :ipm)
+    @test PureOSQP.backend_name(ws.linsys) === :cholesky
+    sd = solve!(ws)
+    @test sd.status == SOLVED
+    # The objective is quadratic in `q[1]` while the active set holds, so a central difference
+    # of step 1e-3 is exact up to the solve's tolerance divided by the step: 1e-7 at 1e-10.
+    h = 1.0e-3
+    obj(t) = PureOSQP.solve(
+        P, q .+ t .* [1.0; zeros(7)], A, l, u; algorithm = :ipm, eps_abs = 1.0e-10, eps_rel = 1.0e-10
+    ).obj_val
+    fd = (obj(h) - obj(-h)) / (2h)
+    @test ForwardDiff.partials(sd.obj_val)[1] ≈ fd atol = 1.0e-6
 end
 
 @testitem "interior point: random infeasible problems return checkable certificates" begin

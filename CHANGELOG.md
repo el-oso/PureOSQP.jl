@@ -19,7 +19,11 @@ what is true now; this file is where the history lives.
   factorization with a referee residual of at most `1.1e-8` (`bench/ipm_backends.jl`). A diagonal `P`
   with a `RowCoupled` `A` gets the full KKT factorization instead, since the low-rank backend
   does not solve the LPs. A re-solve starts from the previous
-  point. In this version it refuses by name `Float32` data, GPU arrays, operators that
+  point. It is generic over the element type `T <: Real`: its tolerances, regularizations
+  and short-step threshold default to `1e-8` in `Float64` and finer arithmetic and to
+  `sqrt(eps(T))` in coarser arithmetic, so `Float32` data solves at the defaults; `BigFloat` and
+  `ForwardDiff.Dual` run as well, dual numbers on the reduced Cholesky only, where
+  `bunchkaufman!` is not needed. In this version it refuses by name GPU arrays, operators that
   supply products only, `linsys = :indirect`, `linsys = :kronecker` and `linsys = :lowrank`,
   and it has no
   polishing, derivatives, `update!`, `update_settings!`, verbose output or
@@ -36,7 +40,8 @@ what is true now; this file is where the history lives.
 - **`NUMERICAL_ERROR`**, a new `Status` value. The interior-point method returns it when its
   Newton system stays unfactorizable after `max_reg_bumps` (default `5`) tenfold increases of
   the regularization, when a residual stops being finite, and when three consecutive steps
-  are shorter than `1e-8` without a certificate. `has_solution` is false for it, and MathOptInterface reports
+  are shorter than `1e-8` (`sqrt(eps(T))` in arithmetic coarser than `Float64`) without a
+  certificate. `has_solution` is false for it, and MathOptInterface reports
   `MOI.NUMERICAL_ERROR` with no result. ADMM never returns it.
 - **`Solution.cg_iters`** reports how many conjugate-gradient iterations a solve took on
   `linsys = :indirect`. It is zero on every direct backend.

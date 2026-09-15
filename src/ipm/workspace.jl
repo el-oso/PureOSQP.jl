@@ -177,15 +177,6 @@ function setup_backend(
         A::AbstractMatrix, l::AbstractVector, u::AbstractVector; kwargs...
     ) where {LS, T <: Real}
     t0 = time_ns()
-    # The defaults, 1e-8 in regularization and tolerance, are measured in Float64 and sit below
-    # the resolution of any coarser arithmetic.
-    eps(T) > eps(Float64) && throw(
-        ArgumentError(
-            "algorithm = :ipm needs Float64 or a finer element type: its regularization " *
-                "and tolerances, 1e-8, are below what Float32 arithmetic resolves. Convert " *
-                "the data to Float64, or use algorithm = :admm."
-        )
-    )
     nv, mv = validate(P, q, A, l, u)
     (is_materializable(P) && is_materializable(A)) || refuse_ipm_operators()
     settings = IPMSettings{T}(; linsys = LS, kwargs...)

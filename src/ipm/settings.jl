@@ -32,6 +32,12 @@ and [`solve`](@ref). The keyword arguments of those two functions are then these
 A reduced backend solves `P̃ + δ_p I + Ãᵀ diag(w) Ã`, whose weights reach `1/δ_d` on
 equality rows and on active inequality rows, so its conditioning is bounded by
 `(λ_max(P̃) + ‖Ã‖²/δ_d) / (λ_min(P̃) + δ_p)`. That bound is not checked.
+
+Any `T <: Real` is accepted. The `1e-8` defaults of the four tolerances and the two
+regularizations hold for `Float64` and finer arithmetic (`BigFloat`); in coarser arithmetic
+(`Float32`) each defaults to `sqrt(eps(T))`. A number type that wraps another, such
+as `ForwardDiff.Dual`, takes the precision of `float(T)`. A value passed explicitly is used as
+given.
 """
 struct IPMSettings{T <: Real}
     max_iter::Int
@@ -53,11 +59,31 @@ struct IPMSettings{T <: Real}
     linsys::Symbol
 end
 
+"""
+    precision_eps(T) -> eps
+
+The spacing of `T`'s arithmetic, `eps(float(T))`: the value type's `eps` for a number type
+that wraps one and defines `eps` through it (as `ForwardDiff.Dual` does), `Float64`'s for
+integers and rationals.
+"""
+@inline precision_eps(::Type{T}) where {T <: Real} = eps(float(T))
+
+"""
+    ipm_floor(T) -> T
+
+The default of the interior-point regularizations, tolerances and short-step threshold:
+`1e-8` in `Float64` and finer arithmetic, `sqrt(eps)` in arithmetic coarser than `Float64`.
+"""
+@inline function ipm_floor(::Type{T}) where {T <: Real}
+    e = precision_eps(T)
+    return e > eps(Float64) ? T(sqrt(e)) : T(1.0e-8)
+end
+
 function IPMSettings{T}(;
-        max_iter = 100, time_limit = Inf, eps_abs = 1.0e-8, eps_rel = 1.0e-8,
-        eps_prim_inf = 1.0e-8, eps_dual_inf = 1.0e-8, scaling = 10,
+        max_iter = 100, time_limit = Inf, eps_abs = ipm_floor(T), eps_rel = ipm_floor(T),
+        eps_prim_inf = ipm_floor(T), eps_dual_inf = ipm_floor(T), scaling = 10,
         check_termination = 1, check_dualgap = true, scaled_termination = false,
-        reg_primal = 1.0e-8, reg_dual = 1.0e-8, max_reg_bumps = 5, refine_iter = 1,
+        reg_primal = ipm_floor(T), reg_dual = ipm_floor(T), max_reg_bumps = 5, refine_iter = 1,
         step_fraction = 0.99, warm_starting = true, linsys = :auto,
     ) where {T <: Real}
     linsys in LINSYS_OPTIONS || throw(

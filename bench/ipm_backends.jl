@@ -300,7 +300,7 @@ end
     float32_run(data) -> NamedTuple
 
 `FullKKT` in `Float32` at `eps = 1e-4` and `δ = sqrt(eps(Float32))`, without equilibration,
-built past `setup`'s refusal; the referee runs in `Float64` on the original data. The `Float64`
+built directly; the referee runs in `Float64` on the original data. The `Float64`
 run at the same tolerance is alongside.
 """
 function float32_run(data)

@@ -18,7 +18,7 @@
 @inline absmax(acc, v) = max(acc, abs(v))
 
 "Steps shorter than this, `STALL_STEPS` times in a row, stall the iteration."
-@inline STALL_STEP(::Type{T}) where {T} = T(1.0e-8)
+@inline STALL_STEP(::Type{T}) where {T} = ipm_floor(T)
 const STALL_STEPS = 3
 "Iterations in a row whose merit does not fall before the certificate tests run every iteration."
 const STALL_MERIT = 10
@@ -475,7 +475,7 @@ function iterate_bound(ws::IPMWorkspace{T}) where {T}
         li > -loose && (b = max(b, abs(li)))
         ui < loose && (b = max(b, abs(ui)))
     end
-    return b / sqrt(eps(T))
+    return b / T(sqrt(precision_eps(T)))
 end
 
 """
