@@ -64,6 +64,13 @@ solve_indirect_preconditioned(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(
     P, q, A, l, u; linsys = :indirect, scaling = 0, preconditioner = cholesky(Symmetric(P + I))
 )
 
+# The interior-point method on the matrix-free backend, whose Krylov call sits inside the
+# `try` that turns a definiteness failure into a missed solve.
+solve_ipm_indirect(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(
+    P, q, A, l, u; algorithm = :ipm, linsys = :indirect, scaling = 0,
+    preconditioner = cholesky(Symmetric(P + I))
+)
+
 # The block backend, whose `P` and `A` are both this package's own matrix type.
 const BD = PureOSQP.BlockDiagonal{Float64, Matrix{Float64}}
 solve_block(P::BD, q::V, A::BD, l::V, u::V) = PureOSQP.solve(P, q, A, l, u)

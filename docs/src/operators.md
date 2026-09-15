@@ -169,3 +169,95 @@ a factorization.
 Conjugate gradients is the fallback for an operator with no structure to exploit, and it is
 a real fallback rather than a good one: on an ill-conditioned problem it can return a wrong
 answer rather than a merely slow one. A structured direct backend is the point of this page.
+
+## Operators under the interior-point method
+
+`algorithm = :ipm` solves an operator pair only with `linsys = :indirect`, a
+`preconditioner` the caller supplies, and `scaling = 0`; `linsys = :auto` never chooses it, and
+the same three requirements hold for matrices. Without a preconditioner, with the built-in
+[`PureOSQP.JacobiPreconditioner`](@ref) or [`PureOSQP.IdentityPreconditioner`](@ref), with
+equilibration on, or with an operator built with `probe = true`, `setup` throws an
+`ArgumentError` naming the requirement.
+
+The preconditioner approximates `P + σI + Aᵀ diag(w) A` for the `P` and `A` passed to `setup`.
+The interior-point weights `w` change every outer iteration and reach `1/reg_dual` on equality
+and active rows, so a product-only preconditioner does not keep conjugate gradients within
+budget; the caller supplies one built from what they know about the operators. It is refreshed
+through [`PureOSQP.update_preconditioner!`](@ref), which receives `k = -1` for the starting
+point and the outer iteration `k = 0, 1, 2, …` afterwards, and applied through
+`LinearAlgebra.ldiv!`. A factor of the reduced matrix built from dense copies of `P` and `A`,
+refreshed every third outer iteration:
+
+```julia
+mutable struct LaggedCholesky{T}
+    const P::Matrix{T}
+    const A::Matrix{T}
+    const every::Int
+    F::Cholesky{T, Matrix{T}}
+    sigma::T
+end
+LaggedCholesky(P, A; every = 3) =
+    LaggedCholesky(Matrix(P), Matrix(A), every, cholesky(Matrix(1.0I, size(P)...)), NaN)
+
+function PureOSQP.update_preconditioner!(M::LaggedCholesky, prob, wt, k::Int)
+    (k < 0 || iszero(k % M.every) || wt.sigma != M.sigma) || return M
+    M.F = cholesky(Symmetric(M.P + wt.sigma * I + M.A' * Diagonal(wt.w) * M.A))
+    M.sigma = wt.sigma
+    return M
+end
+LinearAlgebra.ldiv!(y::AbstractVector, M::LaggedCholesky, x::AbstractVector) = ldiv!(y, M.F, x)
+
+Pop = LinearMap(P; issymmetric = true, isposdef = true)
+sol = solve(Pop, q, LinearMap(A), l, u; algorithm = :ipm, linsys = :indirect,
+            preconditioner = LaggedCholesky(P, A), scaling = 0)
+```
+
+Each Newton solve starts conjugate gradients from zero and stops once the two-norm of its
+recursively updated residual is below `cg_tol_fraction · min(μ, ‖r‖∞)`. A solve that spends
+`cg_max_iter` iterations, or that conjugate gradients abandons because the preconditioner is
+not symmetric positive definite, is missed; `cg_fail_limit` missed solves in a row end the run
+`NUMERICAL_ERROR`. There is no refinement step (`refine_iter` defaults to `0`), and
+`Solution.cg_iters` reports the conjugate-gradient iterations of the solve.
+
+### Measured
+
+`bench/ipm_matrixfree.jl` writes `bench/results/ipm_matrixfree.json`. It runs dense instances
+with a planted solution as `LinearMap`s through `LaggedCholesky` (`every = 3`) at
+`n = m ∈ {500, 1000, 2000}`, `κ(A) ∈ {1, 1e6}`, active fractions `{0.1, 0.9}`, every row
+two-sided and with a mix of 20% equality, 20% lower-only, 20% upper-only and 10% free rows:
+24 instances, at `eps_abs = eps_rel = 1e-6`, `reg_primal = reg_dual = 1e-8`,
+`cg_max_iter = 500`, BLAS single-threaded, four instances at a time. Two criteria decide
+whether the path is supported:
+
+- **G1**: the solve ends `SOLVED` with the largest optimality residual, computed from the data,
+  at most `1e-5`.
+- **G2**: with `f` the median inner iterations per solve over the first three outer iterations
+  and `t` over the last three, `t ≤ max(10f, min(100, n/10))`, no solve reaches `cg_max_iter`,
+  and no solve takes `n` inner iterations or more.
+
+| `n` | G1 | G2 | outer iterations | largest residual | largest `t` / G2 bound | largest inner count | wall clock, all 8 (dense KKT) |
+|---|---|---|---|---|---|---|---|
+| 500 | 8/8 | 8/8 | 6–9 | `7.9e-7` | 44.5 / 90 | 107 | 1.4 s (2.0 s) |
+| 1000 | 8/8 | 8/8 | 6–9 | `5.6e-7` | 46 / 120 | 138 | 8.7 s (7.7 s) |
+| 2000 | 8/8 | 8/8 | 6–9 | `6.5e-7` | 44.5 / 115 | 138 | 29.5 s (33.5 s) |
+
+Both criteria pass on all 24, so the path is supported on this family. Every instance takes
+the same number of outer iterations as the dense full KKT factorization (`linsys = :kkt`) on
+the same matrices. Wall clock includes every preconditioner build; at this density the
+lagged Cholesky costs about what the full KKT factorization does, so the timing says the
+path is not slower, not that it is faster. ADMM on the same operators (`linsys = :indirect`,
+`n = 500`, `eps = 1e-6`, 10 s limit) solves seven of the eight in 0.02–7.0 s, the four with
+`κ = 1` under 0.1 s and two with `κ = 1e6` above 6 s, and reaches the limit on `κ = 1e6`,
+`0.9` active, mixed rows; the interior point takes 0.04–0.66 s on the same eight. These
+timings are indicative: they ran on a workstation with an unpinned clock.
+
+A primal-infeasible operator instance (`n = 100`, two copies of one row with disjoint
+intervals) ends `PRIMAL_INFEASIBLE`, and a `Diagonal` preconditioner holding a negative entry
+ends `NUMERICAL_ERROR`.
+
+The measurement covers this dense family and this preconditioner only. On one sparse instance
+(`n = 1000`, ten random nonzeros per row of `A` plus the identity) a limited-memory incomplete
+`LDLᵀ` refreshed every outer iteration fails both criteria: its inner counts grow to the
+`500` cap by the eighth outer iteration and the run ends `NUMERICAL_ERROR`. A preconditioner
+has to keep the inner count bounded as the weights spread; that is the property to check
+before relying on this path.

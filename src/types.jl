@@ -28,7 +28,7 @@ simply not a converged one, and are returned rather than discarded.
 | `DUAL_INFEASIBLE` | a certificate was found; it is in `Solution.dual_inf_cert` |
 | `PRIMAL_INFEASIBLE_INACCURATE`, `DUAL_INFEASIBLE_INACCURATE` | the same certificates, established only at ten times the requested tolerances |
 | `NON_CONVEX` | the residuals diverged, which a convex problem's cannot |
-| `NUMERICAL_ERROR` | the interior-point method could not continue: its Newton system stayed unfactorizable after `max_reg_bumps` regularization increases, a residual stopped being finite, or the iteration stalled with no certificate. ADMM never returns it |
+| `NUMERICAL_ERROR` | the interior-point method could not continue: its Newton system stayed unfactorizable after `max_reg_bumps` regularization increases, a residual stopped being finite, conjugate gradients missed `cg_fail_limit` Newton solves in a row (a preconditioner that is not symmetric positive definite is one cause), or the iteration stalled with no certificate. ADMM never returns it |
 | `UNSOLVED` | the loop has not run. It is a workspace's state before its first [`solve!`](@ref) and never the status of a completed solve |
 
 An unconverged result is never reported as `SOLVED`.
@@ -491,9 +491,11 @@ are the fields of [`Settings`](@ref), plus `accelerator` and `preconditioner`.
 
 `algorithm = :admm`, the default, builds this [`Workspace`](@ref). `algorithm = :ipm` builds
 an [`IPMWorkspace`](@ref) for the interior-point method instead, whose keyword arguments are
-the fields of [`IPMSettings`](@ref). It runs on the host for any real element type, on direct
-backends only: it refuses GPU arrays, operators that supply products only,
-`linsys = :indirect` and `linsys = :kronecker`, each by name.
+the fields of [`IPMSettings`](@ref), plus `preconditioner`. It runs on the host for any real
+element type and refuses GPU arrays, `linsys = :kronecker` and `linsys = :lowrank` by name. It
+solves an operator that supplies products only, and runs conjugate gradients on any pair, only
+with `linsys = :indirect`, a caller-supplied `preconditioner` and `scaling = 0`; without
+those it throws, and `linsys = :auto` never chooses that path.
 
 `preconditioner` applies to `linsys = :indirect` only, and is refused with any other
 `linsys`. The default, `nothing`, is a [`JacobiPreconditioner`](@ref);

@@ -145,6 +145,15 @@ function PureOSQP.adopt_settings!(ls::IndirectCG, settings)
     return nothing
 end
 
+# The interior-point method sets a fresh tolerance level before every solve and starts CG from
+# zero, so the tolerance is never halved.
+function PureOSQP.adopt_settings!(ls::IndirectCG, settings::PureOSQP.IPMSettings)
+    ls.max_iter = settings.cg_max_iter
+    ls.tol_fraction = settings.cg_tol_fraction
+    ls.tol_reduction = typemax(Int)
+    return nothing
+end
+
 function PureOSQP.set_refresh_index!(ls::IndirectCG, k::Int)
     ls.refresh_index = k
     return nothing
@@ -180,6 +189,35 @@ function PureOSQP.factorize!(ls::IndirectCG{T, V, K, M}, prob, wt)::Bool where {
 end
 
 """
+    residual_stop_cg!(ls, op, M, atol) -> Bool
+
+Run CG from zero with zero Krylov tolerances, stopping once the two-norm of its recursively
+updated, unpreconditioned residual `kws.r` reaches `atol`, which costs a norm and no product.
+The callback runs after every iteration, so `ls.last_reached` holds the verdict of the last
+one.
+
+`false` means Krylov abandoned the solve because `rᵀM⁻¹r` came out negative or NaN, which
+happens when the operator or the preconditioner is not symmetric positive definite. The throw
+is caught here, in a function of its own, so the solve kernel carries no exception path.
+"""
+@noinline function residual_stop_cg!(ls::IndirectCG{T}, op, M, atol::T) where {T}
+    ls.last_reached = false
+    try
+        cg!(
+            ls.kws, op, ls.rhs;
+            M, ldiv = true, atol = zero(T), rtol = zero(T), itmax = ls.max_iter,
+            callback = kws -> (ls.last_reached = LinearAlgebra.norm(kws.r) <= atol),
+        )
+    catch e
+        # `msg` is declared `AbstractString`; Krylov's `error` builds a `String`.
+        msg = e isa ErrorException ? e.msg : ""
+        (msg isa String && occursin("not symmetric positive definite", msg)) || rethrow()
+        return false
+    end
+    return true
+end
+
+"""
     solve_system!(ls::IndirectCG, prob, wt, rhs_x, rhs_z, x, z) -> Nothing
 
 Solve the reduced system by preconditioned CG.
@@ -196,10 +234,12 @@ such solves in a row the tolerance is halved, which is what that setting counts,
 libosqp. The floor is relative rather than a fixed `sqrt(eps)` because a fixed floor sits
 above tight outer tolerances, and no amount of halving gets below it.
 
-The preconditioner is applied through `ldiv!`. With `residual_stop` on, CG runs with zero
-Krylov tolerances and stops once the two-norm of its recursive residual reaches the same
-`atol`. Either way the solve counts as converged when it stopped on its test (or on Krylov's
-machine-precision stop), and as a miss when it spent `cg_max_iter` iterations or broke down.
+The preconditioner is applied through `ldiv!`. With `residual_stop` on, CG starts from zero,
+runs with zero Krylov tolerances and stops once the two-norm of its recursive residual reaches
+the same `atol` (see `residual_stop_cg!`); a solve Krylov abandons for a
+preconditioner or operator that is not positive definite returns `x = 0`. Either way the solve
+counts as converged when it stopped on its test (or on Krylov's machine-precision stop), and as
+a miss when it spent `cg_max_iter` iterations or broke down.
 """
 function PureOSQP.solve_system!(ls::IndirectCG{T}, prob, wt, rhs_x, rhs_z, x, z)::Nothing where {T}
     m = prob.m
@@ -214,30 +254,27 @@ function PureOSQP.solve_system!(ls::IndirectCG{T}, prob, wt, rhs_x, rhs_z, x, z)
     floor = eps(T) * max(one(T), norm_inf(ls.rhs))
     atol = max(ls.reduction * ls.tol_fraction * ls.level, floor)
     op = ReducedOperator(prob, wt)
-    # The previous step's `x̃` is the best available guess: consecutive ADMM subproblems
-    # differ by one relaxation step, so starting from zero discards most of the work and
-    # the inner budget is spent recovering it.
-    Krylov.warm_start!(ls.kws, x)
     M = krylov_preconditioner(ls.precond)
     if ls.residual_stop
-        ls.last_reached = false
-        # `kws.r` is the unpreconditioned residual CG updates recursively, so the test costs
-        # a norm and no product. The callback runs after every iteration, so the flag holds
-        # the verdict of the last one.
-        cg!(
-            ls.kws, op, ls.rhs;
-            M, ldiv = true, atol = zero(T), rtol = zero(T), itmax = ls.max_iter,
-            callback = kws -> (ls.last_reached = LinearAlgebra.norm(kws.r) <= atol),
-        )
-        ls.last_reached = ls.last_reached || ls.kws.stats.solved
+        if residual_stop_cg!(ls, op, M, atol)
+            ls.last_reached = ls.last_reached || ls.kws.stats.solved
+            ls.total_iters += ls.kws.stats.niter
+        else
+            ls.last_reached = false
+            fill!(ls.kws.x, zero(T))
+        end
     else
+        # The previous step's `x̃` is the best available guess: consecutive ADMM subproblems
+        # differ by one relaxation step, so starting from zero discards most of the work and
+        # the inner budget is spent recovering it.
+        Krylov.warm_start!(ls.kws, x)
         cg!(
             ls.kws, op, ls.rhs;
             M, ldiv = true, atol, rtol = zero(T), itmax = ls.max_iter,
         )
         ls.last_reached = ls.kws.stats.solved
+        ls.total_iters += ls.kws.stats.niter
     end
-    ls.total_iters += ls.kws.stats.niter
     ls.last_reached || (ls.misses += 1)
     ls.idle_solves = iszero(ls.kws.stats.niter) ? ls.idle_solves + 1 : 0
     if ls.idle_solves >= ls.tol_reduction

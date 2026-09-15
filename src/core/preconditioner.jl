@@ -8,11 +8,14 @@ documented reads of `wt`; `prob` is passed for dispatch and is not part of the d
 interface.
 
 `k` is the refresh index the algorithm sets before calling: under ADMM, the number of
-refactorizations so far.
+refactorizations so far; under `algorithm = :ipm`, `-1` for the starting-point solve and the
+outer iteration `0, 1, 2, …` afterwards, where a regularization retry calls again with the
+same `k` and a larger `wt.sigma`.
 
 Called from the matrix-free backend's `factorize!` and `refactor_weights!`, before the solves
 that use it. The returned object replaces `M` and must have the same type; another type throws
-an `ArgumentError`. Refresh lazily by returning `M` unchanged.
+an `ArgumentError`. Refresh lazily by returning `M` unchanged, for instance except when `k` is
+negative, a multiple of three, or `wt.sigma` changed.
 
 `M` is applied through `LinearAlgebra.ldiv!(y, M, x)`, so a `Cholesky`, `LDLt` or any
 factorization object is usable as it is, and `M` must be symmetric positive definite. The

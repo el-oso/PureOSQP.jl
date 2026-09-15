@@ -23,11 +23,29 @@ what is true now; this file is where the history lives.
   and short-step threshold default to `1e-8` in `Float64` and finer arithmetic and to
   `sqrt(eps(T))` in coarser arithmetic, so `Float32` data solves at the defaults; `BigFloat` and
   `ForwardDiff.Dual` run as well, dual numbers on the reduced Cholesky only, where
-  `bunchkaufman!` is not needed. In this version it refuses by name GPU arrays, operators that
-  supply products only, `linsys = :indirect`, `linsys = :kronecker` and `linsys = :lowrank`,
-  and it has no
+  `bunchkaufman!` is not needed. In this version it refuses by name GPU arrays,
+  `linsys = :kronecker` and `linsys = :lowrank`, and it has no
   polishing, derivatives, `update!`, `update_settings!`, verbose output or
   MathOptInterface support.
+- **The interior-point method runs on operators with a caller-supplied preconditioner.**
+  `algorithm = :ipm` takes `linsys = :indirect` with a `preconditioner` other than the built-in
+  ones and `scaling = 0`, for matrices and for operators that supply products only
+  (`ProductOperator`, LinearMaps, SciMLOperators); anything else on that path is refused by
+  name, and `linsys = :auto` never chooses it. Conjugate gradients starts each Newton solve from
+  zero and stops on its recursively updated residual at `cg_tol_fraction` (default `0.1`) of
+  `min(μ, ‖r‖∞)`; a solve that spends `cg_max_iter` (default `500`) iterations, or that Krylov
+  abandons because the preconditioner is not positive definite, is missed, and `cg_fail_limit`
+  (default `3`) misses in a row end the run `NUMERICAL_ERROR`. `update_preconditioner!` receives
+  `k = -1` for the starting point and the outer iteration afterwards. Measured by
+  `bench/ipm_matrixfree.jl` on 24 dense planted instances as `LinearMap`s (`n` 500–2000,
+  `κ(A) ∈ {1, 1e6}`, active fractions 0.1 and 0.9, two-sided and mixed rows) with a lagged
+  Cholesky preconditioner refreshed every third outer iteration: all 24 solve at `eps = 1e-6`
+  with a referee residual of at most `7.9e-7`, in the same outer iterations as the dense KKT
+  factorization, with median inner iterations over the last three outer iterations at most
+  46 and no solve above 138 inner iterations. A primal-infeasible instance returns its
+  certificate, and a preconditioner with a negative entry ends `NUMERICAL_ERROR`. One sparse
+  instance with a limited-memory incomplete `LDLᵀ` reaches the iteration cap and ends
+  `NUMERICAL_ERROR`. `docs/src/operators.md` records the table.
 - **The interior-point method detects infeasibility.** It reports `PRIMAL_INFEASIBLE` and
   `DUAL_INFEASIBLE` (and their `*_INACCURATE` variants) with certificates in
   `Solution.prim_inf_cert` and `Solution.dual_inf_cert`, found by ADMM's certificate tests on
@@ -39,7 +57,8 @@ what is true now; this file is where the history lives.
   `TIME_LIMIT_REACHED` and `INTERRUPTED` and the point reached, as ADMM does.
 - **`NUMERICAL_ERROR`**, a new `Status` value. The interior-point method returns it when its
   Newton system stays unfactorizable after `max_reg_bumps` (default `5`) tenfold increases of
-  the regularization, when a residual stops being finite, and when three consecutive steps
+  the regularization, when a residual stops being finite, when conjugate gradients misses
+  `cg_fail_limit` Newton solves in a row, and when three consecutive steps
   are shorter than `1e-8` (`sqrt(eps(T))` in arithmetic coarser than `Float64`) without a
   certificate. `has_solution` is false for it, and MathOptInterface reports
   `MOI.NUMERICAL_ERROR` with no result. ADMM never returns it.

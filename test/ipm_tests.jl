@@ -274,8 +274,22 @@ end
     Pop = PureOSQP.ProductOperator{Float64}(P; symmetric = true, posdef = true)
     Aop = PureOSQP.ProductOperator{Float64}(A)
     @test_throws "supplies products only" setup(Pop, q, Aop, l, u; algorithm = :ipm)
-    @test_throws "linsys = :indirect is not available with algorithm = :ipm" setup(
-        P, q, A, l, u; algorithm = :ipm, linsys = :indirect
+    @test_throws "supplies products only" setup(Pop, q, Aop, l, u; algorithm = :ipm, linsys = :kkt)
+    F = cholesky(Symmetric(P))
+    for (PP, AA) in ((P, A), (Pop, Aop)), M in (nothing, IdentityPreconditioner(), JacobiPreconditioner(ones(n)))
+        @test_throws "uses conjugate gradients only with a caller-supplied preconditioner" setup(
+            PP, q, AA, l, u; algorithm = :ipm, linsys = :indirect, scaling = 0, preconditioner = M
+        )
+    end
+    @test_throws "pass scaling = 0 with it" setup(
+        Pop, q, Aop, l, u; algorithm = :ipm, linsys = :indirect, preconditioner = F
+    )
+    @test_throws "pass linsys = :indirect with it" setup(
+        P, q, A, l, u; algorithm = :ipm, linsys = :kkt, scaling = 0, preconditioner = F
+    )
+    Aprobe = PureOSQP.ProductOperator{Float64}(A; probe = true)
+    @test_throws "build them without probe" setup(
+        Pop, q, Aprobe, l, u; algorithm = :ipm, linsys = :indirect, scaling = 0, preconditioner = F
     )
     @test_throws "algorithm must be :admm or :ipm" setup(P, q, A, l, u; algorithm = :newton)
 
@@ -599,4 +613,87 @@ end
     ws = setup(P, q, F, l, u; algorithm = :ipm, check_termination = 0)
     F.n = 20 * length(A)
     @test_throws "boom" solve!(ws)
+end
+
+@testitem "interior point: conjugate gradients with a caller-supplied preconditioner" begin
+    using LinearAlgebra, SparseArrays, OSQP, Random, Krylov
+    include(joinpath(@__DIR__, "helpers.jl"))
+
+    # The Cholesky factor of `P + σI + Aᵀ diag(w) A`, rebuilt at the starting point, every
+    # `every` outer iterations and whenever `σ` changes. `every = 1` is the exact inverse.
+    mutable struct LaggedCholesky{T}
+        const P::Matrix{T}
+        const A::Matrix{T}
+        const every::Int
+        F::Cholesky{T, Matrix{T}}
+        sigma::T
+        const ks::Vector{Int}
+    end
+    LaggedCholesky(P, A; every = 3) =
+        LaggedCholesky(Matrix(P), Matrix(A), every, cholesky(Matrix(1.0I, size(P)...)), NaN, Int[])
+    function PureOSQP.update_preconditioner!(M::LaggedCholesky, prob, wt, k::Int)
+        push!(M.ks, k)
+        (k < 0 || iszero(k % M.every) || wt.sigma != M.sigma) || return M
+        M.F = cholesky(Symmetric(M.P + wt.sigma * I + M.A' * Diagonal(wt.w) * M.A))
+        M.sigma = wt.sigma
+        return M
+    end
+    LinearAlgebra.ldiv!(y::AbstractVector, M::LaggedCholesky, x::AbstractVector) = ldiv!(y, M.F, x)
+
+    P, q, A, l, u = random_qp(20, 30; seed = 93)
+    l[1:4] .= u[1:4]
+    l[5:7] .= -Inf
+    ref = PureOSQP.solve(P, q, A, l, u; algorithm = :ipm, linsys = :kkt, scaling = 0)
+    @test ref.status == SOLVED
+    Pop = PureOSQP.ProductOperator{Float64}(P; symmetric = true, posdef = true)
+    Aop = PureOSQP.ProductOperator{Float64}(A)
+    for (PP, AA) in ((P, A), (Pop, Aop)), every in (1, 3)
+        M = LaggedCholesky(P, A; every)
+        ws = setup(PP, q, AA, l, u; algorithm = :ipm, linsys = :indirect, scaling = 0, preconditioner = M)
+        @test PureOSQP.backend_name(ws.linsys) === :indirect
+        @test ws.settings.refine_iter == 0
+        s = solve!(ws)
+        @test s.status == SOLVED
+        @test s.cg_iters > 0
+        @test s.cg_iters == PureOSQP.inner_iterations(ws.linsys)
+        @test maximum(kkt_residuals(P, q, A, l, u, s.x, s.y)) < 1.0e-5
+        @test s.x ≈ ref.x atol = 1.0e-5
+        # One refresh per factorization: the starting point, then every outer iteration.
+        @test M.ks == -1:(s.iter - 1)
+        every == 1 && @test abs(s.iter - ref.iter) <= 1
+    end
+
+    # A preconditioner so poor that one iteration never reaches the tolerance: every solve is
+    # missed, and the third in a row ends the run.
+    s = PureOSQP.solve(
+        Pop, q, Aop, l, u; algorithm = :ipm, linsys = :indirect, scaling = 0,
+        preconditioner = Diagonal(fill(1.0e3, 20)), cg_max_iter = 1
+    )
+    @test s.status == NUMERICAL_ERROR
+    @test s.iter == 1
+    @test 0 < s.cg_iters <= 3
+    s = PureOSQP.solve(
+        Pop, q, Aop, l, u; algorithm = :ipm, linsys = :indirect, scaling = 0,
+        preconditioner = Diagonal(fill(1.0e3, 20)), cg_max_iter = 1, cg_fail_limit = 1
+    )
+    @test s.status == NUMERICAL_ERROR
+    @test s.iter == 0
+
+    # A preconditioner that is not positive definite: Krylov abandons each solve, which counts
+    # as a miss rather than escaping as an exception.
+    d = ones(20)
+    d[1] = -1.0
+    s = PureOSQP.solve(
+        Pop, q, Aop, l, u; algorithm = :ipm, linsys = :indirect, scaling = 0, preconditioner = Diagonal(d)
+    )
+    @test s.status == NUMERICAL_ERROR
+    @test !has_solution(s.status)
+
+    # A refresh must hand back the type the backend was built with.
+    struct Retyping end
+    PureOSQP.update_preconditioner!(::Retyping, prob, wt, k::Int) = I
+    @test_throws "update_preconditioner! must return a preconditioner of the type" PureOSQP.solve(
+        P, q, A, l, u; algorithm = :ipm, linsys = :indirect, scaling = 0, preconditioner = Retyping()
+    )
+    @test_throws "cg_fail_limit must be positive" setup(P, q, A, l, u; algorithm = :ipm, cg_fail_limit = 0)
 end

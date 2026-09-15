@@ -26,8 +26,16 @@ and [`solve`](@ref). The keyword arguments of those two functions are then these
   which correct rounding in the factorization.
 - `step_fraction = 0.99` — the fraction of the step to the boundary that is taken.
 - `warm_starting = true` — start a re-solve from the previous point.
-- `linsys = :auto` — the backend, as in [`Settings`](@ref). `:indirect`, `:kronecker` and
-  `:lowrank` are refused.
+- `linsys = :auto` — the backend, as in [`Settings`](@ref). `:kronecker` and `:lowrank` are
+  refused; `:indirect` runs only with a caller-supplied `preconditioner` (see
+  [`setup`](@ref)), and then refines nothing: `refine_iter` defaults to `0` there.
+- `cg_max_iter = 500` — conjugate-gradient iterations per Newton solve with
+  `linsys = :indirect`. A solve that spends them all, or that conjugate gradients abandons
+  because the operator or the preconditioner is not positive definite, is a missed solve.
+- `cg_tol_fraction = 0.1` — each solve stops once the two-norm of its recursively updated
+  residual is below this fraction of `min(μ, ‖r‖∞)`, the barrier parameter and the largest
+  Newton residual, floored at `eps(T)` relative to the right-hand side.
+- `cg_fail_limit = 3` — this many missed solves in a row end the run `NUMERICAL_ERROR`.
 
 A reduced backend solves `P̃ + δ_p I + Ãᵀ diag(w) Ã`, whose weights reach `1/δ_d` on
 equality rows and on active inequality rows, so its conditioning is bounded by
@@ -57,6 +65,9 @@ struct IPMSettings{T <: Real}
     step_fraction::T
     warm_starting::Bool
     linsys::Symbol
+    cg_max_iter::Int
+    cg_tol_fraction::T
+    cg_fail_limit::Int
 end
 
 """
@@ -83,8 +94,9 @@ function IPMSettings{T}(;
         max_iter = 100, time_limit = Inf, eps_abs = ipm_floor(T), eps_rel = ipm_floor(T),
         eps_prim_inf = ipm_floor(T), eps_dual_inf = ipm_floor(T), scaling = 10,
         check_termination = 1, check_dualgap = true, scaled_termination = false,
-        reg_primal = ipm_floor(T), reg_dual = ipm_floor(T), max_reg_bumps = 5, refine_iter = 1,
-        step_fraction = 0.99, warm_starting = true, linsys = :auto,
+        linsys = :auto, reg_primal = ipm_floor(T), reg_dual = ipm_floor(T), max_reg_bumps = 5,
+        refine_iter = linsys === :indirect ? 0 : 1, step_fraction = 0.99, warm_starting = true,
+        cg_max_iter = 500, cg_tol_fraction = 0.1, cg_fail_limit = 3,
     ) where {T <: Real}
     linsys in LINSYS_OPTIONS || throw(
         ArgumentError("linsys must be one of $(join(LINSYS_OPTIONS, ", ")), got :$linsys")
@@ -101,10 +113,14 @@ function IPMSettings{T}(;
     reg_dual > 0 || throw(ArgumentError("reg_dual must be positive, got $reg_dual"))
     refine_iter >= 0 || throw(ArgumentError("refine_iter must be non-negative, got $refine_iter"))
     0 < step_fraction < 1 || throw(ArgumentError("step_fraction must lie in (0, 1), got $step_fraction"))
+    cg_max_iter > 0 || throw(ArgumentError("cg_max_iter must be positive, got $cg_max_iter"))
+    cg_tol_fraction > 0 || throw(ArgumentError("cg_tol_fraction must be positive, got $cg_tol_fraction"))
+    cg_fail_limit > 0 || throw(ArgumentError("cg_fail_limit must be positive, got $cg_fail_limit"))
     return IPMSettings{T}(
         Int(max_iter), T(time_limit), T(eps_abs), T(eps_rel), T(eps_prim_inf),
         T(eps_dual_inf), Int(scaling), Int(check_termination),
         Bool(check_dualgap), Bool(scaled_termination), T(reg_primal), T(reg_dual),
         Int(max_reg_bumps), Int(refine_iter), T(step_fraction), Bool(warm_starting), Symbol(linsys),
+        Int(cg_max_iter), T(cg_tol_fraction), Int(cg_fail_limit),
     )
 end

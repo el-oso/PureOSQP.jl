@@ -100,6 +100,8 @@ mutable struct IPMWorkspace{
     SCy::T
     rel_kkt_error::T
     cg_iters::Int
+    # Consecutive Newton solves the backend reported as missed (see `last_solve_converged`).
+    cg_misses::Int
     iter::Int
     status::Status
     seeded::Bool
@@ -156,7 +158,7 @@ function ipm_workspace(ls::LinearSystem, prob::Problem{T}, wt::SystemWeights{T},
         zero(T), zero(T), zero(T),
         zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), zero(T),
         zero(T), zero(T), zero(T), zero(T),
-        0, 0, UNSOLVED, false, true, 0.0, 0.0,
+        0, 0, 0, UNSOLVED, false, true, 0.0, 0.0,
         settings,
     )
     return ws
@@ -165,28 +167,54 @@ end
 function refuse_ipm_operators()
     throw(
         ArgumentError(
-            "algorithm = :ipm reads the entries of P and A, and one of them declares " *
-                "`PureOSQP.is_materializable` false: it supplies products only. Pass " *
-                "matrices, or use algorithm = :admm."
+            "algorithm = :ipm factors a matrix built from the entries of P and A, and one of " *
+                "them declares `PureOSQP.is_materializable` false: it supplies products only. " *
+                "Pass matrices, pass linsys = :indirect with a caller-supplied preconditioner " *
+                "and scaling = 0, or use algorithm = :admm."
         )
     )
 end
 
+"Whether `M` is a preconditioner the caller built, rather than `nothing` or a built-in one."
+caller_preconditioner(M) = !(M isa Union{Nothing, IdentityPreconditioner, JacobiPreconditioner})
+
+probing(M) = M isa ProductOperator && M.probe
+
 function setup_backend(
         ::Val{:ipm}, ::Val{LS}, ::Type{T}, P::AbstractMatrix, q::AbstractVector,
-        A::AbstractMatrix, l::AbstractVector, u::AbstractVector; kwargs...
+        A::AbstractMatrix, l::AbstractVector, u::AbstractVector; preconditioner = nothing, kwargs...
     ) where {LS, T <: Real}
     t0 = time_ns()
     nv, mv = validate(P, q, A, l, u)
-    (is_materializable(P) && is_materializable(A)) || refuse_ipm_operators()
     settings = IPMSettings{T}(; linsys = LS, kwargs...)
-    LS === :indirect && throw(
+    isnothing(preconditioner) || LS === :indirect || throw(
         ArgumentError(
-            "linsys = :indirect is not available with algorithm = :ipm, which solves its " *
-                "Newton systems with a direct backend. Choose another linsys, or use " *
+            "preconditioner is used only by the matrix-free backend: pass linsys = :indirect with it."
+        )
+    )
+    LS === :indirect && !caller_preconditioner(preconditioner) && throw(
+        ArgumentError(
+            "the interior-point method uses conjugate gradients only with a caller-supplied " *
+                "preconditioner; measured without one, or with the Jacobi diagonal, it does not " *
+                "reach the tolerance on most problems. Pass one, choose a direct linsys, or use " *
                 "algorithm = :admm."
         )
     )
+    LS === :indirect || (is_materializable(P) && is_materializable(A)) || refuse_ipm_operators()
+    if LS === :indirect
+        iszero(settings.scaling) || throw(
+            ArgumentError(
+                "a caller-supplied preconditioner approximates P + reg_primal*I + A' * Diagonal(w) * A " *
+                    "for the P and A passed to setup, which equilibration would change: pass scaling = 0 with it."
+            )
+        )
+        (probing(P) || probing(A)) && throw(
+            ArgumentError(
+                "a caller-supplied preconditioner approximates the operators passed to setup, " *
+                    "and probe = true exists only to equilibrate them: build them without probe."
+            )
+        )
+    end
     LS === :kronecker && throw(
         ArgumentError(
             "linsys = :kronecker is not available with algorithm = :ipm: the Kronecker " *
@@ -216,6 +244,10 @@ function setup_backend(
         ws = ipm_workspace(FullKKT(q0, n, m), prob, wt, settings)
     elseif LS === :dense
         ws = ipm_workspace(ReducedCholesky(q0, n, m), prob, wt, settings)
+    elseif LS === :indirect
+        ws = ipm_workspace(indirect_backend(q0, n, m, preconditioner), prob, wt, settings)
+        adopt_settings!(ws.linsys, settings)
+        use_residual_stop!(ws.linsys, true)
     elseif LS === :sparse
         rung = kkt_rung(P, A, prob, wt, sel)
         isnothing(rung) && (rung = reduced_rung(P, A, prob, wt, sel))
@@ -314,7 +346,8 @@ lowrank_rung(P::Diagonal, A::RowCoupled, prob, wt, sel::IPMSelection) = nothing
 """
     indirect_rung(P, A, prob, sel::IPMSelection)
 
-Refuses: the interior-point method has no matrix-free backend.
+Refuses: the interior-point method runs the matrix-free backend only when it is named, with
+a caller-supplied preconditioner.
 """
 indirect_rung(P, A, prob, sel::IPMSelection) = refuse_ipm_operators()
 

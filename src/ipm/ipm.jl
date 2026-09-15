@@ -96,7 +96,11 @@ function starting_point!(ws::IPMWorkspace{T}) where {T}
             ws.rhs_z[i] = c == ROW_EQUALITY ? l[i] : c == ROW_FREE ? zr :
                 has_l[i] && has_u[i] ? (l[i] + u[i]) / 2 : has_l[i] ? l[i] : u[i]
         end
+        # An iterative backend solves this system to its relative floor and starts from zero.
+        set_tolerance_level!(ls, zr)
+        fill!(x, zr)
         solve_system!(ls, prob, wt, ws.rhs_x, ws.rhs_z, x, ws.Adx)
+        count_miss!(ws)
         fill!(y, zr)
     end
     prob.m > 0 && mul_A!(ws.Ax, prob, x)
@@ -255,6 +259,12 @@ function refine!(ws::IPMWorkspace{T}) where {T}
     return ws
 end
 
+"Count the backend's last solve toward the run of consecutive missed solves, or end that run."
+function count_miss!(ws::IPMWorkspace)
+    ws.cg_misses = last_solve_converged(ws.linsys) ? 0 : ws.cg_misses + 1
+    return ws
+end
+
 """
     direction!(ws) -> ws
 
@@ -282,6 +292,7 @@ function direction!(ws::IPMWorkspace{T}) where {T}
     end
     fill!(ws.dx, zr)
     solve_multiplier!(ws.linsys, prob, wt, ws.rhs_x, rhs_z, ws.dx, dy)
+    count_miss!(ws)
     for _ in 1:s.refine_iter
         refine!(ws)
     end
@@ -514,6 +525,10 @@ Safeguards, checked every iteration:
 - A factorization failure raises both regularizations tenfold and retries, at most
   `max_reg_bumps` times in the solve; past that the run ends `NUMERICAL_ERROR`.
 - A non-finite residual ends the run `NUMERICAL_ERROR`.
+- `cg_fail_limit` consecutive missed solves of an iterative backend (see
+  [`last_solve_converged`](@ref)) end the run `NUMERICAL_ERROR`. With `linsys = :indirect` a
+  miss is a solve that spent `cg_max_iter` iterations or that conjugate gradients abandoned,
+  which a preconditioner that is not symmetric positive definite causes.
 - A stalled iteration (see [`stalled!`](@ref)) runs the tests at once, then at ten times the
   tolerances, and ends `NUMERICAL_ERROR` if neither passes.
 - Once `μ` has stopped falling for `STALL_MERIT` iterations, or an iterate exceeds
@@ -538,6 +553,7 @@ function solve!(ws::IPMWorkspace{T}) where {T}
     ws.flat_merit = 0
     ws.last_merit = INFTY(T)
     ws.alert = false
+    ws.cg_misses = 0
     bound = iterate_bound(ws)
     inner_before = inner_iterations(ws.linsys)
     # As in ADMM's loop: the clock is read only when a limit is set.
@@ -547,7 +563,7 @@ function solve!(ws::IPMWorkspace{T}) where {T}
     try
         if starting_point!(ws)
             ipm_residuals!(ws)
-            finite_residuals(ws) || (ws.status = NUMERICAL_ERROR)
+            (finite_residuals(ws) && ws.cg_misses < s.cg_fail_limit) || (ws.status = NUMERICAL_ERROR)
         else
             ws.status = NUMERICAL_ERROR
         end
@@ -562,7 +578,7 @@ function solve!(ws::IPMWorkspace{T}) where {T}
             end
             ipm_step!(ws)
             ipm_residuals!(ws)
-            if !finite_residuals(ws)
+            if !finite_residuals(ws) || ws.cg_misses >= s.cg_fail_limit
                 ws.status = NUMERICAL_ERROR
                 break
             end
