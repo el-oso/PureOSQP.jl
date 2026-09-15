@@ -228,6 +228,9 @@ the plain step allowed (see `safeguard_tol` in `PureOSQP.anderson`). It is zero 
 an accelerator. A count close to `iter` means nearly every proposal was discarded and the
 accelerator is only adding work.
 
+`cg_iters` is the number of conjugate-gradient iterations this solve's linear solves took, on
+`linsys = :indirect`; it is zero on every direct backend.
+
 `primdual_int` and `primdual_int_log` are the primal-dual integral, `∫|gap| dt` over the
 solve, and are zero unless `profile_primdual` was set. They differ only in how the gap is
 interpolated between the iterations that sampled it: the first joins samples with a straight
@@ -271,6 +274,7 @@ struct Solution{T <: Real}
     rho_estimate::T
     rho_updates::Int
     accel_declined::Int
+    cg_iters::Int
     polished::Bool
     status_polish::PolishStatus
     setup_time::Float64
@@ -349,6 +353,7 @@ mutable struct Workspace{
     rho_estimate::T
     rho_updates::Int
     accel_declined::Int
+    cg_iters::Int
     iter::Int
     status::Status
     polished::Bool
@@ -480,7 +485,14 @@ Build a workspace for `min ½xᵀPx + qᵀx  s.t.  l ≤ Ax ≤ u`.
 
 `P` must be a full symmetric matrix (or a `Symmetric` wrapper), not a stored triangle.
 `P` and `A` may be any `AbstractMatrix` and are not copied or modified. Keyword arguments
-are the fields of [`Settings`](@ref).
+are the fields of [`Settings`](@ref), plus `accelerator` and `preconditioner`.
+
+`preconditioner` applies to `linsys = :indirect` only, and is refused with any other
+`linsys`. The default, `nothing`, is a [`JacobiPreconditioner`](@ref);
+[`IdentityPreconditioner`](@ref) turns preconditioning off. Any other object is used through
+`LinearAlgebra.ldiv!` and refreshed by [`update_preconditioner!`](@ref) whenever the weights
+change; it approximates the reduced matrix of the `P` and `A` passed here, so it requires
+`scaling = 0`.
 
 A `Symmetric` wrapper is accepted over any parent, but it costs something over a
 `SparseMatrixCSC`: the sparse-factorization backends are keyed on that concrete type, so a
@@ -524,11 +536,27 @@ end
 
 function setup_backend(
         ::Val{LS}, ::Type{T}, P::AbstractMatrix, q::AbstractVector, A::AbstractMatrix,
-        l::AbstractVector, u::AbstractVector; accelerator = nothing, kwargs...
+        l::AbstractVector, u::AbstractVector; accelerator = nothing, preconditioner = nothing,
+        kwargs...
     ) where {LS, T <: Real}
     t0 = time_ns()
     nv, mv = validate(P, q, A, l, u)
     settings = Settings{T}(; linsys = LS, kwargs...)
+    isnothing(preconditioner) || LS === :indirect || throw(
+        ArgumentError(
+            "preconditioner is used only by the matrix-free backend: pass linsys = :indirect with it."
+        )
+    )
+    # A caller's preconditioner approximates the caller's own reduced matrix, which
+    # equilibration would change underneath it. The two built-in ones need nothing from the
+    # caller's matrices.
+    preconditioner isa Union{Nothing, IdentityPreconditioner, JacobiPreconditioner} ||
+        iszero(settings.scaling) || throw(
+        ArgumentError(
+            "a caller-supplied preconditioner approximates P + sigma*I + A' * Diagonal(rho) * A " *
+                "for the P and A passed to setup, which equilibration would change: pass scaling = 0 with it."
+        )
+    )
     if !is_convex(T, P, settings.sigma)
         throw(ArgumentError("P + sigma*I is not positive definite: P is indefinite, so the problem is not convex. Increase sigma if P + sigma*I can be made positive definite."))
     end
@@ -567,7 +595,7 @@ function setup_backend(
             zero(T), zero(T), zero(T), zero(T), zero(T),
             zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), INFTY(T),
             0.0, 0.0, 0.0, zero(T), zero(UInt64),
-            settings.rho, 0, 0, 0, UNSOLVED, false, POLISH_NOT_PERFORMED,
+            settings.rho, 0, 0, 0, 0, UNSOLVED, false, POLISH_NOT_PERFORMED,
             0.0, 0.0, true, 0.0, 0.0,
             settings,
         )
@@ -589,7 +617,7 @@ function setup_backend(
         refactor!(ws)
         return finish_setup!(ws, t0)
     elseif LS === :indirect
-        ws = make(indirect_backend(q0, n, m))
+        ws = make(indirect_backend(q0, n, m, preconditioner))
         refactor!(ws)
         return finish_setup!(ws, t0)
     elseif LS === :sparse

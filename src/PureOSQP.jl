@@ -24,6 +24,7 @@ export backend_info, backend_name, factor_fill, BackendInfo
 export PolishStatus
 export adjoint_derivative, forward_derivative
 export LinearSystem, ReducedCholesky, FullKKT
+export IdentityPreconditioner, JacobiPreconditioner, update_preconditioner!
 export SOLVED, PRIMAL_INFEASIBLE, DUAL_INFEASIBLE, MAX_ITER_REACHED, NON_CONVEX, UNSOLVED
 export TIME_LIMIT_REACHED, INTERRUPTED
 export PolishStatus, POLISH_SUCCESS, POLISH_FAILED, POLISH_NOT_PERFORMED
@@ -36,6 +37,7 @@ include("core/rowcoupled.jl")
 include("core/problem.jl")
 include("core/weights.jl")
 include("core/linsys.jl")
+include("core/preconditioner.jl")
 include("core/operator.jl")
 include("core/lowrank.jl")
 include("core/block.jl")

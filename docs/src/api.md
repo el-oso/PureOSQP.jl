@@ -125,6 +125,13 @@ PureOSQP.SystemWeights
 PureOSQP.check_update
 PureOSQP.set_tolerance_level!
 PureOSQP.adopt_settings!
+PureOSQP.set_refresh_index!
+PureOSQP.use_residual_stop!
+PureOSQP.last_solve_converged
+PureOSQP.inner_iterations
+PureOSQP.update_preconditioner!
+PureOSQP.IdentityPreconditioner
+PureOSQP.JacobiPreconditioner
 PureOSQP.choose_backend
 PureOSQP.ReducedInverse
 PureOSQP.ReducedCholesky

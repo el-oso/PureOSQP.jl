@@ -5,6 +5,16 @@ what is true now; this file is where the history lives.
 
 ## Unreleased
 
+### Added
+
+- **`Solution.cg_iters`** reports how many conjugate-gradient iterations a solve took on
+  `linsys = :indirect`. It is zero on every direct backend.
+- **`setup` and `solve` take a `preconditioner` keyword** for `linsys = :indirect`. The default
+  is the Jacobi diagonal, as before; `IdentityPreconditioner()` turns preconditioning off; any
+  other object is applied through `LinearAlgebra.ldiv!`, so a `Cholesky` works as it is, and is
+  refreshed by a method of `update_preconditioner!` whenever `ρ` or `σ` changes. A caller's own
+  preconditioner requires `scaling = 0`.
+
 ### Changed
 
 - **The `polish` setting is now `polishing`**, the name libosqp 1.0 uses. This is a breaking

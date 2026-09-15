@@ -595,7 +595,7 @@ It has no gate: reaching it means nothing above could serve. Without Krylov load
 no such backend and [`indirect_backend`](@ref) says so.
 """
 indirect_rung(P, A, prob, sel::ADMMSelection) =
-    (indirect_backend(prob.q0, prob.n, prob.m), false)
+    (indirect_backend(prob.q0, prob.n, prob.m, nothing), false)
 
 choose_backend(P::Diagonal, A::Diagonal, prob, wt, sel::ADMMSelection) =
     (DiagonalReduced(prob.q0, prob.n), false)
@@ -864,6 +864,7 @@ measured problem has produced once equilibration is on — the remedy is to rebu
 workspace with `linsys = :kkt` rather than to switch backend underneath the caller.
 """
 function refactor!(ws)
+    set_refresh_index!(ws.linsys, ws.refactor_count)
     return refactored!(ws, factorize!(ws.linsys, ws.prob, ws.weights))
 end
 
@@ -875,6 +876,7 @@ Refresh the workspace's factorization after `ρ` alone changed, through the back
 refactorization.
 """
 function refactor_rho!(ws)
+    set_refresh_index!(ws.linsys, ws.refactor_count)
     return refactored!(ws, refactor_weights!(ws.linsys, ws.prob, ws.weights))
 end
 
@@ -900,12 +902,13 @@ function refactored!(ws, ok::Bool)
 end
 
 """
-    indirect_backend(proto, n, m) -> LinearSystem
+    indirect_backend(proto, n, m, preconditioner) -> LinearSystem
 
-Build the matrix-free backend selected by `linsys = :indirect`. Supplied by the Krylov
-extension; without Krylov loaded there is no such backend and this says so.
+Build the matrix-free backend selected by `linsys = :indirect`, preconditioned by
+`preconditioner`, or by a [`JacobiPreconditioner`](@ref) when that is `nothing`. Supplied by
+the Krylov extension; without Krylov loaded there is no such backend and this says so.
 """
-function indirect_backend(proto::AbstractVector, n::Integer, m::Integer)
+function indirect_backend(proto::AbstractVector, n::Integer, m::Integer, preconditioner)
     throw(
         ArgumentError(
             "linsys = :indirect needs Krylov.jl, which is a weak dependency: run " *

@@ -60,51 +60,75 @@ function LinearAlgebra.mul!(y::AbstractVector, op::ReducedOperator, x::AbstractV
 end
 
 """
-    IndirectCG{T,V,K} <: LinearSystem
+    IndirectCG{T,V,K,M} <: LinearSystem
 
-Conjugate gradients on the reduced system, with a Jacobi preconditioner.
+Conjugate gradients on the reduced system, preconditioned by `precond::M`.
 
-`factorize!` builds the preconditioner rather than a factorization: the diagonal of the
-reduced matrix, which is computable column by column without assembling the matrix itself.
-The Krylov workspace is allocated once and reused, so the per-iteration solve allocates
-nothing.
+`factorize!` refreshes the preconditioner rather than building a factorization, through
+`PureOSQP.update_preconditioner!` with the refresh index last set by
+`PureOSQP.set_refresh_index!`. The default `JacobiPreconditioner` holds the inverted diagonal
+of the reduced matrix, which is computable column by column without assembling the matrix
+itself. The Krylov workspace is allocated once and reused, so the per-iteration solve
+allocates nothing.
 
 `level` is the residual level the next solve's tolerance is relative to, set through
 `PureOSQP.set_tolerance_level!`. `max_iter`, `tol_fraction` and `tol_reduction` are the
 workspace's `cg_max_iter`, `cg_tol_fraction` and `cg_tol_reduction`, copied in by
 `PureOSQP.adopt_settings!` when the workspace is built and whenever its settings are
 replaced.
+
+`total_iters` counts CG iterations over the backend's life and `misses` the solves that did
+not meet their stopping test; `last_reached` is whether the most recent one did.
+`residual_stop` selects the stopping rule, set through `PureOSQP.use_residual_stop!`.
 """
-mutable struct IndirectCG{T <: Real, V <: AbstractVector{T}, K} <: LinearSystem
-    kws::K              # Krylov's CgWorkspace, reused across solves
-    rhs::V
-    prec::V             # the reduced diagonal, inverted
+mutable struct IndirectCG{T <: Real, V <: AbstractVector{T}, K, M} <: LinearSystem
+    const kws::K        # Krylov's CgWorkspace, reused across solves
+    const rhs::V
+    precond::M
     reduction::T        # multiplies the tolerance; halved when CG stops iterating
     idle_solves::Int    # consecutive solves in which CG took no iteration
     level::T
     max_iter::Int
     tol_fraction::T
     tol_reduction::Int
+    refresh_index::Int
+    total_iters::Int
+    misses::Int
+    last_reached::Bool
+    residual_stop::Bool
 end
 
-function PureOSQP.indirect_backend(proto::AbstractVector{T}, n::Integer, m::Integer) where {T <: Real}
+function PureOSQP.indirect_backend(
+        proto::AbstractVector{T}, n::Integer, m::Integer, preconditioner
+    ) where {T <: Real}
     kws = CgWorkspace(n, n, typeof(similar(proto, T, n)))
     # `cg!` allocates its preconditioned vector on first use, when it finds the field empty.
     # Filling it here is what makes the very first solve allocation-free, not merely every
     # solve after the first.
     kws.z = similar(proto, T, n)
+    precond = isnothing(preconditioner) ?
+        PureOSQP.JacobiPreconditioner(fill!(similar(proto, T, n), one(T))) : preconditioner
+    precond isa PureOSQP.JacobiPreconditioner && length(precond.dinv) != n && throw(
+        DimensionMismatch("a JacobiPreconditioner needs one entry per variable")
+    )
     # The level and the settings hold placeholders until `set_tolerance_level!` and
     # `adopt_settings!` fill them, which `setup` and `admm_step!` do before any solve.
-    return IndirectCG{T, typeof(similar(proto, T, n)), typeof(kws)}(
-        kws, similar(proto, T, n), fill!(similar(proto, T, n), one(T)), one(T), 0,
+    return IndirectCG{T, typeof(similar(proto, T, n)), typeof(kws), typeof(precond)}(
+        kws, similar(proto, T, n), precond, one(T), 0,
         zero(T), 0, zero(T), 0,
+        0, 0, 0, true, false,
     )
 end
 
+# Krylov tests `M === I` and then skips the preconditioned vector entirely, which is exact
+# and cheaper than copying the residual into it.
+krylov_preconditioner(M) = M
+krylov_preconditioner(::PureOSQP.IdentityPreconditioner) = LinearAlgebra.I
+
 PureOSQP.backend_name(::IndirectCG) = :indirect
 
-# Matrix-free: the preconditioner is a diagonal, not a factorization, so there is no factor
-# to count.
+# Matrix-free: the preconditioner is not a factorization this backend owns, so there is no
+# factor to count.
 PureOSQP.backend_info(ls::IndirectCG) = PureOSQP.BackendInfo(
     PureOSQP.backend_name(ls), false, :reduced, length(ls.rhs), 0
 )
@@ -121,19 +145,37 @@ function PureOSQP.adopt_settings!(ls::IndirectCG, settings)
     return nothing
 end
 
+function PureOSQP.set_refresh_index!(ls::IndirectCG, k::Int)
+    ls.refresh_index = k
+    return nothing
+end
+
+function PureOSQP.use_residual_stop!(ls::IndirectCG, on::Bool)
+    ls.residual_stop = on
+    return nothing
+end
+
+PureOSQP.last_solve_converged(ls::IndirectCG) = ls.last_reached
+PureOSQP.inner_iterations(ls::IndirectCG) = ls.total_iters
+
 """
     factorize!(ls::IndirectCG, prob, wt) -> Bool
 
-Rebuild the Jacobi preconditioner for the current weights. The reduced diagonal is
+Refresh the preconditioner for the current weights through `update_preconditioner!`. For the
+default `JacobiPreconditioner` that is the reduced diagonal
 `c·D[j]²·P[j,j] + σ + Σᵢ wᵢ (E[i] A[i,j] D[j])²`, which each column yields directly.
 
-Always succeeds: there is nothing here that can be singular, since `σ > 0` keeps every
-diagonal entry positive.
+Succeeds unless `update_preconditioner!` returns an object of another type, which throws:
+there is no factorization here that can be singular.
 """
-function PureOSQP.factorize!(ls::IndirectCG{T}, prob, wt)::Bool where {T}
-    PureOSQP.reduced_diagonal!(
-        ls.prec, T, prob.P, prob.A, wt.w, prob.E, prob.D, wt.sigma, prob.c
+function PureOSQP.factorize!(ls::IndirectCG{T, V, K, M}, prob, wt)::Bool where {T, V, K, M}
+    fresh = PureOSQP.update_preconditioner!(ls.precond, prob, wt, ls.refresh_index)
+    fresh isa M || throw(
+        ArgumentError(
+            lazy"update_preconditioner! must return a preconditioner of the type it was given, $M, and returned a $(typeof(fresh))"
+        )
     )
+    ls.precond = fresh
     return true
 end
 
@@ -153,6 +195,11 @@ meets the tolerance, CG takes no step, and the iterate stops moving; after `cg_t
 such solves in a row the tolerance is halved, which is what that setting counts, as in
 libosqp. The floor is relative rather than a fixed `sqrt(eps)` because a fixed floor sits
 above tight outer tolerances, and no amount of halving gets below it.
+
+The preconditioner is applied through `ldiv!`. With `residual_stop` on, CG runs with zero
+Krylov tolerances and stops once the two-norm of its recursive residual reaches the same
+`atol`. Either way the solve counts as converged when it stopped on its test (or on Krylov's
+machine-precision stop), and as a miss when it spent `cg_max_iter` iterations or broke down.
 """
 function PureOSQP.solve_system!(ls::IndirectCG{T}, prob, wt, rhs_x, rhs_z, x, z)::Nothing where {T}
     m = prob.m
@@ -171,11 +218,27 @@ function PureOSQP.solve_system!(ls::IndirectCG{T}, prob, wt, rhs_x, rhs_z, x, z)
     # differ by one relaxation step, so starting from zero discards most of the work and
     # the inner budget is spent recovering it.
     Krylov.warm_start!(ls.kws, x)
-    cg!(
-        ls.kws, op, ls.rhs;
-        M = LinearAlgebra.Diagonal(ls.prec), ldiv = false,
-        atol = atol, rtol = zero(T), itmax = ls.max_iter,
-    )
+    M = krylov_preconditioner(ls.precond)
+    if ls.residual_stop
+        ls.last_reached = false
+        # `kws.r` is the unpreconditioned residual CG updates recursively, so the test costs
+        # a norm and no product. The callback runs after every iteration, so the flag holds
+        # the verdict of the last one.
+        cg!(
+            ls.kws, op, ls.rhs;
+            M, ldiv = true, atol = zero(T), rtol = zero(T), itmax = ls.max_iter,
+            callback = kws -> (ls.last_reached = LinearAlgebra.norm(kws.r) <= atol),
+        )
+        ls.last_reached = ls.last_reached || ls.kws.stats.solved
+    else
+        cg!(
+            ls.kws, op, ls.rhs;
+            M, ldiv = true, atol, rtol = zero(T), itmax = ls.max_iter,
+        )
+        ls.last_reached = ls.kws.stats.solved
+    end
+    ls.total_iters += ls.kws.stats.niter
+    ls.last_reached || (ls.misses += 1)
     ls.idle_solves = iszero(ls.kws.stats.niter) ? ls.idle_solves + 1 : 0
     if ls.idle_solves >= ls.tol_reduction
         ls.reduction /= 2

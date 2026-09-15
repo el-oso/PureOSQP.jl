@@ -115,7 +115,7 @@ end
         ws, ref_ws = setup(P, q, A, lo, hi; opts...), setup(P, q, Matrix(A), lo, hi; opts...)
         @test PureOSQP.factorize!(ws.linsys, ws.prob, ws.weights)
         @test PureOSQP.factorize!(ref_ws.linsys, ref_ws.prob, ref_ws.weights)
-        @test ws.linsys.prec == ref_ws.linsys.prec
+        @test ws.linsys.precond.dinv == ref_ws.linsys.precond.dinv
 
         res, ref = PureOSQP.solve!(ws), PureOSQP.solve!(ref_ws)
         @test res.status == SOLVED
@@ -142,4 +142,139 @@ end
     direct = solve(P, q, A, l, u; tol...)
     @test cg.status === SOLVED
     @test cg.x ≈ direct.x rtol = 1.0e-6
+end
+
+@testitem "Solution.cg_iters counts CG iterations on :indirect and is zero on direct backends" begin
+    using LinearAlgebra, Random, Krylov
+    include(joinpath(@__DIR__, "helpers.jl"))
+    P, q, A, l, u = random_qp(20, 40; seed = 11)
+    ws = setup(P, q, A, l, u; linsys = :indirect)
+    first = solve!(ws)
+    @test first.cg_iters > 0
+    @test first.cg_iters == PureOSQP.inner_iterations(ws.linsys)
+    # A second solve reports its own iterations, not the workspace's running total.
+    update_settings!(ws; eps_abs = 1.0e-6, eps_rel = 1.0e-6)
+    second = solve!(ws)
+    @test second.cg_iters == PureOSQP.inner_iterations(ws.linsys) - first.cg_iters
+
+    for linsys in (:auto, :dense, :kkt)
+        @test iszero(solve(P, q, A, l, u; linsys).cg_iters)
+    end
+end
+
+@testitem "a caller preconditioner reaches CG and is refreshed when the weights change" begin
+    using LinearAlgebra, Random, Krylov
+    include(joinpath(@__DIR__, "helpers.jl"))
+
+    # The exact inverse of the reduced matrix, rebuilt at every refresh.
+    mutable struct ExactReduced
+        const P::Matrix{Float64}
+        const A::Matrix{Float64}
+        F::Cholesky{Float64, Matrix{Float64}}
+        const ks::Vector{Int}
+    end
+    ExactReduced(P, A) = ExactReduced(P, A, cholesky(Matrix(1.0I, size(P)...)), Int[])
+    function PureOSQP.update_preconditioner!(M::ExactReduced, prob, wt, k::Int)
+        push!(M.ks, k)
+        M.F = cholesky(Symmetric(M.P + wt.sigma * I + M.A' * Diagonal(wt.w) * M.A))
+        return M
+    end
+    LinearAlgebra.ldiv!(y::AbstractVector, M::ExactReduced, x::AbstractVector) = ldiv!(y, M.F, x)
+
+    P, q, A, l, u = random_qp(15, 30; seed = 12)
+    opts = (linsys = :indirect, scaling = 0, eps_abs = 1.0e-8, eps_rel = 1.0e-8)
+    M = ExactReduced(P, A)
+    ws = setup(P, q, A, l, u; opts..., preconditioner = M)
+    @test ws.linsys.precond === M
+    iters = Int[]
+    for _ in 1:200
+        PureOSQP.admm_step!(ws)
+        push!(iters, ws.linsys.kws.stats.niter)
+    end
+    @test maximum(iters) <= 2
+    @test PureOSQP.last_solve_converged(ws.linsys)
+
+    sol = solve!(ws)
+    @test sol.status === SOLVED
+    ref = solve(P, q, A, l, u; eps_abs = 1.0e-8, eps_rel = 1.0e-8)
+    @test sol.x ≈ ref.x atol = 1.0e-5
+    # One refresh per factorization, each handed the refactorizations made before it: a new
+    # `ρ` goes through `refactor_weights!`, a new `σ` through `factorize!`.
+    update_rho!(ws, 0.3)
+    update_settings!(ws; sigma = 1.0e-5)
+    @test length(M.ks) >= 3
+    @test M.ks == range(0, ws.refactor_count - 1)
+    @test M.F.U ≈ cholesky(Symmetric(P + 1.0e-5I + A' * Diagonal(ws.weights.w) * A)).U
+
+    # A refresh must hand back the type the backend was built with.
+    struct Retyping end
+    PureOSQP.update_preconditioner!(::Retyping, prob, wt, k::Int) = I
+    @test_throws "update_preconditioner! must return a preconditioner of the type" setup(
+        P, q, A, l, u; opts..., preconditioner = Retyping()
+    )
+
+    @test_throws "pass scaling = 0 with it" setup(
+        P, q, A, l, u; linsys = :indirect, preconditioner = ExactReduced(P, A)
+    )
+    @test_throws "pass linsys = :indirect with it" setup(
+        P, q, A, l, u; scaling = 0, preconditioner = ExactReduced(P, A)
+    )
+    # The built-in preconditioners need nothing from the caller's matrices.
+    @test setup(P, q, A, l, u; linsys = :indirect, preconditioner = IdentityPreconditioner()).linsys.precond isa
+        IdentityPreconditioner
+end
+
+@testitem "IdentityPreconditioner reproduces the default on an operator pair" begin
+    using LinearAlgebra, Random, Krylov
+    include(joinpath(@__DIR__, "helpers.jl"))
+    # The Jacobi diagonal of a products-only operator is all ones, so preconditioning by it and
+    # not preconditioning at all take the same iterates.
+    P, q, A, l, u = random_qp(20, 40; seed = 13)
+    Po = PureOSQP.ProductOperator{Float64}(Matrix(P); symmetric = true, posdef = true)
+    Ao = PureOSQP.ProductOperator{Float64}(A)
+    opts = (linsys = :indirect, scaling = 0, eps_abs = 1.0e-7, eps_rel = 1.0e-7)
+    jacobi = solve(Po, q, Ao, l, u; opts...)
+    plain = solve(Po, q, Ao, l, u; opts..., preconditioner = IdentityPreconditioner())
+    @test jacobi.status === SOLVED
+    @test (plain.iter, plain.cg_iters, plain.x) == (jacobi.iter, jacobi.cg_iters, jacobi.x)
+end
+
+@testitem "the residual stopping rule and the miss count" begin
+    using LinearAlgebra, Random, Krylov
+    include(joinpath(@__DIR__, "helpers.jl"))
+    P, q, A, l, u = random_qp(20, 40; seed = 14)
+    ws = setup(P, q, A, l, u; linsys = :indirect, cg_max_iter = 200)
+    ls = ws.linsys
+    solve_once!(ws) = PureOSQP.solve_system!(
+        ls, ws.prob, ws.weights, ws.rhs_x, ws.rhs_z, ws.xtilde, ws.ztilde
+    )
+    Random.seed!(1)
+    ws.rhs_x .= randn(20)
+    ws.rhs_z .= randn(40)
+    level = 1.0e-6
+    PureOSQP.set_tolerance_level!(ls, level)
+    atol = ls.tol_fraction * level
+
+    PureOSQP.use_residual_stop!(ls, true)
+    fill!(ws.xtilde, 0.0)
+    solve_once!(ws)
+    @test PureOSQP.last_solve_converged(ls)
+    @test norm(ls.kws.r) <= atol
+    @test ls.misses == 0
+
+    # One iteration cannot reach that tolerance from zero: a miss.
+    update_settings!(ws; cg_max_iter = 1)
+    fill!(ws.xtilde, 0.0)
+    solve_once!(ws)
+    @test !PureOSQP.last_solve_converged(ls)
+    @test ls.misses == 1
+    @test ls.kws.stats.niter == 1
+
+    # The same budget under the default rule is a miss too.
+    PureOSQP.use_residual_stop!(ls, false)
+    fill!(ws.xtilde, 0.0)
+    solve_once!(ws)
+    @test !PureOSQP.last_solve_converged(ls)
+    @test ls.misses == 2
+    @test PureOSQP.last_solve_converged(setup(P, q, A, l, u).linsys)
 end

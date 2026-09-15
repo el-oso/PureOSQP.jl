@@ -700,7 +700,7 @@ end
     # a `MethodError` from inside a factorization. `invoke` reaches the core method whether
     # or not the extension has added its own, so this holds in either load state.
     @test_throws "needs Krylov.jl" invoke(
-        PureOSQP.indirect_backend, Tuple{AbstractVector, Integer, Integer}, q, n, m
+        PureOSQP.indirect_backend, Tuple{AbstractVector, Integer, Integer, Any}, q, n, m, nothing
     )
 
     ws = setup(ProductsOnly(Pm), q, ProductsOnly(Am), l, u; opts..., linsys = :auto)

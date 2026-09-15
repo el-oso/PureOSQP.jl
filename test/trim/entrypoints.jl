@@ -58,6 +58,12 @@ solve_lowrank(P::DM, q::V, A::RC, l::V, u::V) = PureOSQP.solve(P, q, A, l, u)
 # checks that a weak dependency on the solve path does not cost the trim guarantee.
 solve_indirect(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u; linsys = :indirect)
 
+# A caller preconditioner is a type parameter of the backend, so a factorization object in
+# that slot is a specialization of every solve method of its own.
+solve_indirect_preconditioned(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(
+    P, q, A, l, u; linsys = :indirect, scaling = 0, preconditioner = cholesky(Symmetric(P + I))
+)
+
 # The block backend, whose `P` and `A` are both this package's own matrix type.
 const BD = PureOSQP.BlockDiagonal{Float64, Matrix{Float64}}
 solve_block(P::BD, q::V, A::BD, l::V, u::V) = PureOSQP.solve(P, q, A, l, u)
