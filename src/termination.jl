@@ -58,21 +58,7 @@ function update_residuals!(ws::Workspace{T}) where {T}
     else
         ws.scaled_dual_res
     end
-    # Objectives and the duality gap. `SC(y) = uᵀmax(y,0) + lᵀmin(y,0)`, taken after
-    # projecting `y` onto the polar of the recession cone of `[l, u]`: that projection is
-    # what stops a row with an infinite bound from contributing `Inf * 0`. Multipliers
-    # under the deadzone are dropped first, since a `1e-20` `y` against a large bound is
-    # noise that would otherwise dominate the sum.
-    #
-    # `tmp_m` is free here: it is `mul_At!`'s scratch, and the last call to it is above.
-    quad = dot(ws.Px, ws.x)
-    lin = dot(prob.q, ws.x)
-    sup = zero(T)
-    if m > 0
-        copyto!(prob.tmp_m, ws.y)
-        project_polar_reccone!(prob.tmp_m, prob.l, prob.u)
-        sup = support_sum(prob.tmp_m, prob.l, prob.u)
-    end
+    quad, lin, sup = gap_terms(prob, ws.y, ws.Px, ws.x)
     ws.xtPx = quad
     ws.qtx = lin
     ws.SCy = sup
@@ -83,6 +69,25 @@ function update_residuals!(ws::Workspace{T}) where {T}
     ws.duality_gap = ws.scaled_duality_gap * cinv
     ws.rel_kkt_error = max(ws.prim_res, ws.dual_res, abs(ws.duality_gap))
     return ws
+end
+
+"""
+    gap_terms(prob, y, Px, x) -> (xtPx, qtx, SCy)
+
+The three terms of the duality gap at `(x, y)`: `xᵀPx`, `qᵀx`, and `uᵀmax(ŷ,0) + lᵀmin(ŷ,0)`
+where `ŷ` is `y` projected onto the polar of the recession cone of `[l, u]`. Uses
+`prob.tmp_m` as scratch for the projected `y`.
+"""
+function gap_terms(prob::Problem{T}, y::AbstractVector{T}, Px::AbstractVector{T}, x::AbstractVector{T}) where {T}
+    xtPx = dot(Px, x)
+    qtx = dot(prob.q, x)
+    SCy = zero(T)
+    if prob.m > 0
+        copyto!(prob.tmp_m, y)
+        project_polar_reccone!(prob.tmp_m, prob.l, prob.u)
+        SCy = support_sum(prob.tmp_m, prob.l, prob.u)
+    end
+    return (xtPx, qtx, SCy)
 end
 
 """
@@ -114,39 +119,50 @@ end
     )
 end
 
-function eps_prim(ws::Workspace{T}) where {T}
-    s = ws.settings
-    mx = if ws.prob.scaling > 0
-        max(invscaled_norm_inf(ws.prob.E, ws.z), invscaled_norm_inf(ws.prob.E, ws.Ax))
-    else
-        max(norm_inf(ws.z), norm_inf(ws.Ax))
-    end
-    return s.eps_abs + s.eps_rel * mx
-end
+"""
+    eps_prim(prob, s, z, Ax)
 
-function eps_dual(ws::Workspace{T}) where {T}
-    s, prob = ws.settings, ws.prob
+Tolerance for the primal residual test, relative to the larger of `‖z‖∞` and `‖Ax‖∞`.
+"""
+function eps_prim(prob::Problem{T}, s::Settings{T}, z::AbstractVector{T}, Ax::AbstractVector{T}) where {T}
     mx = if prob.scaling > 0
-        max(invscaled_norm_inf(prob.D, prob.q), invscaled_norm_inf(prob.D, ws.Aty), invscaled_norm_inf(prob.D, ws.Px)) / prob.c
+        max(invscaled_norm_inf(prob.E, z), invscaled_norm_inf(prob.E, Ax))
     else
-        max(norm_inf(prob.q), norm_inf(ws.Aty), norm_inf(ws.Px))
+        max(norm_inf(z), norm_inf(Ax))
     end
     return s.eps_abs + s.eps_rel * mx
 end
+eps_prim(ws::Workspace) = eps_prim(ws.prob, ws.settings, ws.z, ws.Ax)
 
 """
-    eps_duality_gap(ws)
+    eps_dual(prob, s, Aty, Px)
+
+Tolerance for the dual residual test, relative to the largest of `‖q‖∞`, `‖Aᵀy‖∞` and
+`‖Px‖∞`.
+"""
+function eps_dual(prob::Problem{T}, s::Settings{T}, Aty::AbstractVector{T}, Px::AbstractVector{T}) where {T}
+    mx = if prob.scaling > 0
+        max(invscaled_norm_inf(prob.D, prob.q), invscaled_norm_inf(prob.D, Aty), invscaled_norm_inf(prob.D, Px)) / prob.c
+    else
+        max(norm_inf(prob.q), norm_inf(Aty), norm_inf(Px))
+    end
+    return s.eps_abs + s.eps_rel * mx
+end
+eps_dual(ws::Workspace) = eps_dual(ws.prob, ws.settings, ws.Aty, ws.Px)
+
+"""
+    eps_duality_gap(prob, s, xtPx, qtx, SCy)
 
 Tolerance for the duality-gap test, relative to the size of the terms that make up the
 gap. Without the relative part a problem whose objective is `1e8` could never pass.
 """
-function eps_duality_gap(ws::Workspace{T}) where {T}
-    s = ws.settings
-    mx = max(abs(ws.xtPx), abs(ws.qtx), abs(ws.SCy))
+function eps_duality_gap(prob::Problem{T}, s::Settings{T}, xtPx::T, qtx::T, SCy::T) where {T}
+    mx = max(abs(xtPx), abs(qtx), abs(SCy))
     # The stored terms are scaled; unscale unless termination is being judged scaled.
-    (ws.prob.scaling > 0 && !s.scaled_termination) && (mx /= ws.prob.c)
+    (prob.scaling > 0 && !s.scaled_termination) && (mx /= prob.c)
     return s.eps_abs + s.eps_rel * mx
 end
+eps_duality_gap(ws::Workspace) = eps_duality_gap(ws.prob, ws.settings, ws.xtPx, ws.qtx, ws.SCy)
 
 "The polar recession cone projection, elementwise."
 @inline function polar_reccone(v::T, lo::T, hi::T, loose::T) where {T}
@@ -195,31 +211,34 @@ end
 end
 
 """
-    is_primal_infeasible(ws, eps) -> Bool
+    is_primal_infeasible(prob, dy, eps) -> Bool
 
-Certificate test on `δy`: after projecting `δy` onto the polar of the recession cone of
-`[l, u]`, the problem is primal infeasible when `uᵀ max(δy,0) + lᵀ min(δy,0) < 0` and
-`‖Aᵀδy‖ < ε‖δy‖`. Overwrites `ws.delta_y` with the projected vector, which then becomes the
-certificate.
+Certificate test on the caller-owned buffer `dy`: after projecting `dy` onto the polar of
+the recession cone of `[l, u]`, the problem is primal infeasible when
+`uᵀ max(dy,0) + lᵀ min(dy,0) < 0` and `‖Aᵀdy‖ < ε‖dy‖`. Projects `dy` in place, which then
+becomes the certificate; never touches the workspace's actual `x` or `y`.
 
-The support function is tested against zero rather than against `ε‖δy‖`. A tolerance there
+The support function is tested against zero rather than against `ε‖dy‖`. A tolerance there
 admits directions that do not separate, and a certificate is a proof or it is nothing.
 """
-function is_primal_infeasible(ws::Workspace{T}, eps::T) where {T}
-    prob = ws.prob
+function is_primal_infeasible(prob::Problem{T}, dy::AbstractVector{T}, eps::T) where {T}
     iszero(prob.m) && return false
-    project_polar_reccone!(ws.delta_y, prob.l, prob.u)
-    ndy = prob.scaling > 0 ? scaled_norm_inf(prob.E, ws.delta_y) : norm_inf(ws.delta_y)
+    project_polar_reccone!(dy, prob.l, prob.u)
+    ndy = prob.scaling > 0 ? scaled_norm_inf(prob.E, dy) : norm_inf(dy)
     ndy > DIVISION_TOL(T) || return false
     # Strict, as libosqp 1.0 has it: the support function of the direction must be
     # negative, not merely under a tolerance that scales with the direction's own norm.
-    support_plain(ws.delta_y, prob.l, prob.u) < zero(T) || return false
-    mul_At!(prob.work_n, prob, ws.delta_y)
+    support_plain(dy, prob.l, prob.u) < zero(T) || return false
+    mul_At!(prob.work_n, prob, dy)
     if prob.scaling > 0
-        # mul_At! applies D; the unscaled test is Aᵀ(E ⊙ δy), so divide it back out once.
+        # mul_At! applies D; the unscaled test is Aᵀ(E ⊙ dy), so divide it back out once.
         divide!(prob.work_n, prob.work_n, prob.D)
     end
     return norm_inf(prob.work_n) < eps * ndy
+end
+
+function is_primal_infeasible(ws::Workspace{T}, eps::T) where {T}
+    return is_primal_infeasible(ws.prob, ws.delta_y, eps)
 end
 
 "Whether `Aδx` leaves the recession cone of `[l, u]` at any row, to within `tol`."
@@ -240,28 +259,32 @@ end
 end
 
 """
-    is_dual_infeasible(ws, eps) -> Bool
+    is_dual_infeasible(prob, dx, eps) -> Bool
 
-Certificate test on `δx`: `qᵀδx < 0`, `‖Pδx‖ < ε‖δx‖`, and `Aδx` in the recession cone
-of `[l, u]` to within `ε‖δx‖`.
+Certificate test on the caller-owned buffer `dx`: `qᵀdx < 0`, `‖Pdx‖ < ε‖dx‖`, and `Adx` in
+the recession cone of `[l, u]` to within `ε‖dx‖`. Only reads `dx`; never touches the
+workspace's actual `x` or `y`.
 """
-function is_dual_infeasible(ws::Workspace{T}, eps::T) where {T}
-    prob = ws.prob
+function is_dual_infeasible(prob::Problem{T}, dx::AbstractVector{T}, eps::T) where {T}
     scaled = prob.scaling > 0
-    ndx = scaled ? scaled_norm_inf(prob.D, ws.delta_x) : norm_inf(ws.delta_x)
+    ndx = scaled ? scaled_norm_inf(prob.D, dx) : norm_inf(dx)
     cost = scaled ? prob.c : one(T)
     ndx > DIVISION_TOL(T) || return false
-    # A strict sign test, as libosqp 1.0 has it. Allowing `qᵀδx` up to `+ε‖δx‖` certifies a
+    # A strict sign test, as libosqp 1.0 has it. Allowing `qᵀdx` up to `+ε‖dx‖` certifies a
     # direction that does not descend, and on an ill-conditioned `A` the near-null directions
     # clear the two remaining tests, so a bounded problem is declared unbounded.
-    dot(prob.q, ws.delta_x) < zero(T) || return false
-    mul_P!(prob.work_n, prob, ws.delta_x)
+    dot(prob.q, dx) < zero(T) || return false
+    mul_P!(prob.work_n, prob, dx)
     scaled && divide!(prob.work_n, prob.work_n, prob.D)
     norm_inf(prob.work_n) < cost * eps * ndx || return false
     iszero(prob.m) && return true
-    mul_A!(prob.work_m, prob, ws.delta_x)
+    mul_A!(prob.work_m, prob, dx)
     scaled && divide!(prob.work_m, prob.work_m, prob.E)
     return !leaves_reccone(prob.work_m, prob.l, prob.u, INFTY(T) * MIN_SCALING(T), eps * ndx)
+end
+
+function is_dual_infeasible(ws::Workspace{T}, eps::T) where {T}
+    return is_dual_infeasible(ws.prob, ws.delta_x, eps)
 end
 
 """

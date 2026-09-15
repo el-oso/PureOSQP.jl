@@ -23,7 +23,7 @@
         "scaling_tests.jl" => 9,
         "selection_tests.jl" => 5,
         "setup_tests.jl" => 13,
-        "solve_tests.jl" => 33,
+        "solve_tests.jl" => 34,
         "trim_tests.jl" => 1,
         "update_tests.jl" => 9,
     )

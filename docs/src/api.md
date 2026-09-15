@@ -100,10 +100,17 @@ PureOSQP.admm_step!
 PureOSQP.set_rho_vec!
 PureOSQP.adapt_rho!
 PureOSQP.update_residuals!
+PureOSQP.gap_terms
+PureOSQP.eps_prim
+PureOSQP.eps_dual
+PureOSQP.eps_duality_gap
 PureOSQP.check_termination
 PureOSQP.is_primal_infeasible
 PureOSQP.is_dual_infeasible
+PureOSQP.residuals_at!
+PureOSQP.polish_kernel!
 PureOSQP.polish!
+PureOSQP.active_kkt
 PureOSQP.has_solution
 PureOSQP.PolishStatus
 ```

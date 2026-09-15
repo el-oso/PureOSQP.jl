@@ -832,3 +832,23 @@ end
     @test primal_certified(-2.0)
     @test !primal_certified(1.0e-12)
 end
+
+@testitem "a certificate test leaves the solution untouched, only its own buffer" begin
+    # A one-sided row on each side (l, u including ±Inf) so the polar-cone projection
+    # actually moves a wrong-signed direction, rather than leaving it as-is.
+    ws = setup(ones(1, 1), [0.0], ones(2, 1), [1.0, -Inf], [Inf, 2.0]; scaling = 0)
+    x_before, y_before = copy(ws.x), copy(ws.y)
+
+    ws.delta_y .= [1.0, -1.0]
+    PureOSQP.is_primal_infeasible(ws, 1.0e-4)
+    @test ws.x == x_before
+    @test ws.y == y_before
+    @test ws.delta_y == [0.0, 0.0]   # the buffer is what the projection moves
+
+    ws.delta_x .= [1.0]
+    dx_before = copy(ws.delta_x)
+    PureOSQP.is_dual_infeasible(ws, 1.0e-4)
+    @test ws.x == x_before
+    @test ws.y == y_before
+    @test ws.delta_x == dx_before   # this certificate does not even project its buffer
+end

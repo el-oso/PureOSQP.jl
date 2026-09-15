@@ -18,27 +18,17 @@ space, not the ADMM subproblem, and not the regularized system `polish!` factors
 """
 
 """
-    active_kkt(ws) -> (F, M, act, lower, x, y)
+    active_kkt(prob, x, y, z) -> (F, M, act, lower, x, y)
 
-Factor `M = [P Ā'; Ā 0]` for the active set of the workspace's current solution, and
-return that solution in problem space.
+Factor `M = [P Ā'; Ā 0]` for the active set of the problem-space point `(x, y, z)`, and
+return that point alongside the factorization.
 
 Throws rather than returning anything when the derivative does not exist. See
 [`adjoint_derivative`](@ref) for why there is no fallback.
 """
-function active_kkt(ws::Workspace{T}) where {T}
-    # The derivative is of the solution map at a solution. An unconverged point is not one,
-    # and an infeasible run has already been cold started, so differentiating either returns
-    # a number for a question that was not asked.
-    ws.status === SOLVED || throw(
-        ArgumentError(
-            "the derivative is taken at a solution, and this workspace's last solve ended " *
-                "as $(status_name(ws.status)). Solve it first, or tighten the tolerances " *
-                "until it converges."
-        )
-    )
-    prob = ws.prob
-    require_host(ws.x, "differentiating the solution")
+function active_kkt(
+        prob::Problem{T}, x::AbstractVector{T}, y::AbstractVector{T}, z::AbstractVector{T}
+    ) where {T}
     require_entries(
         prob.P, prob.A, "differentiating the solution",
         "`adjoint_derivative` and `forward_derivative` need the active-set KKT matrix, which " *
@@ -46,10 +36,6 @@ function active_kkt(ws::Workspace{T}) where {T}
             "differentiate it."
     )
     n, m = prob.n, prob.m
-    x = prob.D .* ws.x
-    y = (prob.E .* ws.y) ./ prob.c
-    z = ws.z ./ prob.E
-
     τ = sqrt(eps(T)) * max(norm_inf(y), one(T))
     act = Int[]
     lower = Bool[]
@@ -113,6 +99,31 @@ function active_kkt(ws::Workspace{T}) where {T}
         )
     )
     return (F, M, act, lower, x, y)
+end
+
+"""
+    active_kkt(ws) -> (F, M, act, lower, x, y)
+
+Check that `ws` holds a converged, host-resident solution, unscale it into problem space,
+and delegate to the `active_kkt(prob, x, y, z)` method above.
+"""
+function active_kkt(ws::Workspace{T}) where {T}
+    # The derivative is of the solution map at a solution. An unconverged point is not one,
+    # and an infeasible run has already been cold started, so differentiating either returns
+    # a number for a question that was not asked.
+    ws.status === SOLVED || throw(
+        ArgumentError(
+            "the derivative is taken at a solution, and this workspace's last solve ended " *
+                "as $(status_name(ws.status)). Solve it first, or tighten the tolerances " *
+                "until it converges."
+        )
+    )
+    require_host(ws.x, "differentiating the solution")
+    prob = ws.prob
+    x = prob.D .* ws.x
+    y = (prob.E .* ws.y) ./ prob.c
+    z = ws.z ./ prob.E
+    return active_kkt(prob, x, y, z)
 end
 
 """
