@@ -98,7 +98,7 @@ function PureOSQP.ProductOperator{T}(
 end
 
 """
-    setup(P::AbstractSciMLOperator, q, A, l, u; kwargs...)
+    setup(P::AbstractSciMLOperator, q, A, l, u, alg = OperatorSplitting(); kwargs...)
 
 Solve with an operator cost, an operator constraint, or both.
 
@@ -113,14 +113,14 @@ both remedies.
 function PureOSQP.setup(
         P::Union{AbstractSciMLOperator, AbstractMatrix}, q::AbstractVector,
         A::Union{AbstractSciMLOperator, AbstractMatrix},
-        l::AbstractVector, u::AbstractVector; kwargs...
+        l::AbstractVector, u::AbstractVector, alg::PureOSQP.QPAlgorithm...; kwargs...
     )
     T = float(eltype(q))
-    return PureOSQP.setup(as_operator(T, P), q, as_operator(T, A), l, u; kwargs...)
+    return PureOSQP.setup(as_operator(T, P), q, as_operator(T, A), l, u, alg...; kwargs...)
 end
 
 """
-    solve(P::AbstractSciMLOperator, q, A, l, u; kwargs...)
+    solve(P::AbstractSciMLOperator, q, A, l, u, alg = OperatorSplitting(); kwargs...)
 
 Set up and solve in one call, wrapping each operator as [`setup`](@ref) does.
 
@@ -130,10 +130,10 @@ Set up and solve in one call, wrapping each operator as [`setup`](@ref) does.
 function PureOSQP.solve(
         P::Union{AbstractSciMLOperator, AbstractMatrix}, q::AbstractVector,
         A::Union{AbstractSciMLOperator, AbstractMatrix},
-        l::AbstractVector, u::AbstractVector; kwargs...
+        l::AbstractVector, u::AbstractVector, alg::PureOSQP.QPAlgorithm...; kwargs...
     )
     T = float(eltype(q))
-    return PureOSQP.solve(as_operator(T, P), q, as_operator(T, A), l, u; kwargs...)
+    return PureOSQP.solve(as_operator(T, P), q, as_operator(T, A), l, u, alg...; kwargs...)
 end
 
 """

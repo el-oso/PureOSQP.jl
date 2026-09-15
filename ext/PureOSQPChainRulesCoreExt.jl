@@ -24,16 +24,17 @@ using PureOSQP: PureOSQP
 using ChainRulesCore: ChainRulesCore, NoTangent, ZeroTangent, unthunk, @thunk
 
 """
-    differentiable_workspace(P, q, A, l, u; kwargs...)
+    differentiable_workspace(P, q, A, l, u, alg...; kwargs...)
 
-Solve, and refuse to hand back a workspace whose solution cannot be differentiated.
+Solve, and refuse to hand back a workspace whose solution cannot be differentiated. `alg` is
+the optional algorithm argument of [`PureOSQP.solve`](@ref).
 
 `polishing = true` unless the caller said otherwise: the derivative is taken at the active set,
 and polishing is what identifies it exactly. Without it the active set is whatever the ADMM
 iterate happened to be near, and the gradient is of a nearby problem.
 """
-function differentiable_workspace(P, q, A, l, u; kwargs...)
-    ws = PureOSQP.setup(P, q, A, l, u; polishing = true, kwargs...)
+function differentiable_workspace(P, q, A, l, u, alg...; kwargs...)
+    ws = PureOSQP.setup(P, q, A, l, u, alg...; polishing = true, kwargs...)
     sol = PureOSQP.solve!(ws)
     sol.status === PureOSQP.SOLVED || throw(
         ArgumentError(
@@ -46,9 +47,9 @@ function differentiable_workspace(P, q, A, l, u; kwargs...)
 end
 
 function ChainRulesCore.rrule(
-        ::typeof(PureOSQP.solve), P, q, A, l, u; kwargs...
+        ::typeof(PureOSQP.solve), P, q, A, l, u, alg::PureOSQP.QPAlgorithm...; kwargs...
     )
-    ws, sol = differentiable_workspace(P, q, A, l, u; kwargs...)
+    ws, sol = differentiable_workspace(P, q, A, l, u, alg...; kwargs...)
     function solve_pullback(Δsol)
         # A loss reads `sol.x`, or `sol.y`, or both; whatever it did not read arrives as a
         # zero tangent rather than an array.
@@ -58,15 +59,17 @@ function ChainRulesCore.rrule(
         g = PureOSQP.adjoint_derivative(ws, dx, dy)
         return (
             NoTangent(), @thunk(g.dP), @thunk(g.dq), @thunk(g.dA), @thunk(g.dl), @thunk(g.du),
+            map(_ -> NoTangent(), alg)...,
         )
     end
     return sol, solve_pullback
 end
 
 function ChainRulesCore.frule(
-        (_, ΔP, Δq, ΔA, Δl, Δu), ::typeof(PureOSQP.solve), P, q, A, l, u; kwargs...
+        Δargs, ::typeof(PureOSQP.solve), P, q, A, l, u, alg::PureOSQP.QPAlgorithm...; kwargs...
     )
-    ws, sol = differentiable_workspace(P, q, A, l, u; kwargs...)
+    _, ΔP, Δq, ΔA, Δl, Δu = Δargs
+    ws, sol = differentiable_workspace(P, q, A, l, u, alg...; kwargs...)
     dx, dy = PureOSQP.forward_derivative(
         ws;
         dP = as_perturbation(ΔP, P), dq = as_perturbation(Δq, q),

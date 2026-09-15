@@ -96,56 +96,75 @@ MOI.set(o::Optimizer, ::MOI.TimeLimitSec, v::Real) = (o.settings[:time_limit] = 
 MOI.set(o::Optimizer, ::MOI.TimeLimitSec, ::Nothing) = (delete!(o.settings, :time_limit); nothing)
 MOI.get(o::Optimizer, ::MOI.TimeLimitSec) = get(o.settings, :time_limit, nothing)
 
-"""
-    _settings_type(o) -> Type
+"The algorithm the raw attribute `algorithm` selects: `:admm` unless it was set."
+_algorithm(o::Optimizer) = get(o.settings, :algorithm, :admm)::Symbol
 
-The settings struct the raw attributes validate against: [`PureOSQP.IPMSettings`](@ref)
-once `algorithm` is set to `:ipm`, [`PureOSQP.Settings`](@ref) otherwise.
-"""
-_settings_type(o::Optimizer{T}) where {T} =
-    get(o.settings, :algorithm, :admm) === :ipm ? PureOSQP.IPMSettings{T} : PureOSQP.Settings{T}
+_algorithm_type(alg::Symbol) = alg === :ipm ? PureOSQP.InteriorPoint : PureOSQP.OperatorSplitting
 
-# `algorithm` picks which of the two settings structs every other raw attribute is checked
-# against, so it is supported unconditionally rather than being a field of either.
+_parameter_names(alg::Symbol) =
+    alg === :ipm ? PureOSQP.INTERIOR_POINT_NAMES : PureOSQP.OPERATOR_SPLITTING_NAMES
+
+_accepts(alg::Symbol, name::Symbol) = name in PureOSQP.OPTION_NAMES || name in _parameter_names(alg)
+
+"""
+    _build(o, alg, settings) -> (algorithm, options)
+
+The algorithm object `alg` names and the options, built from the raw settings in `settings`:
+a name of [`PureOSQP.Options`](@ref) goes to the options, a parameter of the algorithm to the
+algorithm object. Both are validated, and returned element-typed with every default resolved.
+"""
+function _build(::Optimizer{T}, alg::Symbol, settings) where {T}
+    names = _parameter_names(alg)
+    a = _algorithm_type(alg)(; (k => v for (k, v) in settings if k in names)...)
+    opts = (k => v for (k, v) in settings if k in PureOSQP.OPTION_NAMES)
+    options = PureOSQP.Options{T}(; PureOSQP.algorithm_defaults(a, T)..., opts...)
+    return PureOSQP.element_typed(a, T, options), options
+end
+
+# `algorithm` picks which parameters every other raw attribute may name besides the options,
+# so it is supported unconditionally rather than being a field of either.
 function MOI.supports(o::Optimizer, a::MOI.RawOptimizerAttribute)
     name = Symbol(a.name)
-    return name === :algorithm || name in fieldnames(_settings_type(o))
+    return name === :algorithm || _accepts(_algorithm(o), name)
 end
-# A value is checked by building the settings struct from it when it is set, so a bad one
-# throws here rather than at `optimize!`. Settings that take a Symbol also accept its name as
-# a String.
+# A value is checked by building the options and the algorithm object from it when it is set,
+# so a bad one throws here rather than at `optimize!`. Settings that take a Symbol also accept
+# its name as a String.
 function MOI.set(o::Optimizer{T}, a::MOI.RawOptimizerAttribute, v) where {T}
     MOI.supports(o, a) || throw(MOI.UnsupportedAttribute(a))
     name = Symbol(a.name)
     if name === :algorithm
         alg = Symbol(v)
-        alg in (:admm, :ipm) || throw(ArgumentError("algorithm must be :admm or :ipm, got :$alg"))
-        ST = alg === :ipm ? PureOSQP.IPMSettings{T} : PureOSQP.Settings{T}
+        alg in (:admm, :ipm) || throw(ArgumentError("algorithm must be \"admm\" or \"ipm\", got \"$alg\""))
         current = Dict(k => val for (k, val) in o.settings if k !== :algorithm)
-        stale = setdiff(keys(current), fieldnames(ST))
+        stale = [k for k in keys(current) if !_accepts(alg, k)]
         isempty(stale) || throw(
             ArgumentError(
-                "algorithm = :$alg does not accept the raw setting(s) " *
+                "algorithm = \"$alg\" does not accept the raw setting(s) " *
                     "$(join(sort(String.(stale)), ", ")), set for the other algorithm: " *
-                    "start from a fresh optimizer, or set only names $ST accepts."
+                    "start from a fresh optimizer, or set only options and " *
+                    "$(nameof(_algorithm_type(alg))) parameters."
             )
         )
-        ST(; current...)      # every surviving value must also still validate against ST
+        _build(o, alg, current)   # every surviving value must also still validate
         o.settings[:algorithm] = alg
         return
     end
-    ST = _settings_type(o)
-    v isa AbstractString && fieldtype(ST, name) === Symbol && (v = Symbol(v))
-    current = Dict(k => val for (k, val) in o.settings if k in fieldnames(ST))
-    ST(; current..., name => v)
+    alg = _algorithm(o)
+    S = name in PureOSQP.OPTION_NAMES ? PureOSQP.Options{T} :
+        alg === :ipm ? PureOSQP.InteriorPoint{T, Int} : PureOSQP.OperatorSplitting{T}
+    v isa AbstractString && fieldtype(S, name) === Symbol && (v = Symbol(v))
+    _build(o, alg, merge(o.settings, Dict(name => v)))
     o.settings[name] = v
     return
 end
 function MOI.get(o::Optimizer{T}, a::MOI.RawOptimizerAttribute) where {T}
     MOI.supports(o, a) || throw(MOI.UnsupportedAttribute(a))
     name = Symbol(a.name)
-    name === :algorithm && return get(o.settings, :algorithm, :admm)
-    return haskey(o.settings, name) ? o.settings[name] : getfield(_settings_type(o)(), name)
+    name === :algorithm && return _algorithm(o)
+    haskey(o.settings, name) && return o.settings[name]
+    algorithm, options = _build(o, _algorithm(o), o.settings)
+    return name in PureOSQP.OPTION_NAMES ? getfield(options, name) : getfield(algorithm, name)
 end
 
 _csc(A::MOI.Utilities.MutableSparseMatrixCSC{T, Int, MOI.Utilities.OneBasedIndexing}) where {T} =
@@ -202,9 +221,12 @@ function _objective(cache, ::Type{T}, n) where {T}
 end
 
 function MOI.optimize!(o::Optimizer{T}) where {T}
-    settings = copy(o.settings)
-    o.silent && :verbose in fieldnames(_settings_type(o)) && (settings[:verbose] = false)
-    ws = PureOSQP.setup(T, o.P, o.q, o.A, o.l, o.u; settings...)
+    alg = _algorithm(o)
+    names = _parameter_names(alg)
+    parameters = Dict{Symbol, Any}(k => v for (k, v) in o.settings if k in names)
+    o.silent && :verbose in names && (parameters[:verbose] = false)
+    options = (k => v for (k, v) in o.settings if k in PureOSQP.OPTION_NAMES)
+    ws = PureOSQP.setup(T, o.P, o.q, o.A, o.l, o.u, _algorithm_type(alg)(; parameters...); options...)
     o.sol = PureOSQP.solve!(ws)
     xr = _is_cert(o.sol.status) ? o.sol.dual_inf_cert : o.sol.x
     o.Ax = isempty(xr) ? fill(T(NaN), length(o.l)) : o.A * xr

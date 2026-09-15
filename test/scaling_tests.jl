@@ -187,10 +187,11 @@ end
     # turns a last-digit difference between two backends into a different update point,
     # and from there the two forms take different iteration counts for a reason that has
     # nothing to do with scaling.
-    opts = (eps_abs = 1.0e-9, eps_rel = 1.0e-9, adaptive_rho = false, max_iter = 20_000)
+    opts = (eps_abs = 1.0e-9, eps_rel = 1.0e-9, max_iter = 20_000)
+    fixed = OperatorSplitting(adaptive_rho = false)
 
-    structured = setup(P, q, A, l, u; opts...)
-    formed = setup(sparse(P), q, sparse(Matrix(A)), l, u; opts...)
+    structured = setup(P, q, A, l, u, fixed; opts...)
+    formed = setup(sparse(P), q, sparse(Matrix(A)), l, u, fixed; opts...)
     @test PureOSQP.backend_name(structured.linsys) == :lowrank
     @test PureOSQP.backend_name(formed.linsys) != :lowrank
     @test structured.prob.D == formed.prob.D

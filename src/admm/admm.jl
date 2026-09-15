@@ -10,7 +10,7 @@ One ADMM iteration:
 
 `x_prev` and `z_prev` are swapped rather than copied.
 """
-function admm_step!(ws::Workspace{T}) where {T}
+function admm_step!(ws::OperatorSplittingWorkspace{T}) where {T}
     prob, wt = ws.prob, ws.weights
     ws.x, ws.x_prev = ws.x_prev, ws.x
     ws.z, ws.z_prev = ws.z_prev, ws.z
@@ -18,10 +18,10 @@ function admm_step!(ws::Workspace{T}) where {T}
     subtract_scaled!(ws.rhs_z, ws.z_prev, wt.w_inv, ws.y)
     set_tolerance_level!(ws.linsys, max(ws.scaled_prim_res, ws.scaled_dual_res))
     solve_system!(ws.linsys, prob, wt, ws.rhs_x, ws.rhs_z, ws.xtilde, ws.ztilde)
-    update_x!(ws.x, ws.delta_x, ws.xtilde, ws.x_prev, ws.settings.alpha)
+    update_x!(ws.x, ws.delta_x, ws.xtilde, ws.x_prev, ws.algorithm.alpha)
     prob.m > 0 && update_zy!(
         ws.z, ws.y, ws.delta_y, ws.ztilde, ws.z_prev,
-        wt.w, wt.w_inv, prob.l, prob.u, ws.settings.alpha, prob.work_m
+        wt.w, wt.w_inv, prob.l, prob.u, ws.algorithm.alpha, prob.work_m
     )
     return ws
 end
@@ -63,7 +63,7 @@ end
 
 print_padded(v, width::Int, digits::Int) = print_padded(string(round(v; sigdigits = digits)), width)
 
-function print_header(ws::Workspace)
+function print_header(ws::OperatorSplittingWorkspace)
     println(Core.stdout, VERBOSE_RULE)
     println(Core.stdout, "            PureOSQP - operator splitting QP solver")
     print(Core.stdout, "     n = ")
@@ -73,19 +73,19 @@ function print_header(ws::Workspace)
     print(Core.stdout, ", backend = ")
     println(Core.stdout, backend_name(ws.linsys))
     print(Core.stdout, "     eps_abs = ")
-    print(Core.stdout, ws.settings.eps_abs)
+    print(Core.stdout, ws.options.eps_abs)
     print(Core.stdout, ", eps_rel = ")
-    print(Core.stdout, ws.settings.eps_rel)
+    print(Core.stdout, ws.options.eps_rel)
     print(Core.stdout, ", max_iter = ")
-    print(Core.stdout, ws.settings.max_iter)
+    print(Core.stdout, ws.options.max_iter)
     print(Core.stdout, ", polishing = ")
-    println(Core.stdout, ws.settings.polishing ? "on" : "off")
+    println(Core.stdout, ws.options.polishing ? "on" : "off")
     println(Core.stdout, VERBOSE_RULE)
     println(Core.stdout, " iter      objective      prim res      dual res           rho")
     return nothing
 end
 
-function print_row(ws::Workspace)
+function print_row(ws::OperatorSplittingWorkspace)
     print_padded(string(ws.iter), 5)
     print_padded(ws.obj_val, 15, 6)
     print_padded(ws.prim_res, 14, 3)
@@ -95,11 +95,11 @@ function print_row(ws::Workspace)
     return nothing
 end
 
-function print_footer(ws::Workspace)
+function print_footer(ws::OperatorSplittingWorkspace)
     println(Core.stdout, VERBOSE_RULE)
     print(Core.stdout, "status:               ")
     println(Core.stdout, status_name(ws.status))
-    if ws.settings.polishing
+    if ws.options.polishing
         print(Core.stdout, "polish:               ")
         println(Core.stdout, ws.polished ? "successful" : "unsuccessful")
     end
@@ -140,8 +140,8 @@ the point reached rather than losing the run; its residuals are recomputed first
 interrupt lands wherever it lands and not on a scheduled check. Every other exception
 propagates.
 """
-function solve!(ws::Workspace{T}) where {T}
-    s = ws.settings
+function solve!(ws::OperatorSplittingWorkspace{T}) where {T}
+    s, alg = ws.options, ws.algorithm
     s.warm_starting || cold_start!(ws)
     ws.status = UNSOLVED
     ws.polished = false
@@ -157,7 +157,7 @@ function solve!(ws::Workspace{T}) where {T}
     ws.last_rel_kkt = INFTY(T)
     ws.solve_time = 0.0
     ws.polish_time = 0.0
-    s.verbose && print_header(ws)
+    alg.verbose && print_header(ws)
     # `time_ns` is monotonic and costs tens of nanoseconds against a per-iteration cost of
     # microseconds, but the whole check is skipped when no limit is set, so the default
     # path is exactly what it was. A limit makes the iteration count machine-dependent,
@@ -167,7 +167,7 @@ function solve!(ws::Workspace{T}) where {T}
     budget = limited ? round(UInt64, Float64(s.time_limit) * 1.0e9) : typemax(UInt64)
     # The integral is per solve, so a re-solve on the same workspace starts from zero rather
     # than continuing the previous one's curve.
-    profiling = s.profile_primdual
+    profiling = alg.profile_primdual
     ws.loop_start = started
     ws.primdual_int = 0.0
     ws.primdual_int_log = 0.0
@@ -185,11 +185,11 @@ function solve!(ws::Workspace{T}) where {T}
                 update_residuals!(ws)
                 profiling && accumulate_primdual!(ws)
                 ws.status = TIME_LIMIT_REACHED
-                s.verbose && print_row(ws)
+                alg.verbose && print_row(ws)
                 break
             end
-            adapting = s.adaptive_rho !== :disabled && s.adaptive_rho_interval > 0 &&
-                iszero(iter % s.adaptive_rho_interval)
+            adapting = alg.adaptive_rho !== :disabled && alg.adaptive_rho_interval > 0 &&
+                iszero(iter % alg.adaptive_rho_interval)
             checking = s.check_termination > 0 && iszero(iter % s.check_termination)
             (adapting || checking || isone(iter)) || continue
             update_residuals!(ws)
@@ -200,7 +200,7 @@ function solve!(ws::Workspace{T}) where {T}
             # Only on a termination check: the residuals and objective a row reports are
             # the ones that check just used, so a printed row always explains the decision
             # made alongside it.
-            s.verbose && checking && print_row(ws)
+            alg.verbose && checking && print_row(ws)
             if checking
                 st = check_termination(ws, false)
                 if st != UNSOLVED
@@ -213,8 +213,8 @@ function solve!(ws::Workspace{T}) where {T}
             # was when `ρ` last moved, so a run whose error stops falling stops retuning
             # `ρ` instead of paying for refactorizations that are not helping.
             if adapting
-                allowed = s.adaptive_rho !== :kkt_error ||
-                    ws.rel_kkt_error <= s.adaptive_rho_fraction * ws.last_rel_kkt
+                allowed = alg.adaptive_rho !== :kkt_error ||
+                    ws.rel_kkt_error <= alg.adaptive_rho_fraction * ws.last_rel_kkt
                 allowed && adapt_rho!(ws) && (ws.last_rel_kkt = ws.rel_kkt_error)
             end
         end
@@ -245,7 +245,7 @@ function solve!(ws::Workspace{T}) where {T}
         ws.polished = ws.status_polish === POLISH_SUCCESS
         ws.polish_time = (time_ns() - t_polish) / 1.0e9
     end
-    s.verbose && print_footer(ws)
+    alg.verbose && print_footer(ws)
     sol = build_solution(ws)
     ws.first_run = false
     # The updates belonged to this run and are now reported; the next solve counts only the
@@ -265,7 +265,7 @@ directly from the workspace. The objectives and the gap are passed in because a 
 without a meaningful point must not report them.
 """
 function solution_from(
-        ws::Workspace{T}, x, y, obj::T, dual_obj::T, gap::T, prim_cert, dual_cert
+        ws::OperatorSplittingWorkspace{T}, x, y, obj::T, dual_obj::T, gap::T, prim_cert, dual_cert
     ) where {T}
     # `Solution` holds plain `Vector`s whatever the workspace was built from: it is the
     # result a caller reads, not a buffer the solver iterates on, and leaving a GPU array
@@ -284,7 +284,7 @@ function solution_from(
     )
 end
 
-function build_solution(ws::Workspace{T}) where {T}
+function build_solution(ws::OperatorSplittingWorkspace{T}) where {T}
     prob = ws.prob
     n, m = prob.n, prob.m
     nan = T(NaN)
@@ -319,21 +319,22 @@ end
 # `setup`'s own annotation has no constants to propagate. Both are needed; either alone leaves
 # the widening in place.
 """
-    solve(P, q, A, l, u; x0 = nothing, y0 = nothing, kwargs...) -> Solution
+    solve(P, q, A, l, u, alg = OperatorSplitting(); x0 = nothing, y0 = nothing, kwargs...) -> Solution
 
 Solve `min ½xᵀPx + qᵀx  s.t.  l ≤ Ax ≤ u` in one call: build the workspace, warm-start
 from `x0` and `y0` when given, and run the loop.
 
-`P` must be symmetric with `P + sigma*I` positive definite, and the five inputs are
-validated exactly as in [`setup`](@ref): `q` finite, `l ≤ u` elementwise, `l` free of `+Inf`
-and `u` free of `-Inf` (which spell an unbounded row), and every stored entry of `P` and `A`
-finite. `P` and `A` may be any `AbstractMatrix` and are never modified; the solve runs in
-the promotion of the five inputs' element types.
+`P` must be symmetric and the problem convex, and the five inputs are validated exactly as in
+[`setup`](@ref): `q` finite, `l ≤ u` elementwise, `l` free of `+Inf` and `u` free of `-Inf`
+(which spell an unbounded row), and every stored entry of `P` and `A` finite. `P` and `A` may
+be any `AbstractMatrix` and are never modified; the solve runs in the promotion of the five
+inputs' element types.
 
-The keyword arguments are the fields of [`Settings`](@ref) — `rho`, `sigma`, `alpha`,
-`max_iter`, `time_limit`, the tolerances, `scaling`, `adaptive_rho`, `check_dualgap`,
-`polishing`, `warm_starting`, `verbose`, `linsys`, and `accelerator` — and [`setup`](@ref)
-describes what each does and what the defaults are.
+`alg` is the algorithm, [`OperatorSplitting`](@ref) or [`InteriorPoint`](@ref), with its
+parameters. The keyword arguments are the fields of [`Options`](@ref) — `max_iter`,
+`time_limit`, the tolerances, `scaling`, `check_dualgap`, `polishing`, `warm_starting`,
+`linsys` and the rest — plus `preconditioner` and `accelerator`; [`setup`](@ref) describes
+them.
 
 `x0` and `y0` seed the iteration in problem space. With `warm_starting = true` (the
 default), a later [`solve!`](@ref) on the same workspace starts from its last point instead.
@@ -345,14 +346,14 @@ setting — raise rather than returning a status.
 """
 Base.@constprop :aggressive function solve(
         P::AbstractMatrix, q::AbstractVector, A::AbstractMatrix,
-        l::AbstractVector, u::AbstractVector;
+        l::AbstractVector, u::AbstractVector, alg::QPAlgorithm = OperatorSplitting();
         x0 = nothing, y0 = nothing, kwargs...
     )
-    ws = setup(P, q, A, l, u; kwargs...)
+    ws = setup(P, q, A, l, u, alg; kwargs...)
     if !isnothing(x0) || !isnothing(y0)
         # `solve!` cold starts when `warm_starting` is off, so a seed given alongside it
         # would be written and then discarded before the first step.
-        ws.settings.warm_starting || throw(
+        ws.options.warm_starting || throw(
             ArgumentError(
                 "x0 and y0 seed the iteration, which warm_starting = false then discards " *
                     "before the first step. Pass one or the other."

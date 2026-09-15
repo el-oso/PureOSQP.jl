@@ -294,7 +294,7 @@ corpus runs through both backends.
 
 ### Backends under the interior-point method
 
-With `algorithm = :ipm` the Newton system has the same shape, but its row weights change every
+With [`InteriorPoint`](@ref) the Newton system has the same shape, but its row weights change every
 iteration and reach `1/reg_dual` (`1e8` by default) on equality rows and on rows whose bound is
 active. The reduced form squares those weights into its conditioning, so each backend was run
 on problems of its own structure and compared with the dense full KKT factorization
@@ -319,7 +319,7 @@ A backend stays in the interior-point selection when it solves every one of its 
 referee below `1e-5` in at most twice the iterations `:kkt` takes. Every backend passes except
 `:lowrank`, which fails on linear programs: a variable that only the dense rows reach keeps
 nothing but `reg_primal` in the diagonal core when `P` is zero, which puts `1e8` in the core's
-inverse, and on those problems the Woodbury solve ends without a solution. Under `algorithm = :ipm`, `linsys = :auto` therefore serves a
+inverse, and on those problems the Woodbury solve ends without a solution. Under `InteriorPoint()`, `linsys = :auto` therefore serves a
 diagonal `P` with a `RowCoupled` `A` with `:kkt`, and `linsys = :lowrank` is refused by name.
 `:sparse_formed` has no interior-point counterpart: the interior-point selection has no rung
 that forms and inverts the reduced matrix.
@@ -438,7 +438,7 @@ Three more things decide what the caller sees:
   test is repeated at ten times the tolerances; passing that gives `SOLVED_INACCURATE`, which
   is a different answer from `SOLVED` and never presented as one. A residual above `INFTY`
   gives `NON_CONVEX`: a convex problem's residuals cannot diverge. ADMM never reports
-  `NUMERICAL_ERROR`; that status belongs to `algorithm = :ipm`.
+  `NUMERICAL_ERROR`; that status belongs to `InteriorPoint()`.
 
 `scaled_termination` tests the equilibrated residuals instead of the unscaled ones. It is off
 by default, since the natural question is about your problem rather than the solver's internal

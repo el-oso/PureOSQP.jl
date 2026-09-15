@@ -1,4 +1,4 @@
-# Reference preconditioners for `algorithm = :ipm, linsys = :indirect`. They are examples of
+# Reference preconditioners for `InteriorPoint()` with `linsys = :indirect`. They are examples of
 # the `update_preconditioner!` interface, not part of the package.
 using PureOSQP, LinearAlgebra, SparseArrays, LimitedLDLFactorizations
 

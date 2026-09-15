@@ -1,10 +1,10 @@
 @testitem "update! matches a fresh setup" begin
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
-    for algorithm in (:admm, :ipm)
+    for algorithm in (OperatorSplitting(), InteriorPoint())
         P, q, A, l, u = random_qp(10, 24; seed = 60)
-        opts = (algorithm = algorithm, eps_abs = 1.0e-9, eps_rel = 1.0e-9, max_iter = 100_000)
-        ws = setup(P, q, A, l, u; opts...)
+        opts = (eps_abs = 1.0e-9, eps_rel = 1.0e-9, max_iter = 100_000)
+        ws = setup(P, q, A, l, u, algorithm; opts...)
         PureOSQP.solve!(ws)
         Random.seed!(61)
         for _ in 1:5
@@ -13,7 +13,7 @@
             l2, u2 = b .- rand(24), b .+ rand(24)
             update!(ws; q = q2, l = l2, u = u2)
             got = PureOSQP.solve!(ws)
-            want = PureOSQP.solve(P, q2, A, l2, u2; opts...)
+            want = PureOSQP.solve(P, q2, A, l2, u2, algorithm; opts...)
             @test got.status == SOLVED
             @test want.status == SOLVED
             @test got.x ≈ want.x rtol = 1.0e-5
@@ -53,17 +53,17 @@ end
 @testitem "update! of P and A gives the same answer as a fresh setup" begin
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
-    for algorithm in (:admm, :ipm)
+    for algorithm in (OperatorSplitting(), InteriorPoint())
         P, q, A, l, u = random_qp(8, 20; seed = 62)
         P2, _, A2, _, _ = random_qp(8, 20; seed = 63)
-        opts = (algorithm = algorithm, eps_abs = 1.0e-9, eps_rel = 1.0e-9, max_iter = 100_000)
-        ws = setup(P, q, A, l, u; opts...)
+        opts = (eps_abs = 1.0e-9, eps_rel = 1.0e-9, max_iter = 100_000)
+        ws = setup(P, q, A, l, u, algorithm; opts...)
         PureOSQP.solve!(ws)
         b = A2 * randn(8)
         l2, u2 = b .- rand(20), b .+ rand(20)
         update!(ws; P = P2, A = A2, l = l2, u = u2)
         got = PureOSQP.solve!(ws)
-        want = PureOSQP.solve(P2, q, A2, l2, u2; opts...)
+        want = PureOSQP.solve(P2, q, A2, l2, u2, algorithm; opts...)
         @test got.status == SOLVED
         @test got.x ≈ want.x rtol = 1.0e-5
         @test maximum(kkt_residuals(P2, q, A2, l2, u2, got.x, got.y)) < 1.0e-5
@@ -75,18 +75,18 @@ end
     include(joinpath(@__DIR__, "helpers.jl"))
     # `linsys = :kkt` pins the backend whose cached scaled lower triangle `check_update`
     # must invalidate whenever `update!` replaces `P` or `A`.
-    for algorithm in (:admm, :ipm)
+    for algorithm in (OperatorSplitting(), InteriorPoint())
         P, q, A, l, u = random_qp(8, 20; seed = 70)
         P2, _, A2, _, _ = random_qp(8, 20; seed = 71)
-        opts = (algorithm = algorithm, eps_abs = 1.0e-9, eps_rel = 1.0e-9, max_iter = 100_000, linsys = :kkt)
-        ws = setup(P, q, A, l, u; opts...)
+        opts = (eps_abs = 1.0e-9, eps_rel = 1.0e-9, max_iter = 100_000, linsys = :kkt)
+        ws = setup(P, q, A, l, u, algorithm; opts...)
         @test ws.linsys isa PureOSQP.FullKKT
         PureOSQP.solve!(ws)
         b = A2 * randn(8)
         l2, u2 = b .- rand(20), b .+ rand(20)
         update!(ws; P = P2, A = A2, l = l2, u = u2)
         got = PureOSQP.solve!(ws)
-        want = PureOSQP.solve(P2, q, A2, l2, u2; opts...)
+        want = PureOSQP.solve(P2, q, A2, l2, u2, algorithm; opts...)
         @test got.status == SOLVED
         @test got.x ≈ want.x rtol = 1.0e-5
         @test maximum(kkt_residuals(P2, q, A2, l2, u2, got.x, got.y)) < 1.0e-5
@@ -113,10 +113,10 @@ end
 @testitem "update! validates its arguments" begin
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
-    for algorithm in (:admm, :ipm)
+    for algorithm in (OperatorSplitting(), InteriorPoint())
         P = [4.0 1.0; 1.0 2.0]
         A = [1.0 1.0; 1.0 0.0]
-        ws = setup(P, [1.0, 1.0], A, [0.0, 0.0], [1.0, 1.0]; algorithm)
+        ws = setup(P, [1.0, 1.0], A, [0.0, 0.0], [1.0, 1.0], algorithm)
         @test_throws "length(q) must be 2" update!(ws; q = [1.0, 2.0, 3.0])
         @test_throws "q must be finite" update!(ws; q = [NaN, 1.0])
         @test_throws "length(l) must be 2" update!(ws; l = [0.0])
@@ -243,11 +243,11 @@ end
 @testitem "update! is timed and the time is charged to the next solve" begin
     using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
-    for algorithm in (:admm, :ipm)
+    for algorithm in (OperatorSplitting(), InteriorPoint())
         P, q, A, l, u = random_qp(20, 40; seed = 21)
-        opts = (algorithm = algorithm, eps_abs = 1.0e-7, eps_rel = 1.0e-7, max_iter = 20_000)
+        opts = (eps_abs = 1.0e-7, eps_rel = 1.0e-7, max_iter = 20_000)
 
-        ws = setup(P, q, A, l, u; opts...)
+        ws = setup(P, q, A, l, u, algorithm; opts...)
         first = solve!(ws)
         # Nothing was updated before the first solve, and `run_time` charges setup once.
         @test iszero(first.update_time)
@@ -269,11 +269,11 @@ end
 end
 
 @testitem "a refused update! leaves the workspace as it was" begin
-    for algorithm in (:admm, :ipm)
+    for algorithm in (OperatorSplitting(), InteriorPoint())
         P = [4.0 1.0; 1.0 2.0]
         A = [1.0 1.0; 1.0 0.0; 0.0 1.0]
         l, u = [1.0, 0.0, 0.0], [1.0, 0.7, 0.7]
-        ws = setup(P, [1.0, 1.0], A, l, u; algorithm)
+        ws = setup(P, [1.0, 1.0], A, l, u, algorithm)
         q0, l0, u0, P0, A0 = copy(ws.prob.q0), copy(ws.prob.l0), copy(ws.prob.u0), ws.prob.P, ws.prob.A
         # Each call pairs a valid argument with an invalid one; the valid one must not land.
         @test_throws "length(l) must be 3" PureOSQP.update!(ws; q = [5.0, 5.0], l = [0.0])
@@ -281,7 +281,7 @@ end
         @test_throws "violated at index 2" PureOSQP.update!(ws; l = [0.0, 0.8, 0.0], u = [1.0, 0.5, 0.7])
         @test ws.prob.q0 == q0 && ws.prob.l0 == l0 && ws.prob.u0 == u0
         @test ws.prob.P === P0 && ws.prob.A === A0
-        ref = solve(P, [1.0, 1.0], A, l, u; algorithm)
+        ref = solve(P, [1.0, 1.0], A, l, u, algorithm)
         sol = solve!(ws)
         @test sol.status === SOLVED
         @test sol.x ≈ ref.x
@@ -295,7 +295,7 @@ end
     # next solve computes `μ` and the weights over the wrong set of rows.
     P = [4.0 1.0; 1.0 2.0]
     A = [1.0 1.0; 1.0 0.0]
-    ws = setup(P, [1.0, 1.0], A, [0.0, 0.0], [1.0, 1.0]; algorithm = :ipm)
+    ws = setup(P, [1.0, 1.0], A, [0.0, 0.0], [1.0, 1.0], InteriorPoint())
     @test all(==(PureOSQP.ROW_INEQUALITY), ws.rclass)
     @test ws.n_sides == 4
 

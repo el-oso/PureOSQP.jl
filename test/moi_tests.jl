@@ -24,7 +24,7 @@
     )
 end
 
-@testitem "the MathOptInterface wrapper passes MOI.Test at algorithm = :ipm" begin
+@testitem "the MathOptInterface wrapper passes MOI.Test with algorithm = \"ipm\"" begin
     using MathOptInterface, LinearAlgebra, SparseArrays
     const MOI = MathOptInterface
 
@@ -122,34 +122,53 @@ end
     @test MOI.get(o, MOI.RawOptimizerAttribute("linsys")) === :kkt
 end
 
-@testitem "the algorithm attribute selects which settings the raw attributes validate against" begin
+@testitem "the algorithm attribute selects which parameters the raw attributes route to" begin
     using MathOptInterface
     const MOI = MathOptInterface
 
     o = PureOSQP.Optimizer()
     @test MOI.supports(o, MOI.RawOptimizerAttribute("algorithm"))
     @test MOI.get(o, MOI.RawOptimizerAttribute("algorithm")) === :admm
-    @test_throws "algorithm must be :admm or :ipm" MOI.set(
+    @test_throws "algorithm must be \"admm\" or \"ipm\"" MOI.set(
         o, MOI.RawOptimizerAttribute("algorithm"), :nope
     )
 
-    # An ADMM-only field, checked against `Settings` by default.
+    # An `OperatorSplitting` parameter, validated by default.
     MOI.set(o, MOI.RawOptimizerAttribute("rho"), 0.2)
     @test MOI.get(o, MOI.RawOptimizerAttribute("rho")) == 0.2
+    @test !MOI.supports(o, MOI.RawOptimizerAttribute("reg_primal"))
 
-    # Switching with no ADMM-only setting left to conflict: a fresh optimizer, not `o`, since
-    # `rho` above would otherwise make the switch itself the refusal this test is not about
-    # (see the item below for that).
+    # Switching with no `OperatorSplitting` parameter left to conflict: a fresh optimizer, not
+    # `o`, since `rho` above would otherwise make the switch itself the refusal this test is
+    # not about (see the item below for that).
     o2 = PureOSQP.Optimizer()
+    MOI.set(o2, MOI.RawOptimizerAttribute("eps_rel"), 1.0e-7)
     MOI.set(o2, MOI.RawOptimizerAttribute("algorithm"), "ipm")
     @test MOI.get(o2, MOI.RawOptimizerAttribute("algorithm")) === :ipm
-    # `rho` belongs to `Settings`, not `IPMSettings`, so it is no longer a raw attribute here.
+    # An option set before the switch survives it; the defaults read back are the new
+    # algorithm's.
+    @test MOI.get(o2, MOI.RawOptimizerAttribute("eps_rel")) == 1.0e-7
+    @test MOI.get(o2, MOI.RawOptimizerAttribute("max_iter")) == 100
+    @test MOI.get(o2, MOI.RawOptimizerAttribute("eps_abs")) == 1.0e-8
+    @test MOI.get(o2, MOI.RawOptimizerAttribute("reg_primal")) == 1.0e-8
+    @test MOI.get(o2, MOI.RawOptimizerAttribute("refine_iter")) == 1
+    MOI.set(o2, MOI.RawOptimizerAttribute("linsys"), "indirect")
+    @test iszero(MOI.get(o2, MOI.RawOptimizerAttribute("refine_iter")))
+    # `rho` is an `OperatorSplitting` parameter, so it is no longer a raw attribute here.
     @test !MOI.supports(o2, MOI.RawOptimizerAttribute("rho"))
-    # An IPM-only field, checked against `IPMSettings` once `algorithm` names it.
+    # An `InteriorPoint` parameter, validated once `algorithm` names it.
     @test MOI.supports(o2, MOI.RawOptimizerAttribute("max_reg_bumps"))
     MOI.set(o2, MOI.RawOptimizerAttribute("max_reg_bumps"), 3)
     @test MOI.get(o2, MOI.RawOptimizerAttribute("max_reg_bumps")) == 3
     @test_throws "must be non-negative" MOI.set(o2, MOI.RawOptimizerAttribute("max_reg_bumps"), -1)
+    # Switching back revalidates what is stored: an option still applies.
+    MOI.set(o2, MOI.RawOptimizerAttribute("max_reg_bumps"), 5)
+    o3 = PureOSQP.Optimizer()
+    MOI.set(o3, MOI.RawOptimizerAttribute("algorithm"), :ipm)
+    MOI.set(o3, MOI.RawOptimizerAttribute("max_iter"), 30)
+    MOI.set(o3, MOI.RawOptimizerAttribute("algorithm"), :admm)
+    @test MOI.get(o3, MOI.RawOptimizerAttribute("max_iter")) == 30
+    @test MOI.get(o3, MOI.RawOptimizerAttribute("eps_abs")) == 1.0e-3
 end
 
 @testitem "switching algorithm is refused rather than leaving a stale raw setting behind" begin
@@ -157,7 +176,7 @@ end
     const MOI = MathOptInterface
 
     # A setting from the algorithm being left behind must not silently survive the switch:
-    # `optimize!` would otherwise build the new settings struct from it and throw a bare
+    # `optimize!` would otherwise build the new algorithm object from it and throw a bare
     # `MethodError` instead of the setting being caught here, at `MOI.set`.
     o = PureOSQP.Optimizer()
     MOI.set(o, MOI.RawOptimizerAttribute("rho"), 0.2)

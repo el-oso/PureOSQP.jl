@@ -102,10 +102,11 @@ end
     @test abs(dot(gq, v)) > 1.0e-3        # the quantity being compared is not zero
 end
 
-@testitem "the rrule and the frule work at algorithm = :ipm" begin
-    # Neither rule dispatches on `Workspace`: both call `adjoint_derivative`/
-    # `forward_derivative`, which accept an `IPMWorkspace` too, so this only needs to confirm
-    # nothing about the rules themselves assumes ADMM.
+@testitem "the rrule and the frule work with InteriorPoint()" begin
+    # Neither rule dispatches on the workspace: both call `adjoint_derivative`/
+    # `forward_derivative`, which accept an `InteriorPointWorkspace` too, so this only needs to
+    # confirm nothing about the rules themselves assumes ADMM, and that the algorithm argument
+    # gets no tangent.
     using ChainRulesCore, Zygote, LinearAlgebra
 
     P = [4.0 1.0; 1.0 2.0]
@@ -113,9 +114,10 @@ end
     A = [1.0 1.0; 1.0 0.0; 0.0 1.0]
     l = [1.0, 0.0, 0.0]
     u = [1.0, 1.0, 1.0]
-    tol = (algorithm = :ipm, eps_abs = 1.0e-10, eps_rel = 1.0e-10, polishing = true)
+    tol = (eps_abs = 1.0e-10, eps_rel = 1.0e-10, polishing = true)
+    alg = InteriorPoint()
 
-    loss(qq) = sum(solve(P, qq, A, l, u; tol...).x .^ 2)
+    loss(qq) = sum(solve(P, qq, A, l, u, alg; tol...).x .^ 2)
     g = only(Zygote.gradient(loss, q))
     h = 1.0e-6
     fd = map(1:2) do i
@@ -127,10 +129,10 @@ end
 
     v = [1.0, -0.5]
     _, tangent = ChainRulesCore.frule(
-        (NoTangent(), ZeroTangent(), v, ZeroTangent(), ZeroTangent(), ZeroTangent()),
-        solve, P, q, A, l, u; tol...
+        (NoTangent(), ZeroTangent(), v, ZeroTangent(), ZeroTangent(), ZeroTangent(), NoTangent()),
+        solve, P, q, A, l, u, alg; tol...
     )
-    x = solve(P, q, A, l, u; tol...).x
+    x = solve(P, q, A, l, u, alg; tol...).x
     @test dot(2 .* x, tangent.x) ≈ dot(g, v) rtol = 1.0e-6
 end
 

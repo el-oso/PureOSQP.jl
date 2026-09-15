@@ -18,12 +18,12 @@
     @test_throws "A is not finite at entry (1, 1)" setup(P, q, [Inf 0.0], l, u)
 end
 
-@testitem "Solution and Workspace render as one line" begin
+@testitem "Solution and OperatorSplittingWorkspace render as one line" begin
     ws = setup([4.0 1.0; 1.0 2.0], [1.0, 1.0], [1.0 1.0; 1.0 0.0], [0.0, 0.0], [1.0, 1.0])
     s = PureOSQP.solve!(ws)
     txt_ws = sprint(show, ws)
     txt_sol = sprint(show, s)
-    @test occursin("PureOSQP Workspace", txt_ws)
+    @test occursin("PureOSQP OperatorSplittingWorkspace", txt_ws)
     @test occursin("backend", txt_ws)
     @test occursin("PureOSQP Solution", txt_sol)
     @test occursin("iterations", txt_sol)
@@ -66,11 +66,11 @@ end
     A = [1.0 1.0]
     l = [0.0]
     u = [1.0]
-    @test_throws "sigma must be positive" setup(P, q, A, l, u; sigma = 0.0)
-    @test_throws "sigma must be positive" setup(P, q, A, l, u; sigma = -1.0)
-    @test_throws "rho must be positive" setup(P, q, A, l, u; rho = -1.0)
-    @test_throws "alpha must lie in (0, 2)" setup(P, q, A, l, u; alpha = 0.0)
-    @test_throws "alpha must lie in (0, 2)" setup(P, q, A, l, u; alpha = 5.0)
+    @test_throws "sigma must be positive" OperatorSplitting(sigma = 0.0)
+    @test_throws "sigma must be positive" OperatorSplitting(sigma = -1.0)
+    @test_throws "rho must be positive" OperatorSplitting(rho = -1.0)
+    @test_throws "alpha must lie in (0, 2)" OperatorSplitting(alpha = 0.0)
+    @test_throws "alpha must lie in (0, 2)" OperatorSplitting(alpha = 5.0)
     @test_throws "max_iter must be positive" setup(P, q, A, l, u; max_iter = 0)
     @test_throws "max_iter must be positive" setup(P, q, A, l, u; max_iter = -5)
     @test_throws "eps_abs and eps_rel must be non-negative" setup(P, q, A, l, u; eps_abs = -1.0)
@@ -80,6 +80,74 @@ end
     @test_throws "delta must be positive" setup(P, q, A, l, u; delta = 0.0)
 end
 
+@testitem "algorithm objects and shared options" begin
+    using LinearAlgebra, ForwardDiff
+    P = [4.0 1.0; 1.0 2.0]
+    q = [1.0, 1.0]
+    A = [1.0 1.0; 1.0 0.0; 0.0 1.0]
+    l = [1.0, 0.0, 0.0]
+    u = [1.0, 0.7, 0.7]
+
+    # A setting passed in the wrong place names where it belongs, under either algorithm.
+    @test_throws "rho is a parameter of OperatorSplitting, not an option" solve(P, q, A, l, u; rho = 0.2)
+    @test_throws "rho is a parameter of OperatorSplitting, not an option" solve(P, q, A, l, u, InteriorPoint(); rho = 0.2)
+    @test_throws "reg_primal is a parameter of InteriorPoint, not an option" setup(P, q, A, l, u; reg_primal = 1.0e-7)
+    @test_throws "InteriorPoint(reg_primal = ...)" setup(P, q, A, l, u, InteriorPoint(); reg_primal = 1.0e-7)
+    @test_throws ArgumentError update_settings!(setup(P, q, A, l, u); sigma = 1.0e-5)
+    # An option is not a parameter, and an unknown name is refused too.
+    @test_throws MethodError InteriorPoint(rho = 0.2)
+    @test_throws MethodError OperatorSplitting(max_iter = 10)
+    @test_throws MethodError setup(P, q, A, l, u; not_a_setting = 1)
+
+    # The defaults that differ by algorithm come from the algorithm; a value given is kept.
+    admm = default_options(OperatorSplitting(), Float64)
+    ipm = default_options(InteriorPoint(), Float64)
+    @test admm isa Options{Float64}
+    @test (admm.max_iter, admm.eps_abs, admm.eps_prim_inf, admm.check_termination) == (4000, 1.0e-3, 1.0e-4, 25)
+    @test (admm.cg_max_iter, admm.cg_tol_fraction) == (20, 0.15)
+    @test (ipm.max_iter, ipm.eps_abs, ipm.eps_prim_inf, ipm.check_termination) == (100, 1.0e-8, 1.0e-8, 1)
+    @test (ipm.cg_max_iter, ipm.cg_tol_fraction) == (500, 0.1)
+    @test default_options(InteriorPoint(), Float32).eps_abs == sqrt(eps(Float32))
+    @test setup(P, q, A, l, u).options == admm
+    ws = setup(P, q, A, l, u, InteriorPoint(); max_iter = 50)
+    @test ws.options.max_iter == 50
+    @test ws.options.eps_abs == 1.0e-8
+
+    # `update_settings!` in both forms, on the operator-splitting workspace.
+    ws = setup(P, q, A, l, u, OperatorSplitting(rho = 0.2, adaptive_rho = :kkt_error); eps_abs = 1.0e-6)
+    @test ws.algorithm == OperatorSplitting{Float64}(OperatorSplitting(rho = 0.2, adaptive_rho = :kkt_error))
+    update_settings!(ws; eps_abs = 1.0e-8)
+    @test ws.options.eps_abs == 1.0e-8
+    @test ws.algorithm.rho == 0.2
+    count = ws.refactor_count
+    update_settings!(ws, OperatorSplitting(sigma = 1.0e-5))
+    @test ws.algorithm.sigma == 1.0e-5
+    @test ws.algorithm.rho == 0.1                 # a parameter left out takes its default
+    @test ws.algorithm.adaptive_rho === :iterations
+    @test ws.weights.sigma == 1.0e-5
+    @test ws.refactor_count == count + 1
+    @test ws.options.eps_abs == 1.0e-8            # the options are untouched
+    @test solve!(ws).status == SOLVED
+    @test_throws "the algorithm is fixed once the workspace is built" update_settings!(ws, InteriorPoint())
+
+    # Each algorithm object takes the solve's element type, and the defaults that depend on it.
+    for T in (Float32, BigFloat, ForwardDiff.Dual{Nothing, Float64, 1})
+        c(v) = T.(v)
+        os = setup(c(P), c(q), c(A), c(l), c(u), OperatorSplitting())
+        @test os.algorithm isa OperatorSplitting{T}
+        @test os.options isa Options{T}
+        @test os.algorithm.rho == T(0.1)
+        ip = setup(c(P), c(q), c(A), c(l), c(u), InteriorPoint())
+        @test ip.algorithm isa InteriorPoint{T, Int}
+        @test ip.options isa Options{T}
+        @test ip.algorithm.reg_primal == PureOSQP.ipm_floor(T)
+        @test ip.options.eps_abs == PureOSQP.ipm_floor(T)
+        @test ip.algorithm.refine_iter == 1
+    end
+    @test setup(Float32.(P), Float32.(q), Float32.(A), Float32.(l), Float32.(u), InteriorPoint(reg_primal = 1.0e-6)).algorithm.reg_primal == 1.0f-6
+    @test InteriorPoint(reg_primal = big"1e-40").reg_primal == big"1e-40"
+end
+
 @testitem "a run without a solution returns NaN, not a plausible point" begin
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
@@ -87,8 +155,8 @@ end
     q = [3.0, 4.0]
     A = [-1.0 0.0; 0.0 -1.0; -1.0 3.0; 2.0 5.0; 3.0 4.0]
     s = PureOSQP.solve(
-        P, q, A, fill(-Inf, 5), [0.0, 0.0, -15.0, 100.0, 80.0];
-        sigma = 5.0, max_iter = 10_000
+        P, q, A, fill(-Inf, 5), [0.0, 0.0, -15.0, 100.0, 80.0], OperatorSplitting(sigma = 5.0);
+        max_iter = 10_000
     )
     @test s.status == NON_CONVEX
     @test all(isnan, s.x)
@@ -120,7 +188,7 @@ end
         A = Matrix{T}([1 0; 0 1; 1 1])
         l = T[-Inf, 1, 0]
         u = T[Inf, 1, 1]
-        ws = setup(T, zeros(T, 2, 2), zeros(T, 2), A, l, u; scaling = 0, rho = 0.1)
+        ws = setup(T, zeros(T, 2, 2), zeros(T, 2), A, l, u, OperatorSplitting(rho = 0.1); scaling = 0)
         @test ws.constr_type == Int8[-1, 1, 0]
     end
 end

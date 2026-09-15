@@ -1,5 +1,5 @@
 """
-    update!(ws; q = nothing, l = nothing, u = nothing, P = nothing, A = nothing) -> Workspace
+    update!(ws; q = nothing, l = nothing, u = nothing, P = nothing, A = nothing) -> OperatorSplittingWorkspace
 
 Replace problem data in an existing workspace, keeping the equilibration factors, the
 buffers and the current iterates.
@@ -33,7 +33,7 @@ scalar `P` (its `μ` is refreshed, not re-guessed), its uniform `ρ`, the block 
 and the coupling rank.
 """
 function update!(
-        ws::Workspace{T}; q = nothing, l = nothing, u = nothing, P = nothing, A = nothing
+        ws::OperatorSplittingWorkspace{T}; q = nothing, l = nothing, u = nothing, P = nothing, A = nothing
     ) where {T}
     t0 = time_ns()
     prob = ws.prob
@@ -41,11 +41,11 @@ function update!(
 
     # What ADMM requires beyond the data being well formed: convexity at its `σ`, and the
     # uniform `ρ` the kronecker backend's diagonalization needs.
-    !isnothing(P) && !is_convex(T, P, ws.settings.sigma) &&
+    !isnothing(P) && !is_convex(T, P, ws.algorithm.sigma) &&
         throw(ArgumentError("P + sigma*I is not positive definite: P is indefinite, so the problem is not convex."))
     if (!isnothing(l) || !isnothing(u)) && ws.linsys isa KroneckerReduced && prob.m > 0
         loose = INFTY(T) * MIN_SCALING(T)
-        split = ws.settings.rho_is_vec
+        split = ws.algorithm.rho_is_vec
         lprop = isnothing(l) ? prob.l0 : max.(T.(l), -INFTY(T))
         uprop = isnothing(u) ? prob.u0 : min.(T.(u), INFTY(T))
         first_class = rho_class(prob.E[1] * lprop[1], prob.E[1] * uprop[1], loose, split)

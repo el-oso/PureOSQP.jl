@@ -25,7 +25,17 @@ u = [1.0, 0.7, 0.7]
 sol = solve(P, q, A, l, u)
 sol.status   # SOLVED
 sol.x        # [0.3, 0.7]
+
+# The algorithm is the optional sixth argument; shared options are keywords.
+sol = solve(P, q, A, l, u, OperatorSplitting(rho = 0.2); eps_abs = 1e-6)
+sol = solve(P, q, A, l, u, InteriorPoint(); eps_abs = 1e-9)
+
+ws = setup(P, q, A, l, u, InteriorPoint(); max_iter = 50)
+sol = solve!(ws)
 ```
+
+`OperatorSplitting()`, the default, is OSQP's ADMM iteration; `InteriorPoint()` is a Mehrotra
+interior-point method whose defaults aim at `1e-8` accuracy. [Choosing an algorithm](https://el-oso.github.io/PureOSQP.jl/dev/#Choosing-an-algorithm) compares them.
 
 ## What it implements
 

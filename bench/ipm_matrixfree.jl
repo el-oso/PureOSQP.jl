@@ -1,4 +1,4 @@
-# Ship gate for `algorithm = :ipm, linsys = :indirect` with a caller-supplied preconditioner.
+# Ship gate for `InteriorPoint()` on `linsys = :indirect` with a caller-supplied preconditioner.
 #
 # Dense instances with a planted solution, `P` and `A` passed as `LinearMap`s, preconditioned by
 # `LaggedCholesky` (refreshed every third outer iteration), at `n ∈ {500, 1000, 2000}`,
@@ -131,7 +131,7 @@ function run_case(n, κ, frac, mixed, seed)
     t0 = time()
     M = Logged(LaggedCholesky(P, A; every = 3))
     s = PureOSQP.solve(
-        Pop, q, Aop, l, u; algorithm = :ipm, linsys = :indirect, preconditioner = M,
+        Pop, q, Aop, l, u, InteriorPoint(); linsys = :indirect, preconditioner = M,
         scaling = 0, eps_abs = EPS, eps_rel = EPS
     )
     wall = time() - t0
@@ -149,7 +149,7 @@ function run_case(n, κ, frac, mixed, seed)
     )
 
     t0 = time()
-    d = PureOSQP.solve(P, q, A, l, u; algorithm = :ipm, linsys = :kkt, scaling = 0, eps_abs = EPS, eps_rel = EPS)
+    d = PureOSQP.solve(P, q, A, l, u, InteriorPoint(); linsys = :kkt, scaling = 0, eps_abs = EPS, eps_rel = EPS)
     row["dense_ipm"] = Dict(
         "status" => string(d.status), "iter" => d.iter, "wall_s" => time() - t0,
         "referee" => has_solution(d.status) ? kkt_residuals(P, q, A, l, u, d.x, d.y) : Inf,
@@ -191,7 +191,7 @@ function sparse_case(n; seed = 7)
     t0 = time()
     M = Logged(IncompleteLDL(P, A))
     s = PureOSQP.solve(
-        P, q, A, l, u; algorithm = :ipm, linsys = :indirect, preconditioner = M, scaling = 0,
+        P, q, A, l, u, InteriorPoint(); linsys = :indirect, preconditioner = M, scaling = 0,
         eps_abs = EPS, eps_rel = EPS
     )
     wall = time() - t0
@@ -213,7 +213,7 @@ function infeasible_case(n)
     l[2], u[2] = 1.0, Inf
     Pop, Aop = operators(P, A)
     s = PureOSQP.solve(
-        Pop, q, Aop, l, u; algorithm = :ipm, linsys = :indirect, scaling = 0,
+        Pop, q, Aop, l, u, InteriorPoint(); linsys = :indirect, scaling = 0,
         preconditioner = LaggedCholesky(P, A; every = 3), eps_abs = EPS, eps_rel = EPS
     )
     return Dict("n" => n, "status" => string(s.status), "iter" => s.iter, "cg_iters" => s.cg_iters)
@@ -226,7 +226,7 @@ function indefinite_case(n)
     d = ones(n)
     d[1] = -1.0
     s = PureOSQP.solve(
-        Pop, q, Aop, l, u; algorithm = :ipm, linsys = :indirect, scaling = 0,
+        Pop, q, Aop, l, u, InteriorPoint(); linsys = :indirect, scaling = 0,
         preconditioner = Diagonal(d), eps_abs = EPS, eps_rel = EPS
     )
     return Dict("n" => n, "status" => string(s.status), "iter" => s.iter, "cg_iters" => s.cg_iters)

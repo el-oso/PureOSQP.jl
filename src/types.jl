@@ -95,77 +95,55 @@ end
 large bound would otherwise dominate the sum."
 @inline ZERO_DEADZONE(::Type{T}) where {T} = T(1.0e-10)
 
-"The backends `linsys` may name. [`setup`](@ref) rejects anything else before turning the
-choice into a type parameter, so an unusable name costs an error and not a specialization.
-
-`:auto` descends the selection ladder. `:dense`, `:kkt` and `:indirect` name a backend
-outright. The rest name a *kind* the pair must admit — `:sparse` factors the reduced or
-KKT matrix sparsely, `:diagonal`, `:tridiagonal`, `:block`, `:kronecker` and `:lowrank`
-name their structured backends — and are refused, with the condition stated, when the pair
-does not admit one. They are the escape hatch for a pair the ladder's measured thresholds
-misjudge: the same backend the ladder would have chosen, chosen by the caller instead."
-const LINSYS_OPTIONS = (
-    :auto, :dense, :kkt, :indirect,
-    :sparse, :diagonal, :tridiagonal, :block, :kronecker, :lowrank,
-)
-
 """
-    Settings{T}
+    OperatorSplitting(; kwargs...)
 
-Algorithm parameters. Every default is libosqp 1.0's, including `check_dualgap` on and
-`adaptive_rho` adapting on a fixed iteration interval of 50.
+The OSQP operator-splitting (ADMM) method, the default algorithm of [`setup`](@ref) and
+[`solve`](@ref). The keyword arguments are its parameters; every default is libosqp 1.0's,
+including `adaptive_rho` adapting on a fixed iteration interval of 50.
+
+- `rho = 0.1`, `sigma = 1e-6`, `alpha = 1.6` — the step size, the primal regularization and
+  the relaxation of the iteration. `P + sigma*I` must be positive definite.
+- `adaptive_rho = true` — `:disabled`, `:iterations` or `:kkt_error`; `true` is `:iterations`
+  and `false` is `:disabled`.
+- `adaptive_rho_interval = 50`, `adaptive_rho_fraction = 0.4`, `adaptive_rho_tolerance = 5.0`
+  — how often `ρ` is retuned, the fall in the KKT error `:kkt_error` requires first, and the
+  factor `ρ` must move by before a refactorization is paid for.
+- `rho_is_vec = true` — give equality rows a `ρ` a thousand times larger than inequality rows.
+- `cg_tol_reduction = 10` — the factor the conjugate-gradient tolerance is divided by when CG
+  stops iterating, with `linsys = :indirect`.
+- `profile_primdual = false` — fill [`Solution`](@ref)'s `primdual_int` and
+  `primdual_int_log`; the only parameter that makes the solve read a clock it would not
+  otherwise read, at a measured cost under 1%.
+- `verbose = false` — print a header, one line per termination check, and a footer.
 
 One mode is deliberately absent. libosqp 1.0 offers a fourth `adaptive_rho`, adapting once
 a fraction of the setup time has elapsed; a solver that decides when to refactorize by
 reading a clock takes a different number of iterations on a different machine, so the modes
 here are `:disabled`, `:iterations` and `:kkt_error` only.
 
-`profile_primdual` is off by default and is the only setting that makes the solve read a
-clock it would not otherwise read. Turning it on fills [`Solution`](@ref)'s `primdual_int`
-and `primdual_int_log`, at a measured cost under 1%.
+The object is built without an element type; [`setup`](@ref) converts it to the solve's
+element type, and the workspace holds that `OperatorSplitting{T}` as `ws.algorithm`.
 """
-struct Settings{T <: Real}
+struct OperatorSplitting{T <: Real} <: QPAlgorithm
     rho::T
     sigma::T
     alpha::T
-    max_iter::Int
-    time_limit::T
-    eps_abs::T
-    eps_rel::T
-    eps_prim_inf::T
-    eps_dual_inf::T
-    scaling::Int
     adaptive_rho::Symbol
     adaptive_rho_interval::Int
     adaptive_rho_fraction::T
     adaptive_rho_tolerance::T
-    check_termination::Int
-    cg_max_iter::Int
-    cg_tol_fraction::T
-    cg_tol_reduction::Int
-    check_dualgap::Bool
-    profile_primdual::Bool
-    scaled_termination::Bool
     rho_is_vec::Bool
-    polishing::Bool
-    polish_refine_iter::Int
-    delta::T
-    warm_starting::Bool
+    cg_tol_reduction::Int
+    profile_primdual::Bool
     verbose::Bool
-    linsys::Symbol
 end
 
-function Settings{T}(;
-        rho = 0.1, sigma = 1.0e-6, alpha = 1.6, max_iter = 4000, time_limit = Inf,
-        eps_abs = 1.0e-3, eps_rel = 1.0e-3, eps_prim_inf = 1.0e-4, eps_dual_inf = 1.0e-4,
-        scaling = 10, adaptive_rho = true, adaptive_rho_interval = 50,
-        adaptive_rho_fraction = 0.4, adaptive_rho_tolerance = 5.0, check_termination = 25,
-        cg_max_iter = 20, cg_tol_fraction = 0.15, cg_tol_reduction = 10,
-        check_dualgap = true, profile_primdual = false,
-        scaled_termination = false, rho_is_vec = true,
-        polishing = false, polish_refine_iter = 3, delta = 1.0e-6,
-        warm_starting = true, verbose = false, linsys = :auto,
-    ) where {T <: Real}
+function OperatorSplitting(;
+        rho = 0.1, sigma = 1.0e-6, alpha = 1.6, adaptive_rho = true, adaptive_rho_interval = 50,
+        adaptive_rho_fraction = 0.4, adaptive_rho_tolerance = 5.0, rho_is_vec = true,
+        cg_tol_reduction = 10, profile_primdual = false, verbose = false,
+    )
     # `adaptive_rho` names a mode. A `Bool` is also accepted: `true` is `:iterations`.
     rho_mode = adaptive_rho isa Bool ? (adaptive_rho ? :iterations : :disabled) :
         Symbol(adaptive_rho)
@@ -177,40 +155,46 @@ function Settings{T}(;
     0 < adaptive_rho_fraction <= 1 || throw(
         ArgumentError("adaptive_rho_fraction must lie in (0, 1], got $adaptive_rho_fraction")
     )
-    linsys in LINSYS_OPTIONS || throw(
-        ArgumentError("linsys must be one of $(join(LINSYS_OPTIONS, ", ")), got :$linsys")
-    )
-    cg_max_iter > 0 || throw(ArgumentError("cg_max_iter must be positive, got $cg_max_iter"))
-    0 < cg_tol_fraction <= 1 || throw(
-        ArgumentError("cg_tol_fraction must lie in (0, 1], got $cg_tol_fraction")
-    )
     cg_tol_reduction > 0 || throw(ArgumentError("cg_tol_reduction must be positive"))
     sigma > 0 || throw(ArgumentError("sigma must be positive, got $sigma"))
     rho > 0 || throw(ArgumentError("rho must be positive, got $rho"))
     0 < alpha < 2 || throw(ArgumentError("alpha must lie in (0, 2), got $alpha"))
-    max_iter > 0 || throw(ArgumentError("max_iter must be positive, got $max_iter"))
-    time_limit > 0 || throw(ArgumentError("time_limit must be positive (Inf disables it), got $time_limit"))
-    eps_abs >= 0 && eps_rel >= 0 || throw(ArgumentError("eps_abs and eps_rel must be non-negative"))
-    eps_abs > 0 || eps_rel > 0 || throw(ArgumentError("at least one of eps_abs, eps_rel must be positive"))
-    eps_prim_inf > 0 && eps_dual_inf > 0 || throw(ArgumentError("eps_prim_inf and eps_dual_inf must be positive"))
-    scaling >= 0 || throw(ArgumentError("scaling must be non-negative, got $scaling"))
-    check_termination >= 0 || throw(ArgumentError("check_termination must be non-negative, got $check_termination"))
     adaptive_rho_interval >= 0 || throw(ArgumentError("adaptive_rho_interval must be non-negative"))
     adaptive_rho_tolerance >= 1 || throw(ArgumentError("adaptive_rho_tolerance must be at least 1"))
-    polish_refine_iter >= 0 || throw(ArgumentError("polish_refine_iter must be non-negative"))
-    delta > 0 || throw(ArgumentError("delta must be positive, got $delta"))
-    return Settings{T}(
-        T(rho), T(sigma), T(alpha), Int(max_iter), T(time_limit),
-        T(eps_abs), T(eps_rel), T(eps_prim_inf), T(eps_dual_inf),
-        Int(scaling), rho_mode, Int(adaptive_rho_interval), T(adaptive_rho_fraction),
-        T(adaptive_rho_tolerance), Int(check_termination),
-        Int(cg_max_iter), T(cg_tol_fraction), Int(cg_tol_reduction),
-        Bool(check_dualgap), Bool(profile_primdual),
-        Bool(scaled_termination), Bool(rho_is_vec),
-        Bool(polishing), Int(polish_refine_iter), T(delta),
-        Bool(warm_starting), Bool(verbose), Symbol(linsys),
+    F = float(
+        promote_type(
+            typeof(rho), typeof(sigma), typeof(alpha), typeof(adaptive_rho_fraction),
+            typeof(adaptive_rho_tolerance),
+        )
+    )
+    return OperatorSplitting{F}(
+        F(rho), F(sigma), F(alpha), rho_mode, Int(adaptive_rho_interval),
+        F(adaptive_rho_fraction), F(adaptive_rho_tolerance), Bool(rho_is_vec),
+        Int(cg_tol_reduction), Bool(profile_primdual), Bool(verbose),
     )
 end
+
+"`a` in element type `T`."
+OperatorSplitting{T}(a::OperatorSplitting) where {T <: Real} = OperatorSplitting{T}(
+    T(a.rho), T(a.sigma), T(a.alpha), a.adaptive_rho, a.adaptive_rho_interval,
+    T(a.adaptive_rho_fraction), T(a.adaptive_rho_tolerance), a.rho_is_vec,
+    a.cg_tol_reduction, a.profile_primdual, a.verbose,
+)
+
+const OPERATOR_SPLITTING_NAMES = fieldnames(OperatorSplitting{Float64})
+
+"""
+    element_typed(alg, T, options) -> QPAlgorithm
+
+`alg` in element type `T`, with every default that depends on `T` or on `options` resolved.
+"""
+element_typed(a::OperatorSplitting, ::Type{T}, ::Options) where {T} = OperatorSplitting{T}(a)
+
+"The [`Options`](@ref) defaults of an algorithm that differ from the other algorithm's."
+algorithm_defaults(::OperatorSplitting, ::Type{T}) where {T} = (
+    max_iter = 4000, eps_abs = 1.0e-3, eps_rel = 1.0e-3, eps_prim_inf = 1.0e-4,
+    eps_dual_inf = 1.0e-4, check_termination = 25, cg_max_iter = 20, cg_tol_fraction = 0.15,
+)
 
 """
     Solution{T}
@@ -222,7 +206,7 @@ infeasibility, the corresponding certificate is populated and `x`/`y` are filled
 `duality_gap` is `xᵀPx + qᵀx + SC(y)`, where `SC` is the support function of `[l, u]`; it
 is zero at an exact solution and is reported unscaled. `rel_kkt_error` is the largest of
 the two residuals and the gap, so one number bounds how far the point is from optimal.
-`rho_updates` counts adaptive-`ρ` changes only, unlike `Workspace.refactor_count`, which
+`rho_updates` counts adaptive-`ρ` changes only, unlike `OperatorSplittingWorkspace.refactor_count`, which
 also counts refactorizations forced by new data.
 
 `accel_declined` counts the accelerated steps this solve discarded because they did worse than
@@ -289,19 +273,20 @@ struct Solution{T <: Real}
 end
 
 """
-    Workspace{T,MP,MA,V,VI,LS}
+    OperatorSplittingWorkspace{T,MP,MA,V,VI,LS,AC} <: QPWorkspace{T}
 
-Solver state. The caller's `P` and `A` are held by reference and never mutated: Ruiz
-equilibration lives in the factors `D`, `E`, `c` and is applied lazily on every product.
+Solver state of [`OperatorSplitting`](@ref), built by [`setup`](@ref). The caller's `P` and
+`A` are held by reference and never mutated: Ruiz equilibration lives in the factors `D`,
+`E`, `c` and is applied lazily on every product.
 
 The buffers are `similar` to the `q` that built the workspace, so they follow the array
 type of the caller's data rather than always being `Vector`.
 """
-mutable struct Workspace{
+mutable struct OperatorSplittingWorkspace{
         T <: Real, MP <: AbstractMatrix, MA <: AbstractMatrix,
         V <: AbstractVector{T}, VI <: AbstractVector{Int8}, LS <: LinearSystem,
         AC,
-    }
+    } <: QPWorkspace{T}
     prob::Problem{T, MP, MA, V}
     x::V
     y::V
@@ -365,7 +350,8 @@ mutable struct Workspace{
     first_run::Bool
     solve_time::Float64
     polish_time::Float64
-    settings::Settings{T}
+    algorithm::OperatorSplitting{T}
+    options::Options{T}
 end
 
 """
@@ -384,12 +370,12 @@ function Base.show(io::IO, s::Solution{T}) where {T}
 end
 
 """
-    Workspace show, in one line: the shape, the backend the workspace is built on, and the
+    OperatorSplittingWorkspace show, in one line: the shape, the backend the workspace is built on, and the
     state of its last run.
 """
-function Base.show(io::IO, ws::Workspace)
+function Base.show(io::IO, ws::OperatorSplittingWorkspace)
     print(
-        io, "PureOSQP Workspace: ", ws.prob.n, "×", ws.prob.m,
+        io, "PureOSQP OperatorSplittingWorkspace: ", ws.prob.n, "×", ws.prob.m,
         ", backend ", backend_name(ws.linsys),
         ", status ", status_name(ws.status),
         ", rho ", ws.rho,
@@ -481,21 +467,24 @@ which the compiler can already prove.
 check_storage(M, rows::Integer, cols::Integer) = nothing
 
 """
-    setup(P, q, A, l, u; kwargs...) -> Workspace
+    setup(P, q, A, l, u, alg = OperatorSplitting(); kwargs...) -> QPWorkspace
 
 Build a workspace for `min ½xᵀPx + qᵀx  s.t.  l ≤ Ax ≤ u`.
 
 `P` must be a full symmetric matrix (or a `Symmetric` wrapper), not a stored triangle.
-`P` and `A` may be any `AbstractMatrix` and are not copied or modified. Keyword arguments
-are the fields of [`Settings`](@ref), plus `accelerator` and `preconditioner`.
+`P` and `A` may be any `AbstractMatrix` and are not copied or modified. `alg` is the
+algorithm and its parameters; the keyword arguments are the fields of [`Options`](@ref), whose
+defaults depend on `alg` ([`default_options`](@ref)), plus `preconditioner` and, for
+[`OperatorSplitting`](@ref) only, `accelerator`. A keyword that is a parameter of an algorithm
+(`rho`, `reg_primal`, …) throws, naming the algorithm object it belongs in.
 
-`algorithm = :admm`, the default, builds this [`Workspace`](@ref). `algorithm = :ipm` builds
-an [`IPMWorkspace`](@ref) for the interior-point method instead, whose keyword arguments are
-the fields of [`IPMSettings`](@ref), plus `preconditioner`. It runs on the host for any real
-element type and refuses GPU arrays, `linsys = :kronecker` and `linsys = :lowrank` by name. It
-solves an operator that supplies products only, and runs conjugate gradients on any pair, only
-with `linsys = :indirect`, a caller-supplied `preconditioner` and `scaling = 0`; without
-those it throws, and `linsys = :auto` never chooses that path.
+[`OperatorSplitting`](@ref), the default, builds an [`OperatorSplittingWorkspace`](@ref).
+[`InteriorPoint`](@ref) builds an [`InteriorPointWorkspace`](@ref) for the interior-point
+method instead. It runs on the host for any real element type and refuses GPU arrays,
+`linsys = :kronecker` and `linsys = :lowrank` by name. It solves an operator that supplies
+products only, and runs conjugate gradients on any pair, only with `linsys = :indirect`, a
+caller-supplied `preconditioner` and `scaling = 0`; without those it throws, and
+`linsys = :auto` never chooses that path.
 
 `preconditioner` applies to `linsys = :indirect` only, and is refused with any other
 `linsys`. The default, `nothing`, is a [`JacobiPreconditioner`](@ref);
@@ -511,18 +500,18 @@ stored column. Pass the full `SparseMatrixCSC` to reach those backends.
 """
 function setup(
         P::AbstractMatrix, q::AbstractVector, A::AbstractMatrix,
-        l::AbstractVector, u::AbstractVector; kwargs...
+        l::AbstractVector, u::AbstractVector, alg::QPAlgorithm = OperatorSplitting(); kwargs...
     )
     T = float(promote_type(eltype(P), eltype(q), eltype(A), eltype(l), eltype(u)))
-    return setup(T, P, q, A, l, u; kwargs...)
+    return setup(T, P, q, A, l, u, alg; kwargs...)
 end
 
-# `@constprop :aggressive` because the settings have to reach inference as constants. A
+# `@constprop :aggressive` because the options have to reach inference as constants. A
 # non-default keyword — `scaling = 0`, `linsys = :kkt` — otherwise arrives as a non-singleton
 # `Pairs`, the compiler's size heuristic refuses to propagate it into a method this large, and
-# `settings.scaling` stays unknown, leaving every branch below live. The return then merges one
-# `Workspace` per reachable backend, and past `Base.Compiler.MAX_TYPEUNION_LENGTH` (3) the union
-# widens to `Workspace{…} where LS`: every later `solve!` is a dynamic dispatch, which `--trim`
+# `options.scaling` stays unknown, leaving every branch below live. The return then merges one
+# workspace type per reachable backend, and past `Base.Compiler.MAX_TYPEUNION_LENGTH` (3) the
+# union widens to `OperatorSplittingWorkspace{…} where LS`: every later `solve!` is a dynamic dispatch, which `--trim`
 # rejects. An absent keyword leaves the empty `Pairs`, a singleton that folds without help.
 #
 # `linsys` is lifted out of the keywords and into a `Val` because constant propagation is not
@@ -533,29 +522,28 @@ end
 # carried as a type parameter and the dead branches are gone by specialization instead.
 Base.@constprop :aggressive function setup(
         ::Type{T}, P::AbstractMatrix, q::AbstractVector, A::AbstractMatrix,
-        l::AbstractVector, u::AbstractVector; linsys::Symbol = :auto,
-        algorithm::Symbol = :admm, kwargs...
+        l::AbstractVector, u::AbstractVector, alg::QPAlgorithm = OperatorSplitting();
+        linsys::Symbol = :auto, kwargs...
     ) where {T <: Real}
-    # Rejected here rather than left to `Settings`: past this point the name becomes a type
+    # Rejected here rather than left to `Options`: past this point the name becomes a type
     # parameter, and an unusable one would specialize the whole of `setup_backend` before the
-    # settings it cannot satisfy are ever built. `algorithm` is lifted the same way.
+    # options it cannot satisfy are ever built.
     linsys in LINSYS_OPTIONS || throw(
         ArgumentError("linsys must be one of $(join(LINSYS_OPTIONS, ", ")), got :$linsys")
     )
-    algorithm in (:admm, :ipm) || throw(
-        ArgumentError("algorithm must be :admm or :ipm, got :$algorithm")
-    )
-    return setup_backend(Val(algorithm), Val(linsys), T, P, q, A, l, u; kwargs...)
+    check_option_names(kwargs)
+    return setup_backend(alg, Val(linsys), T, P, q, A, l, u; kwargs...)
 end
 
 function setup_backend(
-        ::Val{:admm}, ::Val{LS}, ::Type{T}, P::AbstractMatrix, q::AbstractVector, A::AbstractMatrix,
-        l::AbstractVector, u::AbstractVector; accelerator = nothing, preconditioner = nothing,
-        kwargs...
+        alg::OperatorSplitting, ::Val{LS}, ::Type{T}, P::AbstractMatrix, q::AbstractVector,
+        A::AbstractMatrix, l::AbstractVector, u::AbstractVector; accelerator = nothing,
+        preconditioner = nothing, kwargs...
     ) where {LS, T <: Real}
     t0 = time_ns()
     nv, mv = validate(P, q, A, l, u)
-    settings = Settings{T}(; linsys = LS, kwargs...)
+    options = Options{T}(; algorithm_defaults(alg, T)..., linsys = LS, kwargs...)
+    algorithm = element_typed(alg, T, options)
     isnothing(preconditioner) || LS === :indirect || throw(
         ArgumentError(
             "preconditioner is used only by the matrix-free backend: pass linsys = :indirect with it."
@@ -565,19 +553,19 @@ function setup_backend(
     # equilibration would change underneath it. The two built-in ones need nothing from the
     # caller's matrices.
     preconditioner isa Union{Nothing, IdentityPreconditioner, JacobiPreconditioner} ||
-        iszero(settings.scaling) || throw(
+        iszero(options.scaling) || throw(
         ArgumentError(
             "a caller-supplied preconditioner approximates P + sigma*I + A' * Diagonal(rho) * A " *
                 "for the P and A passed to setup, which equilibration would change: pass scaling = 0 with it."
         )
     )
-    if !is_convex(T, P, settings.sigma)
+    if !is_convex(T, P, algorithm.sigma)
         throw(ArgumentError("P + sigma*I is not positive definite: P is indefinite, so the problem is not convex. Increase sigma if P + sigma*I can be made positive definite."))
     end
     # Equilibration and the ρ split run before the backend exists, because choosing a backend
     # well means building the reduced matrix and factoring it, and doing that with the values
     # the solver will actually use makes that factorization the setup factorization.
-    prob = validated_problem(T, nv, mv, P, q, A, l, u, settings.scaling)
+    prob = validated_problem(T, nv, mv, P, q, A, l, u, options.scaling)
     n, m, q0, l, u = prob.n, prob.m, prob.q0, prob.l, prob.u
     # A single definition, and no default argument: a local function assigned more than
     # once is boxed, which turns every call through it into a dynamic dispatch and makes
@@ -586,18 +574,18 @@ function setup_backend(
     z = zero(T)
     o = one(T)
     ctype = fill!(similar(q0, Int8, m), zero(Int8))
-    rho = clamp(settings.rho, RHO_MIN(T), RHO_MAX(T))
+    rho = clamp(algorithm.rho, RHO_MIN(T), RHO_MAX(T))
     rho_vec, rho_inv_vec = buf(m, o), buf(m, o)
     classify_rho!(
         ctype, rho_vec, rho_inv_vec, l, u, rho,
-        INFTY(T) * MIN_SCALING(T), settings.rho_is_vec
+        INFTY(T) * MIN_SCALING(T), algorithm.rho_is_vec
     )
     ac = init_accelerator(accelerator, T, n, m)
-    wt = SystemWeights(rho_vec, rho_inv_vec, settings.sigma)
+    wt = SystemWeights(rho_vec, rho_inv_vec, algorithm.sigma)
     # `built`, not `ws`: assigning a name the enclosing function also assigns would capture
     # that variable, and a captured variable that is assigned is boxed.
     function make(ls)
-        built = Workspace{
+        built = OperatorSplittingWorkspace{
             T, typeof(P), typeof(A), typeof(q0), typeof(ctype), typeof(ls), typeof(ac),
         }(
             prob,
@@ -609,15 +597,15 @@ function setup_backend(
             zero(T), zero(T), zero(T), zero(T), zero(T),
             zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), INFTY(T),
             0.0, 0.0, 0.0, zero(T), zero(UInt64),
-            settings.rho, 0, 0, 0, 0, UNSOLVED, false, POLISH_NOT_PERFORMED,
+            algorithm.rho, 0, 0, 0, 0, UNSOLVED, false, POLISH_NOT_PERFORMED,
             0.0, 0.0, true, 0.0, 0.0,
-            settings,
+            algorithm, options,
         )
-        adopt_settings!(built.linsys, settings)
+        adopt_settings!(built.linsys, algorithm, options)
         return built
     end
     # `LS` is a type parameter, so a named backend leaves exactly one of these branches live
-    # and the rest are gone before the trimmer sees them. `settings` still holds and validates
+    # and the rest are gone before the trimmer sees them. `options` still holds and validates
     # the same value; reading it back here instead would put the choice beyond inference's
     # reach and make every branch reachable again.
     if LS === :kkt
@@ -719,7 +707,7 @@ function setup_backend(
 end
 
 "Record how long `setup` took. Called on each of its return paths."
-function finish_setup!(ws::Workspace, t0::UInt64)
+function finish_setup!(ws::OperatorSplittingWorkspace, t0::UInt64)
     ws.setup_time = (time_ns() - t0) / 1.0e9
     return ws
 end
@@ -729,7 +717,7 @@ end
 
 Seed the iterates in problem space. `z` is set to the scaled `Ax`.
 """
-function warm_start!(ws::Workspace{T}; x = nothing, y = nothing) where {T}
+function warm_start!(ws::OperatorSplittingWorkspace{T}; x = nothing, y = nothing) where {T}
     prob = ws.prob
     if !isnothing(x)
         length(x) == prob.n || throw(ArgumentError("length(x) must be $(prob.n)"))
@@ -758,7 +746,7 @@ since those iterates lie on a diverging ray. Call it directly to discard a warm 
 no longer want — after a large change in the data, say, when the previous solution is a
 worse starting point than the origin.
 """
-function cold_start!(ws::Workspace{T}) where {T}
+function cold_start!(ws::OperatorSplittingWorkspace{T}) where {T}
     fill!(ws.x, zero(T))
     fill!(ws.y, zero(T))
     fill!(ws.z, zero(T))

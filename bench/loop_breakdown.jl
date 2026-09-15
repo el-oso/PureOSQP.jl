@@ -45,7 +45,7 @@ for (name, build) in CASES
     PureOSQP.solve!(ws)
     # `setup` counts one, so the rest are the loop's.
     refac = ws.refactor_count - 1
-    checks = ws.iter ÷ ws.settings.check_termination
+    checks = ws.iter ÷ ws.options.check_termination
     t_all = steps(P, q, A, l, u, sol.iter)
     t_step = t_all / sol.iter
     fresh = PureOSQP.setup(P, q, A, l, u; OPTS...)

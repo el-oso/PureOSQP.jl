@@ -41,7 +41,7 @@ for (name, make) in CASES
     iters = Int[]
     refacs = Int[]
     for mode in MODES
-        ws = PureOSQP.setup(P, q, A, l, u; OPTS..., adaptive_rho = mode)
+        ws = PureOSQP.setup(P, q, A, l, u, PureOSQP.OperatorSplitting(adaptive_rho = mode); OPTS...)
         r = PureOSQP.solve!(ws)
         push!(iters, r.iter)
         push!(refacs, ws.refactor_count)

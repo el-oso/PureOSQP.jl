@@ -90,7 +90,7 @@ end
 @testitem "a derivative that does not exist is refused, not approximated" begin
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
-    for algorithm in (:admm, :ipm)
+    for algorithm in (OperatorSplitting(), InteriorPoint())
         Random.seed!(11)
         n, m = 4, 6
         X = randn(n, n)
@@ -99,7 +99,7 @@ end
         A = randn(m, n)
         b = A * randn(n)
         l, u = b .- rand(m), b .+ rand(m)
-        opts = (algorithm = algorithm, eps_abs = 1.0e-12, eps_rel = 1.0e-12, max_iter = 200_000, polishing = true)
+        opts = (eps_abs = 1.0e-12, eps_rel = 1.0e-12, max_iter = 200_000, polishing = true)
 
         # Two identical equality rows: both active by construction, so the active constraint
         # gradients are exactly dependent and no derivative exists. A regularized solve would
@@ -109,14 +109,14 @@ end
         u2 = vcat(u, [b[1]])
         l2[1] = b[1]
         u2[1] = b[1]
-        ws2 = setup(P, q, A2, l2, u2; opts...)
+        ws2 = setup(P, q, A2, l2, u2, algorithm; opts...)
         PureOSQP.solve!(ws2)
         @test_throws "cannot be independent" adjoint_derivative(ws2, randn(n), randn(m + 1))
 
         # More equality rows than variables: the same refusal, reached by counting.
         A3 = A[1:5, :]
         b3 = A3 * randn(n)
-        ws3 = setup(P, q, A3, b3, b3; opts...)
+        ws3 = setup(P, q, A3, b3, b3, algorithm; opts...)
         PureOSQP.solve!(ws3)
         @test_throws "cannot be independent" adjoint_derivative(ws3, randn(n), randn(5))
         @test_throws "cannot be independent" forward_derivative(ws3; dq = randn(n))
@@ -220,12 +220,12 @@ end
 end
 
 @testitem "the derivative is refused at a point that is not a solution" begin
-    for algorithm in (:admm, :ipm)
+    for algorithm in (OperatorSplitting(), InteriorPoint())
         P = [4.0 1.0; 1.0 2.0]
         A = [1.0 1.0; 1.0 0.0; 0.0 1.0]
         ws = setup(
-            P, [1.0, 1.0], A, [1.0, 0.0, 0.0], [1.0, 0.7, 0.7];
-            algorithm, max_iter = 5, eps_abs = 1.0e-12, eps_rel = 1.0e-12,
+            P, [1.0, 1.0], A, [1.0, 0.0, 0.0], [1.0, 0.7, 0.7], algorithm;
+            max_iter = 5, eps_abs = 1.0e-12, eps_rel = 1.0e-12,
         )
         @test solve!(ws).status === PureOSQP.MAX_ITER_REACHED
         @test_throws "the derivative is taken at a solution" PureOSQP.adjoint_derivative(
@@ -252,15 +252,15 @@ end
     # `eps = 1e-10`, not `1e-12`: at `1e-12` the run is already so accurate that polishing's
     # regularized re-solve is no improvement and `polish!` declines, leaving `ws.polished`
     # false and the derivative refused below. `1e-10` leaves room for polishing to succeed.
-    opts = (algorithm = :ipm, eps_abs = 1.0e-10, eps_rel = 1.0e-10, polishing = true)
+    opts = (eps_abs = 1.0e-10, eps_rel = 1.0e-10, polishing = true)
 
-    ws = setup(P, q, A, l, u; opts...)
+    ws = setup(P, q, A, l, u, InteriorPoint(); opts...)
     @test PureOSQP.solve!(ws).status == SOLVED
 
     gx, gy = randn(n), randn(m)
     d = adjoint_derivative(ws, gx, gy)
 
-    L(P, q, A, l, u) = (w = PureOSQP.solve(P, q, A, l, u; opts...); dot(gx, w.x) + dot(gy, w.y))
+    L(P, q, A, l, u) = (w = PureOSQP.solve(P, q, A, l, u, InteriorPoint(); opts...); dot(gx, w.x) + dot(gy, w.y))
     h = 1.0e-6
     fd(f) = (f(h) - f(-h)) / 2h
 
@@ -292,15 +292,15 @@ end
     # `eps = 1e-10`, not `1e-12`: at `1e-12` the run is already so accurate that polishing's
     # regularized re-solve is no improvement and `polish!` declines, leaving `ws.polished`
     # false and the derivative refused below. `1e-10` leaves room for polishing to succeed.
-    opts = (algorithm = :ipm, eps_abs = 1.0e-10, eps_rel = 1.0e-10, polishing = true)
-    ws = setup(P, q, A, l, u; opts...)
+    opts = (eps_abs = 1.0e-10, eps_rel = 1.0e-10, polishing = true)
+    ws = setup(P, q, A, l, u, InteriorPoint(); opts...)
     PureOSQP.solve!(ws)
 
     h = 1.0e-6
     dq = randn(n)
     fx, fy = forward_derivative(ws; dq)
-    wp = PureOSQP.solve(P, q + h * dq, A, l, u; opts...)
-    wm = PureOSQP.solve(P, q - h * dq, A, l, u; opts...)
+    wp = PureOSQP.solve(P, q + h * dq, A, l, u, InteriorPoint(); opts...)
+    wm = PureOSQP.solve(P, q - h * dq, A, l, u, InteriorPoint(); opts...)
     @test fx ≈ (wp.x - wm.x) / 2h atol = 1.0e-6
     @test fy ≈ (wp.y - wm.y) / 2h atol = 1.0e-5
 
@@ -323,9 +323,9 @@ end
     A = randn(m, n)
     b = A * randn(n)
     l, u = b .- rand(m), b .+ rand(m)
-    opts = (algorithm = :ipm, eps_abs = 1.0e-8, eps_rel = 1.0e-8, polishing = false)
+    opts = (eps_abs = 1.0e-8, eps_rel = 1.0e-8, polishing = false)
 
-    ws = setup(P, q, A, l, u; opts...)
+    ws = setup(P, q, A, l, u, InteriorPoint(); opts...)
     @test PureOSQP.solve!(ws).status == SOLVED
     @test !ws.polished
     @test_throws "needs a polished workspace" adjoint_derivative(ws, randn(n), randn(m))

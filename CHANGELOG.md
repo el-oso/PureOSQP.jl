@@ -7,10 +7,9 @@ what is true now; this file is where the history lives.
 
 ### Added
 
-- **`setup` and `solve` take `algorithm = :ipm`**, a Mehrotra predictor–corrector
-  interior-point method, alongside the default `algorithm = :admm`. `setup` returns an
-  `IPMWorkspace`, configured by the fields of `IPMSettings`; its default tolerances are
-  `1e-8`, not ADMM's `1e-3`. It handles equality, one-sided, two-sided and free rows, uses
+- **`setup` and `solve` take `InteriorPoint()`**, a Mehrotra predictor–corrector
+  interior-point method, alongside the default `OperatorSplitting()`. `setup` returns an
+  `InteriorPointWorkspace`; its default tolerances are `1e-8`, not ADMM's `1e-3`. It handles equality, one-sided, two-sided and free rows, uses
   equilibration as ADMM does, and solves its Newton systems with the direct backends: the
   dense full KKT factorization for dense data and for a dense `P` with a sparse `A`, and for
   a sparse pair the sparse KKT factorization first. Diagonal, tridiagonal, banded, block and
@@ -26,7 +25,7 @@ what is true now; this file is where the history lives.
   `bunchkaufman!` is not needed. In this version it refuses by name GPU arrays,
   `linsys = :kronecker` and `linsys = :lowrank`, and it has no verbose output.
 - **The interior-point method runs on operators with a caller-supplied preconditioner.**
-  `algorithm = :ipm` takes `linsys = :indirect` with a `preconditioner` other than the built-in
+  `InteriorPoint()` takes `linsys = :indirect` with a `preconditioner` other than the built-in
   ones and `scaling = 0`, for matrices and for operators that supply products only
   (`ProductOperator`, LinearMaps, SciMLOperators); anything else on that path is refused by
   name, and `linsys = :auto` never chooses it. Conjugate gradients starts each Newton solve from
@@ -68,31 +67,45 @@ what is true now; this file is where the history lives.
   refreshed by a method of `update_preconditioner!` whenever `ρ` or `σ` changes. A caller's own
   preconditioner requires `scaling = 0`.
 - **The interior-point method supports polishing, derivatives, `update!`, `update_settings!`
-  and MathOptInterface.** `IPMSettings` gains `polishing`, `polish_refine_iter` and `delta`,
-  matching `Settings`; a `SOLVED` or `SOLVED_INACCURATE` run polishes exactly as ADMM does
+  and MathOptInterface.** The `polishing`, `polish_refine_iter` and `delta` options apply to
+  it; a `SOLVED` or `SOLVED_INACCURATE` run polishes exactly as ADMM does
   and reports `Solution.polished`/`status_polish`. `adjoint_derivative` and
-  `forward_derivative` accept an `IPMWorkspace`, taking the derivative at its unscaled point
+  `forward_derivative` accept an `InteriorPointWorkspace`, taking the derivative at its unscaled point
   through the same active-set KKT matrix ADMM uses, and refuse an unpolished one by name: an
   interior-point solution's inactive-row multipliers sit at `μ_final` rather than at zero,
   which the active-set test cannot otherwise tell apart from a genuinely active row.
   `update!` validates and adopts `q`, `l`, `u`, `P` and `A` through the same path as ADMM and
   reclassifies rows, without refactorizing: every outer iteration refactorizes at its own
-  weights regardless. `update_settings!` rebuilds `IPMSettings`, rejecting a changed `linsys`
-  or `scaling`; every other field, including the two regularizations, takes effect on the
-  next solve without any refactorization here, since a solve always resets them from
-  `settings` before its first iteration. `IPMSettings` also gains `verbose`, refused when
-  `true` rather than accepted and ignored: the interior-point method has no per-iteration
-  report yet. `MOI.RawOptimizerAttribute("algorithm")` selects `:admm` or `:ipm`, and every
-  other raw setting is then checked against `IPMSettings` or `Settings` accordingly; setting
-  `algorithm` itself is refused when a raw setting already stored does not belong to the
-  algorithm being switched to. `MOI.optimize!` dispatches to whichever `setup` returns, and
-  `MOI.BarrierIterations` reports `Solution.iter` for either.
-- **ChainRulesCore's `rrule` and `frule` for `solve` work at `algorithm = :ipm`.** Both call
+  weights regardless. `update_settings!` rejects a changed `linsys` or `scaling`; every other
+  option and parameter, including the two regularizations, takes effect on the next solve
+  without any refactorization here, since a solve always resets the regularizations before its
+  first iteration. `MOI.RawOptimizerAttribute("algorithm")` selects `"admm"` or `"ipm"`, and
+  every other raw setting is routed to the options or to the selected algorithm's parameters
+  and checked when set; setting `algorithm` itself is refused when a raw setting already stored
+  does not belong to the algorithm being switched to. `MOI.optimize!` dispatches to whichever
+  `setup` returns, and `MOI.BarrierIterations` reports `Solution.iter` for either.
+- **ChainRulesCore's `rrule` and `frule` for `solve` work with `InteriorPoint()`.** Both call
   `adjoint_derivative`/`forward_derivative`, which now accept either workspace, so no change
   to the rules themselves was needed.
 
 ### Changed
 
+- **The algorithm is an object, and the settings are split into its parameters and shared
+  options.** `solve(P, q, A, l, u, alg; kwargs...)` and `setup` take the algorithm as an
+  optional sixth argument: `OperatorSplitting(; rho, sigma, alpha, adaptive_rho, …, verbose)`,
+  the default, or `InteriorPoint(; reg_primal, reg_dual, max_reg_bumps, refine_iter,
+  step_fraction, cg_fail_limit)`. The keyword arguments are the fields of `Options`, which both
+  algorithms read (`max_iter`, `time_limit`, the tolerances, `scaling`, `check_termination`,
+  `check_dualgap`, `scaled_termination`, `warm_starting`, `linsys`, `polishing`,
+  `polish_refine_iter`, `delta`, `cg_max_iter`, `cg_tol_fraction`), with defaults that depend on
+  the algorithm, reported by `default_options(alg, T)`. A workspace holds `ws.algorithm` and
+  `ws.options` in the solve's element type, and `update_settings!(ws; kwargs...)` changes
+  options while `update_settings!(ws, alg)` replaces the parameters. A parameter passed as a
+  keyword throws an `ArgumentError` naming the algorithm it belongs to. The workspaces are
+  `OperatorSplittingWorkspace` and `InteriorPointWorkspace`, subtypes of `QPWorkspace`. The
+  `algorithm` keyword and the `Settings`, `IPMSettings`, `Workspace` and `IPMWorkspace` names
+  are removed. `cg_tol_fraction` must lie in `(0, 1]` under either algorithm, and `verbose`, a
+  parameter of `OperatorSplitting` only, is no longer accepted with `InteriorPoint`.
 - **The `polish` setting is now `polishing`**, the name libosqp 1.0 uses. This is a breaking
   change: passing `polish = true` throws a `MethodError` for the unsupported keyword.
 - **The matrix-free backend warm-starts CG and halves its tolerance when CG stops moving.**

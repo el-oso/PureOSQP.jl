@@ -144,11 +144,11 @@ exactly, and adopt the result only if both residuals improve. Delegates to
 [`polish_kernel!`](@ref); on `POLISH_SUCCESS` it copies the polished point into `ws.x`,
 `ws.y` and `ws.z` and recomputes the residuals.
 """
-function polish!(ws::Workspace{T}) where {T}
+function polish!(ws::OperatorSplittingWorkspace{T}) where {T}
     prob = ws.prob
     status, xpol, ypol, zpol = polish_kernel!(
         prob, ws.x, ws.y, ws.z, ws.prim_res, ws.dual_res, ws.Ax, ws.Px, ws.Aty;
-        delta = ws.settings.delta, refine_iter = ws.settings.polish_refine_iter
+        delta = ws.options.delta, refine_iter = ws.options.polish_refine_iter
     )
     status === POLISH_SUCCESS || return status
     copyto!(ws.x, xpol)

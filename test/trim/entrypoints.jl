@@ -42,7 +42,7 @@ end
 solve_diagonal(P::DM, q::V, A::DM, l::V, u::V) = PureOSQP.solve(P, q, A, l, u)
 solve_tridiagonal(P::STM, q::V, A::DM, l::V, u::V) = PureOSQP.solve(P, q, A, l, u)
 
-# The same band spelled `Tridiagonal` reaches the same backend over a different `Workspace`
+# The same band spelled `Tridiagonal` reaches the same backend over a different `OperatorSplittingWorkspace`
 # type, which is a specialization of every solve method in its own right.
 solve_tridiagonal_unsym(P::TM, q::V, A::DM, l::V, u::V) = PureOSQP.solve(P, q, A, l, u)
 
@@ -67,7 +67,7 @@ solve_indirect_preconditioned(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(
 # The interior-point method on the matrix-free backend, whose Krylov call sits inside the
 # `try` that turns a definiteness failure into a missed solve.
 solve_ipm_indirect(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(
-    P, q, A, l, u; algorithm = :ipm, linsys = :indirect, scaling = 0,
+    P, q, A, l, u, PureOSQP.InteriorPoint(); linsys = :indirect, scaling = 0,
     preconditioner = cholesky(Symmetric(P + I))
 )
 
@@ -77,10 +77,10 @@ solve_block(P::BD, q::V, A::BD, l::V, u::V) = PureOSQP.solve(P, q, A, l, u)
 
 # These two pin the `@constprop :aggressive` on `setup` and `solve`. A keyword alone does not:
 # `solve_unscaled` above passes without either annotation, because a dense pair's ladder
-# backend *is* `ReducedCholesky`, so only three `Workspace` types merge and the union stays
+# backend *is* `ReducedCholesky`, so only three `OperatorSplittingWorkspace` types merge and the union stays
 # under `MAX_TYPEUNION_LENGTH`. What discriminates is a pair whose backend is a fourth type —
 # none of `ReducedCholesky`, `FullKKT` or `IndirectCG` — carrying a keyword, so the merge is
-# four wide and widens to `Workspace{…} where LS`.
+# four wide and widens to `OperatorSplittingWorkspace{…} where LS`.
 const KO = PureOSQP.KroneckerOperator{Float64, Matrix{Float64}}
 solve_kronecker(P::DM, q::V, A::KO, l::V, u::V) = PureOSQP.solve(P, q, A, l, u; scaling = 0)
 
@@ -125,7 +125,8 @@ solve_accelerated(P::M, q::V, A::M, l::V, u::V) =
 
 # `verbose` prints through hand-written formatting precisely because `--trim` rejects
 # Printf and `Base.stdout`. Pinned as its own entry point so that stays checked.
-solve_verbose(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u; verbose = true)
+solve_verbose(P::M, q::V, A::M, l::V, u::V) =
+    PureOSQP.solve(P, q, A, l, u, PureOSQP.OperatorSplitting(verbose = true))
 
 # The `try`/`catch` guarding the ADMM loop against an interrupt is on every solve path,
 # so the trimmer sees it whether or not one is ever raised.
@@ -138,14 +139,15 @@ solve_time_limited(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u;
 # resolvable, but the branch reaching them is analysed whether or not the setting is on, so
 # this pins that the accumulator did not put anything unresolvable on the path.
 solve_profiled(P::M, q::V, A::M, l::V, u::V) =
-    PureOSQP.solve(P, q, A, l, u; profile_primdual = true)
+    PureOSQP.solve(P, q, A, l, u, PureOSQP.OperatorSplitting(profile_primdual = true))
 
-# The rest of the exported surface. `update_settings!` in particular compares settings
-# field by field rather than looping over a tuple of symbols, because `getfield` with a
-# symbol the compiler cannot see is a dynamic call -- this is what checks that reasoning.
+# The rest of the exported surface. `update_settings!` in particular compares algorithm
+# parameters field by field rather than looping over a tuple of symbols, because `getfield`
+# with a symbol the compiler cannot see is a dynamic call -- this is what checks that reasoning.
 function settings_and_rho(P::M, q::V, A::M, l::V, u::V)
     ws = PureOSQP.setup(P, q, A, l, u)
-    PureOSQP.update_settings!(ws; eps_abs = 1.0e-9, rho = 0.5)
+    PureOSQP.update_settings!(ws; eps_abs = 1.0e-9)
+    PureOSQP.update_settings!(ws, PureOSQP.OperatorSplitting(rho = 0.5))
     PureOSQP.update_rho!(ws, 0.25)
     PureOSQP.cold_start!(ws)
     n, m = PureOSQP.dimensions(ws)
@@ -193,7 +195,7 @@ solve_sparse_diagonal(P::DM, q::V, A::SPM, l::V, u::V) = PureOSQP.solve(P, q, A,
 # must consider every sparse rung, and the reduced rung factors with CHOLMOD, whose bindings
 # read and write their C structs through `getproperty` on pointer-backed wrappers that no
 # static analysis resolves. It also reaches more backend types than `tmerge` will keep apart,
-# so the workspace widens to `Workspace{…} where LS` and the following `solve!` is a dynamic
+# so the workspace widens to `OperatorSplittingWorkspace{…} where LS` and the following `solve!` is a dynamic
 # dispatch. Leaving the choice open is therefore incompatible by construction, and naming the
 # backend is what closes it.
 

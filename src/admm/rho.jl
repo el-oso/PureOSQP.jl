@@ -22,14 +22,14 @@ effectively infinite get `RHO_MIN`, rows with `ũ - l̃ < RHO_TOL` are equalitie
 `1e3 ρ`, everything else gets `ρ`. Returns `true` if any classification changed, which is
 what forces a refactorization.
 """
-function set_rho_vec!(ws::Workspace{T}, rho::T) where {T}
+function set_rho_vec!(ws::OperatorSplittingWorkspace{T}, rho::T) where {T}
     ws.rho = clamp(rho, RHO_MIN(T), RHO_MAX(T))
     # With `rho_is_vec = false` every row is treated as a plain inequality, so `ρ` is
     # uniform. The classification still runs, because it is what decides whether a
     # refactorization is needed when bounds move between classes.
     return classify_rho!(
         ws.constr_type, ws.weights.w, ws.weights.w_inv, ws.prob.l, ws.prob.u, ws.rho,
-        INFTY(T) * MIN_SCALING(T), ws.settings.rho_is_vec
+        INFTY(T) * MIN_SCALING(T), ws.algorithm.rho_is_vec
     )
 end
 
@@ -64,7 +64,7 @@ end
 Rescale `ρ` from the current scaled residuals and refactorize if the estimate moved by
 more than `adaptive_rho_tolerance`. Returns `true` when a refactorization happened.
 """
-function adapt_rho!(ws::Workspace{T}) where {T}
+function adapt_rho!(ws::OperatorSplittingWorkspace{T}) where {T}
     tol = DIVISION_TOL(T)
     pnorm = max(norm_inf(ws.z), norm_inf(ws.Ax))
     dnorm = max(norm_inf(ws.prob.q), norm_inf(ws.Aty), norm_inf(ws.Px))
@@ -75,7 +75,7 @@ function adapt_rho!(ws::Workspace{T}) where {T}
     # Reported whether or not it is adopted: the estimate is what the residuals imply, and
     # seeing it sit just inside the band explains why `ρ` did not move.
     ws.rho_estimate = rho_new
-    band = ws.settings.adaptive_rho_tolerance
+    band = ws.algorithm.adaptive_rho_tolerance
     if rho_new > ws.rho * band || rho_new < ws.rho / band
         set_rho_vec!(ws, rho_new)
         refactor_rho!(ws)

@@ -50,10 +50,10 @@ println("-"^80)
 for (name, n, kappa) in CASES
     P, q, A, l, u = problem(n, kappa)
     PureOSQP.solve(P, q, A, l, u; OPTS...)
-    PureOSQP.solve(P, q, A, l, u; OPTS..., profile_primdual = true)
+    PureOSQP.solve(P, q, A, l, u, PureOSQP.OperatorSplitting(profile_primdual = true); OPTS...)
 
     off = PureOSQP.solve(P, q, A, l, u; OPTS...)
-    on = PureOSQP.solve(P, q, A, l, u; OPTS..., profile_primdual = true)
+    on = PureOSQP.solve(P, q, A, l, u, PureOSQP.OperatorSplitting(profile_primdual = true); OPTS...)
     # Measuring must not change what is measured.
     on.iter == off.iter || error("$name: profiling changed the iteration count")
     isapprox(on.obj_val, off.obj_val; rtol = 1.0e-12) ||
@@ -63,7 +63,7 @@ for (name, n, kappa) in CASES
 
     t_off = minimum(@elapsed(PureOSQP.solve(P, q, A, l, u; OPTS...)) for _ in 1:5)
     t_on = minimum(
-        @elapsed(PureOSQP.solve(P, q, A, l, u; OPTS..., profile_primdual = true)) for _ in 1:5
+        @elapsed(PureOSQP.solve(P, q, A, l, u, PureOSQP.OperatorSplitting(profile_primdual = true); OPTS...)) for _ in 1:5
     )
     overhead = 100 * (t_on / t_off - 1)
     push!(
@@ -100,9 +100,10 @@ println("-"^62)
 sampling = NamedTuple[]
 let (P, q, A, l, u) = problem(40, 1.0e2)
     for ct in (25, 10, 5, 2, 1)
-        o = (OPTS..., check_termination = ct, profile_primdual = true)
-        PureOSQP.solve(P, q, A, l, u; o...)
-        r = PureOSQP.solve(P, q, A, l, u; o...)
+        o = (OPTS..., check_termination = ct)
+        alg = PureOSQP.OperatorSplitting(profile_primdual = true)
+        PureOSQP.solve(P, q, A, l, u, alg; o...)
+        r = PureOSQP.solve(P, q, A, l, u, alg; o...)
         push!(
             sampling, (;
                 check_termination = ct, iter = r.iter, trapezoid = r.primdual_int,

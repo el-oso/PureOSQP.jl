@@ -71,9 +71,13 @@ The wrapper passes `MOI.Test`, which is a far more thorough conformance suite th
 hand-written. Three attributes are excluded from it: `ConstraintBasisStatus`,
 `VariableBasisStatus` and `ObjectiveBound`. ADMM does not produce a basis or a bound.
 
-Settings are passed by name, for example `set_attribute(model, "linsys", :kkt)`. A setting
-that takes a symbol also accepts its name as a string. A bad value throws when it is set.
-Reading a setting you have not set returns its default. `MOI.TimeLimitSec` sets
+Settings are passed by name, for example `set_attribute(model, "linsys", :kkt)`. The
+attribute `"algorithm"` is `"admm"` ([`OperatorSplitting`](@ref), the default) or `"ipm"`
+([`InteriorPoint`](@ref)); every other name is an [`Options`](@ref) field or a parameter of the
+selected algorithm. A setting that takes a symbol also accepts its name as a string. A bad
+value throws when it is set, and so does switching `"algorithm"` while a parameter of the
+other one is set. Reading a setting you have not set returns its default for the selected
+algorithm. `MOI.TimeLimitSec` sets
 `time_limit`, which limits only the ADMM iterations. Setup and polishing are not counted
 against it.
 

@@ -44,7 +44,9 @@ end
     ws = setup(P, q, A, l, u; linsys = :indirect, cg_max_iter = 7, cg_tol_fraction = 0.3)
     @test (ws.linsys.max_iter, ws.linsys.tol_fraction, ws.linsys.tol_reduction) == (7, 0.3, 10)
 
-    update_settings!(ws; cg_max_iter = 1, cg_tol_fraction = 0.05, cg_tol_reduction = 4)
+    update_settings!(ws; cg_max_iter = 1, cg_tol_fraction = 0.05)
+    @test (ws.linsys.max_iter, ws.linsys.tol_fraction, ws.linsys.tol_reduction) == (1, 0.05, 10)
+    update_settings!(ws, OperatorSplitting(cg_tol_reduction = 4))
     @test (ws.linsys.max_iter, ws.linsys.tol_fraction, ws.linsys.tol_reduction) == (1, 0.05, 4)
     # And the solve honors it: one CG iteration at most, whatever the tolerance asks for.
     ws.rhs_x .= randn(20)
@@ -201,7 +203,7 @@ end
     # One refresh per factorization, each handed the refactorizations made before it: a new
     # `ρ` goes through `refactor_weights!`, a new `σ` through `factorize!`.
     update_rho!(ws, 0.3)
-    update_settings!(ws; sigma = 1.0e-5)
+    update_settings!(ws, OperatorSplitting(sigma = 1.0e-5))
     @test length(M.ks) >= 3
     @test M.ks == range(0, ws.refactor_count - 1)
     @test M.F.U ≈ cholesky(Symmetric(P + 1.0e-5I + A' * Diagonal(ws.weights.w) * A)).U

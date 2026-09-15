@@ -1,86 +1,110 @@
 """
-    IPMSettings{T}
+    InteriorPoint(; kwargs...)
 
-Parameters of the interior-point method, selected by `algorithm = :ipm` in [`setup`](@ref)
-and [`solve`](@ref). The keyword arguments of those two functions are then these fields.
+The Mehrotra predictor–corrector interior-point method, passed as the algorithm of
+[`setup`](@ref) and [`solve`](@ref). The keyword arguments are its parameters:
 
-- `max_iter = 100` — outer iterations.
-- `time_limit = Inf` — seconds of iteration before the run stops with `TIME_LIMIT_REACHED`,
-  measured and reported as in [`Settings`](@ref).
-- `eps_abs = 1e-8`, `eps_rel = 1e-8` — termination tolerances, with the same meaning as in
-  [`Settings`](@ref); only the defaults differ.
-- `eps_prim_inf = 1e-8`, `eps_dual_inf = 1e-8` — tolerances of the primal and dual
-  infeasibility certificate tests, as in [`Settings`](@ref).
-- `scaling = 10` — Ruiz equilibration sweeps, as in [`Settings`](@ref).
-- `check_termination = 1` — test for termination every this many iterations; `0` tests only
-  at `max_iter`.
-- `check_dualgap = true`, `scaled_termination = false` — as in [`Settings`](@ref).
-- `reg_primal = 1e-8`, `reg_dual = 1e-8` — the proximal regularization `δ_p` on the primal
-  block and `δ_d` on each slack row, in scaled space. They are never refined away, and
-  convexity is checked on `P + reg_primal*I`.
+- `reg_primal = ipm_floor(T)`, `reg_dual = ipm_floor(T)` — the proximal regularization `δ_p`
+  on the primal block and `δ_d` on each slack row, in scaled space. They are never refined
+  away, and convexity is checked on `P + reg_primal*I`.
 - `max_reg_bumps = 5` — when the Newton system cannot be factorized, both regularizations
   are multiplied by ten and the factorization retried, at most this many times in one solve;
   past that the run ends `NUMERICAL_ERROR`. Every solve starts from `reg_primal` and
   `reg_dual`.
-- `refine_iter = 1` — refinement steps per Newton solve against the regularized system,
-  which correct rounding in the factorization.
+- `refine_iter` — refinement steps per Newton solve against the regularized system, which
+  correct rounding in the factorization: `1` by default, `0` with `linsys = :indirect`.
 - `step_fraction = 0.99` — the fraction of the step to the boundary that is taken.
-- `warm_starting = true` — start a re-solve from the previous point.
-- `linsys = :auto` — the backend, as in [`Settings`](@ref). `:kronecker` and `:lowrank` are
-  refused; `:indirect` runs only with a caller-supplied `preconditioner` (see
-  [`setup`](@ref)), and then refines nothing: `refine_iter` defaults to `0` there.
-- `cg_max_iter = 500` — conjugate-gradient iterations per Newton solve with
-  `linsys = :indirect`. A solve that spends them all, or that conjugate gradients abandons
-  because the operator or the preconditioner is not positive definite, is a missed solve.
-- `cg_tol_fraction = 0.1` — each solve stops once the two-norm of its recursively updated
-  residual is below this fraction of `min(μ, ‖r‖∞)`, the barrier parameter and the largest
-  Newton residual, floored at `eps(T)` relative to the right-hand side.
-- `cg_fail_limit = 3` — this many missed solves in a row end the run `NUMERICAL_ERROR`.
-- `polishing = false` — refine the solution by [`polish_kernel!`](@ref) once the run ends
-  `SOLVED` or `SOLVED_INACCURATE`, as in [`Settings`](@ref). Required before taking a
-  derivative: an interior-point solution carries inactive-row multipliers of size
-  `μ_final`, which is small but not the near-zero [`active_kkt`](@ref) requires, and
-  [`adjoint_derivative`](@ref)/[`forward_derivative`](@ref) refuse an unpolished workspace.
-- `polish_refine_iter = 3`, `delta = 1e-6` — iterative-refinement steps and the
-  regularization of the polishing solve, as in [`Settings`](@ref).
-- `verbose = false` — the interior-point method has no per-iteration report, so `true` is
-  refused rather than accepted and ignored.
+- `cg_fail_limit = 3` — this many missed conjugate-gradient solves in a row, with
+  `linsys = :indirect`, end the run `NUMERICAL_ERROR`. A solve that spends `cg_max_iter`
+  iterations, or that conjugate gradients abandons because the operator or the
+  preconditioner is not positive definite, is a missed solve.
+
+Its [`Options`](@ref) defaults differ from [`OperatorSplitting`](@ref)'s: `max_iter = 100`,
+`eps_abs`, `eps_rel`, `eps_prim_inf` and `eps_dual_inf` at `ipm_floor(T)`,
+`check_termination = 1`, `cg_max_iter = 500` and `cg_tol_fraction = 0.1`, where each
+conjugate-gradient solve stops once the two-norm of its recursively updated residual is
+below that fraction of `min(μ, ‖r‖∞)`, the barrier parameter and the largest Newton
+residual, floored at `eps(T)` relative to the right-hand side. With `linsys = :indirect`
+it runs only with a caller-supplied `preconditioner` (see [`setup`](@ref)); `:kronecker` and
+`:lowrank` are refused. `polishing = true` is required before taking a derivative: an
+interior-point solution carries inactive-row multipliers of size `μ_final`, which is small
+but not the near-zero [`active_kkt`](@ref) requires, and
+[`adjoint_derivative`](@ref)/[`forward_derivative`](@ref) refuse an unpolished workspace.
 
 A reduced backend solves `P̃ + δ_p I + Ãᵀ diag(w) Ã`, whose weights reach `1/δ_d` on
 equality rows and on active inequality rows, so its conditioning is bounded by
 `(λ_max(P̃) + ‖Ã‖²/δ_d) / (λ_min(P̃) + δ_p)`. That bound is not checked.
 
-Any `T <: Real` is accepted. The `1e-8` defaults of the four tolerances and the two
-regularizations hold for `Float64` and finer arithmetic (`BigFloat`); in coarser arithmetic
-(`Float32`) each defaults to `sqrt(eps(T))`. A number type that wraps another, such
-as `ForwardDiff.Dual`, takes the precision of `float(T)`. A value passed explicitly is used as
-given.
+Any `T <: Real` is accepted. `ipm_floor(T)` is `1e-8` in `Float64` and finer arithmetic
+(`BigFloat`) and `sqrt(eps(T))` in coarser arithmetic (`Float32`); a number type that wraps
+another, such as `ForwardDiff.Dual`, takes the precision of `float(T)`. A value passed
+explicitly is used as given.
+
+The object is built without an element type, and a parameter left out holds `nothing` until
+[`setup`](@ref) resolves it for the solve's element type and `linsys`; the workspace holds
+that `InteriorPoint{T}`, every parameter concrete, as `ws.algorithm`. `I` is the type of
+`refine_iter`: `Int` once resolved.
 """
-struct IPMSettings{T <: Real}
-    max_iter::Int
-    time_limit::T
-    eps_abs::T
-    eps_rel::T
-    eps_prim_inf::T
-    eps_dual_inf::T
-    scaling::Int
-    check_termination::Int
-    check_dualgap::Bool
-    scaled_termination::Bool
+struct InteriorPoint{T, I} <: QPAlgorithm
     reg_primal::T
     reg_dual::T
     max_reg_bumps::Int
-    refine_iter::Int
+    refine_iter::I
     step_fraction::T
-    warm_starting::Bool
-    linsys::Symbol
-    cg_max_iter::Int
-    cg_tol_fraction::T
     cg_fail_limit::Int
-    polishing::Bool
-    polish_refine_iter::Int
-    delta::T
-    verbose::Bool
+end
+
+"The real type a parameter given as `x` is stored in; `nothing` leaves it to the default."
+stored_real(x::Real) = typeof(x)
+stored_real(::Nothing) = Float64
+
+function InteriorPoint(;
+        reg_primal = nothing, reg_dual = nothing, max_reg_bumps = 5, refine_iter = nothing,
+        step_fraction = 0.99, cg_fail_limit = 3,
+    )
+    max_reg_bumps >= 0 || throw(ArgumentError("max_reg_bumps must be non-negative, got $max_reg_bumps"))
+    isnothing(reg_primal) || reg_primal > 0 || throw(ArgumentError("reg_primal must be positive, got $reg_primal"))
+    isnothing(reg_dual) || reg_dual > 0 || throw(ArgumentError("reg_dual must be positive, got $reg_dual"))
+    isnothing(refine_iter) || refine_iter >= 0 || throw(ArgumentError("refine_iter must be non-negative, got $refine_iter"))
+    0 < step_fraction < 1 || throw(ArgumentError("step_fraction must lie in (0, 1), got $step_fraction"))
+    cg_fail_limit > 0 || throw(ArgumentError("cg_fail_limit must be positive, got $cg_fail_limit"))
+    F = float(promote_type(stored_real(reg_primal), stored_real(reg_dual), typeof(step_fraction)))
+    return InteriorPoint{Union{Nothing, F}, Union{Nothing, Int}}(
+        isnothing(reg_primal) ? nothing : F(reg_primal),
+        isnothing(reg_dual) ? nothing : F(reg_dual),
+        Int(max_reg_bumps),
+        isnothing(refine_iter) ? nothing : Int(refine_iter),
+        F(step_fraction), Int(cg_fail_limit),
+    )
+end
+
+"""
+    InteriorPoint{T}(a::InteriorPoint, linsys::Symbol)
+
+`a` in element type `T`, with `reg_primal` and `reg_dual` left out resolved to `ipm_floor(T)`
+and `refine_iter` left out to `0` under `linsys = :indirect` and `1` otherwise.
+"""
+function InteriorPoint{T}(a::InteriorPoint, linsys::Symbol) where {T <: Real}
+    floor = ipm_floor(T)
+    return InteriorPoint{T, Int}(
+        isnothing(a.reg_primal) ? floor : T(a.reg_primal),
+        isnothing(a.reg_dual) ? floor : T(a.reg_dual),
+        a.max_reg_bumps,
+        isnothing(a.refine_iter) ? (linsys === :indirect ? 0 : 1) : a.refine_iter,
+        T(a.step_fraction), a.cg_fail_limit,
+    )
+end
+
+const INTERIOR_POINT_NAMES = fieldnames(InteriorPoint)
+
+element_typed(a::InteriorPoint, ::Type{T}, options::Options) where {T} = InteriorPoint{T}(a, options.linsys)
+
+function algorithm_defaults(::InteriorPoint, ::Type{T}) where {T}
+    f = ipm_floor(T)
+    return (
+        max_iter = 100, eps_abs = f, eps_rel = f, eps_prim_inf = f, eps_dual_inf = f,
+        check_termination = 1, cg_max_iter = 500, cg_tol_fraction = 0.1,
+    )
 end
 
 """
@@ -101,49 +125,4 @@ The default of the interior-point regularizations, tolerances and short-step thr
 @inline function ipm_floor(::Type{T}) where {T <: Real}
     e = precision_eps(T)
     return e > eps(Float64) ? T(sqrt(e)) : T(1.0e-8)
-end
-
-function IPMSettings{T}(;
-        max_iter = 100, time_limit = Inf, eps_abs = ipm_floor(T), eps_rel = ipm_floor(T),
-        eps_prim_inf = ipm_floor(T), eps_dual_inf = ipm_floor(T), scaling = 10,
-        check_termination = 1, check_dualgap = true, scaled_termination = false,
-        linsys = :auto, reg_primal = ipm_floor(T), reg_dual = ipm_floor(T), max_reg_bumps = 5,
-        refine_iter = linsys === :indirect ? 0 : 1, step_fraction = 0.99, warm_starting = true,
-        cg_max_iter = 500, cg_tol_fraction = 0.1, cg_fail_limit = 3,
-        polishing = false, polish_refine_iter = 3, delta = 1.0e-6, verbose = false,
-    ) where {T <: Real}
-    linsys in LINSYS_OPTIONS || throw(
-        ArgumentError("linsys must be one of $(join(LINSYS_OPTIONS, ", ")), got :$linsys")
-    )
-    max_iter > 0 || throw(ArgumentError("max_iter must be positive, got $max_iter"))
-    time_limit > 0 || throw(ArgumentError("time_limit must be positive (Inf disables it), got $time_limit"))
-    eps_abs >= 0 && eps_rel >= 0 || throw(ArgumentError("eps_abs and eps_rel must be non-negative"))
-    eps_abs > 0 || eps_rel > 0 || throw(ArgumentError("at least one of eps_abs, eps_rel must be positive"))
-    eps_prim_inf > 0 && eps_dual_inf > 0 || throw(ArgumentError("eps_prim_inf and eps_dual_inf must be positive"))
-    max_reg_bumps >= 0 || throw(ArgumentError("max_reg_bumps must be non-negative, got $max_reg_bumps"))
-    scaling >= 0 || throw(ArgumentError("scaling must be non-negative, got $scaling"))
-    check_termination >= 0 || throw(ArgumentError("check_termination must be non-negative, got $check_termination"))
-    reg_primal > 0 || throw(ArgumentError("reg_primal must be positive, got $reg_primal"))
-    reg_dual > 0 || throw(ArgumentError("reg_dual must be positive, got $reg_dual"))
-    refine_iter >= 0 || throw(ArgumentError("refine_iter must be non-negative, got $refine_iter"))
-    0 < step_fraction < 1 || throw(ArgumentError("step_fraction must lie in (0, 1), got $step_fraction"))
-    cg_max_iter > 0 || throw(ArgumentError("cg_max_iter must be positive, got $cg_max_iter"))
-    cg_tol_fraction > 0 || throw(ArgumentError("cg_tol_fraction must be positive, got $cg_tol_fraction"))
-    cg_fail_limit > 0 || throw(ArgumentError("cg_fail_limit must be positive, got $cg_fail_limit"))
-    polish_refine_iter >= 0 || throw(ArgumentError("polish_refine_iter must be non-negative"))
-    delta > 0 || throw(ArgumentError("delta must be positive, got $delta"))
-    Bool(verbose) && throw(
-        ArgumentError(
-            "the interior-point method has no per-iteration report: verbose = true would be " *
-                "accepted and silently ignored, so it is refused. Leave verbose = false."
-        )
-    )
-    return IPMSettings{T}(
-        Int(max_iter), T(time_limit), T(eps_abs), T(eps_rel), T(eps_prim_inf),
-        T(eps_dual_inf), Int(scaling), Int(check_termination),
-        Bool(check_dualgap), Bool(scaled_termination), T(reg_primal), T(reg_dual),
-        Int(max_reg_bumps), Int(refine_iter), T(step_fraction), Bool(warm_starting), Symbol(linsys),
-        Int(cg_max_iter), T(cg_tol_fraction), Int(cg_fail_limit),
-        Bool(polishing), Int(polish_refine_iter), T(delta), Bool(verbose),
-    )
 end

@@ -29,7 +29,7 @@ const STALL_MERIT = 10
 Put `reg_primal` and `reg_dual` in force. A new `reg_primal` replaces the weights object, whose
 `sigma` it is, and marks the backend's factorization as needing a full rebuild.
 """
-function set_regularization!(ws::IPMWorkspace{T}, reg_primal::T, reg_dual::T) where {T}
+function set_regularization!(ws::InteriorPointWorkspace{T}, reg_primal::T, reg_dual::T) where {T}
     ws.reg_dual = reg_dual
     if reg_primal != ws.reg_primal
         ws.reg_primal = reg_primal
@@ -48,7 +48,7 @@ retrying whenever the backend reports failure, at most `max_reg_bumps` times per
 `starting` says the weights are the unit weights of the starting point, which do not depend
 on `reg_dual`; otherwise they are recomputed after a bump. `false` means the bumps ran out.
 """
-function factorize_newton!(ws::IPMWorkspace{T}, starting::Bool) where {T}
+function factorize_newton!(ws::InteriorPointWorkspace{T}, starting::Bool) where {T}
     ls = ws.linsys
     while true
         full = starting || ws.sigma_changed
@@ -57,7 +57,7 @@ function factorize_newton!(ws::IPMWorkspace{T}, starting::Bool) where {T}
             ws.sigma_changed = false
             return true
         end
-        ws.reg_bumps < ws.settings.max_reg_bumps || return false
+        ws.reg_bumps < ws.algorithm.max_reg_bumps || return false
         ws.reg_bumps += 1
         set_regularization!(ws, T(10) * ws.reg_primal, T(10) * ws.reg_dual)
         starting || weights!(ws)
@@ -77,7 +77,7 @@ Mehrotra's balancing shift `½ sᵀz / eᵀz` and `½ sᵀz / eᵀs`. With no in
 and `y` are set. `false` means the unseeded system could not be factorized within
 `max_reg_bumps`, and nothing was changed.
 """
-function starting_point!(ws::IPMWorkspace{T}) where {T}
+function starting_point!(ws::InteriorPointWorkspace{T}) where {T}
     prob, wt, ls = ws.prob, ws.weights, ws.linsys
     l, u, rclass, has_l, has_u = prob.l, prob.u, ws.rclass, ws.has_l, ws.has_u
     x, y, s_l, s_u, z_l, z_u = ws.x, ws.y, ws.s_l, ws.s_u, ws.z_l, ws.z_u
@@ -147,7 +147,7 @@ At the current `(x, y, s)`: the primal and dual residuals, the duality gap and t
 exactly as ADMM reports them with `z = clamp(Ãx, l̃, ũ)`, and the Newton residuals `r_d`,
 `r_l`, `r_u` and their largest magnitude `rnorm`, in scaled space.
 """
-function ipm_residuals!(ws::IPMWorkspace{T}) where {T}
+function ipm_residuals!(ws::InteriorPointWorkspace{T}) where {T}
     prob = ws.prob
     m = prob.m
     scaled = prob.scaling > 0
@@ -205,7 +205,7 @@ end
 current point: `w = z_l/(s_l + δ_d z_l) + z_u/(s_u + δ_d z_u)` and `w_inv = 1/w` on inequality
 rows, `w_inv = δ_d` on equality rows, `w_inv = 1/δ_d` on free rows.
 """
-function weights!(ws::IPMWorkspace{T}) where {T}
+function weights!(ws::InteriorPointWorkspace{T}) where {T}
     delta = ws.reg_dual
     w, w_inv = ws.weights.w, ws.weights.w_inv
     s_l, s_u, z_l, z_u, rclass = ws.s_l, ws.s_u, ws.z_l, ws.z_u, ws.rclass
@@ -234,7 +234,7 @@ end
 
 One refinement step of `(dx, dy)` against the regularized system the backend factored.
 """
-function refine!(ws::IPMWorkspace{T}) where {T}
+function refine!(ws::InteriorPointWorkspace{T}) where {T}
     prob, wt = ws.prob, ws.weights
     sigma, w_inv = wt.sigma, wt.w_inv
     dx, dy, res_x, res_z = ws.dx, ws.dy, ws.res_x, ws.res_z
@@ -260,7 +260,7 @@ function refine!(ws::IPMWorkspace{T}) where {T}
 end
 
 "Count the backend's last solve toward the run of consecutive missed solves, or end that run."
-function count_miss!(ws::IPMWorkspace)
+function count_miss!(ws::InteriorPointWorkspace)
     ws.cg_misses = last_solve_converged(ws.linsys) ? 0 : ws.cg_misses + 1
     return ws
 end
@@ -271,8 +271,8 @@ end
 Solve the Newton system for the complementarity terms in `rc_l`, `rc_u`, and recover the slack
 and multiplier steps side by side.
 """
-function direction!(ws::IPMWorkspace{T}) where {T}
-    prob, wt, s = ws.prob, ws.weights, ws.settings
+function direction!(ws::InteriorPointWorkspace{T}) where {T}
+    prob, wt, s = ws.prob, ws.weights, ws.algorithm
     delta = ws.reg_dual
     rclass, has_l, has_u = ws.rclass, ws.has_l, ws.has_u
     s_l, s_u, z_l, z_u, r_l, r_u, rc_l, rc_u = ws.s_l, ws.s_u, ws.z_l, ws.z_u, ws.r_l, ws.r_u, ws.rc_l, ws.rc_u
@@ -321,7 +321,7 @@ function direction!(ws::IPMWorkspace{T}) where {T}
 end
 
 "The largest step in `(0, cap]` along the current direction that keeps every slack and multiplier nonnegative."
-function max_step(ws::IPMWorkspace{T}, cap::T) where {T}
+function max_step(ws::InteriorPointWorkspace{T}, cap::T) where {T}
     a = cap
     s_l, s_u, z_l, z_u, ds_l, ds_u, dz_l, dz_u = ws.s_l, ws.s_u, ws.z_l, ws.z_u, ws.ds_l, ws.ds_u, ws.dz_l, ws.dz_u
     for i in eachindex(s_l)
@@ -345,8 +345,8 @@ way to the boundary, capped at one, for primal and dual alike.
 
 With no inequality side there is no complementarity: one solve, and the full step.
 """
-function ipm_step!(ws::IPMWorkspace{T}) where {T}
-    s = ws.settings
+function ipm_step!(ws::InteriorPointWorkspace{T}) where {T}
+    s = ws.algorithm
     zr, o = zero(T), one(T)
     for j in eachindex(ws.rhs_x)
         ws.rhs_x[j] = -ws.r_d[j]
@@ -407,7 +407,7 @@ end
 Run the primal infeasibility test on the last step `Δy` and then on `y/‖y‖∞`, copied into
 `cert_y`. `true` leaves the passing candidate, projected, in `cert_y`.
 """
-function primal_certificate!(ws::IPMWorkspace{T}, eps::T) where {T}
+function primal_certificate!(ws::InteriorPointWorkspace{T}, eps::T) where {T}
     prob, cert = ws.prob, ws.cert_y
     copyto!(cert, ws.dy)
     is_primal_infeasible(prob, cert, eps) && return true
@@ -425,7 +425,7 @@ end
 Run the dual infeasibility test on the last step `Δx` and then on `x/‖x‖∞`, copied into
 `cert_x`. `true` leaves the passing candidate in `cert_x`.
 """
-function dual_certificate!(ws::IPMWorkspace{T}, eps::T) where {T}
+function dual_certificate!(ws::InteriorPointWorkspace{T}, eps::T) where {T}
     prob, cert = ws.prob, ws.cert_x
     copyto!(cert, ws.dx)
     is_dual_infeasible(prob, cert, eps) && return true
@@ -438,7 +438,7 @@ function dual_certificate!(ws::IPMWorkspace{T}, eps::T) where {T}
 end
 
 """
-    check_termination(ws::IPMWorkspace, approximate = false) -> Status
+    check_termination(ws::InteriorPointWorkspace, approximate = false) -> Status
 
 `SOLVED` when the primal residual, the dual residual and, with `check_dualgap`, the duality
 gap pass the tolerances [`eps_prim`](@ref), [`eps_dual`](@ref) and
@@ -449,8 +449,8 @@ at `eps_dual_inf`, each on the last step and then on the normalized iterate (see
 `PRIMAL_INFEASIBLE` or `DUAL_INFEASIBLE`. `UNSOLVED` otherwise. With `approximate = true`
 every tolerance is ten times larger and the statuses are the `*_INACCURATE` variants.
 """
-function check_termination(ws::IPMWorkspace{T}, approximate::Bool = false) where {T}
-    s, prob = ws.settings, ws.prob
+function check_termination(ws::InteriorPointWorkspace{T}, approximate::Bool = false) where {T}
+    s, prob = ws.options, ws.prob
     f = approximate ? T(10) : one(T)
     scaled_term = s.scaled_termination && prob.scaling > 0
     pres = scaled_term ? ws.scaled_prim_res : ws.prim_res
@@ -477,7 +477,7 @@ end
 `1/sqrt(eps)` times the size of the data, `max(1, ‖q̃‖∞, finite |l̃|, finite |ũ|)`. An iterate
 larger than this is diverging.
 """
-function iterate_bound(ws::IPMWorkspace{T}) where {T}
+function iterate_bound(ws::InteriorPointWorkspace{T}) where {T}
     prob = ws.prob
     loose = INFTY(T) * MIN_SCALING(T)
     b = max(one(T), norm_inf(prob.q))
@@ -499,7 +499,7 @@ inequality side), is not below the previous iteration's, or once `‖x‖∞` or
 `bound`. A rising `μ` is what an infeasible problem's diverging multipliers produce, so it
 calls for the certificate tests rather than ending the run.
 """
-function stalled!(ws::IPMWorkspace{T}, bound::T) where {T}
+function stalled!(ws::InteriorPointWorkspace{T}, bound::T) where {T}
     ws.short_steps = ws.alpha < STALL_STEP(T) ? ws.short_steps + 1 : 0
     merit = ws.n_sides > 0 ? ws.mu : ws.rnorm
     ws.flat_merit = merit < ws.last_merit ? 0 : ws.flat_merit + 1
@@ -509,10 +509,10 @@ function stalled!(ws::IPMWorkspace{T}, bound::T) where {T}
     return ws.short_steps >= STALL_STEPS
 end
 
-finite_residuals(ws::IPMWorkspace) = isfinite(ws.rnorm) && isfinite(ws.prim_res) && isfinite(ws.dual_res)
+finite_residuals(ws::InteriorPointWorkspace) = isfinite(ws.rnorm) && isfinite(ws.prim_res) && isfinite(ws.dual_res)
 
 """
-    solve!(ws::IPMWorkspace) -> Solution
+    solve!(ws::InteriorPointWorkspace) -> Solution
 
 Run the interior-point method. Each outer iteration refactorizes the Newton system at the
 current weights, takes one predictor–corrector step and recomputes the residuals, testing
@@ -538,19 +538,19 @@ Safeguards, checked every iteration:
   `INTERRUPTED` with the point reached, as for ADMM; the clock includes the starting point.
 
 The point is seeded from the previous solve with `warm_starting = true`, from
-[`warm_start!`](@ref), and otherwise computed (see [`IPMWorkspace`](@ref)). A solve that ends
+[`warm_start!`](@ref), and otherwise computed (see [`InteriorPointWorkspace`](@ref)). A solve that ends
 without a point ([`has_solution`](@ref) false) clears the seed, and its `Solution` carries
 `NaN` in `x` and `y`.
 """
-function solve!(ws::IPMWorkspace{T}) where {T}
-    s = ws.settings
+function solve!(ws::InteriorPointWorkspace{T}) where {T}
+    s, alg = ws.options, ws.algorithm
     s.warm_starting || (ws.seeded = false)
     ws.status = UNSOLVED
     ws.polished = false
     ws.status_polish = POLISH_NOT_PERFORMED
     ws.iter = 0
     ws.reg_bumps = 0
-    set_regularization!(ws, s.reg_primal, s.reg_dual)
+    set_regularization!(ws, alg.reg_primal, alg.reg_dual)
     ws.short_steps = 0
     ws.flat_merit = 0
     ws.last_merit = INFTY(T)
@@ -566,7 +566,7 @@ function solve!(ws::IPMWorkspace{T}) where {T}
     try
         if starting_point!(ws)
             ipm_residuals!(ws)
-            (finite_residuals(ws) && ws.cg_misses < s.cg_fail_limit) || (ws.status = NUMERICAL_ERROR)
+            (finite_residuals(ws) && ws.cg_misses < alg.cg_fail_limit) || (ws.status = NUMERICAL_ERROR)
         else
             ws.status = NUMERICAL_ERROR
         end
@@ -581,7 +581,7 @@ function solve!(ws::IPMWorkspace{T}) where {T}
             end
             ipm_step!(ws)
             ipm_residuals!(ws)
-            if !finite_residuals(ws) || ws.cg_misses >= s.cg_fail_limit
+            if !finite_residuals(ws) || ws.cg_misses >= alg.cg_fail_limit
                 ws.status = NUMERICAL_ERROR
                 break
             end
@@ -633,7 +633,7 @@ function solve!(ws::IPMWorkspace{T}) where {T}
 end
 
 """
-    polish!(ws::IPMWorkspace) -> PolishStatus
+    polish!(ws::InteriorPointWorkspace) -> PolishStatus
 
 Guess the active set from the interior-point iterates `(ws.x, ws.y, ws.z)` — `ws.z` is
 already `clamp(Ãx, l̃, ũ)` — solve the resulting equality-constrained QP exactly, and adopt
@@ -643,11 +643,11 @@ residuals with [`ipm_residuals!`](@ref), which rebuilds `ws.z` from the polished
 than adopting the kernel's own candidate, keeping `z` the same `clamp(Ãx, l̃, ũ)` it is
 everywhere else in the interior-point method.
 """
-function polish!(ws::IPMWorkspace{T}) where {T}
+function polish!(ws::InteriorPointWorkspace{T}) where {T}
     prob = ws.prob
     status, xpol, ypol, _ = polish_kernel!(
         prob, ws.x, ws.y, ws.z, ws.prim_res, ws.dual_res, ws.Ax, ws.Px, ws.Aty;
-        delta = ws.settings.delta, refine_iter = ws.settings.polish_refine_iter
+        delta = ws.options.delta, refine_iter = ws.options.polish_refine_iter
     )
     status === POLISH_SUCCESS || return status
     copyto!(ws.x, xpol)
@@ -663,7 +663,7 @@ Assemble a [`Solution`](@ref) from the workspace's counters and the values that 
 how the run ended.
 """
 function ipm_solution(
-        ws::IPMWorkspace{T}, x, y, obj::T, dual_obj::T, gap::T, prim_cert, dual_cert
+        ws::InteriorPointWorkspace{T}, x, y, obj::T, dual_obj::T, gap::T, prim_cert, dual_cert
     ) where {T}
     return Solution{T}(
         Vector{T}(x), Vector{T}(y), ws.status, obj, dual_obj, gap,
@@ -675,7 +675,7 @@ function ipm_solution(
     )
 end
 
-function build_solution(ws::IPMWorkspace{T}) where {T}
+function build_solution(ws::InteriorPointWorkspace{T}) where {T}
     prob = ws.prob
     n, m = prob.n, prob.m
     nan = T(NaN)

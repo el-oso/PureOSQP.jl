@@ -127,17 +127,18 @@ families = structured_families(100)
 family_build = Dict(f.name => (() -> (f.P, f.q, f.A, f.l, f.u)) for f in families)
 
 """
-    mkcase(name, build, linsys, scaling; accelerator, extra_opts, expect) -> NamedTuple
+    mkcase(name, build, linsys, scaling; accelerator, parameters, expect) -> NamedTuple
 
 One case: `build()` returns `(P, q, A, l, u)`. `accelerator`, when given, is `(n, m) ->
-accelerator` (the accelerator itself needs the problem's size). `extra_opts` are merged into
-the fixed `OPTS` on top of `linsys` and `scaling`. `expect`, when given, is the backend name
-`run_case` asserts against before recording anything.
+accelerator` (the accelerator itself needs the problem's size). `parameters` are the
+`OperatorSplitting` keyword arguments; the fixed `OPTS` apply on top of `linsys` and
+`scaling`. `expect`, when given, is the backend name `run_case` asserts against before
+recording anything.
 """
 mkcase(
-    name, build, linsys, scaling; accelerator = nothing, extra_opts = NamedTuple(),
+    name, build, linsys, scaling; accelerator = nothing, parameters = NamedTuple(),
     expect = nothing,
-) = (; name, build, linsys, scaling, accelerator, extra_opts, expect)
+) = (; name, build, linsys, scaling, accelerator, parameters, expect)
 
 cases = NamedTuple[]
 
@@ -222,14 +223,14 @@ push!(
     cases,
     mkcase(
         "adaptive_rho/kkt_error/auto", suite_build["Random QP"], :auto, 10;
-        extra_opts = (adaptive_rho = :kkt_error,)
+        parameters = (adaptive_rho = :kkt_error,)
     )
 )
 
 """
     run_case(c) -> NamedTuple
 
-Set the problem `c.build()` returns up under `c.linsys`, `c.scaling`, `c.extra_opts` and
+Set the problem `c.build()` returns up under `c.linsys`, `c.scaling`, `c.parameters` and
 `c.accelerator`, solve it, and read off the recorded fields plus the backend actually reached.
 Asserts `c.expect` against the reached backend when it is given.
 """
@@ -238,7 +239,8 @@ function run_case(c)
     n, m = length(q), length(l)
     accel_kwargs = isnothing(c.accelerator) ? (;) : (accelerator = c.accelerator(n, m),)
     ws = PureOSQP.setup(
-        P, q, A, l, u; OPTS..., c.extra_opts..., linsys = c.linsys, scaling = c.scaling,
+        P, q, A, l, u, PureOSQP.OperatorSplitting(; c.parameters...);
+        OPTS..., linsys = c.linsys, scaling = c.scaling,
         accel_kwargs...
     )
     PureOSQP.solve!(ws)

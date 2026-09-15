@@ -14,7 +14,7 @@ their contents reaches the next [`refactor_weights!`](@ref) without a new object
 ADMM holds `w = ρ`, `w_inv = ρ⁻¹` and `sigma = σ`.
 """
 # Mutable with every field `const`, not an immutable `struct`: an immutable one is stored
-# inline in the `Workspace`, and Julia 1.12 loads the vectors out of an inline field without
+# inline in the workspace, and Julia 1.12 loads the vectors out of an inline field without
 # the non-null/dereferenceable annotations a load from a heap object carries. Without them
 # LLVM cannot hoist the data-pointer load out of a bounds-checked loop, and the elementwise
 # kernels `admm_step!` inlines over `w` and `w_inv` stop vectorizing.

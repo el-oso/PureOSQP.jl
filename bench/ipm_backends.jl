@@ -1,4 +1,4 @@
-# Every structured backend under `algorithm = :ipm`, against the dense full KKT factorization on
+# Every structured backend under `InteriorPoint()`, against the dense full KKT factorization on
 # the same problem, plus the cost of that factorization's entry-by-entry fill and one `Float32`
 # run of the dense spike generator.
 #
@@ -97,19 +97,20 @@ function dense_qp(n; seed = 6)
 end
 
 """
-    workspace(kind, P, q, A, l, u) -> IPMWorkspace
+    workspace(kind, P, q, A, l, u) -> InteriorPointWorkspace
 
 An interior-point workspace on the backend `kind`: `:auto`, a `linsys` value, or one of the
 backends built directly (`:lowrank`, `:cholmod`, `:sparse_kkt`).
 """
 function workspace(kind, P, q, A, l, u)
     kind in (:lowrank, :cholmod, :sparse_kkt) ||
-        return setup(P, q, A, l, u; algorithm = :ipm, linsys = kind)
+        return setup(P, q, A, l, u, InteriorPoint(); linsys = kind)
     T = Float64
-    settings = IPMSettings{T}()
+    options = default_options(InteriorPoint(), T)
+    algorithm = InteriorPoint{T}(InteriorPoint(), options.linsys)
     m, n = size(A)
-    prob = PureOSQP.Problem(T, P, q, A, l, u; scaling = settings.scaling)
-    wt = PureOSQP.SystemWeights(ones(m), ones(m), settings.reg_primal)
+    prob = PureOSQP.Problem(T, P, q, A, l, u; scaling = options.scaling)
+    wt = PureOSQP.SystemWeights(ones(m), ones(m), algorithm.reg_primal)
     if kind === :lowrank
         ls = PureOSQP.DiagonalLowRank(prob.q0, n, PureOSQP.coupling_rank(A))
     elseif kind === :cholmod
@@ -130,7 +131,7 @@ function workspace(kind, P, q, A, l, u)
         )
     end
     # A backend built unfactored is factored by the solve's starting point.
-    return PureOSQP.ipm_workspace(ls, prob, wt, settings)
+    return PureOSQP.ipm_workspace(ls, prob, wt, algorithm, options)
 end
 
 function measure(kind, data)
@@ -207,7 +208,7 @@ inside it; their difference is the entry-by-entry fill of `K`.
 """
 function fill_cost(name, data)
     P, q, A, l, u = data
-    ws = setup(P, q, A, l, u; algorithm = :ipm, linsys = :kkt)
+    ws = setup(P, q, A, l, u, InteriorPoint(); linsys = :kkt)
     solve!(ws)
     s = solve!(cold_start!(ws))
     ls, prob, wt = ws.linsys, ws.prob, ws.weights
@@ -307,18 +308,19 @@ function float32_run(data)
     T = Float32
     δ = sqrt(eps(T))
     tol = 1.0e-4
-    settings = IPMSettings{T}(;
-        eps_abs = tol, eps_rel = tol, eps_prim_inf = tol, eps_dual_inf = tol,
-        reg_primal = δ, reg_dual = δ, scaling = 0,
+    options = Options{T}(;
+        PureOSQP.algorithm_defaults(InteriorPoint(), T)...,
+        eps_abs = tol, eps_rel = tol, eps_prim_inf = tol, eps_dual_inf = tol, scaling = 0,
     )
+    algorithm = InteriorPoint{T}(InteriorPoint(reg_primal = δ, reg_dual = δ), options.linsys)
     P, q, A, l, u = data
     m, n = size(A)
     prob = PureOSQP.Problem(T, T.(P), T.(q), T.(A), T.(l), T.(u); scaling = 0)
     wt = PureOSQP.SystemWeights(ones(T, m), ones(T, m), δ)
-    ws = PureOSQP.ipm_workspace(PureOSQP.FullKKT(prob.q0, n, m), prob, wt, settings)
+    ws = PureOSQP.ipm_workspace(PureOSQP.FullKKT(prob.q0, n, m), prob, wt, algorithm, options)
     s = solve!(ws)
     r = has_solution(s.status) ? maximum(kkt_residuals(data..., Float64.(s.x), Float64.(s.y))) : NaN
-    d = PureOSQP.solve(data...; algorithm = :ipm, linsys = :kkt, scaling = 0, eps_abs = tol, eps_rel = tol)
+    d = PureOSQP.solve(data..., InteriorPoint(); linsys = :kkt, scaling = 0, eps_abs = tol, eps_rel = tol)
     return (
         status = PureOSQP.status_name(s.status), iter = s.iter, referee = r, reg_bumps = ws.reg_bumps,
         float64_iter = d.iter, float64_referee = maximum(kkt_residuals(data..., d.x, d.y)),

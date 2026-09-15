@@ -2,7 +2,8 @@
 
 What libosqp does that PureOSQP does not, derived from its public API — `osqp_api.c`,
 `osqp_api_types.h` and `osqp_api_constants.h` for 1.x, plus the 0.6.2 `osqp.c` surface —
-against this package's exports, [`Settings`](@ref) and [`Solution`](@ref).
+against this package's exports, [`OperatorSplitting`](@ref), [`Options`](@ref) and
+[`Solution`](@ref).
 
 Implemented capabilities are documented where they are demonstrated: [Benchmarks](@ref) for
 what the backends cost, [Guarantees](@ref) for what is proven, [Algorithm](@ref) for how the

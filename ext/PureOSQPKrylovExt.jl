@@ -72,10 +72,10 @@ itself. The Krylov workspace is allocated once and reused, so the per-iteration 
 allocates nothing.
 
 `level` is the residual level the next solve's tolerance is relative to, set through
-`PureOSQP.set_tolerance_level!`. `max_iter`, `tol_fraction` and `tol_reduction` are the
-workspace's `cg_max_iter`, `cg_tol_fraction` and `cg_tol_reduction`, copied in by
-`PureOSQP.adopt_settings!` when the workspace is built and whenever its settings are
-replaced.
+`PureOSQP.set_tolerance_level!`. `max_iter` and `tol_fraction` are the workspace's
+`cg_max_iter` and `cg_tol_fraction` options and `tol_reduction` its algorithm's
+`cg_tol_reduction`, copied in by `PureOSQP.adopt_settings!` when the workspace is built and
+whenever its options or algorithm parameters are replaced.
 
 `total_iters` counts CG iterations over the backend's life and `misses` the solves that did
 not meet their stopping test; `last_reached` is whether the most recent one did.
@@ -138,18 +138,18 @@ function PureOSQP.set_tolerance_level!(ls::IndirectCG, level)
     return nothing
 end
 
-function PureOSQP.adopt_settings!(ls::IndirectCG, settings)
-    ls.max_iter = settings.cg_max_iter
-    ls.tol_fraction = settings.cg_tol_fraction
-    ls.tol_reduction = settings.cg_tol_reduction
+function PureOSQP.adopt_settings!(ls::IndirectCG, alg::PureOSQP.OperatorSplitting, options)
+    ls.max_iter = options.cg_max_iter
+    ls.tol_fraction = options.cg_tol_fraction
+    ls.tol_reduction = alg.cg_tol_reduction
     return nothing
 end
 
 # The interior-point method sets a fresh tolerance level before every solve and starts CG from
 # zero, so the tolerance is never halved.
-function PureOSQP.adopt_settings!(ls::IndirectCG, settings::PureOSQP.IPMSettings)
-    ls.max_iter = settings.cg_max_iter
-    ls.tol_fraction = settings.cg_tol_fraction
+function PureOSQP.adopt_settings!(ls::IndirectCG, ::PureOSQP.InteriorPoint, options)
+    ls.max_iter = options.cg_max_iter
+    ls.tol_fraction = options.cg_tol_fraction
     ls.tol_reduction = typemax(Int)
     return nothing
 end

@@ -63,11 +63,11 @@ end
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(25, 60; seed = 14)
     fixed = PureOSQP.solve(
-        P, q, A, l, u; adaptive_rho = false, rho = 1.0e-4,
+        P, q, A, l, u, OperatorSplitting(adaptive_rho = false, rho = 1.0e-4);
         eps_abs = 1.0e-8, eps_rel = 1.0e-8, max_iter = 100_000
     )
     adapt = PureOSQP.solve(
-        P, q, A, l, u; adaptive_rho = true, rho = 1.0e-4,
+        P, q, A, l, u, OperatorSplitting(adaptive_rho = true, rho = 1.0e-4);
         eps_abs = 1.0e-8, eps_rel = 1.0e-8, max_iter = 100_000
     )
     @test adapt.status == SOLVED
@@ -80,7 +80,7 @@ end
     A = [1.0 0.0; 0.0 1.0; 1.0 1.0]
     l = [1.0, -Inf, 0.0]
     u = [1.0, Inf, 1.0]
-    ws = setup(zeros(2, 2), zeros(2), A, l, u; scaling = 0, rho = 0.1)
+    ws = setup(zeros(2, 2), zeros(2), A, l, u, OperatorSplitting(rho = 0.1); scaling = 0)
     @test ws.weights.w[1] ≈ 1.0e3 * 0.1
     @test ws.weights.w[2] ≈ 1.0e-6
     @test ws.weights.w[3] ≈ 0.1
@@ -137,10 +137,10 @@ end
     end
 
     loud = capture() do
-        PureOSQP.solve(P, q, A, l, u; verbose = true, check_termination = 25)
+        PureOSQP.solve(P, q, A, l, u, OperatorSplitting(verbose = true); check_termination = 25)
     end
     quiet = capture() do
-        PureOSQP.solve(P, q, A, l, u; verbose = false, check_termination = 25)
+        PureOSQP.solve(P, q, A, l, u, OperatorSplitting(verbose = false); check_termination = 25)
     end
 
     # The defect this guards against is a setting that is accepted and then ignored.
@@ -157,7 +157,7 @@ end
 
     # Polishing reports its own outcome, and only when it was asked for.
     polished = capture() do
-        PureOSQP.solve(P, q, A, l, u; verbose = true, polishing = true)
+        PureOSQP.solve(P, q, A, l, u, OperatorSplitting(verbose = true); polishing = true)
     end
     @test occursin("polish:", polished)
     @test !occursin("polish:", loud)
@@ -298,16 +298,16 @@ end
     P, q, A, l, u = random_qp(25, 60; seed = 14)
     opts = (eps_abs = 1.0e-8, eps_rel = 1.0e-8, max_iter = 100_000)
 
-    fixed = PureOSQP.solve(P, q, A, l, u; adaptive_rho = false, rho = 1.0e-4, opts...)
-    @test fixed.rho_updates == 0
+    fixed = PureOSQP.solve(P, q, A, l, u, OperatorSplitting(adaptive_rho = false, rho = 1.0e-4); opts...)
+    @test iszero(fixed.rho_updates)
 
-    adapt = PureOSQP.solve(P, q, A, l, u; adaptive_rho = true, rho = 1.0e-4, opts...)
+    adapt = PureOSQP.solve(P, q, A, l, u, OperatorSplitting(adaptive_rho = true, rho = 1.0e-4); opts...)
     @test adapt.rho_updates > 0
     @test adapt.rho_estimate > 0
 
     # The counter is per-run; the workspace's refactor_count is cumulative and also counts
     # the factorization done at setup, so the two must not be confused.
-    ws = setup(P, q, A, l, u; adaptive_rho = true, rho = 1.0e-4, opts...)
+    ws = setup(P, q, A, l, u, OperatorSplitting(adaptive_rho = true, rho = 1.0e-4); opts...)
     first = PureOSQP.solve!(ws)
     second = PureOSQP.solve!(ws)
     @test second.rho_updates <= first.rho_updates
@@ -402,9 +402,9 @@ end
     A2 = [1.0 0.0; 0.0 1.0; 1.0 1.0]
     l2 = [1.0, -Inf, 0.0]
     u2 = [1.0, Inf, 1.0]
-    split = setup(zeros(2, 2), zeros(2), A2, l2, u2; scaling = 0, rho = 0.1)
+    split = setup(zeros(2, 2), zeros(2), A2, l2, u2, OperatorSplitting(rho = 0.1); scaling = 0)
     flat = setup(
-        zeros(2, 2), zeros(2), A2, l2, u2; scaling = 0, rho = 0.1, rho_is_vec = false
+        zeros(2, 2), zeros(2), A2, l2, u2, OperatorSplitting(rho = 0.1, rho_is_vec = false); scaling = 0
     )
     @test length(unique(split.weights.w)) == 3     # equality, free, inequality
     @test all(≈(0.1), flat.weights.w)
@@ -457,11 +457,11 @@ end
     P, q, A, l, u = random_qp(20, 60; seed = 7)
     opts = (eps_abs = 1.0e-8, eps_rel = 1.0e-8, max_iter = 100_000)
 
-    off = PureOSQP.solve(P, q, A, l, u; opts..., adaptive_rho = false)
-    dis = PureOSQP.solve(P, q, A, l, u; opts..., adaptive_rho = :disabled)
-    on = PureOSQP.solve(P, q, A, l, u; opts..., adaptive_rho = true)
-    its = PureOSQP.solve(P, q, A, l, u; opts..., adaptive_rho = :iterations)
-    kkt = PureOSQP.solve(P, q, A, l, u; opts..., adaptive_rho = :kkt_error)
+    off = PureOSQP.solve(P, q, A, l, u, OperatorSplitting(adaptive_rho = false); opts...)
+    dis = PureOSQP.solve(P, q, A, l, u, OperatorSplitting(adaptive_rho = :disabled); opts...)
+    on = PureOSQP.solve(P, q, A, l, u, OperatorSplitting(adaptive_rho = true); opts...)
+    its = PureOSQP.solve(P, q, A, l, u, OperatorSplitting(adaptive_rho = :iterations); opts...)
+    kkt = PureOSQP.solve(P, q, A, l, u, OperatorSplitting(adaptive_rho = :kkt_error); opts...)
 
     # The Bool is the old spelling of two of the modes, so they must agree exactly.
     @test off.iter == dis.iter
@@ -473,15 +473,13 @@ end
     # A fraction that can never be met means the gate never opens, so rho never moves --
     # which proves the gate is consulted rather than ignored.
     never = PureOSQP.solve(
-        P, q, A, l, u; opts..., adaptive_rho = :kkt_error, adaptive_rho_fraction = 1.0e-300
+        P, q, A, l, u, OperatorSplitting(adaptive_rho = :kkt_error, adaptive_rho_fraction = 1.0e-300); opts...
     )
     @test iszero(never.rho_updates)
     @test never.iter == off.iter        # identical to not adapting at all
 
-    @test_throws "adaptive_rho must be" PureOSQP.solve(P, q, A, l, u; adaptive_rho = :nope)
-    @test_throws "adaptive_rho_fraction must lie in (0, 1]" PureOSQP.solve(
-        P, q, A, l, u; adaptive_rho_fraction = 0.0
-    )
+    @test_throws "adaptive_rho must be" OperatorSplitting(adaptive_rho = :nope)
+    @test_throws "adaptive_rho_fraction must lie in (0, 1]" OperatorSplitting(adaptive_rho_fraction = 0.0)
 end
 
 @testitem "update_settings! refactorizes only for what the factorization contains" begin
@@ -493,17 +491,21 @@ end
     # A tolerance is not in the matrix, so changing it is free.
     before = ws.refactor_count
     update_settings!(ws; eps_abs = 1.0e-9, max_iter = 50_000)
-    @test ws.settings.eps_abs == 1.0e-9
-    @test ws.settings.max_iter == 50_000
-    @test ws.settings.eps_rel == 1.0e-6          # untouched fields survive
+    @test ws.options.eps_abs == 1.0e-9
+    @test ws.options.max_iter == 50_000
+    @test ws.options.eps_rel == 1.0e-6          # untouched options survive
+    @test ws.refactor_count == before
+    # So is an algorithm parameter the factorization does not contain.
+    update_settings!(ws, OperatorSplitting(alpha = 1.5))
+    @test ws.algorithm.alpha == 1.5
     @test ws.refactor_count == before
 
     # `rho` and `sigma` are in it, so changing either must refactorize.
-    update_settings!(ws; rho = 0.5)
+    update_settings!(ws, OperatorSplitting(rho = 0.5))
     @test ws.refactor_count > before
     @test ws.rho ≈ 0.5
     mid = ws.refactor_count
-    update_settings!(ws; sigma = 1.0e-5)
+    update_settings!(ws, OperatorSplitting(rho = 0.5, sigma = 1.0e-5))
     @test ws.refactor_count > mid
 
     # Rejected, not silently ignored: the backend is part of the workspace's type, and the
@@ -511,7 +513,7 @@ end
     @test_throws "linsys is fixed" update_settings!(ws; linsys = :kkt)
     @test_throws "scaling is fixed" update_settings!(ws; scaling = 0)
     # A rejected call leaves the workspace alone.
-    @test ws.settings.linsys === :auto
+    @test ws.options.linsys === :auto
     @test_throws "eps_abs and eps_rel must be non-negative" update_settings!(ws; eps_abs = -1)
 
     @test PureOSQP.solve!(ws).status == SOLVED
@@ -524,13 +526,13 @@ end
     n = 5
     P = Diagonal([1.0, 2.0, 3.0, 4.0, 5.0])
     A = Diagonal([0.5, 1.0, 1.5, 2.0, 2.5])
-    ws = setup(P, ones(n), A, -ones(n), ones(n); scaling = 0, sigma = 1.0e-6, rho = 0.1)
+    ws = setup(P, ones(n), A, -ones(n), ones(n), OperatorSplitting(sigma = 1.0e-6, rho = 0.1); scaling = 0)
     @test ws.linsys isa PureOSQP.DiagonalReduced
     reduced(sigma) = inv.(P.diag .+ sigma .+ ws.weights.w .* A.diag .^ 2)
     @test ws.linsys.dinv ≈ reduced(1.0e-6) rtol = 1.0e-14
 
-    update_settings!(ws; sigma = 0.25)
-    @test ws.settings.sigma == 0.25
+    update_settings!(ws, OperatorSplitting(sigma = 0.25, rho = 0.1))
+    @test ws.algorithm.sigma == 0.25
     @test ws.weights.sigma == 0.25
     @test ws.linsys.dinv ≈ reduced(0.25) rtol = 1.0e-14
     @test PureOSQP.solve!(ws).status == SOLVED
@@ -542,7 +544,7 @@ end
     A = [1.0 0.0; 0.0 1.0; 1.0 1.0]
     l = [1.0, -Inf, 0.0]
     u = [1.0, Inf, 1.0]
-    ws = setup(zeros(2, 2), zeros(2), A, l, u; scaling = 0, rho = 0.1)
+    ws = setup(zeros(2, 2), zeros(2), A, l, u, OperatorSplitting(rho = 0.1); scaling = 0)
     before = ws.refactor_count
 
     @test update_rho!(ws, 0.7) === ws
@@ -593,7 +595,7 @@ end
     # machine whose clock is not pinned. What is checkable is the set of properties the
     # quantity must have, and that measuring it does not change the answer.
     off = solve(P, q, A, l, u; opts...)
-    on = solve(P, q, A, l, u; opts..., profile_primdual = true)
+    on = solve(P, q, A, l, u, OperatorSplitting(profile_primdual = true); opts...)
 
     @test off.primdual_int == 0.0
     @test off.primdual_int_log == 0.0
@@ -614,12 +616,12 @@ end
     # traverse identically; the tail they differ over contributes almost nothing. The two land
     # within a couple of percent of each other and wall-clock noise decides the order, so an
     # ordering here would be a test of the machine.
-    quick = solve(P, q, A, l, u; eps_abs = 1.0e-3, eps_rel = 1.0e-3, profile_primdual = true)
+    quick = solve(P, q, A, l, u, OperatorSplitting(profile_primdual = true); eps_abs = 1.0e-3, eps_rel = 1.0e-3)
     @test quick.iter < on.iter
     @test quick.primdual_int > 0.0
 
     # Per solve, not cumulative: a second run on the same workspace reports its own integral.
-    ws = setup(P, q, A, l, u; opts..., profile_primdual = true)
+    ws = setup(P, q, A, l, u, OperatorSplitting(profile_primdual = true); opts...)
     first = PureOSQP.solve!(ws).primdual_int
     second = PureOSQP.solve!(ws).primdual_int
     @test first > 0.0
@@ -767,8 +769,8 @@ end
     b = A * randn(n)
     # A window spanning a change of ρ mixes points from two different fixed-point maps.
     ws = setup(
-        P, randn(n), A, b .- rand(m), b .+ rand(m);
-        accelerator = PureOSQP.anderson(Float64, n + m), max_iter = 30, adaptive_rho = false,
+        P, randn(n), A, b .- rand(m), b .+ rand(m), OperatorSplitting(adaptive_rho = false);
+        accelerator = PureOSQP.anderson(Float64, n + m), max_iter = 30,
     )
     solve!(ws)
     @test !ws.accel.restarted

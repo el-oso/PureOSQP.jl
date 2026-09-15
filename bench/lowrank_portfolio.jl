@@ -23,8 +23,8 @@ const BUDGET = 3
 # the higher iteration ceiling it needs to reach SOLVED. A run that stops at `max_iter` would
 # make the matching iteration counts vacuous — both would be reporting the ceiling.
 const REGIMES = (
-    ("fixed ρ", (eps_abs = 1.0e-6, eps_rel = 1.0e-6, adaptive_rho = false, max_iter = 200_000)),
-    ("adaptive ρ", (eps_abs = 1.0e-9, eps_rel = 1.0e-9)),
+    ("fixed ρ", PureOSQP.OperatorSplitting(adaptive_rho = false), (eps_abs = 1.0e-6, eps_rel = 1.0e-6, max_iter = 200_000)),
+    ("adaptive ρ", PureOSQP.OperatorSplitting(), (eps_abs = 1.0e-9, eps_rel = 1.0e-9)),
 )
 
 include(joinpath(@__DIR__, "suite_problems.jl"))
@@ -79,9 +79,9 @@ for (form, ws) in (
 end
 
 rows = NamedTuple[]
-for (regime, opts) in REGIMES
-    sp = PureOSQP.solve(P, q, A, l, u; opts...)
-    lr = PureOSQP.solve(Pd, q, Ac, l, u; opts...)
+for (regime, alg, opts) in REGIMES
+    sp = PureOSQP.solve(P, q, A, l, u, alg; opts...)
+    lr = PureOSQP.solve(Pd, q, Ac, l, u, alg; opts...)
     # A run that stopped at the ceiling is not a converged comparison, and its iteration
     # count carries no information about the backend.
     sp.status === PureOSQP.SOLVED || error("$regime: sparse form returned $(sp.status)")
@@ -89,12 +89,12 @@ for (regime, opts) in REGIMES
     rel = abs(lr.obj_val - sp.obj_val) / max(1, abs(sp.obj_val))
     rel < 1.0e-6 || error("$regime: objectives differ by $rel")
     ts, tc = abba(
-        () -> @be(PureOSQP.solve(P, q, A, l, u; opts...), seconds = BUDGET),
-        () -> @be(PureOSQP.solve(Pd, q, Ac, l, u; opts...), seconds = BUDGET),
+        () -> @be(PureOSQP.solve(P, q, A, l, u, alg; opts...), seconds = BUDGET),
+        () -> @be(PureOSQP.solve(Pd, q, Ac, l, u, alg; opts...), seconds = BUDGET),
     )
     es, ec = abba(
-        () -> @be(PureOSQP.setup(P, q, A, l, u; opts...), seconds = BUDGET),
-        () -> @be(PureOSQP.setup(Pd, q, Ac, l, u; opts...), seconds = BUDGET),
+        () -> @be(PureOSQP.setup(P, q, A, l, u, alg; opts...), seconds = BUDGET),
+        () -> @be(PureOSQP.setup(Pd, q, Ac, l, u, alg; opts...), seconds = BUDGET),
     )
     println("\n  $regime")
     @printf(

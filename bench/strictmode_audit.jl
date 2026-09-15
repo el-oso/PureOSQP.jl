@@ -140,7 +140,7 @@ end
 
 # `LazyPSD` above is an operator written as an `AbstractMatrix` directly. `ProductOperator`
 # is the other route -- a wrapper around a hierarchy that is not one -- and it reaches the
-# solve path through a different concrete `Workspace` type, so it is analysed separately.
+# solve path through a different concrete `OperatorSplittingWorkspace` type, so it is analysed separately.
 function example_product_operator_workspace(n)
     Random.seed!(13)
     S = randn(n, n)

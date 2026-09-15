@@ -5,9 +5,9 @@
     n, m = 9, 14
     P = (X = randn(n, n); Matrix(X'X))
     A = randn(m, n)
-    ws = setup(P, randn(n), A, -rand(m), rand(m); scaling = 0, sigma = 1.0e-6, rho = 0.1)
+    ws = setup(P, randn(n), A, -rand(m), rand(m), OperatorSplitting(sigma = 1.0e-6, rho = 0.1); scaling = 0)
     @test ws.linsys isa PureOSQP.ReducedCholesky
-    K = [P + ws.settings.sigma * I  A'; A  -Diagonal(1 ./ ws.weights.w)]
+    K = [P + ws.algorithm.sigma * I  A'; A  -Diagonal(1 ./ ws.weights.w)]
     bx, bz = randn(n), randn(m)
     PureOSQP.solve_system!(ws.linsys, ws.prob, ws.weights, bx, bz, ws.xtilde, ws.ztilde)
     ref = K \ [bx; bz]
@@ -34,7 +34,7 @@ end
     PureOSQP.solve_system!(ws.linsys, ws.prob, ws.weights, bx, bz, ws.xtilde, ws.ztilde)
     # At this conditioning a Float64 `K \ b` is no more trustworthy than the solver, so
     # the reference is computed in extended precision.
-    K = [P + ws.settings.sigma * I  A'; A  -Diagonal(1 ./ ws.weights.w)]
+    K = [P + ws.algorithm.sigma * I  A'; A  -Diagonal(1 ./ ws.weights.w)]
     ref = Float64.(big.(K) \ big.([bx; bz]))[1:n]
     @test norm(ws.xtilde .- ref, Inf) < 1.0e-4 * norm(ref, Inf)
 end
@@ -430,14 +430,14 @@ end
     n = 12
     P = Diagonal(rand(n) .+ 0.5)
     A = Diagonal(rand(n) .+ 0.5)
-    ws = setup(P, randn(n), A, -rand(n), rand(n); scaling = 0, sigma = 1.0e-6, rho = 0.1)
+    ws = setup(P, randn(n), A, -rand(n), rand(n), OperatorSplitting(sigma = 1.0e-6, rho = 0.1); scaling = 0)
     @test ws.linsys isa PureOSQP.DiagonalReduced
     @test PureOSQP.backend_name(ws.linsys) == :diagonal
 
     # Against the same system the dense backend would have built and factored.
     bx, bz = randn(n), randn(n)
     PureOSQP.solve_system!(ws.linsys, ws.prob, ws.weights, bx, bz, ws.xtilde, ws.ztilde)
-    K = [P + ws.settings.sigma * I  A'; A  -Diagonal(1 ./ ws.weights.w)]
+    K = [P + ws.algorithm.sigma * I  A'; A  -Diagonal(1 ./ ws.weights.w)]
     ref = K \ [bx; bz]
     @test ws.xtilde ≈ ref[1:n] rtol = 1.0e-9
     @test ws.ztilde ≈ A * ws.xtilde rtol = 1.0e-9
@@ -484,16 +484,16 @@ end
         ),
     )
     for (name, P, A) in cases
-        ws = setup(P, randn(n), A, -rand(n), rand(n); scaling = 0, sigma = 1.0e-6, rho = 0.1)
+        ws = setup(P, randn(n), A, -rand(n), rand(n), OperatorSplitting(sigma = 1.0e-6, rho = 0.1); scaling = 0)
         @test ws.linsys isa PureOSQP.TridiagonalReduced
         @test PureOSQP.backend_name(ws.linsys) == :tridiagonal
         # The bands must equal the reduced matrix the dense backend would have formed.
-        R = Matrix(P) + ws.settings.sigma * I + Matrix(A)' * Diagonal(ws.weights.w) * Matrix(A)
+        R = Matrix(P) + ws.algorithm.sigma * I + Matrix(A)' * Diagonal(ws.weights.w) * Matrix(A)
         @test ws.linsys.dv ≈ diag(R) rtol = 1.0e-12
         @test ws.linsys.ev ≈ diag(R, 1) rtol = 1.0e-12
         bx, bz = randn(n), randn(n)
         PureOSQP.solve_system!(ws.linsys, ws.prob, ws.weights, bx, bz, ws.xtilde, ws.ztilde)
-        K = [Matrix(P) + ws.settings.sigma * I  Matrix(A)'; Matrix(A)  -Diagonal(1 ./ ws.weights.w)]
+        K = [Matrix(P) + ws.algorithm.sigma * I  Matrix(A)'; Matrix(A)  -Diagonal(1 ./ ws.weights.w)]
         ref = K \ [bx; bz]
         @test ws.xtilde ≈ ref[1:n] rtol = 1.0e-9
         @test ws.ztilde ≈ A * ws.xtilde rtol = 1.0e-9
@@ -533,14 +533,14 @@ end
     dense_A = [A.coupling; Matrix(1.0I, m0, n)]
     @test Matrix(A) == dense_A
 
-    ws = setup(P, randn(n), A, -rand(k + m0), rand(k + m0); scaling = 0, sigma = 1.0e-6, rho = 0.1)
+    ws = setup(P, randn(n), A, -rand(k + m0), rand(k + m0), OperatorSplitting(sigma = 1.0e-6, rho = 0.1); scaling = 0)
     @test ws.linsys isa PureOSQP.DiagonalLowRank
     @test PureOSQP.backend_name(ws.linsys) == :lowrank
 
     # Against the full KKT system the backend stands for.
     bx, bz = randn(n), randn(k + m0)
     PureOSQP.solve_system!(ws.linsys, ws.prob, ws.weights, bx, bz, ws.xtilde, ws.ztilde)
-    K = [Matrix(P) + ws.settings.sigma * I  dense_A'; dense_A  -Diagonal(1 ./ ws.weights.w)]
+    K = [Matrix(P) + ws.algorithm.sigma * I  dense_A'; dense_A  -Diagonal(1 ./ ws.weights.w)]
     ref = K \ [bx; bz]
     @test ws.xtilde ≈ ref[1:n] rtol = 1.0e-9
     @test ws.ztilde ≈ dense_A * ws.xtilde rtol = 1.0e-9
@@ -655,7 +655,7 @@ end
     # positive definite over an indefinite `P`. `factorize!` therefore cannot stand in for
     # the convexity test, and `setup` has to run `is_convex` on its own.
     bad = SymTridiagonal(dv .- 5.0, copy(ev))
-    ws = setup(SymTridiagonal(copy(dv), copy(ev)), randn(rng, n), Diagonal(ones(n)), -rand(rng, n), rand(rng, n); scaling = 0, sigma = sigma)
+    ws = setup(SymTridiagonal(copy(dv), copy(ev)), randn(rng, n), Diagonal(ones(n)), -rand(rng, n), rand(rng, n), OperatorSplitting(; sigma); scaling = 0)
     @test PureOSQP.backend_name(ws.linsys) === :tridiagonal
     @test !PureOSQP.is_convex(Float64, bad, sigma)
     ws.prob.P = bad
@@ -667,7 +667,7 @@ end
     using LinearAlgebra, Random, Krylov
 
     # An operator that supplies products and nothing else. It is an `AbstractMatrix` so that
-    # `Workspace` accepts it, but it defines no `getindex`; `is_materializable` is how it
+    # `setup` accepts it, but it defines no `getindex`; `is_materializable` is how it
     # says so, and the reference matrix is kept beside it only so the test has something to
     # compare against.
     struct ProductsOnly{T} <: AbstractMatrix{T}
@@ -735,7 +735,7 @@ end
     using LinearAlgebra, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(10, 16; seed = 30)
-    ws = setup(P, q, A, l, u; linsys = :kkt, sigma = 1.0e-6, scaling = 0)
+    ws = setup(P, q, A, l, u, OperatorSplitting(sigma = 1.0e-6); linsys = :kkt, scaling = 0)
     @test ws.linsys isa PureOSQP.FullKKT
     # This is the w_inv an IPM's dual regularization reaches on an active inequality row,
     # where the default path's cancellation below is worst.

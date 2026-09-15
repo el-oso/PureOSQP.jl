@@ -25,12 +25,12 @@
         (:sparse, Pb, Ab, qb, lb, ub),
     ]
     for (backend, P, A, q, l, u) in cases, Pc in (P, zero_like(P))
-        ws = setup(Pc, q, A, l, u; algorithm = :ipm)
+        ws = setup(Pc, q, A, l, u, InteriorPoint())
         name = PureOSQP.backend_name(ws.linsys)
         # The sparse pair's KKT factor fails the fill gate, so the reduced factorization serves it.
         @test backend === :sparse ? name in SPARSE_FACTOR_BACKENDS : name === backend
         s = solve!(ws)
-        kkt = PureOSQP.solve(Pc, q, A, l, u; algorithm = :ipm, linsys = :kkt)
+        kkt = PureOSQP.solve(Pc, q, A, l, u, InteriorPoint(); linsys = :kkt)
         @test s.status == kkt.status == SOLVED
         @test maximum(kkt_residuals(Matrix(Pc), q, Matrix(A), l, u, s.x, s.y)) < 1.0e-5
         @test s.iter <= 2 * kkt.iter
@@ -47,14 +47,14 @@ end
     P = Diagonal(rand(n) .+ 0.5)
     @test PureOSQP.backend_name(setup(P, q, A, l, u).linsys) === :lowrank
     for Pc in (P, Diagonal(zeros(n)))
-        ws = setup(Pc, q, A, l, u; algorithm = :ipm)
+        ws = setup(Pc, q, A, l, u, InteriorPoint())
         @test PureOSQP.backend_name(ws.linsys) === :bunchkaufman
         s = solve!(ws)
         @test s.status == SOLVED
         @test maximum(kkt_residuals(Matrix(Pc), q, Matrix(A), l, u, s.x, s.y)) < 1.0e-5
     end
-    @test_throws "linsys = :lowrank is not available with algorithm = :ipm" setup(
-        P, q, A, l, u; algorithm = :ipm, linsys = :lowrank
+    @test_throws "linsys = :lowrank is not available with InteriorPoint()" setup(
+        P, q, A, l, u, InteriorPoint(); linsys = :lowrank
     )
 end
 
@@ -63,11 +63,11 @@ end
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(8, 12; seed = 1)
     D = ForwardDiff.Dual{Nothing, Float64, 1}
-    ws = setup(D.(P), D.(q), D.(A), D.(l), D.(u); algorithm = :ipm)
+    ws = setup(D.(P), D.(q), D.(A), D.(l), D.(u), InteriorPoint())
     @test PureOSQP.backend_name(ws.linsys) === :cholesky
     @test solve!(ws).status == SOLVED
     # The objective's derivative in `q[1]` is `x[1]` at the solution.
     e1 = [1.0; zeros(7)]
-    g = ForwardDiff.derivative(t -> PureOSQP.solve(P, q .+ t .* e1, A, l, u; algorithm = :ipm).obj_val, 0.0)
-    @test g ≈ PureOSQP.solve(P, q, A, l, u; algorithm = :ipm).x[1] atol = 1.0e-5
+    g = ForwardDiff.derivative(t -> PureOSQP.solve(P, q .+ t .* e1, A, l, u, InteriorPoint()).obj_val, 0.0)
+    @test g ≈ PureOSQP.solve(P, q, A, l, u, InteriorPoint()).x[1] atol = 1.0e-5
 end

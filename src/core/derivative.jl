@@ -106,12 +106,13 @@ end
 
 Check that `ws` holds a converged, host-resident solution, unscale it into problem space,
 and delegate to the `active_kkt(prob, x, y, z)` method above. One method serves both
-[`Workspace`](@ref) and [`IPMWorkspace`](@ref): each holds its iterate the same way, scaled
-by the same `D`, `E`, `c`. An `IPMWorkspace` must also be polished: its inactive-row
+[`OperatorSplittingWorkspace`](@ref) and [`InteriorPointWorkspace`](@ref): each holds its
+iterate the same way, scaled by the same `D`, `E`, `c`. An `InteriorPointWorkspace` must also
+be polished: its inactive-row
 multipliers sit at the barrier parameter rather than at zero, which the active-set test
 below cannot otherwise tell apart from a genuinely active row.
 """
-function active_kkt(ws::Union{Workspace{T}, IPMWorkspace{T}}) where {T}
+function active_kkt(ws::QPWorkspace{T}) where {T}
     # The derivative is of the solution map at a solution. An unconverged point is not one,
     # and an infeasible run has already been cold started, so differentiating either returns
     # a number for a question that was not asked.
@@ -138,7 +139,7 @@ function active_kkt(ws::Union{Workspace{T}, IPMWorkspace{T}}) where {T}
     # from a genuinely active row, and the resulting derivative is silently wrong rather than
     # merely imprecise. Polishing recomputes the point from the guessed active set exactly,
     # which is what makes the threshold meaningful again.
-    ws isa IPMWorkspace && !ws.polished && throw(
+    ws isa InteriorPointWorkspace && !ws.polished && throw(
         ArgumentError(
             "the derivative of an interior-point solution needs a polished workspace: its " *
                 "inactive-row multipliers sit at the barrier parameter rather than at zero, " *
@@ -194,7 +195,7 @@ units while being a different quantity, and nothing downstream could tell the di
 gradient consumer has no such test.
 """
 function adjoint_derivative(
-        ws::Union{Workspace{T}, IPMWorkspace{T}}, dx::AbstractVector, dy::AbstractVector
+        ws::QPWorkspace{T}, dx::AbstractVector, dy::AbstractVector
     ) where {T}
     n, m = ws.prob.n, ws.prob.m
     length(dx) == n || throw(ArgumentError("length(dx) = $(length(dx)) must equal n = $n"))
@@ -245,7 +246,7 @@ arguments are zero. Solves the same `M` as [`adjoint_derivative`](@ref), against
 and scatters `Δν` back into the active rows to give `dy`.
 """
 function forward_derivative(
-        ws::Union{Workspace{T}, IPMWorkspace{T}}; dP = nothing, dq = nothing, dA = nothing,
+        ws::QPWorkspace{T}; dP = nothing, dq = nothing, dA = nothing,
         dl = nothing, du = nothing
     ) where {T}
     n, m = ws.prob.n, ws.prob.m

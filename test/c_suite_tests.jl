@@ -14,7 +14,7 @@
     TOL = 1.0e-4
     # upstream: max_iter 2000, alpha 1.6, polish 1, scaling 0, warm_start 0
     s = PureOSQP.solve(
-        P, q, A, l, u; max_iter = 2000, alpha = 1.6, polishing = true,
+        P, q, A, l, u, OperatorSplitting(alpha = 1.6); max_iter = 2000, polishing = true,
         scaling = 0, warm_starting = false
     )
     @test s.status == SOLVED
@@ -35,7 +35,7 @@ end
     # warm_start 0. With the check disabled the loop always runs to max_iter, and the
     # post-loop check is what assigns the status.
     s = PureOSQP.solve(
-        P, q, A, l, u; max_iter = 200, alpha = 1.6, polishing = false,
+        P, q, A, l, u, OperatorSplitting(alpha = 1.6); max_iter = 200, polishing = false,
         scaling = 0, check_termination = 0, warm_starting = false,
         check_dualgap = false        # 0.6.2 has no duality-gap test; this ports its case
     )
@@ -55,7 +55,7 @@ end
     # Upstream solves from several starting rho values and requires the same solution.
     for rho in (0.1, 0.7, 1.0e-4, 10.0)
         s = PureOSQP.solve(
-            P, q, A, l, u; rho = rho, max_iter = 5000, alpha = 1.6,
+            P, q, A, l, u, OperatorSplitting(; rho, alpha = 1.6); max_iter = 5000,
             polishing = true, scaling = 0, warm_starting = false
         )
         @test s.status == SOLVED
@@ -71,9 +71,10 @@ end
     A = [1.0 1.0; 1.0 0.0; 0.0 1.0; 0.0 1.0]
     l = [1.0, 0.0, 0.0, -Inf]
     u = [1.0, 0.7, 0.7, Inf]
-    opts = (max_iter = 2000, alpha = 1.6, scaling = 0, check_termination = 1)
-    cold = PureOSQP.solve(P, q, A, l, u; warm_starting = false, opts...)
-    ws = setup(P, q, A, l, u; opts...)
+    opts = (max_iter = 2000, scaling = 0, check_termination = 1)
+    alg = OperatorSplitting(alpha = 1.6)
+    cold = PureOSQP.solve(P, q, A, l, u, alg; warm_starting = false, opts...)
+    ws = setup(P, q, A, l, u, alg; opts...)
     warm_start!(ws; x = cold.x, y = cold.y)
     warm = PureOSQP.solve!(ws)
     @test warm.status == SOLVED
@@ -91,7 +92,7 @@ end
     u = [0.0, 0.0, -15.0, 100.0, 80.0]
     TOL = 1.0e-4
     # upstream: rho 0.1, alpha 1.6, polish 1, remaining settings default
-    s = PureOSQP.solve(P, q, A, l, u; rho = 0.1, alpha = 1.6, polishing = true, max_iter = 4000)
+    s = PureOSQP.solve(P, q, A, l, u, OperatorSplitting(rho = 0.1, alpha = 1.6); polishing = true, max_iter = 4000)
     @test s.status == SOLVED
     @test norm(s.x .- [15.0, 0.0], Inf) < TOL
     @test norm(s.y .- [0.0, 508.0, 168.0, 0.0, 0.0], Inf) < TOL
@@ -108,18 +109,19 @@ end
     l = [0.0, 1.0, 1.0]
     # upstream: max_iter 2000, alpha 1.6, scaling 0; polish 1 for the feasible case only
     s1 = PureOSQP.solve(
-        P, q, A12, l, [5.0, 3.0, 3.0];
-        max_iter = 2000, alpha = 1.6, scaling = 0, polishing = true
+        P, q, A12, l, [5.0, 3.0, 3.0], OperatorSplitting(alpha = 1.6);
+        max_iter = 2000, scaling = 0, polishing = true
     )
     @test s1.status == SOLVED
     @test norm(s1.x .- [1.0, 3.0], Inf) < 1.0e-4
     @test norm(s1.y .- [0.0, -2.0, 1.0], Inf) < 1.0e-4
     @test abs(s1.obj_val - (-1.5)) < 1.0e-4
 
-    opts = (max_iter = 2000, alpha = 1.6, scaling = 0, polishing = false)
-    @test PureOSQP.solve(P, q, A12, l, [0.0, 3.0, 3.0]; opts...).status == PRIMAL_INFEASIBLE
-    @test PureOSQP.solve(P, q, A34, l, [2.0, 3.0, Inf]; opts...).status == DUAL_INFEASIBLE
-    @test PureOSQP.solve(P, q, A34, l, [0.0, 3.0, Inf]; opts...).status == PRIMAL_INFEASIBLE
+    opts = (max_iter = 2000, scaling = 0, polishing = false)
+    alg = OperatorSplitting(alpha = 1.6)
+    @test PureOSQP.solve(P, q, A12, l, [0.0, 3.0, 3.0], alg; opts...).status == PRIMAL_INFEASIBLE
+    @test PureOSQP.solve(P, q, A34, l, [2.0, 3.0, Inf], alg; opts...).status == DUAL_INFEASIBLE
+    @test PureOSQP.solve(P, q, A34, l, [0.0, 3.0, Inf], alg; opts...).status == PRIMAL_INFEASIBLE
 end
 
 @testitem "C suite: unconstrained" begin
@@ -148,10 +150,10 @@ end
     u = [0.0, 0.0, -15.0, 100.0, 80.0]
     # sigma = 1e-6 leaves P + sigma*I indefinite; upstream returns OSQP_NONCVX_ERROR
     # from setup, so setup must fail here too.
-    @test_throws "not positive definite" setup(P, q, A, l, u; sigma = 1.0e-6)
+    @test_throws "not positive definite" setup(P, q, A, l, u, OperatorSplitting(sigma = 1.0e-6))
     # sigma = 5 makes P + sigma*I positive definite, so setup succeeds; upstream then
     # reports NON_CVX from the diverging residuals.
-    s = PureOSQP.solve(P, q, A, l, u; sigma = 5.0, max_iter = 10_000)
+    s = PureOSQP.solve(P, q, A, l, u, OperatorSplitting(sigma = 5.0); max_iter = 10_000)
     @test s.status == NON_CONVEX
     @test isnan(s.obj_val)
     @test all(isnan, s.x)

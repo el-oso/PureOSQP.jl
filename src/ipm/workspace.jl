@@ -33,9 +33,9 @@ function classify_rows!(rclass::AbstractVector{Int8}, has_l::AbstractVector{Bool
 end
 
 """
-    IPMWorkspace{T,MP,MA,V,VI,VB,LS}
+    InteriorPointWorkspace{T,MP,MA,V,VI,VB,LS} <: QPWorkspace{T}
 
-Solver state of the interior-point method, built by [`setup`](@ref) with `algorithm = :ipm`.
+Solver state of [`InteriorPoint`](@ref), built by [`setup`](@ref).
 The problem is the equilibrated one, and every iterate is in scaled space.
 
 An inequality row `i` carries a slack and a multiplier for each finite side:
@@ -49,10 +49,10 @@ row has `y = 0`.
 [`cold_start!`](@ref) and `warm_starting = false` clear it. After a solve without a point, `x`
 and `y` still hold the last iterate.
 """
-mutable struct IPMWorkspace{
+mutable struct InteriorPointWorkspace{
         T <: Real, MP <: AbstractMatrix, MA <: AbstractMatrix, V <: AbstractVector{T},
         VI <: AbstractVector{Int8}, VB <: AbstractVector{Bool}, LS <: LinearSystem,
-    }
+    } <: QPWorkspace{T}
     const prob::Problem{T, MP, MA, V}
     const linsys::LS
     # `sigma` is the current `reg_primal`, so a regularization bump replaces the object; `w`
@@ -101,7 +101,7 @@ mutable struct IPMWorkspace{
     # passes is what the solution reports.
     const cert_x::V
     const cert_y::V
-    # The regularization in force: the settings' values times ten per bump in this solve.
+    # The regularization in force: the algorithm's values times ten per bump in this solve.
     reg_primal::T
     reg_dual::T
     reg_bumps::Int
@@ -141,16 +141,17 @@ mutable struct IPMWorkspace{
     status_polish::PolishStatus
     setup_time::Float64
     # Accumulated across the `update!` calls made since the previous solve, and charged to
-    # the next one; reset once reported, as in `Workspace`.
+    # the next one; reset once reported, as in `OperatorSplittingWorkspace`.
     update_time::Float64
     solve_time::Float64
     polish_time::Float64
-    settings::IPMSettings{T}
+    algorithm::InteriorPoint{T, Int}
+    options::Options{T}
 end
 
-function Base.show(io::IO, ws::IPMWorkspace)
+function Base.show(io::IO, ws::InteriorPointWorkspace)
     print(
-        io, "PureOSQP IPMWorkspace: ", ws.prob.n, "×", ws.prob.m,
+        io, "PureOSQP InteriorPointWorkspace: ", ws.prob.n, "×", ws.prob.m,
         ", backend ", backend_name(ws.linsys),
         ", status ", status_name(ws.status),
     )
@@ -158,19 +159,22 @@ function Base.show(io::IO, ws::IPMWorkspace)
 end
 
 """
-    ipm_workspace(ls, prob, wt, settings) -> IPMWorkspace
+    ipm_workspace(ls, prob, wt, algorithm, options) -> InteriorPointWorkspace
 
 Classify the rows of `prob` and allocate the interior-point state around the backend `ls`,
 which solves through the weights object `wt`.
 """
-function ipm_workspace(ls::LinearSystem, prob::Problem{T}, wt::SystemWeights{T}, settings::IPMSettings{T}) where {T}
+function ipm_workspace(
+        ls::LinearSystem, prob::Problem{T}, wt::SystemWeights{T}, algorithm::InteriorPoint{T, Int},
+        options::Options{T}
+    ) where {T}
     n, m, q0 = prob.n, prob.m, prob.q0
     buf(k) = fill!(similar(q0, T, k), zero(T))
     rclass = fill!(similar(q0, Int8, m), ROW_INEQUALITY)
     has_l = fill!(similar(q0, Bool, m), false)
     has_u = fill!(similar(q0, Bool, m), false)
     sides = classify_rows!(rclass, has_l, has_u, prob)
-    ws = IPMWorkspace{T, typeof(prob.P), typeof(prob.A), typeof(q0), typeof(rclass), typeof(has_l), typeof(ls)}(
+    ws = InteriorPointWorkspace{T, typeof(prob.P), typeof(prob.A), typeof(q0), typeof(rclass), typeof(has_l), typeof(ls)}(
         prob, ls, wt, rclass, has_l, has_u, sides,
         buf(n), buf(m), buf(m), buf(m), buf(m), buf(m),
         buf(m), buf(n), buf(n), buf(m),
@@ -178,13 +182,13 @@ function ipm_workspace(ls::LinearSystem, prob::Problem{T}, wt::SystemWeights{T},
         buf(n), buf(m), buf(n), buf(m), buf(m), buf(m), buf(m), buf(m), buf(m),
         buf(n), buf(m), buf(n), buf(m),
         buf(n), buf(m),
-        settings.reg_primal, settings.reg_dual, 0, false,
+        algorithm.reg_primal, algorithm.reg_dual, 0, false,
         0, 0, zero(T), false,
         zero(T), zero(T), zero(T),
         zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), zero(T),
         zero(T), zero(T), zero(T), zero(T),
         0, 0, 0, UNSOLVED, false, true, false, POLISH_NOT_PERFORMED, 0.0, 0.0, 0.0, 0.0,
-        settings,
+        algorithm, options,
     )
     return ws
 end
@@ -192,10 +196,10 @@ end
 function refuse_ipm_operators()
     throw(
         ArgumentError(
-            "algorithm = :ipm factors a matrix built from the entries of P and A, and one of " *
+            "InteriorPoint() factors a matrix built from the entries of P and A, and one of " *
                 "them declares `PureOSQP.is_materializable` false: it supplies products only. " *
                 "Pass matrices, pass linsys = :indirect with a caller-supplied preconditioner " *
-                "and scaling = 0, or use algorithm = :admm."
+                "and scaling = 0, or use OperatorSplitting()."
         )
     )
 end
@@ -206,12 +210,20 @@ caller_preconditioner(M) = !(M isa Union{Nothing, IdentityPreconditioner, Jacobi
 probing(M) = M isa ProductOperator && M.probe
 
 function setup_backend(
-        ::Val{:ipm}, ::Val{LS}, ::Type{T}, P::AbstractMatrix, q::AbstractVector,
-        A::AbstractMatrix, l::AbstractVector, u::AbstractVector; preconditioner = nothing, kwargs...
+        alg::InteriorPoint, ::Val{LS}, ::Type{T}, P::AbstractMatrix, q::AbstractVector,
+        A::AbstractMatrix, l::AbstractVector, u::AbstractVector; preconditioner = nothing,
+        accelerator = nothing, kwargs...
     ) where {LS, T <: Real}
     t0 = time_ns()
+    isnothing(accelerator) || throw(
+        ArgumentError(
+            "accelerator is used only by OperatorSplitting: the interior-point method has no " *
+                "fixed-point iteration to accelerate."
+        )
+    )
     nv, mv = validate(P, q, A, l, u)
-    settings = IPMSettings{T}(; linsys = LS, kwargs...)
+    options = Options{T}(; algorithm_defaults(alg, T)..., linsys = LS, kwargs...)
+    algorithm = element_typed(alg, T, options)
     isnothing(preconditioner) || LS === :indirect || throw(
         ArgumentError(
             "preconditioner is used only by the matrix-free backend: pass linsys = :indirect with it."
@@ -222,12 +234,12 @@ function setup_backend(
             "the interior-point method uses conjugate gradients only with a caller-supplied " *
                 "preconditioner; measured without one, or with the Jacobi diagonal, it does not " *
                 "reach the tolerance on most problems. Pass one, choose a direct linsys, or use " *
-                "algorithm = :admm."
+                "OperatorSplitting()."
         )
     )
     LS === :indirect || (is_materializable(P) && is_materializable(A)) || refuse_ipm_operators()
     if LS === :indirect
-        iszero(settings.scaling) || throw(
+        iszero(options.scaling) || throw(
             ArgumentError(
                 "a caller-supplied preconditioner approximates P + reg_primal*I + A' * Diagonal(w) * A " *
                     "for the P and A passed to setup, which equilibration would change: pass scaling = 0 with it."
@@ -242,36 +254,36 @@ function setup_backend(
     end
     LS === :kronecker && throw(
         ArgumentError(
-            "linsys = :kronecker is not available with algorithm = :ipm: the Kronecker " *
+            "linsys = :kronecker is not available with InteriorPoint(): the Kronecker " *
                 "backend needs the same weight on every row, and the interior-point weights " *
-                "differ from row to row. Choose another linsys, or use algorithm = :admm."
+                "differ from row to row. Choose another linsys, or use OperatorSplitting()."
         )
     )
     LS === :lowrank && throw(
         ArgumentError(
-            "linsys = :lowrank is not available with algorithm = :ipm: on linear programs " *
+            "linsys = :lowrank is not available with InteriorPoint(): on linear programs " *
                 "its Woodbury solve does not reach the interior-point tolerances. Leave " *
-                "linsys = :auto, which serves the pair with linsys = :kkt, or use algorithm = :admm."
+                "linsys = :auto, which serves the pair with linsys = :kkt, or use OperatorSplitting()."
         )
     )
-    is_convex(T, P, settings.reg_primal) || throw(
+    is_convex(T, P, algorithm.reg_primal) || throw(
         ArgumentError(
             "P + reg_primal*I is not positive definite: P is indefinite, so the problem is not convex."
         )
     )
-    prob = validated_problem(T, nv, mv, P, q, A, l, u, settings.scaling)
+    prob = validated_problem(T, nv, mv, P, q, A, l, u, options.scaling)
     n, m, q0 = prob.n, prob.m, prob.q0
     # Unit weights are the starting-point system, so a rung that decides by factoring leaves
     # the first factorization of a solve in place.
-    wt = SystemWeights(fill!(similar(q0, T, m), one(T)), fill!(similar(q0, T, m), one(T)), settings.reg_primal)
+    wt = SystemWeights(fill!(similar(q0, T, m), one(T)), fill!(similar(q0, T, m), one(T)), algorithm.reg_primal)
     sel = IPMSelection()
     if LS === :kkt
-        ws = ipm_workspace(FullKKT(q0, n, m), prob, wt, settings)
+        ws = ipm_workspace(FullKKT(q0, n, m), prob, wt, algorithm, options)
     elseif LS === :dense
-        ws = ipm_workspace(ReducedCholesky(q0, n, m), prob, wt, settings)
+        ws = ipm_workspace(ReducedCholesky(q0, n, m), prob, wt, algorithm, options)
     elseif LS === :indirect
-        ws = ipm_workspace(indirect_backend(q0, n, m, preconditioner), prob, wt, settings)
-        adopt_settings!(ws.linsys, settings)
+        ws = ipm_workspace(indirect_backend(q0, n, m, preconditioner), prob, wt, algorithm, options)
+        adopt_settings!(ws.linsys, algorithm, options)
         use_residual_stop!(ws.linsys, true)
     elseif LS === :sparse
         rung = kkt_rung(P, A, prob, wt, sel)
@@ -283,12 +295,12 @@ function setup_backend(
                     "enough, and SparseArrays.jl loaded. Retry with linsys = :auto."
             )
         )
-        ws = ipm_workspace(first(rung), prob, wt, settings)
+        ws = ipm_workspace(first(rung), prob, wt, algorithm, options)
     elseif LS === :diagonal
         (P isa Diagonal && A isa Diagonal) || throw(
             ArgumentError("linsys = :diagonal needs P and A both diagonal")
         )
-        ws = ipm_workspace(first(choose_backend(P, A, prob, wt, sel)), prob, wt, settings)
+        ws = ipm_workspace(first(choose_backend(P, A, prob, wt, sel)), prob, wt, algorithm, options)
     elseif LS === :tridiagonal
         tridiag_pair =
             (P isa Union{SymTridiagonal, Tridiagonal} && A isa Diagonal) ||
@@ -299,7 +311,7 @@ function setup_backend(
                     "P with a diagonal A, or any of those P with a bidiagonal A"
             )
         )
-        ws = ipm_workspace(first(choose_backend(P, A, prob, wt, sel)), prob, wt, settings)
+        ws = ipm_workspace(first(choose_backend(P, A, prob, wt, sel)), prob, wt, algorithm, options)
     elseif LS === :block
         rung = block_rung(P, A, prob, wt, sel)
         isnothing(rung) && throw(
@@ -308,9 +320,9 @@ function setup_backend(
                     "partition, with more than one block, and declines this pair"
             )
         )
-        ws = ipm_workspace(first(rung), prob, wt, settings)
+        ws = ipm_workspace(first(rung), prob, wt, algorithm, options)
     else
-        ws = ipm_workspace(first(choose_backend(P, A, prob, wt, sel)), prob, wt, settings)
+        ws = ipm_workspace(first(choose_backend(P, A, prob, wt, sel)), prob, wt, algorithm, options)
     end
     ws.setup_time = (time_ns() - t0) / 1.0e9
     return ws
@@ -377,12 +389,12 @@ a caller-supplied preconditioner.
 indirect_rung(P, A, prob, sel::IPMSelection) = refuse_ipm_operators()
 
 """
-    warm_start!(ws::IPMWorkspace; x = nothing, y = nothing)
+    warm_start!(ws::InteriorPointWorkspace; x = nothing, y = nothing)
 
 Seed the next solve's starting point in problem space. Slacks and multipliers are rebuilt
 from `x` and `y` when the solve starts.
 """
-function warm_start!(ws::IPMWorkspace{T}; x = nothing, y = nothing) where {T}
+function warm_start!(ws::InteriorPointWorkspace{T}; x = nothing, y = nothing) where {T}
     prob = ws.prob
     if !isnothing(x)
         length(x) == prob.n || throw(ArgumentError("length(x) must be $(prob.n)"))
@@ -399,11 +411,11 @@ function warm_start!(ws::IPMWorkspace{T}; x = nothing, y = nothing) where {T}
 end
 
 """
-    cold_start!(ws::IPMWorkspace) -> ws
+    cold_start!(ws::InteriorPointWorkspace) -> ws
 
 Zero `x` and `y` and clear `seeded`, so the next solve computes its own starting point.
 """
-function cold_start!(ws::IPMWorkspace{T}) where {T}
+function cold_start!(ws::InteriorPointWorkspace{T}) where {T}
     fill!(ws.x, zero(T))
     fill!(ws.y, zero(T))
     ws.seeded = false
@@ -411,25 +423,26 @@ function cold_start!(ws::IPMWorkspace{T}) where {T}
 end
 
 """
-    update!(ws::IPMWorkspace; q, l, u, P, A) -> ws
+    update!(ws::InteriorPointWorkspace; q, l, u, P, A) -> ws
 
 Replace problem data in an existing interior-point workspace, as [`update!`](@ref) does for
-[`Workspace`](@ref): the same validation and adoption, checked against convexity at
-`reg_primal`. A row whose bounds move into or out of equality or freeness is reclassified;
-`s_l`, `s_u`, `z_l` and `z_u` are left as they are, since `starting_point!` rebuilds
-them from `x`, `y` and the current classes at the next solve.
+[`OperatorSplittingWorkspace`](@ref): the same validation and adoption, checked against
+convexity at `reg_primal`. A row whose bounds move into or out of equality or freeness is
+reclassified; `s_l`, `s_u`, `z_l` and `z_u` are left as they are, since `starting_point!`
+rebuilds them from `x`, `y` and the current classes at the next solve.
 
 No factorization happens here: every outer iteration factorizes the Newton system at its own
-weights regardless, and a solve resets the regularization from `settings` before its first
-one, so a later solve picks up the new data whether or not `P` or `A` changed.
+weights regardless, and a solve resets the regularization from the algorithm parameters
+before its first one, so a later solve picks up the new data whether or not `P` or `A`
+changed.
 """
 function update!(
-        ws::IPMWorkspace{T}; q = nothing, l = nothing, u = nothing, P = nothing, A = nothing
+        ws::InteriorPointWorkspace{T}; q = nothing, l = nothing, u = nothing, P = nothing, A = nothing
     ) where {T}
     t0 = time_ns()
     prob = ws.prob
     validate_update!(prob, ws.linsys; P, A, q, l, u)
-    !isnothing(P) && !is_convex(T, P, ws.settings.reg_primal) &&
+    !isnothing(P) && !is_convex(T, P, ws.algorithm.reg_primal) &&
         throw(
         ArgumentError(
             "P + reg_primal*I is not positive definite: P is indefinite, so the problem is not convex."
@@ -443,36 +456,11 @@ function update!(
     return ws
 end
 
-"""
-    update_settings!(ws::IPMWorkspace; kwargs...) -> ws
-
-Replace the workspace's settings, keeping every field not named in `kwargs`, exactly as
-[`update_settings!`](@ref) does for [`Workspace`](@ref): the keywords are those of
-[`IPMSettings`](@ref) and are validated the same way, `linsys` and `scaling` are rejected
-because the backend and the equilibration are fixed once the workspace is built, and a
-`:indirect` backend's own copy of the conjugate-gradient settings is refreshed at once.
-
-Every other field, `reg_primal` and `reg_dual` included, is free: a solve resets the
-regularization from `settings` before its first iteration and refactorizes every iteration
-after, so nothing here needs to trigger a refactorization the way a `ρ` or `σ` change does
-for ADMM.
-"""
-function update_settings!(ws::IPMWorkspace{T}; kwargs...) where {T}
-    old = ws.settings
-    new = IPMSettings{T}(; settings_tuple(old)..., kwargs...)
-    new.linsys === old.linsys || throw(
-        ArgumentError(
-            "linsys is fixed once the workspace is built, because the backend is part of " *
-                "its type. Call setup again to change it."
-        )
-    )
-    new.scaling == old.scaling || throw(
-        ArgumentError(
-            "scaling is fixed once the workspace is built, because the equilibration " *
-                "factors come from the data setup saw. Call setup again to change it."
-        )
-    )
-    ws.settings = new
-    adopt_settings!(ws.linsys, new)
+# No refactorization: a solve resets the regularization from the algorithm parameters before
+# its first iteration and refactorizes every iteration after.
+function update_settings!(ws::InteriorPointWorkspace{T}, alg::InteriorPoint) where {T}
+    new = element_typed(alg, T, ws.options)
+    ws.algorithm = new
+    adopt_settings!(ws.linsys, new, ws.options)
     return ws
 end

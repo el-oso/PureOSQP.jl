@@ -42,8 +42,8 @@
     ]
     for backend in (:auto, :kkt)
         for (name, P, q, A, l, u) in cases
-            ws = setup(P, q, A, l, u; algorithm = :ipm, linsys = backend)
-            @test ws isa IPMWorkspace
+            ws = setup(P, q, A, l, u, InteriorPoint(); linsys = backend)
+            @test ws isa InteriorPointWorkspace
             # Every pair here is dense or has a dense P, which the interior-point ladder
             # serves with the full KKT factorization.
             @test PureOSQP.backend_name(ws.linsys) === :bunchkaufman
@@ -70,7 +70,7 @@ end
             P, q, A, l, u; eps_abs = 1.0e-9, eps_rel = 1.0e-9,
             max_iter = 100_000, polish = true
         )
-        s = PureOSQP.solve(P, q, A, l, u; algorithm = :ipm)
+        s = PureOSQP.solve(P, q, A, l, u, InteriorPoint())
         @test s.status == SOLVED
         @test s.iter <= 30
         @test maximum(kkt_residuals(P, q, A, l, u, s.x, s.y)) < 1.0e-5
@@ -97,7 +97,7 @@ end
         ("dense LP", zeros(n, n), Matrix(A), (:bunchkaufman,)),
     ]
     for (name, Pc, Ac, backends) in cases
-        ws = setup(Pc, q, Ac, l, u; algorithm = :ipm)
+        ws = setup(Pc, q, Ac, l, u, InteriorPoint())
         @test PureOSQP.backend_name(ws.linsys) in backends
         s = solve!(ws)
         @test s.status == SOLVED
@@ -124,7 +124,7 @@ end
     u[37:42] .= Inf
     q = randn(n)
     for sc in (0, 10)
-        s = PureOSQP.solve(P, q, A, l, u; algorithm = :ipm, scaling = sc)
+        s = PureOSQP.solve(P, q, A, l, u, InteriorPoint(); scaling = sc)
         @test s.status == SOLVED
         @test s.iter <= 30
         @test maximum(kkt_residuals(P, q, A, l, u, s.x, s.y)) < 1.0e-5
@@ -137,7 +137,7 @@ end
     Ae = A[1:20, :]
     be = Ae * randn(n)
     for sc in (0, 10)
-        s = PureOSQP.solve(P, q, Ae, be, be; algorithm = :ipm, scaling = sc)
+        s = PureOSQP.solve(P, q, Ae, be, be, InteriorPoint(); scaling = sc)
         @test s.status == SOLVED
         @test s.iter <= 2
         @test maximum(kkt_residuals(P, q, Ae, be, be, s.x, s.y)) < 1.0e-5
@@ -147,7 +147,7 @@ end
     Af = A[1:30, :]
     lf, uf = [be; fill(-Inf, 10)], [be; fill(Inf, 10)]
     for sc in (0, 10)
-        s = PureOSQP.solve(P, q, Af, lf, uf; algorithm = :ipm, scaling = sc)
+        s = PureOSQP.solve(P, q, Af, lf, uf, InteriorPoint(); scaling = sc)
         @test s.status == SOLVED
         @test maximum(kkt_residuals(P, q, Af, lf, uf, s.x, s.y)) < 1.0e-5
         @test all(iszero, s.y[21:30])
@@ -232,7 +232,8 @@ end
         ls = Ext.SparseKKT{Float64, Vector{Float64}, typeof(F)}(
             gram, F, LD, inv.(diag(LD)), F.p, zeros(n + m), zeros(n + m)
         )
-        return PureOSQP.ipm_workspace(ls, prob, wt, IPMSettings{Float64}(; scaling = 0, kwargs...))
+        options = Options{Float64}(; PureOSQP.algorithm_defaults(InteriorPoint(), Float64)..., scaling = 0)
+        return PureOSQP.ipm_workspace(ls, prob, wt, InteriorPoint{Float64}(InteriorPoint(; kwargs...), :auto), options)
     end
 
     # Outer iterations to `eps = 1e-8` of the prototype `ipm3` in `bench/ipm_rowtypes_spike.jl`
@@ -250,7 +251,7 @@ end
         for (k, mixed) in enumerate((false, true))
             data = spike_problem(200, κ, frac, seed; mixed)
             ref = expected[(κ, frac)][k]
-            dense = PureOSQP.solve(data...; algorithm = :ipm, linsys = :kkt, scaling = 0, refine_iter = 0)
+            dense = PureOSQP.solve(data..., InteriorPoint(refine_iter = 0); linsys = :kkt, scaling = 0)
             @test dense.status == SOLVED
             @test abs(dense.iter - ref) <= 2
             sparse_ws = sparse_kkt_workspace(data...; refine_iter = 1)
@@ -273,35 +274,35 @@ end
 
     Pop = PureOSQP.ProductOperator{Float64}(P; symmetric = true, posdef = true)
     Aop = PureOSQP.ProductOperator{Float64}(A)
-    @test_throws "supplies products only" setup(Pop, q, Aop, l, u; algorithm = :ipm)
-    @test_throws "supplies products only" setup(Pop, q, Aop, l, u; algorithm = :ipm, linsys = :kkt)
+    @test_throws "supplies products only" setup(Pop, q, Aop, l, u, InteriorPoint())
+    @test_throws "supplies products only" setup(Pop, q, Aop, l, u, InteriorPoint(); linsys = :kkt)
     F = cholesky(Symmetric(P))
     for (PP, AA) in ((P, A), (Pop, Aop)), M in (nothing, IdentityPreconditioner(), JacobiPreconditioner(ones(n)))
         @test_throws "uses conjugate gradients only with a caller-supplied preconditioner" setup(
-            PP, q, AA, l, u; algorithm = :ipm, linsys = :indirect, scaling = 0, preconditioner = M
+            PP, q, AA, l, u, InteriorPoint(); linsys = :indirect, scaling = 0, preconditioner = M
         )
     end
     @test_throws "pass scaling = 0 with it" setup(
-        Pop, q, Aop, l, u; algorithm = :ipm, linsys = :indirect, preconditioner = F
+        Pop, q, Aop, l, u, InteriorPoint(); linsys = :indirect, preconditioner = F
     )
     @test_throws "pass linsys = :indirect with it" setup(
-        P, q, A, l, u; algorithm = :ipm, linsys = :kkt, scaling = 0, preconditioner = F
+        P, q, A, l, u, InteriorPoint(); linsys = :kkt, scaling = 0, preconditioner = F
     )
     Aprobe = PureOSQP.ProductOperator{Float64}(A; probe = true)
     @test_throws "build them without probe" setup(
-        Pop, q, Aprobe, l, u; algorithm = :ipm, linsys = :indirect, scaling = 0, preconditioner = F
+        Pop, q, Aprobe, l, u, InteriorPoint(); linsys = :indirect, scaling = 0, preconditioner = F
     )
-    @test_throws "algorithm must be :admm or :ipm" setup(P, q, A, l, u; algorithm = :newton)
+    @test_throws MethodError setup(P, q, A, l, u; algorithm = :ipm)
 
     n1, n2 = 3, 4
     K = PureOSQP.KroneckerOperator(randn(n1, n1), randn(n2, n2))
     Pk = Diagonal(fill(2.0, n1 * n2))
     qk, lk, uk = randn(n1 * n2), -rand(n1 * n2), rand(n1 * n2)
-    @test_throws "linsys = :kronecker is not available with algorithm = :ipm" setup(
-        Pk, qk, K, lk, uk; algorithm = :ipm, linsys = :kronecker, scaling = 0
+    @test_throws "linsys = :kronecker is not available with InteriorPoint()" setup(
+        Pk, qk, K, lk, uk, InteriorPoint(); linsys = :kronecker, scaling = 0
     )
     # The same pair on `:auto` is declined by the Kronecker rung and still solves.
-    ws = setup(Pk, qk, K, lk, uk; algorithm = :ipm, scaling = 0)
+    ws = setup(Pk, qk, K, lk, uk, InteriorPoint(); scaling = 0)
     @test PureOSQP.backend_name(ws.linsys) !== :kronecker
     @test solve!(ws).status == SOLVED
 end
@@ -315,17 +316,17 @@ end
     P = jl(Matrix(X'X / n + I))
     A = jl(randn(m, n))
     q, l, u = jl(randn(n)), jl(-ones(m)), jl(ones(m))
-    @test_throws "algorithm = :ipm runs on the host" setup(P, q, A, l, u; algorithm = :ipm)
+    @test_throws "InteriorPoint() runs on the host" setup(P, q, A, l, u, InteriorPoint())
 end
 
 @testitem "interior point: ADMM stays the default, and the IPM infers concretely" begin
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(10, 15; seed = 5)
-    @test setup(P, q, A, l, u) isa Workspace
-    @test setup(P, q, A, l, u; algorithm = :admm) isa Workspace
+    @test setup(P, q, A, l, u) isa OperatorSplittingWorkspace
+    @test setup(P, q, A, l, u, OperatorSplitting()) isa OperatorSplittingWorkspace
 
-    ws = setup(P, q, A, l, u; algorithm = :ipm)
+    ws = setup(P, q, A, l, u, InteriorPoint())
     W = typeof(ws)
     @test isconcretetype(W)
     @test only(Base.return_types(solve!, (W,))) === Solution{Float64}
@@ -345,13 +346,13 @@ end
     @test s3.x == s1.x
 end
 
-@testitem "warm_start! seeds an IPMWorkspace's next solve" begin
+@testitem "warm_start! seeds an InteriorPointWorkspace's next solve" begin
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(12, 30; seed = 96)
-    opts = (algorithm = :ipm, eps_abs = 1.0e-8, eps_rel = 1.0e-8)
-    cold = PureOSQP.solve(P, q, A, l, u; opts...)
-    ws = setup(P, q, A, l, u; opts...)
+    opts = (eps_abs = 1.0e-8, eps_rel = 1.0e-8)
+    cold = PureOSQP.solve(P, q, A, l, u, InteriorPoint(); opts...)
+    ws = setup(P, q, A, l, u, InteriorPoint(); opts...)
 
     warm_start!(ws; x = cold.x, y = cold.y)
     @test ws.seeded
@@ -401,7 +402,7 @@ end
     )
     tol = sqrt(eps(Float32))
     for data in cases, (linsys, backend) in ((:kkt, :bunchkaufman), (:dense, :cholesky))
-        ws = setup(map(v -> Float32.(v), data)...; algorithm = :ipm, linsys)
+        ws = setup(map(v -> Float32.(v), data)..., InteriorPoint(); linsys)
         @test PureOSQP.backend_name(ws.linsys) === backend
         s = solve!(ws)
         @test s isa Solution{Float32}
@@ -410,14 +411,16 @@ end
     end
 
     # The defaults follow the element type; a value passed explicitly is kept.
-    s32 = IPMSettings{Float32}()
-    @test s32.eps_abs == s32.eps_rel == s32.eps_prim_inf == s32.eps_dual_inf == tol
-    @test s32.reg_primal == s32.reg_dual == tol
-    s64 = IPMSettings{Float64}()
-    @test s64.eps_abs == s64.reg_primal == 1.0e-8
-    @test IPMSettings{BigFloat}().reg_dual == BigFloat(1.0e-8)
-    @test IPMSettings{Float32}(; eps_abs = 1.0e-3, reg_primal = 1.0e-6).eps_abs == 1.0f-3
-    @test IPMSettings{Float32}(; reg_primal = 1.0e-6).reg_primal == 1.0f-6
+    o32 = default_options(InteriorPoint(), Float32)
+    @test o32.eps_abs == o32.eps_rel == o32.eps_prim_inf == o32.eps_dual_inf == tol
+    a32 = InteriorPoint{Float32}(InteriorPoint(), :auto)
+    @test a32.reg_primal == a32.reg_dual == tol
+    @test default_options(InteriorPoint(), Float64).eps_abs == 1.0e-8
+    @test InteriorPoint{Float64}(InteriorPoint(), :auto).reg_primal == 1.0e-8
+    @test InteriorPoint{BigFloat}(InteriorPoint(), :auto).reg_dual == BigFloat(1.0e-8)
+    ws = setup(map(v -> Float32.(v), cases.qp)..., InteriorPoint(reg_primal = 1.0e-6); eps_abs = 1.0e-3)
+    @test ws.options.eps_abs == 1.0f-3
+    @test ws.algorithm.reg_primal == 1.0f-6
 end
 
 @testitem "interior point: BigFloat and dual numbers" begin
@@ -427,7 +430,7 @@ end
 
     B = BigFloat
     s = PureOSQP.solve(
-        B.(P), B.(q), B.(A), B.(l), B.(u); algorithm = :ipm, linsys = :kkt, eps_abs = 1.0e-20, eps_rel = 1.0e-20
+        B.(P), B.(q), B.(A), B.(l), B.(u), InteriorPoint(); linsys = :kkt, eps_abs = 1.0e-20, eps_rel = 1.0e-20
     )
     @test s isa Solution{BigFloat}
     @test s.status == SOLVED
@@ -437,7 +440,7 @@ end
     D = ForwardDiff.Dual{Nothing, Float64, 1}
     qd = D.(q)
     qd[1] = ForwardDiff.Dual{Nothing}(q[1], 1.0)
-    ws = setup(D.(P), qd, D.(A), D.(l), D.(u); algorithm = :ipm)
+    ws = setup(D.(P), qd, D.(A), D.(l), D.(u), InteriorPoint())
     @test PureOSQP.backend_name(ws.linsys) === :cholesky
     sd = solve!(ws)
     @test sd.status == SOLVED
@@ -445,7 +448,7 @@ end
     # of step 1e-3 is exact up to the solve's tolerance divided by the step: 1e-7 at 1e-10.
     h = 1.0e-3
     obj(t) = PureOSQP.solve(
-        P, q .+ t .* [1.0; zeros(7)], A, l, u; algorithm = :ipm, eps_abs = 1.0e-10, eps_rel = 1.0e-10
+        P, q .+ t .* [1.0; zeros(7)], A, l, u, InteriorPoint(); eps_abs = 1.0e-10, eps_rel = 1.0e-10
     ).obj_val
     fd = (obj(h) - obj(-h)) / (2h)
     @test ForwardDiff.partials(sd.obj_val)[1] ≈ fd atol = 1.0e-6
@@ -456,14 +459,14 @@ end
     include(joinpath(@__DIR__, "helpers.jl"))
     for seed in 1:5, sc in (0, 10)
         P, q, A, l, u = primal_infeasible_qp(20, 40, seed)
-        s = PureOSQP.solve(P, q, A, l, u; algorithm = :ipm, scaling = sc)
+        s = PureOSQP.solve(P, q, A, l, u, InteriorPoint(); scaling = sc)
         @test s.status == PRIMAL_INFEASIBLE
         @test !has_solution(s.status)
         @test all(isnan, s.x)
         @test is_primal_certificate(A, l, u, s.prim_inf_cert)
 
         P, q, A, l, u = dual_infeasible_qp(20, 40, seed)
-        s = PureOSQP.solve(P, q, A, l, u; algorithm = :ipm, scaling = sc)
+        s = PureOSQP.solve(P, q, A, l, u, InteriorPoint(); scaling = sc)
         @test s.status == DUAL_INFEASIBLE
         @test all(isnan, s.y)
         @test is_dual_certificate(P, q, A, l, u, s.dual_inf_cert)
@@ -476,7 +479,7 @@ end
     # On this instance the diverging multipliers raise `μ` for more than ten iterations in a
     # row before the certificate passes.
     P, q, A, l, u = primal_infeasible_qp(20, 40, 4)
-    ws = setup(P, q, A, l, u; algorithm = :ipm, scaling = 0)
+    ws = setup(P, q, A, l, u, InteriorPoint(); scaling = 0)
     s = solve!(ws)
     @test s.status == PRIMAL_INFEASIBLE
     @test ws.alert
@@ -496,26 +499,26 @@ end
     A34 = [1.0 0.0; 1.0 0.0; 0.0 1.0]
     l = [0.0, 1.0, 1.0]
     for sc in (0, 10)
-        s1 = PureOSQP.solve(P, q, A12, l, [5.0, 3.0, 3.0]; algorithm = :ipm, scaling = sc)
+        s1 = PureOSQP.solve(P, q, A12, l, [5.0, 3.0, 3.0], InteriorPoint(); scaling = sc)
         @test s1.status == SOLVED
         @test norm(s1.x .- [1.0, 3.0], Inf) < 1.0e-4
         @test norm(s1.y .- [0.0, -2.0, 1.0], Inf) < 1.0e-4
         @test abs(s1.obj_val - (-1.5)) < 1.0e-4
 
         u2 = [0.0, 3.0, 3.0]
-        s2 = PureOSQP.solve(P, q, A12, l, u2; algorithm = :ipm, scaling = sc)
+        s2 = PureOSQP.solve(P, q, A12, l, u2, InteriorPoint(); scaling = sc)
         @test s2.status == PRIMAL_INFEASIBLE
         @test is_primal_certificate(A12, l, u2, s2.prim_inf_cert)
 
         u3 = [2.0, 3.0, Inf]
-        s3 = PureOSQP.solve(P, q, A34, l, u3; algorithm = :ipm, scaling = sc)
+        s3 = PureOSQP.solve(P, q, A34, l, u3, InteriorPoint(); scaling = sc)
         @test s3.status == DUAL_INFEASIBLE
         @test is_dual_certificate(P, q, A34, l, u3, s3.dual_inf_cert)
 
         # Both infeasible at once: `x₁ ≤ 0` and `x₁ ≥ 1` conflict, and `x₂ → ∞` descends
         # without leaving the rows. Either certificate proves a true statement.
         u4 = [0.0, 3.0, Inf]
-        s4 = PureOSQP.solve(P, q, A34, l, u4; algorithm = :ipm, scaling = sc)
+        s4 = PureOSQP.solve(P, q, A34, l, u4, InteriorPoint(); scaling = sc)
         @test s4.status in (PRIMAL_INFEASIBLE, DUAL_INFEASIBLE)
         if s4.status == PRIMAL_INFEASIBLE
             @test is_primal_certificate(A34, l, u4, s4.prim_inf_cert)
@@ -551,11 +554,12 @@ end
         prob = PureOSQP.Problem(Float64, P, q, A, l, u; scaling = 0)
         wt = PureOSQP.SystemWeights(ones(m), ones(m), 1.0e-8)
         ls = Gate(FullKKT(zeros(n), n, m), threshold, fail_at, 0)
-        return PureOSQP.ipm_workspace(ls, prob, wt, IPMSettings{Float64}(; scaling = 0, kwargs...))
+        options = Options{Float64}(; PureOSQP.algorithm_defaults(InteriorPoint(), Float64)..., scaling = 0)
+        return PureOSQP.ipm_workspace(ls, prob, wt, InteriorPoint{Float64}(InteriorPoint(; kwargs...), :auto), options)
     end
 
     P, q, A, l, u = random_qp(20, 30; seed = 91)
-    ref = PureOSQP.solve(P, q, A, l, u; algorithm = :ipm, scaling = 0)
+    ref = PureOSQP.solve(P, q, A, l, u, InteriorPoint(); scaling = 0)
     @test ref.status == SOLVED
 
     # The starting point's factorization fails at 1e-8 and succeeds after one bump.
@@ -581,6 +585,7 @@ end
     # No threshold the bumps can reach: the run ends without a point.
     for (threshold, bumps) in ((Inf, 5), (5.0e-8, 0))
         ws = gated(P, q, A, l, u; threshold, max_reg_bumps = bumps)
+        @test ws.algorithm.max_reg_bumps == bumps
         s = solve!(ws)
         @test s.status == NUMERICAL_ERROR
         @test !has_solution(s.status)
@@ -592,46 +597,54 @@ end
     end
     @test PureOSQP.status_name(NUMERICAL_ERROR) == "numerical error"
 
-    @test_throws "max_reg_bumps must be non-negative" setup(P, q, A, l, u; algorithm = :ipm, max_reg_bumps = -1)
-    @test_throws "time_limit must be positive" setup(P, q, A, l, u; algorithm = :ipm, time_limit = 0.0)
+    @test_throws "max_reg_bumps must be non-negative" InteriorPoint(max_reg_bumps = -1)
+    @test_throws "time_limit must be positive" setup(P, q, A, l, u, InteriorPoint(); time_limit = 0.0)
     @test_throws "eps_prim_inf and eps_dual_inf must be positive" setup(
-        P, q, A, l, u; algorithm = :ipm, eps_dual_inf = 0.0
+        P, q, A, l, u, InteriorPoint(); eps_dual_inf = 0.0
     )
 end
 
-@testitem "update_settings! on an IPMWorkspace validates and never refactorizes" begin
+@testitem "update_settings! on an InteriorPointWorkspace validates and never refactorizes" begin
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(10, 24; seed = 95)
-    ws = setup(P, q, A, l, u; algorithm = :ipm, eps_abs = 1.0e-6, eps_rel = 1.0e-6)
+    ws = setup(P, q, A, l, u, InteriorPoint(); eps_abs = 1.0e-6, eps_rel = 1.0e-6)
 
     # A tolerance is not read by any factorization, so changing it is free, exactly as ADMM's
     # `update_settings!` treats it.
     update_settings!(ws; eps_abs = 1.0e-9, max_iter = 200)
-    @test ws.settings.eps_abs == 1.0e-9
-    @test ws.settings.max_iter == 200
-    @test ws.settings.eps_rel == 1.0e-6          # untouched fields survive
+    @test ws.options.eps_abs == 1.0e-9
+    @test ws.options.max_iter == 200
+    @test ws.options.eps_rel == 1.0e-6          # untouched options survive
 
-    # `reg_primal`/`reg_dual` are free too: every solve resets its regularization from
-    # `settings` before the first iteration, so nothing here needs to trigger a
+    # `reg_primal`/`reg_dual` are free too: every solve resets its regularization from the
+    # algorithm parameters before the first iteration, so nothing here needs to trigger a
     # refactorization the way ADMM's `rho`/`sigma` do.
-    update_settings!(ws; reg_primal = 1.0e-6, reg_dual = 1.0e-6)
-    @test ws.settings.reg_primal == 1.0e-6
-    @test ws.settings.reg_dual == 1.0e-6
+    update_settings!(ws, InteriorPoint(reg_primal = 1.0e-6, reg_dual = 1.0e-6))
+    @test ws.algorithm isa InteriorPoint{Float64, Int}
+    @test ws.algorithm.reg_primal == 1.0e-6
+    @test ws.algorithm.reg_dual == 1.0e-6
+    @test ws.options.eps_abs == 1.0e-9           # the options are untouched
     got = PureOSQP.solve!(ws)
     @test got.status == SOLVED
     @test ws.reg_primal == 1.0e-6
     @test ws.reg_dual == 1.0e-6
+    # The object replaces every parameter: one left out takes its default.
+    update_settings!(ws, InteriorPoint(reg_dual = 1.0e-7))
+    @test ws.algorithm.reg_primal == 1.0e-8
+    @test ws.algorithm.reg_dual == 1.0e-7
 
     # Rejected, not silently ignored: the backend is part of the workspace's type, and the
     # equilibration factors were computed once from the data setup saw.
     @test_throws "linsys is fixed" update_settings!(ws; linsys = :kkt)
     @test_throws "scaling is fixed" update_settings!(ws; scaling = 0)
     # A rejected call leaves the workspace alone.
-    @test ws.settings.linsys === :auto
+    @test ws.options.linsys === :auto
     @test_throws "eps_abs and eps_rel must be non-negative" update_settings!(ws; eps_abs = -1)
-    @test_throws "reg_primal must be positive" update_settings!(ws; reg_primal = -1.0)
-    @test_throws "no per-iteration report" update_settings!(ws; verbose = true)
+    @test_throws "reg_primal must be positive" update_settings!(ws, InteriorPoint(reg_primal = -1.0))
+    @test_throws "reg_primal is a parameter of InteriorPoint, not an option" update_settings!(ws; reg_primal = 1.0e-6)
+    @test_throws "verbose is a parameter of OperatorSplitting, not an option" update_settings!(ws; verbose = true)
+    @test_throws "the algorithm is fixed once the workspace is built" update_settings!(ws, OperatorSplitting())
 
     @test PureOSQP.solve!(ws).status == SOLVED
 end
@@ -641,32 +654,34 @@ end
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(10, 20; seed = 94)
     ws = setup(
-        P, q, A, l, u; algorithm = :ipm, linsys = :indirect, scaling = 0,
+        P, q, A, l, u, InteriorPoint(); linsys = :indirect, scaling = 0,
         preconditioner = Diagonal(ones(10)), cg_max_iter = 7, cg_tol_fraction = 0.3
     )
     @test (ws.linsys.max_iter, ws.linsys.tol_fraction) == (7, 0.3)
     update_settings!(ws; cg_max_iter = 3, cg_tol_fraction = 0.05)
     @test (ws.linsys.max_iter, ws.linsys.tol_fraction) == (3, 0.05)
-    @test ws.settings.cg_max_iter == 3
+    @test ws.options.cg_max_iter == 3
 end
 
-@testitem "verbose = true is refused under algorithm = :ipm" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+@testitem "verbose and the accelerator are refused under InteriorPoint()" begin
+    using LinearAlgebra, SparseArrays, OSQP, Random, COSMOAccelerators
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(6, 12; seed = 97)
-    @test_throws "no per-iteration report" PureOSQP.solve(P, q, A, l, u; algorithm = :ipm, verbose = true)
-    ws = setup(P, q, A, l, u; algorithm = :ipm)
-    @test_throws "no per-iteration report" update_settings!(ws; verbose = true)
+    @test_throws "verbose is a parameter of OperatorSplitting" PureOSQP.solve(P, q, A, l, u, InteriorPoint(); verbose = true)
+    @test_throws MethodError InteriorPoint(verbose = true)
+    @test_throws "accelerator is used only by OperatorSplitting" setup(
+        P, q, A, l, u, InteriorPoint(); accelerator = PureOSQP.anderson(Float64, 18)
+    )
 end
 
 @testitem "interior point: time_limit and an interrupt return the point reached" begin
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(40, 60; seed = 92)
-    unlimited = PureOSQP.solve(P, q, A, l, u; algorithm = :ipm)
+    unlimited = PureOSQP.solve(P, q, A, l, u, InteriorPoint())
     @test unlimited.status == SOLVED
     # A nanosecond is spent by the first iteration, so the run stops there.
-    limited = PureOSQP.solve(P, q, A, l, u; algorithm = :ipm, time_limit = 1.0e-9)
+    limited = PureOSQP.solve(P, q, A, l, u, InteriorPoint(); time_limit = 1.0e-9)
     @test limited.status == TIME_LIMIT_REACHED
     @test limited.iter == 1 < unlimited.iter
     @test has_solution(limited.status)
@@ -691,7 +706,7 @@ end
 
     P, q, A, l, u = random_qp(8, 16; seed = 3)
     F = Fuse(A, typemax(Int), true)
-    ws = setup(P, q, F, l, u; algorithm = :ipm, check_termination = 0)
+    ws = setup(P, q, F, l, u, InteriorPoint(); check_termination = 0)
     F.n = 20 * length(A)
     sol = solve!(ws)
     @test sol.status == INTERRUPTED
@@ -702,7 +717,7 @@ end
     @test isfinite(sol.prim_res)
 
     F = Fuse(A, typemax(Int), false)
-    ws = setup(P, q, F, l, u; algorithm = :ipm, check_termination = 0)
+    ws = setup(P, q, F, l, u, InteriorPoint(); check_termination = 0)
     F.n = 20 * length(A)
     @test_throws "boom" solve!(ws)
 end
@@ -735,15 +750,15 @@ end
     P, q, A, l, u = random_qp(20, 30; seed = 93)
     l[1:4] .= u[1:4]
     l[5:7] .= -Inf
-    ref = PureOSQP.solve(P, q, A, l, u; algorithm = :ipm, linsys = :kkt, scaling = 0)
+    ref = PureOSQP.solve(P, q, A, l, u, InteriorPoint(); linsys = :kkt, scaling = 0)
     @test ref.status == SOLVED
     Pop = PureOSQP.ProductOperator{Float64}(P; symmetric = true, posdef = true)
     Aop = PureOSQP.ProductOperator{Float64}(A)
     for (PP, AA) in ((P, A), (Pop, Aop)), every in (1, 3)
         M = LaggedCholesky(P, A; every)
-        ws = setup(PP, q, AA, l, u; algorithm = :ipm, linsys = :indirect, scaling = 0, preconditioner = M)
+        ws = setup(PP, q, AA, l, u, InteriorPoint(); linsys = :indirect, scaling = 0, preconditioner = M)
         @test PureOSQP.backend_name(ws.linsys) === :indirect
-        @test ws.settings.refine_iter == 0
+        @test iszero(ws.algorithm.refine_iter)
         s = solve!(ws)
         @test s.status == SOLVED
         @test s.cg_iters > 0
@@ -758,25 +773,25 @@ end
     # A preconditioner so poor that one iteration never reaches the tolerance: every solve is
     # missed, and the third in a row ends the run.
     s = PureOSQP.solve(
-        Pop, q, Aop, l, u; algorithm = :ipm, linsys = :indirect, scaling = 0,
+        Pop, q, Aop, l, u, InteriorPoint(); linsys = :indirect, scaling = 0,
         preconditioner = Diagonal(fill(1.0e3, 20)), cg_max_iter = 1
     )
     @test s.status == NUMERICAL_ERROR
     @test s.iter == 1
     @test 0 < s.cg_iters <= 3
     s = PureOSQP.solve(
-        Pop, q, Aop, l, u; algorithm = :ipm, linsys = :indirect, scaling = 0,
-        preconditioner = Diagonal(fill(1.0e3, 20)), cg_max_iter = 1, cg_fail_limit = 1
+        Pop, q, Aop, l, u, InteriorPoint(cg_fail_limit = 1); linsys = :indirect, scaling = 0,
+        preconditioner = Diagonal(fill(1.0e3, 20)), cg_max_iter = 1
     )
     @test s.status == NUMERICAL_ERROR
-    @test s.iter == 0
+    @test iszero(s.iter)
 
     # A preconditioner that is not positive definite: Krylov abandons each solve, which counts
     # as a miss rather than escaping as an exception.
     d = ones(20)
     d[1] = -1.0
     s = PureOSQP.solve(
-        Pop, q, Aop, l, u; algorithm = :ipm, linsys = :indirect, scaling = 0, preconditioner = Diagonal(d)
+        Pop, q, Aop, l, u, InteriorPoint(); linsys = :indirect, scaling = 0, preconditioner = Diagonal(d)
     )
     @test s.status == NUMERICAL_ERROR
     @test !has_solution(s.status)
@@ -785,7 +800,7 @@ end
     struct Retyping end
     PureOSQP.update_preconditioner!(::Retyping, prob, wt, k::Int) = I
     @test_throws "update_preconditioner! must return a preconditioner of the type" PureOSQP.solve(
-        P, q, A, l, u; algorithm = :ipm, linsys = :indirect, scaling = 0, preconditioner = Retyping()
+        P, q, A, l, u, InteriorPoint(); linsys = :indirect, scaling = 0, preconditioner = Retyping()
     )
-    @test_throws "cg_fail_limit must be positive" setup(P, q, A, l, u; algorithm = :ipm, cg_fail_limit = 0)
+    @test_throws "cg_fail_limit must be positive" InteriorPoint(cg_fail_limit = 0)
 end

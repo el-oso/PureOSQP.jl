@@ -31,7 +31,7 @@ end
 Recompute `‖Ãx − z‖∞` and `‖P̃x + q̃ + Ãᵀy‖∞`, both in scaled space (used by the ρ
 estimate) and unscaled (used for termination and reporting), plus the objective value.
 """
-function update_residuals!(ws::Workspace{T}) where {T}
+function update_residuals!(ws::OperatorSplittingWorkspace{T}) where {T}
     prob = ws.prob
     m = prob.m
     scaled = prob.scaling > 0
@@ -123,7 +123,7 @@ end
     eps_prim(prob, s, z, Ax)
 
 Tolerance for the primal residual test, relative to the larger of `‖z‖∞` and `‖Ax‖∞`. `s` is
-a [`Settings`](@ref) or an [`IPMSettings`](@ref); the three tolerances read `eps_abs`,
+the workspace's [`Options`](@ref); the three tolerances read `eps_abs`,
 `eps_rel` and `scaled_termination` from it.
 """
 function eps_prim(prob::Problem{T}, s, z::AbstractVector{T}, Ax::AbstractVector{T}) where {T}
@@ -134,7 +134,7 @@ function eps_prim(prob::Problem{T}, s, z::AbstractVector{T}, Ax::AbstractVector{
     end
     return s.eps_abs + s.eps_rel * mx
 end
-eps_prim(ws::Workspace) = eps_prim(ws.prob, ws.settings, ws.z, ws.Ax)
+eps_prim(ws::OperatorSplittingWorkspace) = eps_prim(ws.prob, ws.options, ws.z, ws.Ax)
 
 """
     eps_dual(prob, s, Aty, Px)
@@ -150,7 +150,7 @@ function eps_dual(prob::Problem{T}, s, Aty::AbstractVector{T}, Px::AbstractVecto
     end
     return s.eps_abs + s.eps_rel * mx
 end
-eps_dual(ws::Workspace) = eps_dual(ws.prob, ws.settings, ws.Aty, ws.Px)
+eps_dual(ws::OperatorSplittingWorkspace) = eps_dual(ws.prob, ws.options, ws.Aty, ws.Px)
 
 """
     eps_duality_gap(prob, s, xtPx, qtx, SCy)
@@ -164,7 +164,7 @@ function eps_duality_gap(prob::Problem{T}, s, xtPx::T, qtx::T, SCy::T) where {T}
     (prob.scaling > 0 && !s.scaled_termination) && (mx /= prob.c)
     return s.eps_abs + s.eps_rel * mx
 end
-eps_duality_gap(ws::Workspace) = eps_duality_gap(ws.prob, ws.settings, ws.xtPx, ws.qtx, ws.SCy)
+eps_duality_gap(ws::OperatorSplittingWorkspace) = eps_duality_gap(ws.prob, ws.options, ws.xtPx, ws.qtx, ws.SCy)
 
 "The polar recession cone projection, elementwise."
 @inline function polar_reccone(v::T, lo::T, hi::T, loose::T) where {T}
@@ -239,7 +239,7 @@ function is_primal_infeasible(prob::Problem{T}, dy::AbstractVector{T}, eps::T) w
     return norm_inf(prob.work_n) < eps * ndy
 end
 
-function is_primal_infeasible(ws::Workspace{T}, eps::T) where {T}
+function is_primal_infeasible(ws::OperatorSplittingWorkspace{T}, eps::T) where {T}
     return is_primal_infeasible(ws.prob, ws.delta_y, eps)
 end
 
@@ -285,7 +285,7 @@ function is_dual_infeasible(prob::Problem{T}, dx::AbstractVector{T}, eps::T) whe
     return !leaves_reccone(prob.work_m, prob.l, prob.u, INFTY(T) * MIN_SCALING(T), eps * ndx)
 end
 
-function is_dual_infeasible(ws::Workspace{T}, eps::T) where {T}
+function is_dual_infeasible(ws::OperatorSplittingWorkspace{T}, eps::T) where {T}
     return is_dual_infeasible(ws.prob, ws.delta_x, eps)
 end
 
@@ -297,8 +297,8 @@ factor of ten and the returned statuses are the `*_INACCURATE` variants; that is
 the reference implementation makes once the iteration limit is hit, before declaring the
 run unconverged.
 """
-function check_termination(ws::Workspace{T}, approximate::Bool = false) where {T}
-    s = ws.settings
+function check_termination(ws::OperatorSplittingWorkspace{T}, approximate::Bool = false) where {T}
+    s = ws.options
     inf = INFTY(T)
     # `NaN` compares false against everything, so it passes a `> inf` test and would reach
     # the iteration limit as a point with `has_solution` true. It is caught by name, and
@@ -349,7 +349,7 @@ Called from [`solve!`](@ref) after [`update_residuals!`](@ref) rather than from 
 `update_residuals!` carries the allocation-free guarantee where `solve!` does not — the same
 reason the `time_limit` clock lives in the loop.
 """
-function accumulate_primdual!(ws::Workspace{T})::Nothing where {T}
+function accumulate_primdual!(ws::OperatorSplittingWorkspace{T})::Nothing where {T}
     now = (time_ns() - ws.loop_start) / 1.0e9
     gap = abs(ws.duality_gap)
     # The first sample opens the interval and closes nothing.

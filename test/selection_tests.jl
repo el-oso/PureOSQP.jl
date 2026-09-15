@@ -120,7 +120,7 @@ end
 
     # Below the terminal: an operator that supplies only products reaches the matrix-free
     # rung instead of falling out of the ladder. `is_materializable` is what declines the
-    # terminal, so the decline is reachable from a type `Workspace` accepts.
+    # terminal, so the decline is reachable from a type `setup` accepts.
     struct Opaque <: AbstractMatrix{Float64} end
     PureOSQP.is_materializable(::Opaque) = false
     opaque_prob = raw_problem(Opaque(), Opaque(), n, m)

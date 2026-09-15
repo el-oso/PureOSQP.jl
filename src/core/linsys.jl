@@ -163,13 +163,13 @@ A direct backend solves exactly and ignores it, which is the default.
 set_tolerance_level!(ls::LinearSystem, level) = nothing
 
 """
-    adopt_settings!(ls, settings) -> Nothing
+    adopt_settings!(ls, alg, options) -> Nothing
 
-Copy into the backend whatever of the workspace's [`Settings`](@ref) it reads while solving.
-Called once the workspace is built and whenever its settings are replaced. The default
-backend reads none, and does nothing.
+Copy into the backend whatever of the workspace's algorithm parameters `alg` and
+[`Options`](@ref) it reads while solving. Called once the workspace is built and whenever
+either is replaced. The default backend reads none, and does nothing.
 """
-adopt_settings!(ls::LinearSystem, settings) = nothing
+adopt_settings!(ls::LinearSystem, alg, options) = nothing
 
 """
     ReducedInverse <: LinearSystem

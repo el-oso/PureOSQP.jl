@@ -16,11 +16,20 @@ PureOSQP.constraint_violation!
 PureOSQP.Optimizer
 PureOSQP.adjoint_derivative
 PureOSQP.forward_derivative
-PureOSQP.Settings
 PureOSQP.Solution
-PureOSQP.Workspace
-PureOSQP.IPMSettings
-PureOSQP.IPMWorkspace
+```
+
+## Algorithms and options
+
+```@docs
+PureOSQP.QPAlgorithm
+PureOSQP.OperatorSplitting
+PureOSQP.InteriorPoint
+PureOSQP.Options
+PureOSQP.default_options
+PureOSQP.QPWorkspace
+PureOSQP.OperatorSplittingWorkspace
+PureOSQP.InteriorPointWorkspace
 ```
 
 ## Status values
@@ -31,7 +40,7 @@ PureOSQP.Status
 
 ## Settings
 
-`Settings` documents each field. This section shows how the fields correspond to the reference implementation.
+[`OperatorSplitting`](@ref) documents its parameters and [`Options`](@ref) the options. This section shows how both correspond to the reference implementation's settings; with the default algorithm every setting in the right-hand column is an `Options` keyword except `verbose`, `profile_primdual`, `rho`, `rho_is_vec`, `sigma`, `alpha`, `cg_tol_reduction` and the four `adaptive_rho` settings, which are `OperatorSplitting` parameters.
 
 | upstream | default | here | default | note |
 |---|---|---|---|---|
@@ -99,6 +108,7 @@ PureOSQP.factorize!
 PureOSQP.refactor_weights!
 PureOSQP.solve_system!
 PureOSQP.solve_multiplier!
+PureOSQP.element_typed
 PureOSQP.admm_step!
 PureOSQP.set_rho_vec!
 PureOSQP.adapt_rho!

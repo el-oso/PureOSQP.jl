@@ -600,16 +600,19 @@ resolved = solve!(ws)
 (refactorizations = after - before, x = resolved.x)
 ```
 
-Settings can be changed afterwards. `rho`, `sigma` and `rho_is_vec` are built into the
-factorization, so changing one of those refactorizes; the rest are free.
+Options and algorithm parameters can be changed afterwards: an option by keyword, the
+parameters by passing a new [`OperatorSplitting`](@ref), whose unnamed parameters take their
+defaults. `rho`, `sigma` and `rho_is_vec` are built into the factorization, so changing one of
+those refactorizes; the rest are free.
 
 ```@example workspace
 update_settings!(ws; eps_abs = 1e-6, polishing = true)
+update_settings!(ws, OperatorSplitting(alpha = 1.5))
 update_rho!(ws, 1.0)
-(ws.settings.eps_abs, ws.settings.polishing, live_rho = ws.rho, setting_rho = ws.settings.rho)
+(ws.options.eps_abs, ws.options.polishing, ws.algorithm.alpha, live_rho = ws.rho, setting_rho = ws.algorithm.rho)
 ```
 
-`update_rho!` sets the value the solver is running with; `ws.settings.rho` keeps the one
+`update_rho!` sets the value the solver is running with; `ws.algorithm.rho` keeps the one
 `setup` was given. Two keywords are refused, because the workspace cannot act on them:
 
 ```@example workspace
@@ -672,7 +675,7 @@ map(t -> round(t; digits = 6),
 
 `sol.iter` tells you how many iterations a solve took, but not *how* it got there. Two runs
 can take the same number of iterations while one spends most of them near the answer and the
-other only arrives at the end. `profile_primdual = true` measures that difference:
+other only arrives at the end. `OperatorSplitting(profile_primdual = true)` measures that difference:
 
 ```@example primdual
 using PureOSQP, LinearAlgebra
@@ -684,7 +687,7 @@ A = Matrix(1.0I, n, n)
 q = randn(n)
 l, u = fill(-0.5, n), fill(0.5, n)
 
-sol = solve(P, q, A, l, u; eps_abs = 1e-9, eps_rel = 1e-9, profile_primdual = true)
+sol = solve(P, q, A, l, u, OperatorSplitting(profile_primdual = true); eps_abs = 1e-9, eps_rel = 1e-9)
 (iter = sol.iter, trapezoid = sol.primdual_int, logmean = sol.primdual_int_log)
 ```
 
@@ -707,8 +710,8 @@ sampling every iteration brings the ratio to 0.93
 
 ```@example primdual
 dense = solve(
-    P, q, A, l, u; eps_abs = 1e-9, eps_rel = 1e-9,
-    profile_primdual = true, check_termination = 1,
+    P, q, A, l, u, OperatorSplitting(profile_primdual = true); eps_abs = 1e-9, eps_rel = 1e-9,
+    check_termination = 1,
 )
 (ratio_default = sol.primdual_int_log / sol.primdual_int,
  ratio_dense = dense.primdual_int_log / dense.primdual_int)
@@ -884,7 +887,8 @@ The certificate that does not apply is an empty vector:
 ## JuMP and MathOptInterface
 
 The MathOptInterface wrapper is a package extension, loaded when MathOptInterface is. Every
-field of [`Settings`](@ref) is a raw optimizer attribute of the same name. This block is
+field of [`Options`](@ref), the raw attribute `"algorithm"` (`"admm"` or `"ipm"`), and every
+parameter of the algorithm it selects is a raw optimizer attribute of the same name. This block is
 not run here, since the docs do not depend on JuMP:
 
 ```julia

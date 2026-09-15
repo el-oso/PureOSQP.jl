@@ -5,19 +5,19 @@
     # A tridiagonal A squares to bandwidth 2, which no symmetric LinearAlgebra type stores.
     P = SymTridiagonal(rand(n) .+ 4, rand(n - 1) ./ 8)
     A = Tridiagonal(rand(n - 1) ./ 4, rand(n) .+ 1, rand(n - 1) ./ 4)
-    ws = setup(P, randn(n), A, -rand(n), rand(n); scaling = 0, sigma = 1.0e-6, rho = 0.1)
+    ws = setup(P, randn(n), A, -rand(n), rand(n), OperatorSplitting(sigma = 1.0e-6, rho = 0.1); scaling = 0)
     @test PureOSQP.backend_name(ws.linsys) == :banded
 
     # The bandwidth rule the backend is built on: max(bw(P), 2 bw(A)).
     @test ws.linsys.bw == 2
     # `cholesky!` overwrites the assembled matrix, so what `R` holds now is the factor.
     # The reduced matrix is checked through the system it solves, below.
-    R = Matrix(P) + ws.settings.sigma * I + Matrix(A)' * Diagonal(ws.weights.w) * Matrix(A)
+    R = Matrix(P) + ws.algorithm.sigma * I + Matrix(A)' * Diagonal(ws.weights.w) * Matrix(A)
     @test Matrix(ws.linsys.fact.U)' * Matrix(ws.linsys.fact.U) ≈ R rtol = 1.0e-9
 
     bx, bz = randn(n), randn(n)
     PureOSQP.solve_system!(ws.linsys, ws.prob, ws.weights, bx, bz, ws.xtilde, ws.ztilde)
-    K = [Matrix(P) + ws.settings.sigma * I  Matrix(A)'; Matrix(A)  -Diagonal(1 ./ ws.weights.w)]
+    K = [Matrix(P) + ws.algorithm.sigma * I  Matrix(A)'; Matrix(A)  -Diagonal(1 ./ ws.weights.w)]
     ref = K \ [bx; bz]
     @test ws.xtilde ≈ ref[1:n] rtol = 1.0e-9
     @test ws.ztilde ≈ A * ws.xtilde rtol = 1.0e-9

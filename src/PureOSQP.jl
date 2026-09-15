@@ -18,7 +18,9 @@ using TypeContracts: TypeContracts, @contract, @verify
 
 export setup, solve, solve!, update!, update_settings!, update_rho!, warm_start!, cold_start!
 export dimensions, capabilities, constraint_violation, constraint_violation!
-export Optimizer, Settings, Solution, Status, Workspace, IPMSettings, IPMWorkspace
+export Optimizer, Solution, Status, Options, default_options
+export QPAlgorithm, OperatorSplitting, InteriorPoint
+export QPWorkspace, OperatorSplittingWorkspace, InteriorPointWorkspace
 export has_solution, status_name
 export backend_info, backend_name, factor_fill, BackendInfo
 export PolishStatus
@@ -35,6 +37,7 @@ include("core/blockdiagonal.jl")
 include("core/kronecker.jl")
 include("core/rowcoupled.jl")
 include("core/problem.jl")
+include("core/options.jl")
 include("core/weights.jl")
 include("core/linsys.jl")
 include("core/preconditioner.jl")
@@ -55,17 +58,18 @@ include("admm/api.jl")
 include("ipm/settings.jl")
 include("ipm/workspace.jl")
 include("ipm/ipm.jl")
-# After IPMWorkspace: the derivative methods below serve both algorithms' workspaces.
+# After InteriorPointWorkspace: the derivative methods below serve both algorithms' workspaces.
 include("core/derivative.jl")
 
 """
     Optimizer(; kwargs...)
 
 MathOptInterface optimizer, available once MathOptInterface is loaded. Keyword arguments
-are `algorithm` (`:admm`, the default, or `:ipm`) and the fields of [`Settings`](@ref) or
-[`IPMSettings`](@ref), whichever `algorithm` names; `MOI.RawOptimizerAttribute("algorithm")`
-sets it after construction too, and every other raw attribute is then checked against the
-settings struct it selects.
+are `algorithm` (`"admm"`, the default, selecting [`OperatorSplitting`](@ref), or `"ipm"`,
+selecting [`InteriorPoint`](@ref)), the fields of [`Options`](@ref), and the parameters of the
+selected algorithm; `MOI.RawOptimizerAttribute("algorithm")` sets it after construction too.
+Every other raw attribute is checked by name against [`Options`](@ref) or the selected
+algorithm's parameters when it is set.
 
 The wrapper lives in a package extension, so it costs nothing to a caller who does not use
 it; this name is the only part of it the core owns.

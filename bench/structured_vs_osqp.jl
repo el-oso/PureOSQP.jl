@@ -31,6 +31,9 @@ const OPT = (
     eps_abs = 1.0e-6, eps_rel = 1.0e-6, max_iter = 20_000,
     adaptive_rho_interval = 50, check_dualgap = false,
 )
+# PureOSQP takes `adaptive_rho_interval` as an `OperatorSplitting` parameter.
+const PURE_OPT = Base.structdiff(OPT, NamedTuple{(:adaptive_rho_interval,)})
+const ALG = PureOSQP.OperatorSplitting(adaptive_rho_interval = OPT.adaptive_rho_interval)
 
 med(x) = median(s.time for s in x.samples)
 
@@ -63,8 +66,8 @@ function case(name, Pj, Aj, q, l, u; scaling = 10)
     # is the implementation, structured against sparse is what declaring it buys.
     Ps, As = sparse(Pd), sparse(Ad)
 
-    ws = PureOSQP.setup(Pj, q, Aj, l, u; OPT..., scaling)
-    wss = PureOSQP.setup(Ps, q, As, l, u; OPT..., scaling)
+    ws = PureOSQP.setup(Pj, q, Aj, l, u, ALG; PURE_OPT..., scaling)
+    wss = PureOSQP.setup(Ps, q, As, l, u, ALG; PURE_OPT..., scaling)
     backend = String(PureOSQP.backend_name(ws.linsys))
     backend_sparse = String(PureOSQP.backend_name(wss.linsys))
     rj = PureOSQP.solve!(ws)
@@ -82,8 +85,8 @@ function case(name, Pj, Aj, q, l, u; scaling = 10)
             isapprox(rs.obj_val, rc.obj; rtol = 1.0e-9)
     ) || error("$name: objectives differ")
 
-    tj = med(@be PureOSQP.solve($Pj, $q, $Aj, $l, $u; OPT..., scaling = $scaling) seconds = 3)
-    ts = med(@be PureOSQP.solve($Ps, $q, $As, $l, $u; OPT..., scaling = $scaling) seconds = 3)
+    tj = med(@be PureOSQP.solve($Pj, $q, $Aj, $l, $u, ALG; PURE_OPT..., scaling = $scaling) seconds = 3)
+    ts = med(@be PureOSQP.solve($Ps, $q, $As, $l, $u, ALG; PURE_OPT..., scaling = $scaling) seconds = 3)
     tc = med(@be osqp_solve($data, $q, $l, $u; scaling = $scaling) seconds = 3)
     density = 100 * nnz(As) / length(Ad)
     row = (;

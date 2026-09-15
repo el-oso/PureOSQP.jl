@@ -46,7 +46,7 @@ end
     KroneckerOperator(A1, A2)
 
 Both factors must have the same matrix type. One type parameter rather than four keeps the
-`Workspace` type small enough for `--trim`'s inference to resolve the backend union rather
+`OperatorSplittingWorkspace` type small enough for `--trim`'s inference to resolve the backend union rather
 than widen it, which is what a fourth parameter cost.
 """
 KroneckerOperator(A1::AbstractMatrix, A2::AbstractMatrix) =

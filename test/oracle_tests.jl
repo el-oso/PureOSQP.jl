@@ -15,7 +15,7 @@
             eps_abs = 1.0e-12, eps_rel = 1.0e-12
         )
         j = PureOSQP.solve(
-            P, q, A, l, u; max_iter = k, scaling = sc, adaptive_rho = false,
+            P, q, A, l, u, OperatorSplitting(adaptive_rho = false); max_iter = k, scaling = sc,
             check_termination = 0, eps_abs = 1.0e-12, eps_rel = 1.0e-12,
             linsys = backend
         )

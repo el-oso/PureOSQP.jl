@@ -172,7 +172,7 @@ answer rather than a merely slow one. A structured direct backend is the point o
 
 ## Operators under the interior-point method
 
-`algorithm = :ipm` solves an operator pair only with `linsys = :indirect`, a
+[`InteriorPoint`](@ref) solves an operator pair only with `linsys = :indirect`, a
 `preconditioner` the caller supplies, and `scaling = 0`; `linsys = :auto` never chooses it, and
 the same three requirements hold for matrices. Without a preconditioner, with the built-in
 [`PureOSQP.JacobiPreconditioner`](@ref) or [`PureOSQP.IdentityPreconditioner`](@ref), with
@@ -208,7 +208,7 @@ end
 LinearAlgebra.ldiv!(y::AbstractVector, M::LaggedCholesky, x::AbstractVector) = ldiv!(y, M.F, x)
 
 Pop = LinearMap(P; issymmetric = true, isposdef = true)
-sol = solve(Pop, q, LinearMap(A), l, u; algorithm = :ipm, linsys = :indirect,
+sol = solve(Pop, q, LinearMap(A), l, u, InteriorPoint(); linsys = :indirect,
             preconditioner = LaggedCholesky(P, A), scaling = 0)
 ```
 
@@ -216,7 +216,8 @@ Each Newton solve starts conjugate gradients from zero and stops once the two-no
 recursively updated residual is below `cg_tol_fraction · min(μ, ‖r‖∞)`. A solve that spends
 `cg_max_iter` iterations, or that conjugate gradients abandons because the preconditioner is
 not symmetric positive definite, is missed; `cg_fail_limit` missed solves in a row end the run
-`NUMERICAL_ERROR`. There is no refinement step (`refine_iter` defaults to `0`), and
+`NUMERICAL_ERROR`. There is no refinement step (`InteriorPoint`'s `refine_iter` defaults to `0`
+here), and
 `Solution.cg_iters` reports the conjugate-gradient iterations of the solve.
 
 ### Measured

@@ -14,17 +14,20 @@ and no-pivoting `LDLᵀ`; results `bench/results/ipm_rowtypes_spike.json`). All 
 `n ≤ 1000` on neuromancer and are indicative. Choices the user has taken or must confirm are in
 §10.
 
-Conventions: `ws` is today's ADMM `Workspace`; `prob` is the shared problem object introduced
-here; `wt` is the weights object. Line numbers refer to the current tree.
+Conventions: `ws` is the ADMM workspace, `OperatorSplittingWorkspace`; `prob` is the shared
+problem object introduced here; `wt` is the weights object. Line numbers in §1 refer to the
+tree before step S2a; the settings are named as §11 defines them. In prose, `:admm` and `:ipm`
+name the two algorithms, `OperatorSplitting()` and `InteriorPoint()` (§11), as the MOI
+attribute `algorithm` does.
 
 ---
 
 ## 1. Coupling inventory
 
 What the backends, the selection ladder, equilibration, `update!`, polishing and the derivatives
-read off the ADMM `Workspace` today.
+read off the ADMM `OperatorSplittingWorkspace`.
 
-### 1.1 The `Workspace` itself (`src/types.jl:294-378`)
+### 1.1 The `OperatorSplittingWorkspace` itself (`src/types.jl:294-378`)
 
 | group | fields | lines |
 |---|---|---|
@@ -34,7 +37,7 @@ read off the ADMM `Workspace` today.
 | backend + accelerator | `linsys accel refactor_count` | 334-338 |
 | ADMM iterates | `x y z x_prev z_prev xtilde ztilde delta_x delta_y Ax Px Aty rhs_x rhs_z` | 312-325 |
 | ADMM run state (residuals, gap terms, primdual integral, counters, timing, status) | 339-376 |
-| `settings::Settings{T}` (`sigma` and `scaling` are read by neutral code) | 377 |
+| the settings, now `algorithm::OperatorSplitting{T}` and `options::Options{T}` (`sigma` and `scaling` are read by neutral code) | 377 |
 
 `setup_backend` (`types.jl:541-698`) builds all of it in one constructor call (579-597) and is
 the only place the ladder is reached (617-619, 635, 649, 654, 666, 678, 692).
@@ -101,7 +104,7 @@ The `select_backend` docstring's claim that a failed `factorize!` is "rebuilt on
 
 Neutral: `:43-53, 56-57, 67-77, 106-153` (validation), `:159-166` (adoption; nothing is
 written before every check passed, `:155-158`), `:169-172` (rescale). ADMM: `is_convex(T,
-P, ws.settings.sigma)` `:54`; `set_rho_vec!` `:175`; `refactor!` `:178`; uniform-ρ class
+P, ws.algorithm.sigma)` `:54`; `set_rho_vec!` `:175`; `refactor!` `:178`; uniform-ρ class
 guard `:119-135`. Backend invariants through `ws.linsys isa …`: `KroneckerReduced`
 `:58, 161`, `DiagonalLowRank` `:78`, `BlockReduced` `:87-105`.
 
@@ -140,7 +143,7 @@ accepts a new `sigma` and refactorizes `:48-53` (exercised by the trim entry
 
 - Tests: `ws.rho_vec` `test/solve_tests.jl:84-88,182,188,409-411,533-535`,
   `test/linsys_tests.jl:10,37,435,486,491,538`, `test/banded_tests.jl:15,20`;
-  `ws.settings.sigma` same lines; `ws.xtilde/ztilde` `linsys_tests.jl:14-15,39,437-438,
+  `ws.algorithm.sigma` same lines; `ws.xtilde/ztilde` `linsys_tests.jl:14-15,39,437-438,
   493-494,540-541,595`, `banded_tests.jl:22-23`; `ws.constr_type` `setup_tests.jl:124`,
   `update_tests.jl:40`, `solve_tests.jl:88,411`; `ws.D/E/c` `scaling_tests.jl:12-59`,
   `block_tests.jl:33-34`.
@@ -152,7 +155,7 @@ accepts a new `sigma` and refactorizes `:48-53` (exercised by the trim entry
   `gate_crossover_fill.jl:32`, `strictmode_audit.jl:265-276` (signatures), `:279`
   (`ReducedOperator(ws)`), `:287-288` (`ws.linsys.gram`, `typeof(ws.P)`).
 - Docs: `docs/src/matrices.md:276` (`ws.P`, `ws.A`), `docs/src/examples.md:609` (`ws.rho`,
-  `ws.settings`), `docs/src/operators.md:112` (`ws.xtilde`, `ws.ztilde`).
+  `ws.algorithm`), `docs/src/operators.md:112` (`ws.xtilde`, `ws.ztilde`).
 
 ---
 
@@ -258,7 +261,7 @@ refactorizes (`api.jl:48-53`). IPM: `w` is the per-side regularized weight of §
 backend interface does not know which algorithm built the weights.
 
 The object is a field of each workspace, not built per call, so the hot path constructs
-nothing. `rho_vec`/`rho_inv_vec` as `Workspace` fields are removed; the tests in §1.9 read
+nothing. `rho_vec`/`rho_inv_vec` as ADMM workspace fields are removed; the tests in §1.9 read
 `ws.weights.w`.
 
 `refactor_weights!(ls, prob, wt)` is the backend-level function; the workspace-level
@@ -367,14 +370,14 @@ update_x!(…); update_zy!(…, ws.weights.w, ws.weights.w_inv, …)
 # refactor!(ws)     = refactored!(ws, factorize!(ws.linsys, ws.prob, ws.weights))
 # refactor_rho!(ws) = refactored!(ws, refactor_weights!(ws.linsys, ws.prob, ws.weights))
 # refactored! keeps the count, the throw and accelerator_reset! (ADMM policy)
-# setup_backend and update_settings! call adopt_settings!(ws.linsys, ws.settings) after the workspace is built
+# setup_backend and update_settings! call adopt_settings!(ws.linsys, ws.algorithm, ws.options) after the workspace is built
 ```
 
 ### 3.5 How IPM calls it
 
-`setup_backend(:ipm)` calls `use_residual_stop!(ws.linsys, true)` once, after the workspace is
+`setup_backend(::InteriorPoint, …)` calls `use_residual_stop!(ws.linsys, true)` once, after the workspace is
 built — a no-op for every direct backend, and for `IndirectCG` the switch that turns on the
-inner stopping rule of §9.4 for the rest of the workspace's life. `setup_backend(:admm)` never
+inner stopping rule of §9.4 for the rest of the workspace's life. `setup_backend(::OperatorSplitting, …)` never
 calls it, so ADMM keeps its tolerance stop.
 
 ```julia
@@ -403,14 +406,14 @@ tol_fraction, tol_reduction) are not stored at construction; `indirect_backend(p
 takes the preconditioner as its fourth argument, with CG settings arriving through `adopt_settings!`.
 
 ```julia
-adopt_settings!(ls::LinearSystem, settings) = nothing       # direct backends
-adopt_settings!(ls::IndirectCG, settings::Settings) = (ls.max_iter = settings.cg_max_iter;
-                                             ls.tol_fraction = settings.cg_tol_fraction;
-                                             ls.tol_reduction = settings.cg_tol_reduction;
+adopt_settings!(ls::LinearSystem, alg, options) = nothing   # direct backends
+adopt_settings!(ls::IndirectCG, alg::OperatorSplitting, options) = (ls.max_iter = options.cg_max_iter;
+                                             ls.tol_fraction = options.cg_tol_fraction;
+                                             ls.tol_reduction = alg.cg_tol_reduction;
                                              nothing)
-adopt_settings!(ls::IndirectCG, settings::IPMSettings) = (ls.max_iter = settings.cg_max_iter;
-                                             ls.tol_fraction = settings.cg_tol_fraction;
-                                             ls.tol_reduction = typemax(Int);   # IPMSettings has no idle-solve rule (§8.10)
+adopt_settings!(ls::IndirectCG, ::InteriorPoint, options) = (ls.max_iter = options.cg_max_iter;
+                                             ls.tol_fraction = options.cg_tol_fraction;
+                                             ls.tol_reduction = typemax(Int);   # the IPM has no idle-solve rule (§8.10)
                                              nothing)
 
 set_tolerance_level!(ls::LinearSystem, level) = nothing     # direct backends
@@ -428,9 +431,10 @@ use_residual_stop!(ls::IndirectCG, flag) = (ls.use_residual_stop = flag; nothing
 refactors with the same index); ADMM sets it to `refactor_count` before `factorize!` and
 `refactor_weights!`.
 
-Settings passed at construction do not reach the `:auto` operator path through `indirect_rung`,
+Options passed at construction do not reach the `:auto` operator path through `indirect_rung`,
 and nothing would refresh them on `update_settings!`; `adopt_settings!` is called by `setup_backend`
-after the workspace is built and by `update_settings!` whenever settings change.
+after the workspace is built and by `update_settings!` whenever the options or the algorithm
+parameters change.
 
 ADMM calls `set_tolerance_level!` immediately before `solve_system!` with
 `max(scaled_prim_res, scaled_dual_res)`; the backend computes `atol` exactly as at
@@ -470,10 +474,10 @@ once and uses it. It does not run `is_convex`: the shift is the algorithm's (`σ
 for IPM), so each `setup` calls `is_convex(T, P, shift)` where `types.jl:548` does today, and each
 documents its shift.
 
-### 4.2 ADMM `Workspace`
+### 4.2 ADMM `OperatorSplittingWorkspace`
 
 ```julia
-mutable struct Workspace{T, MP, MA, V, VI <: AbstractVector{Int8}, LS <: LinearSystem, AC}
+mutable struct OperatorSplittingWorkspace{T, MP, MA, V, VI <: AbstractVector{Int8}, LS <: LinearSystem, AC} <: QPWorkspace{T}
     prob::Problem{T, MP, MA, V}
     linsys::LS
     weights::SystemWeights{T, V}     # w = ρ, w_inv = ρ⁻¹, sigma = σ
@@ -483,16 +487,17 @@ mutable struct Workspace{T, MP, MA, V, VI <: AbstractVector{Int8}, LS <: LinearS
     accel::AC
     refactor_count::Int
     … every run-state field from types.jl:339-376, unchanged …
-    settings::Settings{T}
+    algorithm::OperatorSplitting{T}
+    options::Options{T}
 end
 ```
 
 Same seven type parameters, so the `MAX_TYPEUNION_LENGTH` argument at `types.jl:514-527` is
 untouched; `Problem{T,MP,MA,V}` is determined by them. Field moves: `P A n m q0 l0 u0 q l u D
 E c tmp_n tmp_m work_n work_m` → `ws.prob`; `rho_vec rho_inv_vec` → `ws.weights`. No
-`getproperty` forwarding; every read is rewritten, including §1.9. `setup(::Type{T}, …;
+`getproperty` forwarding; every read is rewritten, including §1.9. `setup(::Type{T}, …, alg;
 linsys, kwargs...)` keeps `@constprop :aggressive` and the `Val(linsys)` lift;
-`setup_backend` becomes `prob = Problem(…; scaling = settings.scaling)` + `is_convex` + ρ
+`setup_backend` becomes `prob = Problem(…; scaling = options.scaling)` + `is_convex` + ρ
 classification + weights + the same `if LS === …` ladder over `choose_backend(P, A, prob,
 wt, ADMMSelection())`.
 
@@ -522,7 +527,7 @@ wt, ADMMSelection())`.
 - **Polishing**: `polish_kernel!(prob, x, y, z, prim_res, dual_res, Ax, Px, Aty; delta,
   refine_iter) -> (status, xpol, ypol, zpol)` is `polish.jl:43-125`; ADMM's `polish!(ws)`
   copies on success and runs `update_residuals!`.
-- **MOI**: step 2 adds `algorithm` (a `Symbol` in `(:admm, :ipm)`, validated at `MOI.set`)
+- **MOI**: step 2 adds the raw attribute `algorithm` (`"admm"` or `"ipm"`, validated at `MOI.set`, §11)
   and the `NUMERICAL_ERROR` rows (§8.6).
 - **`Solution`**: one struct; new field `cg_iters::Int` (both algorithms). IPM fills
   `rho_estimate rho_updates accel_declined primdual_int*` with zeros and documents it.
@@ -572,19 +577,20 @@ corpus items pass unchanged and the snapshot matches. **M** mechanical, **J** ju
 |---|---|---|---|
 | S0 | **Snapshot artifact.** `bench/snapshot.jl`: for every suite class in `bench/suite_problems.jl` and every structured family in `selection_tests.jl`, record `(backend_name, iter, refactor_count, status, round(obj_val, 10))` at fixed settings with `BLAS.set_num_threads(1)`, on the S0 tree, into `bench/results/snapshot_s0.json`; a bench check compares the current tree to it. Not a committed test item; `meta_tests.jl` unchanged. | artifact generated | M |
 | S-spike | **Done**: `bench/ipm_matrixfree_spike.jl` and `spike2.jl` (commit f2aee68), `bench/ipm_rowtypes_spike.jl`; findings in §8.2, §8.4, §8.5, §9.1, §9.4. | — | — |
-| S2a | **`Problem` extraction.** `core/problem.jl`; `Workspace.prob`; every `ws.<moved field>` rewritten; `mul_*` on `prob`; `settings.scaling` reads → `prob.scaling`; backends keep `(ls, ws)` for now but bind `P A D E c n m` to locals at entry; docs lines in §1.9. Gate adds `bench/loop_breakdown.jl` step timings against S0 on neuromancer, ABBA-interleaved with the S0 tree (indicative, §10.7). | identical; audit; trim; timings within noise | M |
-| S1+S2b | **Weights and backend signatures, one pass.** `SystemWeights`; `factorize!(ls, prob, wt)`, `refactor_weights!`, `solve_system!(ls, prob, wt, rhs_x, rhs_z, x, z)`; every `rho_vec/rho_inv_vec/settings.sigma` read of §1.2 → `wt`; `Workspace.weights`; `update_settings!` rebuilds `weights` (+ test that changes `sigma` and checks the factorized matrix); `set_rho_vec!`, `pack/unpack_fixed_point!`, `admm_step!` follow; `reduced_rhs!(prob, wt, …)`; `ReducedOperator(prob, wt)`; `check_update` + Kronecker `mu` in `factorize!`; `update!` split; contract; tests/bench/audit signatures `(LS, PB, WT, V, V, V, V)`, `(LS, PB, WT)`. CG seam: `set_tolerance_level!(ls::LinearSystem, level) = nothing` (default), mutable `level::T` field on `IndirectCG`, `admm_step!` sets it to `max(scaled_prim_res, scaled_dual_res)` immediately before `solve_system!`; `adopt_settings!(ls::LinearSystem, settings) = nothing` (default) with `IndirectCG` method filling `max_iter`, `tol_fraction`, `tol_reduction` from settings, called by `setup_backend` after workspace build and by `update_settings!` on every settings change; CG warm-starts from `x` argument. | identical; audit; trim | M |
+| S2a | **`Problem` extraction.** `core/problem.jl`; `OperatorSplittingWorkspace.prob`; every `ws.<moved field>` rewritten; `mul_*` on `prob`; `settings.scaling` reads → `prob.scaling`; backends keep `(ls, ws)` for now but bind `P A D E c n m` to locals at entry; docs lines in §1.9. Gate adds `bench/loop_breakdown.jl` step timings against S0 on neuromancer, ABBA-interleaved with the S0 tree (indicative, §10.7). | identical; audit; trim; timings within noise | M |
+| S1+S2b | **Weights and backend signatures, one pass.** `SystemWeights`; `factorize!(ls, prob, wt)`, `refactor_weights!`, `solve_system!(ls, prob, wt, rhs_x, rhs_z, x, z)`; every `rho_vec/rho_inv_vec/settings.sigma` read of §1.2 → `wt`; `OperatorSplittingWorkspace.weights`; `update_settings!` rebuilds `weights` (+ test that changes `sigma` and checks the factorized matrix); `set_rho_vec!`, `pack/unpack_fixed_point!`, `admm_step!` follow; `reduced_rhs!(prob, wt, …)`; `ReducedOperator(prob, wt)`; `check_update` + Kronecker `mu` in `factorize!`; `update!` split; contract; tests/bench/audit signatures `(LS, PB, WT, V, V, V, V)`, `(LS, PB, WT)`. CG seam: `set_tolerance_level!(ls::LinearSystem, level) = nothing` (default), mutable `level::T` field on `IndirectCG`, `admm_step!` sets it to `max(scaled_prim_res, scaled_dual_res)` immediately before `solve_system!`; `adopt_settings!(ls::LinearSystem, alg, options) = nothing` (default, signature as of S12b) with `IndirectCG` method filling `max_iter`, `tol_fraction`, `tol_reduction` from the options and algorithm parameters, called by `setup_backend` after workspace build and by `update_settings!` on every settings change; CG warm-starts from `x` argument. | identical; audit; trim | M |
 | S3 | **Selection tag.** `SelectionFor`; collapse rung signatures; `ADMMSelection` threaded from `setup`; no `IPMSelection` methods yet. | identical; `selection_tests` backends unchanged | M |
 | S4 | **Shared kernels.** `residuals_at!`, `gap_terms`, `eps_*`, certificate tests on `(prob, buffer, eps)`, `polish_kernel!`, `active_kkt(prob, x, y, z)`; ADMM wrappers keep names and order. | identical; audit (`update_residuals!` row); trim (`derivatives`, `solve_polish`) | M |
 | S5 | **CG seam continued.** Counters `total_iters`, `misses`, `last_reached`; `last_solve_converged(ls)`; `inner_iterations(ls)`; `Solution.cg_iters`; the preconditioner slot `M` applied through `ldiv!` (Krylov `ldiv = true`) with `update_preconditioner!(M, prob, wt, ls.refresh_index)` called from `factorize!`/`refactor_weights!`, `set_refresh_index!` (§3.6), and the default `JacobiPreconditioner` whose `ldiv!(y, J, x)` is `y .= J.dinv .* x`, reproducing today's `Diagonal(ls.prec)` product (§9.3); `IdentityPreconditioner` and `JacobiPreconditioner` defined; a caller-supplied preconditioner requires `scaling = 0` under every algorithm, ADMM included; `indirect_backend(proto, n, m, preconditioner)` signature; passing `preconditioner` with `linsys ≠ :indirect` throws; the stopping and miss rule of §9.4 (callback on Krylov's recursively updated `r`; miss only on budget or breakdown) switched on by `use_residual_stop!(ls, true)`, off by default so ADMM stays bit-identical; consecutive miss counter counted by the IPM from `last_solve_converged`; functions in `src/core/preconditioner.jl`. | identical on `:indirect` (`indirect_tests`, `solve_indirect` trim entry) | J |
 | S6 | **`solve_multiplier!`** default + `FullKKT`/`SparseKKT`/`LDLKKT` overrides; test at `w_inv = 1e-12`. | suite; audit unchanged | M |
 | S7 | **Directory move** to `src/core`, `src/admm`, `src/ipm` (empty). | identical; audit; trim | M |
-| S8 | **IPM skeleton on direct backends.** Builds `src/ipm/{settings,workspace,ipm}.jl`; `setup_backend` takes a leading `Val{:admm}`/`Val{:ipm}`; `IPMSettings` holds only the fields the solve uses so far (time limit, infeasibility tolerances, `max_reg_bumps`, CG settings, polishing and verbose arrive with the steps that use them); factorization failure and non-finite residuals throw until S9; `update!`, `update_settings!`, polishing and derivatives are not defined for `IPMWorkspace` until S12; `linsys = :dense` builds `ReducedCholesky` under `:ipm`; GPU arrays are refused by `:auto` selection, while a named backend with GPU arrays fails with the scalar-indexing error as under ADMM. Additionally, `IPMWorkspace`, `setup(…; algorithm = :ipm)` via `Val`, `seeded`, starting point, `ipm_step!` with the per-side recovery and the σ floor of §8.2/§8.4 (`τ = 0.99`), regularization of §8.5, residuals through S4 kernels, `SOLVED`/`SOLVED_INACCURATE`/`MAX_ITER_REACHED`, `solve!`, `build_solution`; `IPMSelection` methods of §5 (FullKKT routing, KKT-first sparse, kronecker decline, GPU refusal, operator refusal: unconditional in S8, lifted by name in S11), the `N_s = 0` rule of §8.4. Corpus items under `:ipm` with `:auto`/`:kkt`, referee `< 1e-5`, backend name asserted for the dense-`P`/sparse-`A` and LP cases; objective vs `osqp_ref`; a reproduction test item on the spike-1 dense generator (`make_instance`) at `n = 200`, `κ ∈ {1, 1e3, 1e6}`, fractions `{0.1, 0.5, 0.9}`, in the spike's two-sided form and in spike 3's `mixed` row form, with `scaling = 0`, the spike's iteration count (outer iterations before the `1e-8` termination check passes), reproducing the exact-solve outer counts (`δ = 1e-8`: 6–11) within ±2 through `FullKKT` with `refine_iter = 0` and through `SparseKKT` with `refine_iter = 1`. | new items pass; ADMM gates identical | J |
+| S8 | **IPM skeleton on direct backends.** Builds `src/ipm/{settings,workspace,ipm}.jl`; `setup_backend` takes a leading algorithm argument (dispatch on `OperatorSplitting`/`InteriorPoint` since S12b); the IPM settings hold only the fields the solve uses so far (time limit, infeasibility tolerances, `max_reg_bumps`, CG settings, polishing and verbose arrive with the steps that use them); factorization failure and non-finite residuals throw until S9; `update!`, `update_settings!`, polishing and derivatives are not defined for `InteriorPointWorkspace` until S12; `linsys = :dense` builds `ReducedCholesky` under `:ipm`; GPU arrays are refused by `:auto` selection, while a named backend with GPU arrays fails with the scalar-indexing error as under ADMM. Additionally, `InteriorPointWorkspace`, `setup(…, InteriorPoint())`, `seeded`, starting point, `ipm_step!` with the per-side recovery and the σ floor of §8.2/§8.4 (`τ = 0.99`), regularization of §8.5, residuals through S4 kernels, `SOLVED`/`SOLVED_INACCURATE`/`MAX_ITER_REACHED`, `solve!`, `build_solution`; `IPMSelection` methods of §5 (FullKKT routing, KKT-first sparse, kronecker decline, GPU refusal, operator refusal: unconditional in S8, lifted by name in S11), the `N_s = 0` rule of §8.4. Corpus items under `:ipm` with `:auto`/`:kkt`, referee `< 1e-5`, backend name asserted for the dense-`P`/sparse-`A` and LP cases; objective vs `osqp_ref`; a reproduction test item on the spike-1 dense generator (`make_instance`) at `n = 200`, `κ ∈ {1, 1e3, 1e6}`, fractions `{0.1, 0.5, 0.9}`, in the spike's two-sided form and in spike 3's `mixed` row form, with `scaling = 0`, the spike's iteration count (outer iterations before the `1e-8` termination check passes), reproducing the exact-solve outer counts (`δ = 1e-8`: 6–11) within ±2 through `FullKKT` with `refine_iter = 0` and through `SparseKKT` with `refine_iter = 1`. | new items pass; ADMM gates identical | J |
 | S9 | **Robustness.** Dynamic regularization bump; `NUMERICAL_ERROR` (+ every switch of §8.6); certificate buffers, stall rule, certificate tests on step and normalized iterates; `time_limit`, interrupt. Tests: c-suite ported cases under `:ipm`; a random infeasible `n = 20, m = 40` primal case and a dual one; equality-only (`N_s = 0`) and free-row corpus cases; a `Float32` item as §10.8 question 3 decides. Built as commit ba1bc19; S9b not needed. | items pass | J |
 | S10 | **Structured backends under IPM, measured.** Each structured family through its recorded backend under `:ipm`: referee tolerance and iteration count recorded per backend into `bench/results/ipm_backends.json` (`bench/ipm_backends.jl`), not the snapshot. Result: only the low-rank family is routed, for failing the referee on its linear programs; no other backend exceeds `2×` the `FullKKT` iterations. `SparseFormedInverse` is unreachable under `:ipm` — the ladder has no formed rung. A sparse pair whose sparse KKT factor fails the fill gate lands on the sparse reduced backend, observed on `banded_qp(200, 300)`. `Float32` as §10.8 question 3 decides. Built as commit c1745cd. | items pass; table in docs | J |
 | S10b | **Generic element types under IPM** (§10.8 question 3). The `Float32` refusal is removed; `ipm_floor(T)` supplies the defaults of the tolerances, regularizations and short-step threshold, `precision_eps(T)` the divergence bound (§8.5); test items for `Float32`, `BigFloat`, `ForwardDiff.Dual` (§8.10). | items pass | J |
 | S11 | **IPM `:indirect` with a caller-supplied preconditioner** (§9): `preconditioner` keyword, `update_preconditioner!(M, prob, wt, k)`, refusal by name without one (matrices and operators) and without `scaling = 0`, inner stopping and miss rule, zero start, budgets, `cg_fail_limit`, reporting; reference preconditioners in `bench/ipm_preconditioners.jl` (lagged Cholesky over the dense reduced matrix with an in-place `WA`/`K` buffer, refreshed every 3 outer iterations; limited-memory LDLᵀ over the sparse one, §9.3); the test suite's own inline `LaggedCholesky` logs the refresh index `k` it is called with (`M.ks == -1:(iter-1)`) — `IndirectCG.factorize!` never fails, so the bump case that would repeat a `k` is not reachable and is not tested; a `Diagonal` preconditioner with a negative entry ends `NUMERICAL_ERROR` (the cause is named in documentation, not carried in `Solution`, §9.3); `update_preconditioner!` returning another type throws the `ArgumentError`; `bench/ipm_matrixfree.jl` per §9.6, run on the reduced grid of decision 1(a). Verdict: **SHIP** — G1 24/24 and G2 24/24 on the dense `LaggedCholesky` grid (`n ∈ {500, 1000, 2000}`, `κ ∈ {1, 1e6}`, fractions `{0.1, 0.9}`, two-sided and mixed rows, G1 at `eps = 1e-6`), outer counts equal to `FullKKT` on all 24; the sparse `IncompleteLDL` family includes one instance that ends `NUMERICAL_ERROR`, capped at outer iteration 8. Built as commit 2951256. | items pass; bench under `bench/results/`; SHIP recorded in docs | J |
-| S12 | **Polish, derivatives, `update!`, warm start, MOI for IPM.** `IPMSettings` gains `polishing`, `polish_refine_iter`, `delta`, `verbose`; `IPMWorkspace` gains `polished`, `status_polish`, `polish_time`, `update_time`, and `n_sides` is no longer `const` so `update!` can reclassify rows. `active_kkt`, `adjoint_derivative` and `forward_derivative` take `Union{Workspace{T}, IPMWorkspace{T}}`. `update!` reuses `validate_update!`/`adopt_update!`/`check_update` unchanged and never refactorizes; `update_settings!` never refactorizes either, since a solve resets the regularization from `settings` before its first iteration regardless. `warm_start!`/`cold_start!` needed no change past S8. The MOI extension gains `algorithm` as a `RawOptimizerAttribute`, validating every other raw setting against `IPMSettings` or `Settings` accordingly; setting `algorithm` itself is refused when a raw setting already stored does not belong to the algorithm being switched to; `MOI.optimize!` and `BarrierIterations` were already generic. The ChainRulesCore rules needed no change: they call `adjoint_derivative`/`forward_derivative` rather than dispatching on `Workspace`. `polish_kernel!`'s early-exit paths return the caller's own `x`, `y`, `z` instead of allocating zeros. `adjoint_derivative` and `forward_derivative` refuse an unpolished `IPMWorkspace` by name: its inactive-row multipliers sit at the barrier parameter rather than at zero, which the active-set test cannot otherwise tell apart from a genuinely active row; a non-materializable operator is refused first, since it was never a candidate for polishing either, and the workspace-polish check would otherwise name the wrong obstacle. `IPMSettings` refuses `verbose = true` by name rather than accepting and ignoring it, since the interior-point method has no per-iteration report. Built as commits 43d0199, af1f856. | `derivative_tests`, `update_tests`, `moi_tests`, `polish_tests` parametrized where semantics carry; `MOI.Test` subset (`test_linear_`, `test_quadratic_`) at `algorithm = :ipm` needs no exclusion beyond the ADMM run's three; the IPM derivative referee runs at `eps = 1e-10` rather than `1e-12`, since at `1e-12` the outer solve is already accurate enough that polishing correctly declines (`POLISH_FAILED`) and the derivative then refuses rather than differentiate an unpolished point | J |
+| S12 | **Polish, derivatives, `update!`, warm start, MOI for IPM.** The IPM settings gain `polishing`, `polish_refine_iter`, `delta` (all `Options` since S12b); `InteriorPointWorkspace` gains `polished`, `status_polish`, `polish_time`, `update_time`, and `n_sides` is no longer `const` so `update!` can reclassify rows. `active_kkt`, `adjoint_derivative` and `forward_derivative` take `QPWorkspace{T}`. `update!` reuses `validate_update!`/`adopt_update!`/`check_update` unchanged and never refactorizes; `update_settings!` never refactorizes either, since a solve resets the regularization from the algorithm parameters before its first iteration regardless. `warm_start!`/`cold_start!` needed no change past S8. The MOI extension gains `algorithm` as a `RawOptimizerAttribute`, validating every other raw setting against the options or the selected algorithm's parameters (§11); setting `algorithm` itself is refused when a raw setting already stored does not belong to the algorithm being switched to; `MOI.optimize!` and `BarrierIterations` were already generic. The ChainRulesCore rules needed no change: they call `adjoint_derivative`/`forward_derivative` rather than dispatching on the workspace type. `polish_kernel!`'s early-exit paths return the caller's own `x`, `y`, `z` instead of allocating zeros. `adjoint_derivative` and `forward_derivative` refuse an unpolished `InteriorPointWorkspace` by name: its inactive-row multipliers sit at the barrier parameter rather than at zero, which the active-set test cannot otherwise tell apart from a genuinely active row; a non-materializable operator is refused first, since it was never a candidate for polishing either, and the workspace-polish check would otherwise name the wrong obstacle. `verbose = true` is refused under the IPM rather than accepted and ignored, since the interior-point method has no per-iteration report (since S12b `verbose` is an `OperatorSplitting` parameter, §11). Built as commits 43d0199, af1f856. | `derivative_tests`, `update_tests`, `moi_tests`, `polish_tests` parametrized where semantics carry; `MOI.Test` subset (`test_linear_`, `test_quadratic_`) at `InteriorPoint()` needs no exclusion beyond the ADMM run's three; the IPM derivative referee runs at `eps = 1e-10` rather than `1e-12`, since at `1e-12` the outer solve is already accurate enough that polishing correctly declines (`POLISH_FAILED`) and the derivative then refuses rather than differentiate an unpolished point | J |
+| S12b | **Public API: algorithm objects plus shared `Options`** (§10.9, §11). `OperatorSplitting`, `InteriorPoint`, `Options`, `default_options`, `QPAlgorithm`, `QPWorkspace`; workspaces renamed `OperatorSplittingWorkspace`, `InteriorPointWorkspace`; `algorithm` keyword, `Settings`, `IPMSettings`, `Workspace`, `IPMWorkspace` removed from src, ext, test, bench, docs; misplaced-setting errors; MOI routing by name. | snapshot 41 identical; audit; trim; full suite; ADMM step and setup timings within 3% | J |
 | S13 | **StrictMode + trim for IPM; Clarabel bench; docs.** Audit rows of §8.12; trim entries; `bench/ipm_vs_clarabel.jl`; iteration bounds; API/guarantees/algorithm pages. | audit green; trim green; bench committed | J |
 
 The spikes' verdicts are in; S2a onward can start. The remaining measurements that could still
@@ -736,7 +742,7 @@ to 24; at `1e-2` convergence stays at 15 and G1 rises from 15 to 18. It costs on
 
 ### 8.3 Starting point and `seeded`
 
-`IPMWorkspace.seeded::Bool` is set by `warm_start!`, by `x0`/`y0`, and by a completed
+`InteriorPointWorkspace.seeded::Bool` is set by `warm_start!`, by `x0`/`y0`, and by a completed
 `solve!`; cleared by `cold_start!`. With default equilibration (`scaling = 10`), equality-only problems converge in 1 outer iteration; with `scaling = 0`, they converge in 2. A solve starts:
 
 1. If `!seeded`: one factorization and one `solve_system!` with `w = w_inv = 1`, `sigma =
@@ -745,7 +751,7 @@ to 24; at `1e-2` convergence stays at 15 and G1 rises from 15 to 18. It costs on
    `(P̃ + δ_p I + ÃᵀÃ) x = −q̃ + Ãᵀt`. If `seeded`: `x` is the workspace's. On an iterative
    backend this solve runs at tolerance level `0` (`set_tolerance_level!(ls, 0)`), so it solves
    from `x = 0` to the `eps(T)·max(1, ‖rhs‖)` floor; it counts toward
-   `IPMWorkspace.cg_misses` (§9.4) like every other solve.
+   `InteriorPointWorkspace.cg_misses` (§9.4) like every other solve.
 2. `s_l = Ãx − l̃`, `s_u = ũ − Ãx` (masked); `θ = max(0, −1.5·min(s))`; `s .+= θ`; `z .= 1`
    on masked entries, or from `y`: `z_u = max(y, 0) + 1`, `z_l = max(−y, 0) + 1`.
 3. Mehrotra's balancing: `δ_s = ½(sᵀz)/(eᵀz)`, `δ_z = ½(sᵀz)/(eᵀs)`; `s .+= δ_s`, `z .+= δ_z`.
@@ -823,8 +829,8 @@ of §9.1 confirm that their G1 ceiling equals the exact one at the same `δ` and
   S8; the structured reduced backends (diagonal, tridiagonal, banded, block, sparse reduced) in
   S10, at `δ = 1e-8` with LPs included — every one of them, and only those, reproduces the
   `FullKKT` outer count within `2×`; the low-rank family does not (§5, §8.8).
-  Held in `IPMSettings` in scaled space, changeable through `update_settings!` without
-  refactorization.
+  Held in `InteriorPoint{T}` in scaled space, changeable through
+  `update_settings!(ws, InteriorPoint(…))` without refactorization.
 - **Element types** (§10.8 question 3): the IPM is generic over `T <: Real` and refuses none.
   The `1e-8` defaults above (`reg_primal`, `reg_dual`, `eps_abs`, `eps_rel`, `eps_prim_inf`,
   `eps_dual_inf`) and the short-step threshold of §8.7 come from `ipm_floor(T)`: `1e-8` when
@@ -851,7 +857,7 @@ of §9.1 confirm that their G1 ceiling equals the exact one at the same `δ` and
   For `IndirectCG` `refine_iter` is `0`: **measured** (`spike.jl` restart experiment, 238 slow
   solves at `δ = 1e-8`, unpreconditioned), restarting CG every 200 iterations reached the
   tolerance on 124 solves against 144 unrestarted, at 318k against 288k iterations.
-- The `IPMSettings` docstring states the conditioning bound of a reduced backend,
+- The `InteriorPoint` docstring states the conditioning bound of a reduced backend,
   `κ ≤ (λ_max(P̃) + ‖Ã‖²/δ_d)/(λ_min(P̃) + δ_p)`, as the reason a structured backend is measured
   before it is routed (S10). It is not checked by the code. Every QP instance has
   `λ_min(P) = 1e-2`, so the bound stays near `‖Ã‖²·1e10`, below `1/eps(Float64)`; an LP
@@ -884,7 +890,7 @@ certificate, NaN residual — an IPM NaN after `is_convex` passed is a numerical
 v1: certificate tests, not a homogeneous embedding.
 
 - The tests are the package's, formulation-independent, after S4 on `(prob, buffer, eps)`.
-  They project the buffer in place (`termination.jl:209`), so `IPMWorkspace` owns `cert_x`,
+  They project the buffer in place (`termination.jl:209`), so `InteriorPointWorkspace` owns `cert_x`,
   `cert_y`; `build_solution` reads them.
 - Every termination check runs the certificate tests at `eps_prim_inf`/`eps_dual_inf` on
   `(x/‖x‖∞, y/‖y‖∞)` if a certificate exists; with the `*_INACCURATE` retry at ten times. If
@@ -924,9 +930,9 @@ preconditioner in v1.
 | `update_settings!` | yes; `linsys`, `scaling` fixed; `reg_*` free |
 | `polishing` | yes, through the kernel; required before derivatives |
 | derivatives | yes on `SOLVED` with polishing; a non-materializable operator refuses first, since it was never a candidate for polishing |
-| MOI | `algorithm = :ipm`; `BarrierIterations = iter`; `NUMERICAL_ERROR` mapped; switching `algorithm` refuses a raw setting left over from the other algorithm |
+| MOI | `InteriorPoint()`; `BarrierIterations = iter`; `NUMERICAL_ERROR` mapped; switching `algorithm` refuses a raw setting left over from the other algorithm |
 | `time_limit`, `Ctrl-C` | as ADMM |
-| `verbose` | refused by name (`verbose = true` throws); the interior-point method has no per-iteration report |
+| `verbose` | an `OperatorSplitting` parameter; passed with `InteriorPoint()` it throws naming `OperatorSplitting` (§11); the interior-point method has no per-iteration report |
 | `linsys = :indirect` (matrices or operators: `ProductOperator`, LinearMaps, SciMLOperators) | only with a caller-supplied `preconditioner` (§9) and `scaling = 0`; operators: `P` declared `posdef`, no polishing, no derivatives, no `:kkt`; never chosen by `:auto`. Without a preconditioner, or with `scaling ≠ 0`, `setup` refuses by name. `update_settings!` does not change `linsys`; a regularization change reaches the next solve's own factorization, which runs `update_preconditioner!` regardless. |
 | accelerator, GPU arrays, `profile_primdual` | refused by name / absent |
 | element type `T <: Real` | generic, none refused (§10.8 question 3); defaults from `ipm_floor(T)` (§8.5) |
@@ -934,29 +940,28 @@ preconditioner in v1.
 | `BigFloat` | `FullKKT` and `ReducedCholesky`; test: tiny QP through `:kkt` at `eps = 1e-20`, referee `< 1e-18` |
 | `ForwardDiff.Dual` | reduced backends (`:auto` reaches `ReducedCholesky`); `FullKKT` fails with a `MethodError` (`bunchkaufman!` has no `Dual` method), documented in `docs/src/algorithm.md`; tests: objective derivative vs `x[1]` (`test/ipm_backends_tests.jl`) and vs a central difference of the `Float64` objective to `1e-6` (`test/ipm_tests.jl`) |
 
-`IPMSettings{T}`: `max_iter = 100`, `time_limit = Inf`, `eps_abs = eps_rel = 1e-8`,
-`eps_prim_inf = eps_dual_inf = 1e-8`, `scaling = 10`,
-`check_termination = 1`, `check_dualgap = true`, `scaled_termination = false`,
-`reg_primal = reg_dual = 1e-8` (the six `1e-8` values are `ipm_floor(T)`: `sqrt(eps(T))` for
-`T` coarser than `Float64`), `max_reg_bumps = 5`, `refine_iter = 1` (the constructor's keyword
-default reads `linsys` and is `0` when `linsys = :indirect`, per §8.5; an explicit value is
-honored under either default),
-`step_fraction = 0.99`, `cg_max_iter = 500` (spike 2's cap; spike 1 and spike 2's three
+`InteriorPoint` parameters: `reg_primal = reg_dual = ipm_floor(T)`, `max_reg_bumps = 5`,
+`refine_iter = 1` (left out, it resolves from `linsys` at setup and is `0` when
+`linsys = :indirect`, per §8.5; an explicit value is honored under either default),
+`step_fraction = 0.99`, `cg_fail_limit = 3`. `default_options(InteriorPoint(), T)`:
+`max_iter = 100`, `eps_abs = eps_rel = eps_prim_inf = eps_dual_inf = ipm_floor(T)`,
+`check_termination = 1`, `cg_max_iter = 500` (spike 2's cap; spike 1 and spike 2's three
 `n = 1000` records ran 2000; at 500, `cg_lagchol5` would have hit the cap on two of those three,
-whose maxima were 618 and 678), `cg_tol_fraction = 0.1`, `cg_fail_limit = 3`,
+whose maxima were 618 and 678), `cg_tol_fraction = 0.1`, and the options both algorithms
+share: `time_limit = Inf`, `scaling = 10`, `check_dualgap = true`, `scaled_termination = false`,
 `polishing = false`, `polish_refine_iter = 3`, `delta = 1e-6`, `warm_starting = true`,
-`verbose = false`, `linsys = :auto`. Validated in the constructor as `Settings{T}` is.
-(`cg_tol_reduction` is ADMM's idle-solve rule and has no IPM counterpart.)
+`linsys = :auto` (§11). `ipm_floor(T)` is `1e-8`, `sqrt(eps(T))` for `T` coarser than
+`Float64`. (`cg_tol_reduction` is ADMM's idle-solve rule and has no IPM counterpart.)
 
 **Fields used by `solve!`:** `time_limit` (clock includes starting point); `eps_prim_inf`,
 `eps_dual_inf` (certificate tolerances); `max_reg_bumps` (limit on regularization bumps, each
 multiplies both `reg_primal` and `reg_dual` by 10 and triggers a full `factorize!`; counted
 per solve); `reg_primal`, `reg_dual` (run in scaled space, changeable through `update_settings!`
 with no refactorization at update time on any backend, direct or `:indirect`: every solve
-resets the regularization from `settings` before its first iteration and factorizes there
+resets the regularization from `ws.algorithm` before its first iteration and factorizes there
 regardless, which runs `update_preconditioner!` on `:indirect`). A starting point without
 seeding returns `NaN` for `x` and `y` while the workspace keeps the last iterate and clears
-`seeded`. `verbose = true` is refused rather than accepted and ignored.
+`seeded`.
 
 ### 8.11 Validation plan
 
@@ -994,7 +999,7 @@ that the IPM's per-iteration allocation is the backend's factorization (and, for
 `IndirectCG`, the caller's `update_preconditioner!`). Rules: masks and classes preallocated;
 every elementwise update a two-schedule function in `elementwise.jl` style (`max_step`,
 `complementarity!`, `weights!`, `recover_slack_steps!`); loops over `eachindex`, no `findall`,
-no broadcasting on `Vector`; `norm_inf` only; `IPMSettings{T}` concrete; `lazy"…"` messages;
+no broadcasting on `Vector`; `norm_inf` only; `InteriorPoint{T, Int}` and `Options{T}` concrete; `lazy"…"` messages;
 verbose via `Core.stdout`. The `try`/`catch` that turns Krylov's definiteness throw into a miss
 (§9.3) lives in a `@noinline` helper outside the audited `solve_system!` kernel, so the
 `noalloc` row does not see the catch path. Trim entries: `solve_ipm_default`, `solve_ipm_kkt`,
@@ -1071,7 +1076,7 @@ only when the caller supplies one.
 
 ### 9.2 What runs and what is refused
 
-- `setup(P, q, A, l, u; algorithm = :ipm, linsys = :indirect, preconditioner = M, scaling = 0)`
+- `setup(P, q, A, l, u, InteriorPoint(); linsys = :indirect, preconditioner = M, scaling = 0)`
   with an operator pair or with matrices: allowed. `IndirectCG` is built with `M`; the ladder
   never chooses it (§5).
 - A caller-supplied `preconditioner` (anything other than `nothing`, `IdentityPreconditioner()` or `JacobiPreconditioner`)
@@ -1082,12 +1087,12 @@ only when the caller supplies one.
   an `ArgumentError` naming the requirement — "the interior-point method uses conjugate
   gradients only with a caller-supplied `preconditioner`; measured without one, or with the
   Jacobi diagonal, it does not reach the tolerance on most problems. Pass one, choose a direct
-  `linsys`, or use `algorithm = :admm`." Unpreconditioned and exact-Jacobi CG failed G1 (§9.1:
+  `linsys`, or use `OperatorSplitting()`." Unpreconditioned and exact-Jacobi CG failed G1 (§9.1:
   16/27 and 17/27 dense, 16/30 and 21/30 sparse), so decision §10.2 refuses them for matrices
   as for operators. `JacobiPreconditioner` stays the ADMM default.
-- Under `algorithm = :ipm`, a `preconditioner` and `probe = true`: `setup` throws an
+- Under `InteriorPoint()`, a `preconditioner` and `probe = true`: `setup` throws an
   `ArgumentError` — the preconditioner must approximate the caller's own `P + σI + Aᵀdiag(w)A`
-  without equilibration. The refusal is implemented under `:ipm` only; `algorithm = :admm` with
+  without equilibration. The refusal is implemented under `:ipm` only; `OperatorSplitting()` with
   a `preconditioner` and `probe = true` is not refused by this check.
 - There is no experimental product-only path.
 
@@ -1102,10 +1107,10 @@ are the matrices or operators passed to `setup` (a preconditioner requires `scal
 no equilibration intervenes). `wt.w` and `wt.sigma` are the only documented reads of `wt`;
 `prob` is passed for dispatch and is not part of the documented interface.
 
-`k` is the refresh index the algorithm sets before calling: under `algorithm = :ipm`, `-1`
+`k` is the refresh index the algorithm sets before calling: under `InteriorPoint()`, `-1`
 for the starting-point solve and the outer iteration `0, 1, 2, …` afterwards; a
 regularization retry calls again with the same `k` and a larger `wt.sigma`. Under
-`algorithm = :admm`, `k` is the number of refactorizations so far.
+`OperatorSplitting()`, `k` is the number of refactorizations so far.
 
 Called from `IndirectCG`'s `factorize!` and `refactor_weights!`, before the solves that use
 it. The returned object replaces `M` and must have the same type. Refresh lazily by
@@ -1142,7 +1147,7 @@ update_preconditioner!(M, prob, wt, k::Int) = M          # default: never refres
   throw zeroes `x` and counts as a missed solve without adding its iterations to
   `Solution.cg_iters`, and the run ends `NUMERICAL_ERROR` after `cg_fail_limit` misses.
   `Solution` carries no message field, so the preconditioner is named as the likely cause only
-  in documentation — the `Status` table entry and the `solve!`/`IPMSettings` docstrings — never
+  in documentation — the `Status` table entry and the `solve!`/`InteriorPoint` docstrings — never
   in the returned `Solution`. An indefinite `M` that does
   not trigger the throw stalls CG to `cg_max_iter`, which is also a miss (§9.4). No SPD
   pre-check is made: the one-application check `dot(x, M⁻¹x) > 0` on the right-hand side proves
@@ -1175,7 +1180,7 @@ iteration and no products. Krylov also stops by itself when the preconditioned n
 **Miss rule.** A solve is missed when it spends `cg_max_iter` iterations or Krylov throws
 (§9.3); `last_reached` is `false` exactly then. A solve that stopped on either test above is
 reached, whatever its explicit residual. `IndirectCG` counts its misses over the backend's
-life; `IPMWorkspace.cg_misses` counts consecutive misses from `last_solve_converged`, checked
+life; `InteriorPointWorkspace.cg_misses` counts consecutive misses from `last_solve_converged`, checked
 with `finite_residuals` after every step and after the starting-point solve, and is what
 `cg_fail_limit` compares against.
 
@@ -1293,6 +1298,8 @@ decided after S9's infeasible cases, before S11, because its cost lands on the o
 7. **Timing checks during the refactor (S2a):** run on neuromancer, interleaved ABBA with the
    S0 tree; indicative, not a verdict.
 
+Decision 9, on the public API, is recorded in §10.9 below.
+
 ### 10.8 Decisions on the operator path and IPM details
 
 The user took the recommended option of every question below; the design text above follows
@@ -1383,3 +1390,125 @@ them.
     only. (b) Kept for matrices, documented as unmeasured at scale.
     **Recommended: (a).** The gate measures exactly this path; matrices always have a direct
     backend under `:ipm`, so (b) keeps an unvalidated path with no case that needs it.
+
+### 10.9 Public API
+
+9. **Public API:** option 5, algorithm objects plus shared `Options`, chosen by the user. The
+   `algorithm` keyword and the `Settings`/`IPMSettings` structs are replaced outright (the
+   package is unregistered: no aliases, no deprecations). §11 specifies it as built (S12b).
+
+---
+
+## 11. Public API: algorithm objects and shared options
+
+```julia
+sol = solve(P, q, A, l, u)                                    # OperatorSplitting() is the default
+sol = solve(P, q, A, l, u, OperatorSplitting(rho = 0.2, adaptive_rho = :kkt_error); eps_abs = 1e-6)
+sol = solve(P, q, A, l, u, InteriorPoint(reg_primal = 1e-7); eps_abs = 1e-9, max_iter = 50)
+ws  = setup(P, q, A, l, u, InteriorPoint(); max_iter = 50); sol = solve!(ws)
+ws.algorithm                                                  # InteriorPoint{Float64, Int}
+ws.options                                                    # Options{Float64}
+update_settings!(ws; eps_abs = 1e-10)                         # options, merged into the current ones
+update_settings!(ws, InteriorPoint(reg_primal = 1e-6))        # parameters, replaced wholesale
+sol = solve(Pop, q, Aop, l, u, InteriorPoint(); linsys = :indirect, preconditioner = M, scaling = 0)
+```
+
+**Types.** `abstract type QPAlgorithm end`; `abstract type QPWorkspace{T <: Real} end`.
+`OperatorSplittingWorkspace{T,MP,MA,V,VI,LS,AC} <: QPWorkspace{T}` and
+`InteriorPointWorkspace{T,MP,MA,V,VI,VB,LS} <: QPWorkspace{T}`: two workspace types named for
+their state, not one parametric type, because their fields are disjoint beyond `prob`,
+`linsys` and the run-state counters, and one type would need the algorithm as a parameter on
+top of the seven each already carries. Both hold `algorithm` (the element-typed parameters)
+and `options::Options{T}` as mutable, non-`const` fields that `update_settings!` replaces.
+`active_kkt`, `adjoint_derivative` and `forward_derivative` take `QPWorkspace{T}`; nothing
+else is shared by dispatch.
+
+**`Options{T}`** (`src/core/options.jl`), one concrete struct of the settings both algorithms
+read: `max_iter`, `time_limit`, `eps_abs`, `eps_rel`, `eps_prim_inf`, `eps_dual_inf`, `scaling`,
+`check_termination`, `check_dualgap`, `scaled_termination`, `warm_starting`, `linsys`,
+`polishing`, `polish_refine_iter`, `delta`, `cg_max_iter`, `cg_tol_fraction`. Its keyword
+constructor has no default for the eight options whose defaults differ by algorithm; those come
+from `algorithm_defaults(alg, T)`, a `NamedTuple` merged ahead of the caller's keywords, so an
+explicit value always wins. `default_options(alg, T)` (exported) is `Options{T}` of those
+defaults. `setup` builds `Options{T}(; algorithm_defaults(alg, T)..., linsys = LS, kwargs...)`
+inside `setup_backend`, where the old settings struct was built, so the constant propagation
+that keeps `--trim` resolving the workspace type is unchanged (the trim item is the detector).
+
+| option | `OperatorSplitting` | `InteriorPoint` |
+|---|---|---|
+| `max_iter` | 4000 | 100 |
+| `eps_abs`, `eps_rel` | `1e-3` | `ipm_floor(T)` |
+| `eps_prim_inf`, `eps_dual_inf` | `1e-4` | `ipm_floor(T)` |
+| `check_termination` | 25 | 1 |
+| `cg_max_iter` | 20 | 500 |
+| `cg_tol_fraction` | 0.15 | 0.1 |
+
+Everything else defaults the same under both. Field-by-field decisions:
+
+- `verbose` and `profile_primdual` are read by ADMM only, so they are `OperatorSplitting`
+  parameters. The IPM's former refusal of `verbose = true` becomes the misplaced-setting error
+  below, and `verbose = false` is no longer accepted with `InteriorPoint()` either.
+- `cg_max_iter` and `cg_tol_fraction` are read by `IndirectCG` under both algorithms with the
+  same meaning (a budget per solve; the fraction of the level `set_tolerance_level!` hands in),
+  so they are options. Their validation is one rule for both, ADMM's `0 < cg_tol_fraction ≤ 1`;
+  before S12b the IPM accepted any positive value.
+- `cg_tol_reduction` (ADMM's idle-solve rule) is an `OperatorSplitting` parameter;
+  `cg_fail_limit` an `InteriorPoint` parameter.
+- `accelerator` and `preconditioner` stay keywords of `setup`, not fields: they are objects
+  with state, typed by the caller. `accelerator` with `InteriorPoint()` throws by name.
+
+**Algorithm objects.** `OperatorSplitting{T}`: `rho sigma alpha adaptive_rho
+adaptive_rho_interval adaptive_rho_fraction adaptive_rho_tolerance rho_is_vec cg_tol_reduction
+profile_primdual verbose`. Its keyword constructor `OperatorSplitting(; …)` validates and stores
+the values in `F = float(promote_type(…))` of the given reals (`Float64` for literals, so a
+`BigFloat` value is kept exactly); no default depends on `T`, and `setup` converts with
+`OperatorSplitting{T}(alg)`. `InteriorPoint{T, I}`: `reg_primal reg_dual max_reg_bumps
+refine_iter step_fraction cg_fail_limit`. Three parameters default to something the object
+cannot know without the solve (`reg_primal`, `reg_dual` are `ipm_floor(T)`; `refine_iter` is `0`
+under `linsys = :indirect`, else `1`), so `InteriorPoint(; …)` stores them as `nothing` in an
+`InteriorPoint{Union{Nothing, F}, Union{Nothing, Int}}`, and `setup` resolves them with
+`InteriorPoint{T}(alg, options.linsys)` into the concrete `InteriorPoint{T, Int}` the workspace
+holds. `I` exists only for `refine_iter`; a sentinel integer was the alternative and was not
+taken. `element_typed(alg, T, options)` is the one conversion entry point for both. Validation
+lives with the field: `Options` validates the options, each algorithm constructor its own
+parameters, with the messages of the former settings structs.
+
+**Dispatch.** `setup(T, P, q, A, l, u, alg; linsys, kwargs...)` lifts `linsys` into a `Val`
+as before and calls `setup_backend(alg, Val(linsys), T, …)`, dispatching on the algorithm type
+(the former `Val(:admm)`/`Val(:ipm)` tags are gone). The selection tags `ADMMSelection` and
+`IPMSelection` are kept internally: the rungs dispatch on them in the core and in four
+extensions, and they carry no parameters, so threading the element-typed algorithm object
+through every rung would add nothing. `adopt_settings!(ls, alg, options)` dispatches on the
+algorithm for `IndirectCG`'s `tol_reduction`. `update_settings!(ws, alg)` with the other
+algorithm's object throws.
+
+**Keyword errors.** `check_option_names(kwargs)` runs in `setup` and in
+`update_settings!(ws; …)` before `Options` is built: a name that is a field of
+`OperatorSplitting` or `InteriorPoint` throws `ArgumentError("rho is a parameter of
+OperatorSplitting, not an option: pass it as OperatorSplitting(rho = ...).")`, under either
+algorithm. The field-name tuples are constants computed at load time, so the check is
+trim-safe. An unknown name is left to the keyword constructor and throws `MethodError`, as does
+an option or a foreign parameter passed to an algorithm constructor.
+
+**`update_settings!`.** `update_settings!(ws; kwargs...)` merges into `ws.options` (as before,
+`linsys` and `scaling` refused). `update_settings!(ws, alg)` replaces the parameters wholesale:
+a parameter left out of `alg` takes its default, not the previous value, since the object is a
+value. On `OperatorSplittingWorkspace` a change of `rho`, `sigma` or `rho_is_vec` refactorizes
+exactly as before; on `InteriorPointWorkspace` nothing refactorizes.
+
+**MOI.** The raw attribute `"algorithm"` (`"admm"`/`"ipm"`, `String` or `Symbol`) selects the
+algorithm; every other name is routed to `Options` or to the selected algorithm's parameters
+and validated at `MOI.set` by building both (`_build`). Reading an unset name returns the
+resolved default of the selected algorithm, `refine_iter` included. Switching `"algorithm"`
+refuses a stored name the new algorithm does not accept and revalidates the rest. `optimize!`
+builds the algorithm object from the stored parameters (`verbose = false` under
+`MOI.Silent` for `"admm"`) and passes the options as keywords.
+
+**ChainRules.** `rrule`/`frule` for `solve` take the algorithm as an optional trailing
+positional argument and return `NoTangent()` for it.
+
+**Measured (S12b).** ADMM snapshot 41/41 identical; StrictMode audit unchanged; trim item
+green; IPM reproduction counts unchanged. `admm_step!` minimums, A/B/B/A on one core, 100 steps
+from a fresh setup: Random QP 4.33/4.29 µs (base/new), SVM 9.47/9.72 µs (+2.6%), Huber
+19.31/19.12 µs. `setup` minimums: Random QP 367/376 µs (+2.3%), SVM 445/445 µs, Huber
+713/710 µs.

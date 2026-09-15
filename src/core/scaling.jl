@@ -185,7 +185,7 @@ end
 Run modified Ruiz equilibration: `D` and `E` become the column and row factors, `q`, `l` and
 `u` the scaled data, and the returned `c` the cost factor.
 
-Takes the arrays rather than a [`Workspace`](@ref) because the factors must exist before one
+Takes the arrays rather than a [`QPWorkspace`](@ref) because the factors must exist before one
 does. The backend is part of the workspace's type, so it is chosen first, and it is chosen by
 building and factoring the reduced matrix the solver will actually use — which needs `D`, `E`
 and `c`. `d`, `e` and `pcol` are scratch of length `n`, `m` and `n`.
