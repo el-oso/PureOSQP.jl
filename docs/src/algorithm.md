@@ -291,6 +291,54 @@ slower — that is the whole point of the reduced form — but it is the more ac
 factorization at moderate conditioning, and it is the closest match to what the reference
 implementation does, which makes it useful when a result is in question. The entire test
 corpus runs through both backends.
+
+### Backends under the interior-point method
+
+With `algorithm = :ipm` the Newton system has the same shape, but its row weights change every
+iteration and reach `1/reg_dual` (`1e8` by default) on equality rows and on rows whose bound is
+active. The reduced form squares those weights into its conditioning, so each backend was run
+on problems of its own structure and compared with the dense full KKT factorization
+(`linsys = :kkt`) on the same problem. The table summarizes `bench/results/ipm_backends.json`,
+which `bench/ipm_backends.jl` writes. "Referee" is the largest optimality residual computed
+from the original data; iterations are outer iterations, the same for both columns unless
+shown.
+
+| backend | problems | status | referee | iterations (this backend / `:kkt`) |
+|---|---|---|---|---|
+| `:diagonal` | diagonal pair, `n = 100`; QP, LP, with equality rows | solved | ≤ 3e-10 | 8–9, equal |
+| `:tridiagonal` | two tridiagonal pairs; QP, LP, with equality rows | solved | ≤ 6e-9 | 7–9, equal |
+| `:banded` | two banded pairs; QP, LP, with equality rows | solved | ≤ 1.1e-8 | 7–9, equal |
+| `:block` | block QP, block LP | solved | ≤ 4.4e-9 | 7–8, equal |
+| `:cholesky` (dense reduced) | three structured pairs, QP, LP, with equality rows; a dense QP and LP | solved | ≤ 9.2e-9 | 7–11, equal |
+| `:ldlfactorizations`, `:cholmod` (sparse reduced) | `banded_qp(200, 300)`; QP, LP | solved | ≤ 2.4e-9 | 9 and 12, equal |
+| `:sparse_kkt`, `:ldl_kkt` (sparse KKT) | `banded_qp(200, 300)`, Portfolio, Lasso, SVM, Huber | solved | ≤ 7.7e-9 | 7–12, equal |
+| `:lowrank` | two diagonal-plus-low-rank pairs; QP and with equality rows | solved | ≤ 4.3e-9 | 8–9, equal |
+| `:lowrank` | the same pairs as LPs | not solved (3 of 4 at 100 iterations, 1 numerical error) | up to 1e24 | 54–100 / 8–11 |
+
+A backend stays in the interior-point selection when it solves every one of its problems with a
+referee below `1e-5` in at most twice the iterations `:kkt` takes. Every backend passes except
+`:lowrank`, which fails on linear programs: a variable that only the dense rows reach keeps
+nothing but `reg_primal` in the diagonal core when `P` is zero, which puts `1e8` in the core's
+inverse, and on those problems the Woodbury solve ends without a solution. Under `algorithm = :ipm`, `linsys = :auto` therefore serves a
+diagonal `P` with a `RowCoupled` `A` with `:kkt`, and `linsys = :lowrank` is refused by name.
+`:sparse_formed` has no interior-point counterpart: the interior-point selection has no rung
+that forms and inverts the reduced matrix.
+
+`:kkt` copies `A` into the full matrix one entry at a time at every factorization. Measured on
+one core, that copy is 3% of an iteration on a dense QP (`n = 200`, `m = 400`), 7% on Lasso
+(`n = m = 816`, sparse `A`) and 16% on `banded_qp(200, 300)`; the `bunchkaufman!`
+factorization is the rest of the factorization and most of the iteration.
+
+`Float32` is refused by `setup` under `algorithm = :ipm`. Run past that refusal on the dense
+test generator (`n = 200`, 18 instances), `:kkt` in `Float32` with `eps_abs = eps_rel = 1e-4`
+and `reg_primal = reg_dual = sqrt(eps(Float32))` solves all 18 in 4–8 iterations with no
+regularization increase, with referees from `1.1e-5` to `1.0e-4`; `Float64` at the same
+tolerances takes 4–6 iterations with referees from `2.4e-6` to `8.1e-5`.
+
+Dual numbers (`ForwardDiff.Dual`) run under `algorithm = :ipm` on the dense reduced Cholesky,
+since `bunchkaufman!` has no generic method. One test differentiates an objective through a
+solve; dual numbers are not otherwise part of the interior-point method's stated support.
+
 ## Equilibration
 
 Modified Ruiz equilibration is applied to the system. It is stored as factors rather than applied to the matrices:

@@ -13,9 +13,15 @@ what is true now; this file is where the history lives.
   `1e-8`, not ADMM's `1e-3`. It handles equality, one-sided, two-sided and free rows, uses
   equilibration as ADMM does, and solves its Newton systems with the direct backends: the
   dense full KKT factorization for dense data and for a dense `P` with a sparse `A`, and for
-  a sparse pair the sparse KKT factorization first. A re-solve starts from the previous
+  a sparse pair the sparse KKT factorization first. Diagonal, tridiagonal, banded, block and
+  sparse reduced pairs keep their structured backends: on problems of each structure, QPs and
+  LPs with and without equality rows, each solves in the same outer iterations as the full KKT
+  factorization with a referee residual of at most `1.1e-8` (`bench/ipm_backends.jl`). A diagonal `P`
+  with a `RowCoupled` `A` gets the full KKT factorization instead, since the low-rank backend
+  does not solve the LPs. A re-solve starts from the previous
   point. In this version it refuses by name `Float32` data, GPU arrays, operators that
-  supply products only, `linsys = :indirect` and `linsys = :kronecker`, and it has no
+  supply products only, `linsys = :indirect`, `linsys = :kronecker` and `linsys = :lowrank`,
+  and it has no
   polishing, derivatives, `update!`, `update_settings!`, verbose output or
   MathOptInterface support.
 - **The interior-point method detects infeasibility.** It reports `PRIMAL_INFEASIBLE` and

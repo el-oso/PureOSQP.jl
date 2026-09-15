@@ -203,6 +203,13 @@ function setup_backend(
                 "differ from row to row. Choose another linsys, or use algorithm = :admm."
         )
     )
+    LS === :lowrank && throw(
+        ArgumentError(
+            "linsys = :lowrank is not available with algorithm = :ipm: on linear programs " *
+                "its Woodbury solve does not reach the interior-point tolerances. Leave " *
+                "linsys = :auto, which serves the pair with linsys = :kkt, or use algorithm = :admm."
+        )
+    )
     is_convex(T, P, settings.reg_primal) || throw(
         ArgumentError(
             "P + reg_primal*I is not positive definite: P is indefinite, so the problem is not convex."
@@ -254,15 +261,6 @@ function setup_backend(
             )
         )
         ws = ipm_workspace(first(rung), prob, wt, settings)
-    elseif LS === :lowrank
-        rung = lowrank_rung(P, A, prob, wt, sel)
-        isnothing(rung) && throw(
-            ArgumentError(
-                "linsys = :lowrank needs a diagonal P and a RowCoupled A whose coupling rank " *
-                    "is small relative to n, and declines this pair"
-            )
-        )
-        ws = ipm_workspace(first(rung), prob, wt, settings)
     else
         ws = ipm_workspace(first(choose_backend(P, A, prob, wt, sel)), prob, wt, settings)
     end
@@ -275,7 +273,8 @@ end
 
 The interior-point ladder: the sparse KKT factorization first, then the sparse reduced one
 and the structured reduced backends, and [`FullKKT`](@ref) as the terminal for any
-materializable pair. The Kronecker rung is absent, since it needs uniform weights, and
+materializable pair. The Kronecker rung is absent, since it needs uniform weights; the
+low-rank rung declines (see its [`IPMSelection`](@ref) method); and
 [`formed_rung`](@ref) is absent, since its inverse would be rebuilt every outer iteration for
 a handful of solves.
 """
@@ -310,6 +309,16 @@ function dense_rung(P::AbstractMatrix, A::AbstractMatrix, prob::Problem{T}, sel:
 end
 
 dense_rung(P, A, prob, sel::IPMSelection) = nothing
+
+"""
+    lowrank_rung(P::Diagonal, A::RowCoupled, prob, wt, sel::IPMSelection) -> nothing
+
+Declines, so the pair reaches [`FullKKT`](@ref). A variable that only the coupling rows reach
+has `δ_p` alone in the diagonal core wherever `P` is zero, which puts `1/δ_p` in the core's
+inverse; on linear programs over these pairs the Woodbury solve through it ends without a
+solution (`bench/ipm_backends.jl`).
+"""
+lowrank_rung(P::Diagonal, A::RowCoupled, prob, wt, sel::IPMSelection) = nothing
 
 """
     indirect_rung(P, A, prob, sel::IPMSelection)

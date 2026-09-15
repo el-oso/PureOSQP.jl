@@ -26,8 +26,8 @@ and [`solve`](@ref). The keyword arguments of those two functions are then these
   which correct rounding in the factorization.
 - `step_fraction = 0.99` — the fraction of the step to the boundary that is taken.
 - `warm_starting = true` — start a re-solve from the previous point.
-- `linsys = :auto` — the backend, as in [`Settings`](@ref). `:indirect` and `:kronecker` are
-  refused.
+- `linsys = :auto` — the backend, as in [`Settings`](@ref). `:indirect`, `:kronecker` and
+  `:lowrank` are refused.
 
 A reduced backend solves `P̃ + δ_p I + Ãᵀ diag(w) Ã`, whose weights reach `1/δ_d` on
 equality rows and on active inequality rows, so its conditioning is bounded by
