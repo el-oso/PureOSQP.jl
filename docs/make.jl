@@ -16,6 +16,7 @@ makedocs(;
         "Home" => "index.md",
         "Guide" => [
             "Examples" => "examples.md",
+            "Choosing an algorithm" => "algorithms.md",
             "Matrix types" => "matrices.md",
             "Structured operators" => "operators.md",
             "Operators from functions" => "linearmaps.md",

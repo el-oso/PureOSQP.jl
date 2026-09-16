@@ -1,6 +1,6 @@
 # PureOSQP.jl
 
-A pure-Julia implementation of the [OSQP](https://osqp.org) solver for convex quadratic programs:
+A pure-Julia solver for convex quadratic programs:
 
 ```math
 \begin{aligned}
@@ -10,6 +10,18 @@ A pure-Julia implementation of the [OSQP](https://osqp.org) solver for convex qu
 ```
 
 `P` is symmetric positive semidefinite, `A` is `m×n`, and `l`, `u` may contain `∓Inf`. Rows where `l == u` are equality constraints.
+
+Two algorithms solve it, sharing the same matrix support and the same problem interface.
+[`OperatorSplitting`](@ref), the default, is OSQP's ADMM iteration. [`InteriorPoint`](@ref) is
+a Mehrotra predictor–corrector interior-point method. Pass five arrays for the default, or the
+algorithm as a sixth positional argument for the other:
+
+```julia
+sol = solve(P, q, A, l, u)                                    # OperatorSplitting, the default
+sol = solve(P, q, A, l, u, InteriorPoint(); eps_abs = 1e-9)    # tighter accuracy by default
+```
+
+[Choosing an algorithm](@ref) compares them.
 
 ## Your first solve
 
@@ -86,53 +98,9 @@ warm_start!(ws; x = x0, y = y0)
 solve!(ws)
 ```
 
-## Choosing an algorithm
-
-Two methods solve the same problem. The sixth argument of `solve` and `setup` picks one and
-holds the settings only that method reads; everything both methods read is a keyword
-argument.
-
-* [`OperatorSplitting`](@ref), the default, is OSQP's ADMM iteration: many cheap iterations,
-  one factorization reused across them, and a good answer at modest accuracy. It is the one to
-  use for repeated solves with [`update!`](@ref), for matrix-free operators, and on GPU arrays.
-* [`InteriorPoint`](@ref) is a Mehrotra predictor–corrector interior-point method: a few dozen
-  iterations, each factorizing a new system, and high accuracy by default. It is the one to
-  use when you need `1e-8` rather than `1e-3`, or when ADMM converges slowly.
-
-```julia
-sol = solve(P, q, A, l, u)                                             # OperatorSplitting()
-sol = solve(P, q, A, l, u, OperatorSplitting(rho = 0.2, adaptive_rho = :kkt_error); eps_abs = 1e-6)
-sol = solve(P, q, A, l, u, InteriorPoint(reg_primal = 1e-7); eps_abs = 1e-9, max_iter = 50)
-
-ws = setup(P, q, A, l, u, InteriorPoint(); max_iter = 50)
-sol = solve!(ws)
-ws.algorithm     # InteriorPoint{Float64, Float64, Float64, Int64}: parameters in the solve's element type
-ws.options       # Options{Float64}: max_iter, the tolerances, linsys, polishing, …
-update_settings!(ws; eps_abs = 1e-10)                    # change an option
-update_settings!(ws, InteriorPoint(reg_primal = 1e-6))   # replace the algorithm parameters
-```
-
-The keyword arguments are the fields of [`Options`](@ref). The two methods default some of
-them differently — `max_iter` is `4000` for `OperatorSplitting` and `100` for
-`InteriorPoint`, and the tolerances `1e-3` and `1e-8` — and [`default_options`](@ref) shows
-the full set for either. A value you pass is always used as given. A setting passed in the
-wrong place is refused with a message naming where it belongs:
-
-```julia
-InteriorPoint(rho = 0.2)                           # MethodError: rho is not an InteriorPoint parameter
-solve(P, q, A, l, u, InteriorPoint(); rho = 0.2)   # ArgumentError: rho is a parameter of OperatorSplitting
-```
-
-An operator that supplies only products runs under `InteriorPoint` with conjugate gradients
-and a preconditioner you provide ([Operators under the interior-point method](@ref)):
-
-```julia
-sol = solve(Pop, q, Aop, l, u, InteriorPoint(); linsys = :indirect, preconditioner = M, scaling = 0)
-```
-
 ## Re-solving with new data
 
-For loops like Model Predictive Control, keep $P$ and $A$ fixed and update $q$, $l$, and $u$. Use [`update!`](@ref) to reuse the workspace; it reuses equilibration, buffers, and iterates, refactorizing only when necessary.
+For loops like Model Predictive Control, keep $P$ and $A$ fixed and update $q$, $l$, and $u$. Use [`update!`](@ref) to reuse the workspace; it reuses equilibration, buffers, and iterates, refactorizing only when necessary. Under `InteriorPoint`, every outer iteration factors a new system regardless of what `update!` did — see [Choosing an algorithm](@ref "Re-solving a sequence") for what each algorithm gets from it.
 
 ```julia
 ws = setup(P, q, A, l, u)

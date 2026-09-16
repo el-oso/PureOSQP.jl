@@ -68,8 +68,9 @@ model = Model(PureOSQP.Optimizer)
 ```
 
 The wrapper passes `MOI.Test`, which is a far more thorough conformance suite than anything
-hand-written. Three attributes are excluded from it: `ConstraintBasisStatus`,
-`VariableBasisStatus` and `ObjectiveBound`. ADMM does not produce a basis or a bound.
+hand-written, under both algorithms — `test/moi_tests.jl` runs it against the default and
+against `algorithm = "ipm"`. Three attributes are excluded from it: `ConstraintBasisStatus`,
+`VariableBasisStatus` and `ObjectiveBound`. Neither algorithm produces a basis or a bound.
 
 Settings are passed by name, for example `set_attribute(model, "linsys", :kkt)`. The
 attribute `"algorithm"` is `"admm"` ([`OperatorSplitting`](@ref), the default) or `"ipm"`

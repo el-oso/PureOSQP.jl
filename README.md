@@ -4,7 +4,9 @@
 [![Build Status](https://github.com/el-oso/PureOSQP.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/el-oso/PureOSQP.jl/actions/workflows/CI.yml?query=branch%3Amain)
 [![Coverage](https://coveralls.io/repos/github/el-oso/PureOSQP.jl/badge.svg?branch=main)](https://coveralls.io/github/el-oso/PureOSQP.jl?branch=main)
 
-A pure-Julia implementation of the [OSQP](https://osqp.org) operator-splitting solver for convex quadratic programs:
+A pure-Julia solver for convex quadratic programs, with two algorithms: operator splitting —
+[OSQP](https://osqp.org)'s ADMM iteration, the default — and a Mehrotra predictor–corrector
+interior-point method. Both share the same matrix support and problem interface:
 
 ```
 minimize    ½ xᵀPx + qᵀx
@@ -34,8 +36,10 @@ ws = setup(P, q, A, l, u, InteriorPoint(); max_iter = 50)
 sol = solve!(ws)
 ```
 
-`OperatorSplitting()`, the default, is OSQP's ADMM iteration; `InteriorPoint()` is a Mehrotra
-interior-point method whose defaults aim at `1e-8` accuracy. [Choosing an algorithm](https://el-oso.github.io/PureOSQP.jl/dev/#Choosing-an-algorithm) compares them.
+`OperatorSplitting()`, the default, is best for repeated solves through `update!` and for
+matrix-free operators; `InteriorPoint()` reaches `1e-8` by default in a few iterations and is
+the better choice for a single solve at a tight tolerance.
+[Choosing an algorithm](https://el-oso.github.io/PureOSQP.jl/dev/algorithms) compares them.
 
 ## What it implements
 

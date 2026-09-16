@@ -1,14 +1,20 @@
 # Algorithm
 
-This page explains the internal working of the solver.
+This page explains the internal working of the solver. Two algorithms are implemented:
+[`OperatorSplitting`](@ref), OSQP's ADMM iteration, and [`InteriorPoint`](@ref), a Mehrotra
+predictor–corrector method. Both reduce every iteration to solving one linear system of the
+same shape and draw on the same set of backends — [The linear system](@ref) and its selection
+ladder are shared infrastructure, not part of either algorithm. What differs is what varies
+inside that system from one iteration to the next, and what the outer loop does with the
+result; each algorithm's section below covers its own. Equilibration, termination, adaptive
+`ρ`, infeasibility and polishing are described once, after both, because both use them the
+same way except where a section says otherwise.
 
-## The idea in one paragraph
+## Operator splitting (ADMM)
 
 The problem involves minimizing an objective while staying within bounds. ADMM (*alternating direction method of multipliers*) solves this by maintaining two copies of the answer: one that minimizes the objective and one that satisfies the bounds. A penalty term is added to pull these two copies together. Each iteration consists of solving an unconstrained problem for `x`, clipping `z` into the box, and updating a multiplier `y`. When they agree, you have the solution.
 
 The linear solve is the most expensive part. The matrix in it changes only when `ρ` changes, so the solver factors it once and reuses the factor.
-
-## The ADMM iteration
 
 Each iteration solves one linear system and then performs a projection:
 
@@ -28,7 +34,9 @@ y^{k+1} &= y^k + \rho \odot \left(\alpha \tilde z^{k+1} + (1-\alpha) z^k - z^{k+
 
 ## The linear system
 
-The reference implementation factors the `(n+m)×(n+m)` quasi-definite matrix with a sparse pivot-free LDLᵀ. An equivalent `n×n` symmetric positive definite system can be used:
+This section and [Choosing a backend](@ref) below describe machinery both algorithms share:
+every backend named here also serves the interior-point method described further down this
+page, at the row weights that method hands it in place of ADMM's `ρ`. The reference implementation factors the `(n+m)×(n+m)` quasi-definite matrix with a sparse pivot-free LDLᵀ. An equivalent `n×n` symmetric positive definite system can be used:
 
 ```math
 (P + \sigma I + A^\top \mathrm{diag}(\rho) A)\, \tilde x = \mathrm{rhs}_x + A^\top(\rho \odot \mathrm{rhs}_z),
@@ -525,12 +533,17 @@ that iteration counts do not depend on how fast the machine is.
 
 ## Infeasibility
 
-Infeasibility is detected using the differences in iterates `δx` and `δy`.
+Infeasibility is detected using the differences in iterates `δx` and `δy`. The interior-point
+method has no separate test of its own: it applies this one to its own last step and its
+normalized iterate.
 
 ## Polishing
 
-The active set is guessed from the ADMM iterates: row `i` is lower-active when
-`z_i - l_i < -y_i` or `l_i == u_i`, and upper-active when `u_i - z_i < y_i`. The
+Both algorithms call the same `polish_kernel!` on their own `(x, y, z)`. The active set is
+guessed from the iterate: row `i` is lower-active when `z_i - l_i < -y_i` or `l_i == u_i`, and
+upper-active when `u_i - z_i < y_i`. Under `InteriorPoint`, this is why polishing has to run
+before a derivative is taken: an unpolished row's multiplier sits at the barrier parameter
+rather than near zero, which this test would misread. The
 resulting equality-constrained QP
 
 ```math

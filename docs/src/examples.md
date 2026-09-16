@@ -33,6 +33,21 @@ sharp = solve(P, q, A, l, u; eps_abs = 1e-9, eps_rel = 1e-9, polishing = true)
 (sharp.x, sharp.obj_val)
 ```
 
+## Using InteriorPoint
+
+The same problem, solved with [`InteriorPoint`](@ref) instead of the default
+[`OperatorSplitting`](@ref). Its default tolerance is `1e-8`, tighter than `1e-3`, and it
+reaches it in far fewer iterations:
+
+```@example demo
+ipm = solve(P, q, A, l, u, InteriorPoint())
+(status = ipm.status, x = round.(ipm.x; digits = 4), admm_iter = sol.iter, ipm_iter = ipm.iter)
+```
+
+[Choosing an algorithm](@ref) compares the two: which one converges faster at a given
+tolerance, what each supports on a repeated solve through [`update!`](@ref), and what each
+refuses.
+
 ## Least-squares
 
 Fit `Aₐx ≈ b` as closely as possible, with bounds on `x` that a plain `\` cannot express.
@@ -757,7 +772,10 @@ point.
 [`adjoint_derivative`](@ref) differentiates the KKT conditions at the solution the
 workspace holds. From one factorization, it gives the gradients of a scalar loss with
 respect to all five pieces of problem data. Given `∂L/∂x` and `∂L/∂y`, it returns
-`∂L/∂P`, `∂L/∂q`, `∂L/∂A`, `∂L/∂l` and `∂L/∂u`.
+`∂L/∂P`, `∂L/∂q`, `∂L/∂A`, `∂L/∂l` and `∂L/∂u`. Both algorithms support it; on an
+`InteriorPointWorkspace` it requires `polishing = true` on the solve that produced the
+solution, or it is refused by name ([Choosing an algorithm](@ref "Polishing, derivatives and
+infeasibility")).
 
 Here `L = x₁`, with the budget row `x₁ + x₂ = 1` the only active constraint:
 

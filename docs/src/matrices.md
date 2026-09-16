@@ -231,7 +231,9 @@ things keep that usable, and one limit remains:
 An operator with no structure the solver recognizes is solved with *conjugate gradients* (CG),
 which only multiplies by the operator and whose convergence depends on conditioning. An
 operator with its own **direct** backend is solved by factoring instead, and conditioning then
-affects it only through the structure.
+affects it only through the structure. This is [`OperatorSplitting`](@ref)'s `linsys = :auto`
+ladder; under [`InteriorPoint`](@ref) an operator needs `linsys = :indirect` named explicitly
+with a caller-supplied preconditioner ([Choosing an algorithm](@ref "What each refuses")).
 
 The Kronecker type is an example. `κ(A₁ ⊗ A₂) = κ(A₁)·κ(A₂)`, so an operator with `κ = 1e12` is
 built from two factors with `κ = 1e6` each, and the backend eigendecomposes the factors without
@@ -304,12 +306,13 @@ it in `Symmetric` to say which triangle is the real one.
 
 ### Which backend a sparse matrix gets
 
-Eliminating `ν` from the ADMM subproblem gives an `n×n` reduced matrix, and whether that
-matrix is worth keeping sparse depends on its pattern rather than on the input's density.
-`linsys = :auto` reads the pattern: the densest row of `A`, the count of the symbolic
-`AᵀA ∪ P` pattern, `n` and `m`. Nothing is factored to decide, so the factorization `setup`
-pays for is the one the solve goes on to use. Where that decision sits among the others is
-drawn in [Choosing a backend](@ref).
+Eliminating the dual variable from either algorithm's linear system gives an `n×n` reduced
+matrix, and whether that matrix is worth keeping sparse depends on its pattern rather than on
+the input's density. `linsys = :auto` reads the pattern: the densest row of `A`, the count of
+the symbolic `AᵀA ∪ P` pattern, `n` and `m`. Nothing is factored to decide, so the
+factorization `setup` pays for is the one the solve goes on to use. Where that decision sits
+among the others is drawn in [Choosing a backend](@ref); the same selection serves
+[`InteriorPoint`](@ref) at its own row weights.
 
 ```@example storage
 band = 200
@@ -837,6 +840,10 @@ can turn on:
 The second is the one that catches people: **a single equality row disables this backend.** And
 a Kronecker *`P`* does not qualify for the first — it must be a multiple of the identity.
 
+This backend is [`OperatorSplitting`](@ref) only. [`InteriorPoint`](@ref) refuses
+`linsys = :kronecker` by name, because its row weights are not one number
+([Choosing an algorithm](@ref "What each refuses")).
+
 If any condition fails the solver quietly uses the dense route instead, so you get the right
 answer either way. That is why every example here checks `backend_name`: it is the only way to
 tell whether you got what you asked for.
@@ -946,3 +953,8 @@ fewer coupling rows you have: at one coupling row in 2000 variables it is
 declines once `10k > n`. Two coupling rows therefore need at least 20 variables, which is why
 `n = 24` above. Below that threshold the correction costs more than the dense solve it would
 replace, so declining is the right answer. `P` must also be `Diagonal`.
+
+Under [`InteriorPoint`](@ref), `linsys = :auto` never chooses this backend: `linsys =
+:lowrank` is refused by name, because the Woodbury solve misses the tolerance on linear
+programs ([Backends under the interior-point method](@ref)). A `Diagonal` `P` with a
+`RowCoupled` `A` gets the full KKT factorization instead.

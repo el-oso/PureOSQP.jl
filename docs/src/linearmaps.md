@@ -12,6 +12,11 @@ All three need the same three things, covered in
 `issymmetric` and `isposdef` on `P`. Each example states the problem, draws the operator, and then solves it two ways — with the
 map and with every matrix written out — printing the difference between the two answers.
 
+All three solve with [`OperatorSplitting`](@ref), the default, which needs nothing beyond
+that. [`InteriorPoint`](@ref) solves an operator too, but only with a caller-supplied
+preconditioner in place of `scaling = 0`'s automatic one — see
+[Operators under the interior-point method](@ref).
+
 ## 1. Fitting to sensor readings
 
 You have a signal of 240 points but only measured every fifth one. You want the closest signal
