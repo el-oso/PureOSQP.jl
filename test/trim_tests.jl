@@ -15,6 +15,7 @@
         :solve_time_limited, :solve_profiled,
         :setup_solve_update, :warm_started, :not_trimmable,
         :solve_ipm_default, :solve_ipm_kkt, :solve_ipm_unscaled, :solve_ipm_polish,
+        :solve_ipm_verbose, :solve_ipm_verbose_indirect,
         :setup_ipm_update, :derivatives_ipm,
     ]
     sigs = [

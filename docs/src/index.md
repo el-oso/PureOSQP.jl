@@ -162,7 +162,7 @@ Polishing only runs if it improves both residuals, so it cannot make the solutio
 
 ## Watching a solve
 
-`OperatorSplitting(verbose = true)` prints progress: a header, one line per termination check, and a footer with status, iterations, and residuals.
+`verbose = true` prints progress under either algorithm: a header, one line per termination check, and a footer with status, iterations, and residuals.
 
 ```
  iter      objective      prim res      dual res           rho
@@ -172,7 +172,17 @@ Polishing only runs if it improves both residuals, so it cannot make the solutio
   125        1.46211      0.000374      0.000174         0.549
 ```
 
-The `rho` column shows adaptive $\rho$ updates, which trigger refactorizations.
+The `rho` column shows adaptive $\rho$ updates, which trigger refactorizations. This is `OperatorSplitting`'s row; `InteriorPoint` prints the barrier parameter `mu` and the step length `alpha` in its place:
+
+```
+ iter      objective      prim res      dual res            mu         alpha
+    1        1.28841        0.4213        0.1882        0.3841        1.0000
+    2        1.35207       0.02184       0.00931       0.02033        0.9214
+  ...
+    7        1.36012      8.14e-09      3.02e-09      6.71e-09        1.0000
+```
+
+`InteriorPoint`'s footer also names the run time; on the matrix-free `linsys = :indirect` backend, its row gains a `cg iters` column for that iteration's conjugate-gradient count, and its footer adds the total CG iterations and the number of missed inner solves (see [`Solution.cg_iters`](@ref PureOSQP.Solution)).
 
 Output goes to `Core.stdout` rather than `Base.stdout` to support `--trim` compilation. Use `redirect_stdout` to capture it.
 

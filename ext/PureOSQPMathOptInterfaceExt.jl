@@ -224,8 +224,8 @@ function MOI.optimize!(o::Optimizer{T}) where {T}
     alg = _algorithm(o)
     names = _parameter_names(alg)
     parameters = Dict{Symbol, Any}(k => v for (k, v) in o.settings if k in names)
-    o.silent && :verbose in names && (parameters[:verbose] = false)
-    options = (k => v for (k, v) in o.settings if k in PureOSQP.OPTION_NAMES)
+    options = Dict{Symbol, Any}(k => v for (k, v) in o.settings if k in PureOSQP.OPTION_NAMES)
+    o.silent && (options[:verbose] = false)
     ws = PureOSQP.setup(T, o.P, o.q, o.A, o.l, o.u, _algorithm_type(alg)(; parameters...); options...)
     o.sol = PureOSQP.solve!(ws)
     xr = _is_cert(o.sol.status) ? o.sol.dual_inf_cert : o.sol.x

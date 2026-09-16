@@ -23,7 +23,11 @@ what is true now; this file is where the history lives.
   `sqrt(eps(T))` in coarser arithmetic, so `Float32` data solves at the defaults; `BigFloat` and
   `ForwardDiff.Dual` run as well, dual numbers on the reduced Cholesky only, where
   `bunchkaufman!` is not needed. In this version it refuses by name GPU arrays,
-  `linsys = :kronecker` and `linsys = :lowrank`, and it has no verbose output.
+  `linsys = :kronecker` and `linsys = :lowrank`. `verbose = true` prints a progress report:
+  a header, one row per termination check with the barrier parameter `mu` and the step
+  length `alpha` in place of ADMM's `rho`, and a footer with the status, the iteration count,
+  the residuals and the run time; on the matrix-free backend the row gains a `cg iters`
+  column and the footer adds the total CG iterations and the number of missed inner solves.
 - **The interior-point method runs on operators with a caller-supplied preconditioner.**
   `InteriorPoint()` takes `linsys = :indirect` with a `preconditioner` other than the built-in
   ones and `scaling = 0`, for matrices and for operators that supply products only
@@ -115,20 +119,22 @@ what is true now; this file is where the history lives.
 
 - **The algorithm is an object, and the settings are split into its parameters and shared
   options.** `solve(P, q, A, l, u, alg; kwargs...)` and `setup` take the algorithm as an
-  optional sixth argument: `OperatorSplitting(; rho, sigma, alpha, adaptive_rho, …, verbose)`,
-  the default, or `InteriorPoint(; reg_primal, reg_dual, max_reg_bumps, refine_iter,
-  step_fraction, cg_fail_limit)`. The keyword arguments are the fields of `Options`, which both
-  algorithms read (`max_iter`, `time_limit`, the tolerances, `scaling`, `check_termination`,
-  `check_dualgap`, `scaled_termination`, `warm_starting`, `linsys`, `polishing`,
-  `polish_refine_iter`, `delta`, `cg_max_iter`, `cg_tol_fraction`), with defaults that depend on
-  the algorithm, reported by `default_options(alg, T)`. A workspace holds `ws.algorithm` and
-  `ws.options` in the solve's element type, and `update_settings!(ws; kwargs...)` changes
-  options while `update_settings!(ws, alg)` replaces the parameters. A parameter passed as a
-  keyword throws an `ArgumentError` naming the algorithm it belongs to. The workspaces are
-  `OperatorSplittingWorkspace` and `InteriorPointWorkspace`, subtypes of `QPWorkspace`. The
-  `algorithm` keyword and the `Settings`, `IPMSettings`, `Workspace` and `IPMWorkspace` names
-  are removed. `cg_tol_fraction` must lie in `(0, 1]` under either algorithm, and `verbose`, a
-  parameter of `OperatorSplitting` only, is no longer accepted with `InteriorPoint`.
+  optional sixth argument: `OperatorSplitting(; rho, sigma, alpha, adaptive_rho, …,
+  profile_primdual)`, the default, or `InteriorPoint(; reg_primal, reg_dual, max_reg_bumps,
+  refine_iter, step_fraction, cg_fail_limit)`. The keyword arguments are the fields of
+  `Options`, which both algorithms read (`max_iter`, `time_limit`, the tolerances, `scaling`,
+  `check_termination`, `check_dualgap`, `scaled_termination`, `warm_starting`, `linsys`,
+  `polishing`, `polish_refine_iter`, `delta`, `cg_max_iter`, `cg_tol_fraction`, `verbose`), with
+  defaults that depend on the algorithm, reported by `default_options(alg, T)`. A workspace
+  holds `ws.algorithm` and `ws.options` in the solve's element type, and
+  `update_settings!(ws; kwargs...)` changes options while `update_settings!(ws, alg)` replaces
+  the parameters. A parameter passed as a keyword throws an `ArgumentError` naming the
+  algorithm it belongs to. The workspaces are `OperatorSplittingWorkspace` and
+  `InteriorPointWorkspace`, subtypes of `QPWorkspace`. The `algorithm` keyword and the
+  `Settings`, `IPMSettings`, `Workspace` and `IPMWorkspace` names are removed.
+  `cg_tol_fraction` must lie in `(0, 1]` under either algorithm, and `verbose` is an option
+  both algorithms accept: `InteriorPoint()` prints its own per-iteration report (see
+  "Watching a solve" in the docs).
 - **The `polish` setting is now `polishing`**, the name libosqp 1.0 uses. This is a breaking
   change: passing `polish = true` throws a `MethodError` for the unsupported keyword.
 - **The matrix-free backend warm-starts CG and halves its tolerance when CG stops moving.**

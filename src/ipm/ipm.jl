@@ -265,9 +265,17 @@ function refine!(ws::InteriorPointWorkspace{T}) where {T}
     return ws
 end
 
-"Count the backend's last solve toward the run of consecutive missed solves, or end that run."
+"""
+Count the backend's last solve toward the run of consecutive missed solves, or end that run;
+`cg_total_misses` counts every miss over the whole solve, for the verbose footer.
+"""
 function count_miss!(ws::InteriorPointWorkspace)
-    ws.cg_misses = last_solve_converged(ws.linsys) ? 0 : ws.cg_misses + 1
+    if last_solve_converged(ws.linsys)
+        ws.cg_misses = 0
+    else
+        ws.cg_misses += 1
+        ws.cg_total_misses += 1
+    end
     return ws
 end
 
@@ -529,6 +537,79 @@ end
 
 finite_residuals(ws::InteriorPointWorkspace) = isfinite(ws.rnorm) && isfinite(ws.prim_res) && isfinite(ws.dual_res)
 
+# The `verbose` output, in the style of ADMM's (`src/admm/admm.jl`): `VERBOSE_RULE`,
+# `print_padded` and `status_name` are defined there and reused here unchanged.
+
+function print_header(ws::InteriorPointWorkspace)
+    println(Core.stdout, VERBOSE_RULE)
+    println(Core.stdout, "            PureOSQP - interior-point QP solver")
+    print(Core.stdout, "     n = ")
+    print(Core.stdout, ws.prob.n)
+    print(Core.stdout, ", m = ")
+    print(Core.stdout, ws.prob.m)
+    print(Core.stdout, ", backend = ")
+    println(Core.stdout, backend_name(ws.linsys))
+    print(Core.stdout, "     eps_abs = ")
+    print(Core.stdout, ws.options.eps_abs)
+    print(Core.stdout, ", eps_rel = ")
+    print(Core.stdout, ws.options.eps_rel)
+    print(Core.stdout, ", max_iter = ")
+    print(Core.stdout, ws.options.max_iter)
+    print(Core.stdout, ", polishing = ")
+    println(Core.stdout, ws.options.polishing ? "on" : "off")
+    println(Core.stdout, VERBOSE_RULE)
+    if backend_name(ws.linsys) === :indirect
+        println(Core.stdout, " iter      objective      prim res      dual res            mu         alpha      cg iters")
+    else
+        println(Core.stdout, " iter      objective      prim res      dual res            mu         alpha")
+    end
+    return nothing
+end
+
+"One row: `cg_this_iter` is this outer iteration's conjugate-gradient count, printed only on
+the matrix-free backend."
+function print_row(ws::InteriorPointWorkspace, cg_this_iter::Int)
+    print_padded(string(ws.iter), 5)
+    print_padded(ws.obj_val, 15, 6)
+    print_padded(ws.prim_res, 14, 3)
+    print_padded(ws.dual_res, 14, 3)
+    print_padded(ws.mu, 14, 3)
+    print_padded(ws.alpha, 14, 3)
+    backend_name(ws.linsys) === :indirect && print_padded(string(cg_this_iter), 14)
+    print(Core.stdout, "\n")
+    return nothing
+end
+
+function print_footer(ws::InteriorPointWorkspace)
+    println(Core.stdout, VERBOSE_RULE)
+    print(Core.stdout, "status:               ")
+    println(Core.stdout, status_name(ws.status))
+    if ws.options.polishing
+        print(Core.stdout, "polish:               ")
+        println(Core.stdout, ws.polished ? "successful" : "unsuccessful")
+    end
+    print(Core.stdout, "number of iterations: ")
+    println(Core.stdout, ws.iter)
+    if has_solution(ws.status)
+        print(Core.stdout, "optimal objective:    ")
+        println(Core.stdout, round(ws.obj_val; sigdigits = 6))
+        print(Core.stdout, "primal residual:      ")
+        println(Core.stdout, round(ws.prim_res; sigdigits = 3))
+        print(Core.stdout, "dual residual:        ")
+        println(Core.stdout, round(ws.dual_res; sigdigits = 3))
+    end
+    print(Core.stdout, "run time:             ")
+    println(Core.stdout, (ws.first_run ? ws.setup_time : 0.0) + ws.update_time + ws.solve_time + ws.polish_time)
+    if backend_name(ws.linsys) === :indirect
+        print(Core.stdout, "total CG iterations:  ")
+        println(Core.stdout, ws.cg_iters)
+        print(Core.stdout, "missed CG solves:     ")
+        println(Core.stdout, ws.cg_total_misses)
+    end
+    println(Core.stdout, VERBOSE_RULE)
+    return nothing
+end
+
 """
     solve!(ws::InteriorPointWorkspace) -> Solution
 
@@ -579,6 +660,7 @@ function solve!(ws::InteriorPointWorkspace{T}) where {T}
     ws.alert = false
     ws.diverged = false
     ws.cg_misses = 0
+    ws.cg_total_misses = 0
     ws.polish_time = 0.0
     bound = iterate_bound(ws)
     inner_before = inner_iterations(ws.linsys)
@@ -586,6 +668,7 @@ function solve!(ws::InteriorPointWorkspace{T}) where {T}
     limited = isfinite(s.time_limit)
     started = time_ns()
     budget = limited ? round(UInt64, Float64(s.time_limit) * 1.0e9) : typemax(UInt64)
+    s.verbose && print_header(ws)
     try
         if starting_point!(ws)
             ipm_residuals!(ws)
@@ -602,7 +685,9 @@ function solve!(ws::InteriorPointWorkspace{T}) where {T}
                 ws.status = NUMERICAL_ERROR
                 break
             end
+            cg_before = inner_iterations(ws.linsys)
             ipm_step!(ws)
+            cg_this_iter = inner_iterations(ws.linsys) - cg_before
             ipm_residuals!(ws)
             if !finite_residuals(ws) || ws.cg_misses >= alg.cg_fail_limit
                 ws.status = NUMERICAL_ERROR
@@ -615,6 +700,7 @@ function solve!(ws::InteriorPointWorkspace{T}) where {T}
             stall = stalled!(ws, bound)
             checking = s.check_termination > 0 && iszero(iter % s.check_termination)
             triggered = stall || ws.alert
+            s.verbose && (checking || triggered) && print_row(ws, cg_this_iter)
             if checking || triggered
                 st = check_termination(ws, false, triggered)
                 if st != UNSOLVED
@@ -651,6 +737,7 @@ function solve!(ws::InteriorPointWorkspace{T}) where {T}
         ws.polished = ws.status_polish === POLISH_SUCCESS
         ws.polish_time = (time_ns() - t_polish) / 1.0e9
     end
+    s.verbose && print_footer(ws)
     sol = build_solution(ws)
     ws.first_run = false
     # The updates belonged to this run and are now reported; the next solve counts only the

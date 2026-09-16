@@ -114,8 +114,9 @@ including `adaptive_rho` adapting on a fixed iteration interval of 50.
   stops iterating, with `linsys = :indirect`.
 - `profile_primdual = false` — fill [`Solution`](@ref)'s `primdual_int` and
   `primdual_int_log`; the only parameter that makes the solve read a clock it would not
-  otherwise read, at a measured cost under 1%.
-- `verbose = false` — print a header, one line per termination check, and a footer.
+  otherwise read, at a measured cost under 1%. Only ADMM reads a clock this way, so this
+  parameter stays here rather than in [`Options`](@ref); `verbose` moved there because both
+  algorithms now print a progress report.
 
 One mode is deliberately absent. libosqp 1.0 offers a fourth `adaptive_rho`, adapting once
 a fraction of the setup time has elapsed; a solver that decides when to refactorize by
@@ -136,13 +137,12 @@ struct OperatorSplitting{T <: Real} <: QPAlgorithm
     rho_is_vec::Bool
     cg_tol_reduction::Int
     profile_primdual::Bool
-    verbose::Bool
 end
 
 function OperatorSplitting(;
         rho = 0.1, sigma = 1.0e-6, alpha = 1.6, adaptive_rho = true, adaptive_rho_interval = 50,
         adaptive_rho_fraction = 0.4, adaptive_rho_tolerance = 5.0, rho_is_vec = true,
-        cg_tol_reduction = 10, profile_primdual = false, verbose = false,
+        cg_tol_reduction = 10, profile_primdual = false,
     )
     # `adaptive_rho` names a mode. A `Bool` is also accepted: `true` is `:iterations`.
     rho_mode = adaptive_rho isa Bool ? (adaptive_rho ? :iterations : :disabled) :
@@ -170,7 +170,7 @@ function OperatorSplitting(;
     return OperatorSplitting{F}(
         F(rho), F(sigma), F(alpha), rho_mode, Int(adaptive_rho_interval),
         F(adaptive_rho_fraction), F(adaptive_rho_tolerance), Bool(rho_is_vec),
-        Int(cg_tol_reduction), Bool(profile_primdual), Bool(verbose),
+        Int(cg_tol_reduction), Bool(profile_primdual),
     )
 end
 
@@ -178,7 +178,7 @@ end
 OperatorSplitting{T}(a::OperatorSplitting) where {T <: Real} = OperatorSplitting{T}(
     T(a.rho), T(a.sigma), T(a.alpha), a.adaptive_rho, a.adaptive_rho_interval,
     T(a.adaptive_rho_fraction), T(a.adaptive_rho_tolerance), a.rho_is_vec,
-    a.cg_tol_reduction, a.profile_primdual, a.verbose,
+    a.cg_tol_reduction, a.profile_primdual,
 )
 
 const OPERATOR_SPLITTING_NAMES = fieldnames(OperatorSplitting{Float64})

@@ -335,9 +335,13 @@ preconditioner, or on GPU arrays.
 - The MathOptInterface extension accepts `InteriorPoint()` through the `"algorithm"` raw
   attribute; switching algorithms on a live optimizer refuses a raw setting the new one does
   not accept.
-- `verbose` and `profile_primdual` are read only by [`OperatorSplitting`](@ref); passing either
-  to `InteriorPoint()` throws naming the algorithm that owns it, since the interior-point
-  method reports no per-iteration progress to print.
+- `verbose` prints under either algorithm: a header, one line per termination check, and a
+  footer, with `mu` and `alpha` in place of ADMM's `rho`. The interior-point method's footer
+  also names the run time, and, on the matrix-free backend, its row gains a `cg iters` column
+  and its footer a line for the total CG iterations and the missed inner solves.
+  `profile_primdual` is read only by [`OperatorSplitting`](@ref); passing it to
+  `InteriorPoint()` throws naming the algorithm that owns it, since only ADMM's loop
+  accumulates the primal-dual integral it fills.
 - `accelerator` is ADMM's fixed-point accelerator and is refused by name under
   `InteriorPoint()`; a GPU array is refused by name, as it is under ADMM's non-`:indirect`
   backends.

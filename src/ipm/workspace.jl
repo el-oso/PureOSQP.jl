@@ -135,6 +135,8 @@ mutable struct InteriorPointWorkspace{
     cg_iters::Int
     # Consecutive Newton solves the backend reported as missed (see `last_solve_converged`).
     cg_misses::Int
+    # Newton solves reported as missed anywhere in this run, for the verbose footer.
+    cg_total_misses::Int
     iter::Int
     status::Status
     seeded::Bool
@@ -189,7 +191,7 @@ function ipm_workspace(
         zero(T), zero(T), zero(T),
         zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), zero(T),
         zero(T), zero(T), zero(T), zero(T),
-        0, 0, 0, UNSOLVED, false, true, false, POLISH_NOT_PERFORMED, 0.0, 0.0, 0.0, 0.0,
+        0, 0, 0, 0, UNSOLVED, false, true, false, POLISH_NOT_PERFORMED, 0.0, 0.0, 0.0, 0.0,
         algorithm, options,
     )
     return ws

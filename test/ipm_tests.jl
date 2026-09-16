@@ -690,7 +690,10 @@ end
     @test_throws "eps_abs and eps_rel must be non-negative" update_settings!(ws; eps_abs = -1)
     @test_throws "reg_primal must be positive" update_settings!(ws, InteriorPoint(reg_primal = -1.0))
     @test_throws "reg_primal is a parameter of InteriorPoint, not an option" update_settings!(ws; reg_primal = 1.0e-6)
-    @test_throws "verbose is a parameter of OperatorSplitting, not an option" update_settings!(ws; verbose = true)
+    # `verbose` is a shared option: InteriorPoint() accepts it, unlike a genuine parameter mismatch above.
+    update_settings!(ws; verbose = true)
+    @test ws.options.verbose
+    update_settings!(ws; verbose = false)
     @test_throws "the algorithm is fixed once the workspace is built" update_settings!(ws, OperatorSplitting())
 
     @test PureOSQP.solve!(ws).status == SOLVED
@@ -710,15 +713,92 @@ end
     @test ws.options.cg_max_iter == 3
 end
 
-@testitem "verbose and the accelerator are refused under InteriorPoint()" begin
+@testitem "the accelerator is refused under InteriorPoint()" begin
     using LinearAlgebra, SparseArrays, OSQP, Random, COSMOAccelerators
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(6, 12; seed = 97)
-    @test_throws "verbose is a parameter of OperatorSplitting" PureOSQP.solve(P, q, A, l, u, InteriorPoint(); verbose = true)
-    @test_throws MethodError InteriorPoint(verbose = true)
     @test_throws "accelerator is used only by OperatorSplitting" setup(
         P, q, A, l, u, InteriorPoint(); accelerator = PureOSQP.anderson(Float64, 18)
     )
+end
+
+@testitem "verbose prints a progress report, and is silent when off (InteriorPoint)" begin
+    using LinearAlgebra, SparseArrays, OSQP, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    P, q, A, l, u = random_qp(12, 30; seed = 21)
+
+    # `Core.stdout` writes to the file descriptor, so capture at that level rather than by
+    # rebinding `Base.stdout`, as the ADMM verbose test does.
+    function capture(f)
+        (path, io) = mktemp()
+        try
+            redirect_stdout(f, io)
+            close(io)
+            return read(path, String)
+        finally
+            rm(path; force = true)
+        end
+    end
+
+    loud = capture() do
+        PureOSQP.solve(P, q, A, l, u, InteriorPoint(); verbose = true)
+    end
+    quiet = capture() do
+        PureOSQP.solve(P, q, A, l, u, InteriorPoint(); verbose = false)
+    end
+
+    @test isempty(quiet)
+    @test !isempty(loud)
+    @test occursin("PureOSQP", loud)
+    @test occursin("iter", loud)
+    @test occursin("status:", loud)
+    @test occursin("solved", loud)
+    @test occursin("number of iterations:", loud)
+    @test occursin("run time:", loud)
+    # One row per termination check (`check_termination = 1` by default for InteriorPoint()),
+    # plus the header and footer blocks.
+    sol = PureOSQP.solve(P, q, A, l, u, InteriorPoint())
+    @test count(==('\n'), loud) >= sol.iter
+
+    polished = capture() do
+        PureOSQP.solve(P, q, A, l, u, InteriorPoint(); verbose = true, polishing = true)
+    end
+    @test occursin("polish:", polished)
+    @test !occursin("polish:", loud)
+end
+
+@testitem "verbose shows the CG column on the matrix-free IPM backend" begin
+    using LinearAlgebra, Random, Krylov
+    include(joinpath(@__DIR__, "helpers.jl"))
+    P, q, A, l, u = random_qp(10, 20; seed = 94)
+
+    function capture(f)
+        (path, io) = mktemp()
+        try
+            redirect_stdout(f, io)
+            close(io)
+            return read(path, String)
+        finally
+            rm(path; force = true)
+        end
+    end
+
+    loud = capture() do
+        PureOSQP.solve(
+            P, q, A, l, u, InteriorPoint(); verbose = true, linsys = :indirect, scaling = 0,
+            preconditioner = Diagonal(ones(10))
+        )
+    end
+    @test occursin("cg iters", loud)
+    @test occursin("total CG iterations:", loud)
+    @test occursin("missed CG solves:", loud)
+
+    # A direct backend prints neither column nor footer line.
+    direct = capture() do
+        PureOSQP.solve(P, q, A, l, u, InteriorPoint(); verbose = true)
+    end
+    @test !occursin("cg iters", direct)
+    @test !occursin("total CG iterations:", direct)
 end
 
 @testitem "interior point: time_limit and an interrupt return the point reached" begin

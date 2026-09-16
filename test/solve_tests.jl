@@ -137,10 +137,10 @@ end
     end
 
     loud = capture() do
-        PureOSQP.solve(P, q, A, l, u, OperatorSplitting(verbose = true); check_termination = 25)
+        PureOSQP.solve(P, q, A, l, u; verbose = true, check_termination = 25)
     end
     quiet = capture() do
-        PureOSQP.solve(P, q, A, l, u, OperatorSplitting(verbose = false); check_termination = 25)
+        PureOSQP.solve(P, q, A, l, u; verbose = false, check_termination = 25)
     end
 
     # The defect this guards against is a setting that is accepted and then ignored.
@@ -157,7 +157,7 @@ end
 
     # Polishing reports its own outcome, and only when it was asked for.
     polished = capture() do
-        PureOSQP.solve(P, q, A, l, u, OperatorSplitting(verbose = true); polishing = true)
+        PureOSQP.solve(P, q, A, l, u; verbose = true, polishing = true)
     end
     @test occursin("polish:", polished)
     @test !occursin("polish:", loud)

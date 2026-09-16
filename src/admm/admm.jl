@@ -157,7 +157,7 @@ function solve!(ws::OperatorSplittingWorkspace{T}) where {T}
     ws.last_rel_kkt = INFTY(T)
     ws.solve_time = 0.0
     ws.polish_time = 0.0
-    alg.verbose && print_header(ws)
+    s.verbose && print_header(ws)
     # `time_ns` is monotonic and costs tens of nanoseconds against a per-iteration cost of
     # microseconds, but the whole check is skipped when no limit is set, so the default
     # path is exactly what it was. A limit makes the iteration count machine-dependent,
@@ -185,7 +185,7 @@ function solve!(ws::OperatorSplittingWorkspace{T}) where {T}
                 update_residuals!(ws)
                 profiling && accumulate_primdual!(ws)
                 ws.status = TIME_LIMIT_REACHED
-                alg.verbose && print_row(ws)
+                s.verbose && print_row(ws)
                 break
             end
             adapting = alg.adaptive_rho !== :disabled && alg.adaptive_rho_interval > 0 &&
@@ -200,7 +200,7 @@ function solve!(ws::OperatorSplittingWorkspace{T}) where {T}
             # Only on a termination check: the residuals and objective a row reports are
             # the ones that check just used, so a printed row always explains the decision
             # made alongside it.
-            alg.verbose && checking && print_row(ws)
+            s.verbose && checking && print_row(ws)
             if checking
                 st = check_termination(ws, false)
                 if st != UNSOLVED
@@ -245,7 +245,7 @@ function solve!(ws::OperatorSplittingWorkspace{T}) where {T}
         ws.polished = ws.status_polish === POLISH_SUCCESS
         ws.polish_time = (time_ns() - t_polish) / 1.0e9
     end
-    alg.verbose && print_footer(ws)
+    s.verbose && print_footer(ws)
     sol = build_solution(ws)
     ws.first_run = false
     # The updates belonged to this run and are now reported; the next solve counts only the

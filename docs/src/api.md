@@ -40,14 +40,14 @@ PureOSQP.Status
 
 ## Settings
 
-[`OperatorSplitting`](@ref) documents its parameters and [`Options`](@ref) the options. This section shows how both correspond to the reference implementation's settings; with the default algorithm every setting in the right-hand column is an `Options` keyword except `verbose`, `profile_primdual`, `rho`, `rho_is_vec`, `sigma`, `alpha`, `cg_tol_reduction` and the four `adaptive_rho` settings, which are `OperatorSplitting` parameters.
+[`OperatorSplitting`](@ref) documents its parameters and [`Options`](@ref) the options. This section shows how both correspond to the reference implementation's settings; with the default algorithm every setting in the right-hand column is an `Options` keyword except `profile_primdual`, `rho`, `rho_is_vec`, `sigma`, `alpha`, `cg_tol_reduction` and the four `adaptive_rho` settings, which are `OperatorSplitting` parameters.
 
 | upstream | default | here | default | note |
 |---|---|---|---|---|
 | `device` | `0` | — | | GPU device selection; no counterpart |
 | `osqp_linsys_solver_type` | direct | `linsys` | `:auto` | upstream picks a *library*, this picks a *formulation* — see [Algebra backends](@ref) |
 | `allocate_solution` | `true` | — | | an embedded-allocation concern; no counterpart |
-| `verbose` | `true` | `verbose` | `false` | a library that prints by default is the wrong default for a package |
+| `verbose` | `true` | `verbose` | `false` | a library that prints by default is the wrong default for a package; both algorithms read it |
 | `profiler_level` | `0` | `profile_primdual` | `false` | one switch over the one measurement that needs a clock |
 | `warm_starting` | `true` | `warm_starting` | `true` | |
 | `scaling` | `10` | `scaling` | `10` | |

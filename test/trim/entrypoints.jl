@@ -75,6 +75,16 @@ solve_ipm_unscaled(P::M, q::V, A::M, l::V, u::V) =
 solve_ipm_polish(P::M, q::V, A::M, l::V, u::V) =
     PureOSQP.solve(P, q, A, l, u, PureOSQP.InteriorPoint(); polishing = true)
 
+# `verbose` on the interior-point method: the header/row/footer printing is new code the
+# trimmer must resolve, on the direct backend and, separately, on the matrix-free one, whose
+# row takes the extra branch that prints the CG column.
+solve_ipm_verbose(P::M, q::V, A::M, l::V, u::V) =
+    PureOSQP.solve(P, q, A, l, u, PureOSQP.InteriorPoint(); verbose = true)
+solve_ipm_verbose_indirect(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(
+    P, q, A, l, u, PureOSQP.InteriorPoint(); verbose = true, linsys = :indirect, scaling = 0,
+    preconditioner = cholesky(Symmetric(P + I))
+)
+
 # Chosen by representation under the IPM exactly as under ADMM: `choose_backend` for a
 # `Diagonal` pair serves either algorithm.
 solve_ipm_diagonal(P::DM, q::V, A::DM, l::V, u::V) = PureOSQP.solve(P, q, A, l, u, PureOSQP.InteriorPoint())
@@ -169,7 +179,7 @@ solve_accelerated(P::M, q::V, A::M, l::V, u::V) =
 # `verbose` prints through hand-written formatting precisely because `--trim` rejects
 # Printf and `Base.stdout`. Pinned as its own entry point so that stays checked.
 solve_verbose(P::M, q::V, A::M, l::V, u::V) =
-    PureOSQP.solve(P, q, A, l, u, PureOSQP.OperatorSplitting(verbose = true))
+    PureOSQP.solve(P, q, A, l, u; verbose = true)
 
 # The `try`/`catch` guarding the ADMM loop against an interrupt is on every solve path,
 # so the trimmer sees it whether or not one is ever raised.
