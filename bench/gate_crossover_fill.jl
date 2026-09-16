@@ -234,7 +234,6 @@ open(joinpath(@__DIR__, "results", "gate_crossover_fill.json"), "w") do io
             "julia_version" => string(VERSION),
             "blas_threads" => BLAS.get_num_threads(),
             "settings" => Dict(string(k) => v for (k, v) in pairs(OPTS)),
-            "dense_factor_fill" => Ext.DENSE_FACTOR_FILL,
             "banded" => serialize.(banded_rows),
             "random" => serialize.(random_rows),
         ), 2

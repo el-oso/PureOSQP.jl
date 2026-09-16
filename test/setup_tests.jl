@@ -243,8 +243,8 @@ end
     n = m = 60
     M = sparse(Diagonal(range(1.0, 3.0; length = n)))
     M[1, 2] = M[2, 1] = 0.4
-    # One dense row over an identity block: sparse enough for the density gate to decline,
-    # and its dense row is what carries the pair past the fill gate into the sparse rungs.
+    # One dense row over an identity block: the row spans every column, so the reduced form
+    # is out and the pair takes the KKT one.
     A = sparse(
         vcat(fill(1, n), 2:m), vcat(1:n, 1:(m - 1)),
         vcat(fill(1.0, n), fill(1.0, m - 1)), m, n

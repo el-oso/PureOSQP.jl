@@ -200,7 +200,6 @@ PureOSQP.SelectionFor
 PureOSQP.ADMMSelection
 PureOSQP.IPMSelection
 PureOSQP.select_backend
-PureOSQP.density_gate_rung
 PureOSQP.kkt_rung
 PureOSQP.reduced_rung
 PureOSQP.block_rung
@@ -218,4 +217,12 @@ PureOSQP.backend_name
 PureOSQP.backend_info
 PureOSQP.factor_fill
 PureOSQP.BackendInfo
+```
+
+## Measuring the backend choice
+
+```@docs
+PureOSQP.recommend_linsys
+PureOSQP.LinsysAdvice
+PureOSQP.measure_linsys
 ```

@@ -291,15 +291,14 @@ function setup_backend(
         adopt_settings!(ws.linsys, algorithm, options)
         use_residual_stop!(ws.linsys, true)
     elseif LS === :sparse
-        # First at the ladder's own fill threshold, which is what picks the smaller or faster
-        # of two sparse backends exactly as `:auto` would (a KKT factor that stays sparser
-        # than the reduced one, say). Only when that finds nothing does `fill_limit = Inf`
-        # retry with the gate disabled, so a pair `:auto` would send to the dense terminal
-        # still reaches a sparse backend instead of throwing.
+        # First with the pattern rule in force, which is what picks the same sparse backend
+        # `:auto` would. Only when that finds nothing does `gated = false` retry with the rule
+        # skipped, so a pair `:auto` would send to the dense terminal still reaches a sparse
+        # backend instead of throwing.
         rung = kkt_rung(P, A, prob, wt, sel)
         isnothing(rung) && (rung = reduced_rung(P, A, prob, wt, sel))
-        isnothing(rung) && (rung = kkt_rung(P, A, prob, wt, sel; fill_limit = Inf))
-        isnothing(rung) && (rung = reduced_rung(P, A, prob, wt, sel; fill_limit = Inf))
+        isnothing(rung) && (rung = kkt_rung(P, A, prob, wt, sel; gated = false))
+        isnothing(rung) && (rung = reduced_rung(P, A, prob, wt, sel; gated = false))
         isnothing(rung) && throw(
             ArgumentError(
                 "linsys = :sparse factors the reduced or KKT matrix sparsely and could not " *
@@ -350,14 +349,13 @@ end
 
 The interior-point ladder: the sparse KKT factorization first, then the sparse reduced one
 and the structured reduced backends, and [`FullKKT`](@ref) as the terminal for any
-materializable pair. The Kronecker rung is absent, since it needs uniform weights; the
-low-rank rung declines (see its [`IPMSelection`](@ref) method); and
-[`formed_rung`](@ref) is absent, since its inverse would be rebuilt every outer iteration for
-a handful of solves.
+materializable pair. Which of the two sparse forms serves a `SparseMatrixCSC` pair, and
+whether either does, is one question asked of the sparsity pattern; both rungs consult that
+one answer. The Kronecker rung is absent, since it needs uniform weights; the low-rank rung
+declines (see its [`IPMSelection`](@ref) method); and [`formed_rung`](@ref) is absent, since
+its inverse would be rebuilt every outer iteration for a handful of solves.
 """
 function select_backend(P, A, prob, wt, sel::IPMSelection)
-    rung = density_gate_rung(P, A, prob, sel)
-    isnothing(rung) || return rung
     rung = kkt_rung(P, A, prob, wt, sel)
     isnothing(rung) || return rung
     rung = reduced_rung(P, A, prob, wt, sel)

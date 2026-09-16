@@ -640,8 +640,8 @@ function setup_backend(
         refactor!(ws)
         return finish_setup!(ws, t0)
     elseif LS === :dense
-        # Past `choose_backend` entirely. Its two gates for a sparse `A` are measured
-        # thresholds, and this is the way to overrule one that misjudges a problem.
+        # Past `choose_backend` entirely. Its rule for a sparse `A` reads the pattern and not
+        # the numbers, and this is the way to overrule one that misjudges a problem.
         ws = make(ReducedCholesky(q0, n, m))
         refactor!(ws)
         return finish_setup!(ws, t0)
@@ -651,17 +651,16 @@ function setup_backend(
         refactor!(ws)
         return finish_setup!(ws, t0)
     elseif LS === :sparse
-        # First at the ladder's own fill threshold, which is what picks the smaller or faster
-        # of two sparse backends exactly as `:auto` would (a KKT factor that stays sparser
-        # than the reduced one, say, or a formed reduced matrix over a factored one). Only
-        # when that finds nothing does `fill_limit = Inf` retry with the gate disabled, so a
-        # pair `:auto` would send to the dense terminal still reaches a sparse backend
-        # instead of throwing.
+        # First with the pattern rule in force, which is what picks the same sparse backend
+        # `:auto` would (a KKT form for a pair with a dense row, say, or the formed reduced
+        # matrix over a factored one). Only when that finds nothing does `gated = false`
+        # retry with the rule skipped, so a pair `:auto` would send to the dense terminal
+        # still reaches a sparse backend instead of throwing.
         rung = kkt_rung(P, A, prob, wt, ADMMSelection())
         isnothing(rung) && (rung = reduced_rung(P, A, prob, wt, ADMMSelection()))
         isnothing(rung) && (rung = formed_rung(P, A, prob, ADMMSelection()))
-        isnothing(rung) && (rung = kkt_rung(P, A, prob, wt, ADMMSelection(); fill_limit = Inf))
-        isnothing(rung) && (rung = reduced_rung(P, A, prob, wt, ADMMSelection(); fill_limit = Inf))
+        isnothing(rung) && (rung = kkt_rung(P, A, prob, wt, ADMMSelection(); gated = false))
+        isnothing(rung) && (rung = reduced_rung(P, A, prob, wt, ADMMSelection(); gated = false))
         isnothing(rung) && throw(
             ArgumentError(
                 "linsys = :sparse factors the reduced or KKT matrix sparsely and could not " *

@@ -226,10 +226,11 @@ end
     @test maximum(kkt_residuals(P, q, A, l, u, sp.x, sp.y)) < 1.0e-7
 end
 
-@testitem "a dense-enough sparse A keeps the dense product" begin
+@testitem "a dense-enough sparse A still accumulates over its entries" begin
     using LinearAlgebra, SparseArrays, Random
-    # Accumulating over stored entries loses to `syrk` once there are enough of them, so
-    # above the density threshold a SparseMatrixCSC is served by the dense-forming backend.
+    # A reduced matrix this full is inverted densely either way, and accumulating over the
+    # stored entries gets there without the m×n buffer the dense product needs — so the
+    # representation alone decides, at any density.
     Random.seed!(5)
     n, m = 40, 80
     A = sprandn(m, n, 0.6)
@@ -237,8 +238,11 @@ end
     b = A * randn(n)
     q, l, u = randn(n), b .- rand(m), b .+ rand(m)
     ws = setup(P, q, A, l, u)
-    @test PureOSQP.backend_name(ws.linsys) == :cholesky
+    @test PureOSQP.backend_name(ws.linsys) == :sparse_formed
     @test solve!(ws).status == SOLVED
+    # The same numbers handed over as dense matrices reach the dense terminal instead, which
+    # is the representation and not the density doing the choosing.
+    @test PureOSQP.backend_name(setup(Matrix(P), q, Matrix(A), l, u).linsys) == :cholesky
 end
 
 @testitem "the sparse backend survives a data update" begin
@@ -278,10 +282,10 @@ end
 @testitem "a banded problem is factored sparsely" begin
     using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
-    # Banded is what MPC and other structured QPs look like, and is where a sparse
-    # factorization earns its place: the reduced matrix stays banded, so its Cholesky
+    # Banded is what MPC and other structured QPs look like, and a narrow band is where a
+    # sparse factorization earns its place: the reduced matrix stays banded, so its Cholesky
     # factor does too. The dense backend would invert an n×n matrix instead.
-    P, q, A, l, u = banded_qp(200, 400; band = 3)
+    P, q, A, l, u = banded_qp(200, 400; band = 1)
     opts = (eps_abs = 1.0e-9, eps_rel = 1.0e-9, max_iter = 50_000)
 
     ws = setup(P, q, A, l, u; opts...)
@@ -362,9 +366,9 @@ end
 @testitem "linsys = :dense overrules the representation gates" begin
     using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
-    # Both gates for a sparse A are measured thresholds, so there has to be a way to
-    # overrule one that misjudges a problem. `:dense` goes past `choose_backend` entirely.
-    P, q, A, l, u = banded_qp(200, 400; band = 3)
+    # The rule for a sparse A is fitted to a benchmark suite, so there has to be a way to
+    # overrule it on a problem it misjudges. `:dense` goes past `choose_backend` entirely.
+    P, q, A, l, u = banded_qp(200, 400; band = 1)
     opts = (eps_abs = 1.0e-9, eps_rel = 1.0e-9, max_iter = 50_000)
 
     @test PureOSQP.backend_name(setup(P, q, A, l, u; opts...).linsys) in SPARSE_FACTOR_BACKENDS

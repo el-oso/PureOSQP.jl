@@ -7,8 +7,8 @@
     include(joinpath(@__DIR__, "..", "bench", "suite_problems.jl"))
 
     expected = Dict(
-        "Random QP" => :cholesky,
-        "Eq QP" => :cholesky,
+        "Random QP" => :sparse_formed,
+        "Eq QP" => :sparse_formed,
         "Portfolio" => :ldl_kkt,
         "Lasso" => :ldlfactorizations,
         "SVM" => :ldlfactorizations,
@@ -21,6 +21,81 @@
         ws = setup(P, q, A, l, u)
         @test PureOSQP.backend_name(ws.linsys) === expected[name]
     end
+end
+
+@testitem "the sparse rule reads the pattern and nothing else" begin
+    using LinearAlgebra, SparseArrays, Random
+    using LDLFactorizations
+    Ext = Base.get_extension(PureOSQP, :PureOSQPSparseArraysExt)
+    Random.seed!(74)
+
+    # A pattern's answer must not move when the stored values do: that is what "decides from
+    # the pattern" means, and it is what lets `setup` factor once.
+    n, m = 400, 200
+    A = sprandn(m, n, 0.01)
+    P = sparse(1.0I, n, n)
+    for sel in (PureOSQP.ADMMSelection(), PureOSQP.IPMSelection())
+        want = Ext.sparse_form(P, A, n, m, sel)
+        scaled = SparseMatrixCSC(m, n, copy(A.colptr), copy(A.rowval), nonzeros(A) .* 1.0e6)
+        @test Ext.sparse_form(P, scaled, n, m, sel) === want
+    end
+
+    # One row spanning the variables fills the reduced matrix by itself, so both algorithms
+    # take the KKT form. It is the only route to that form under ADMM, so dropping the row
+    # leaves the reduced one.
+    budget = sparse([fill(1.0, 1, n); Matrix(sprandn(m - 1, n, 0.005))])
+    for sel in (PureOSQP.ADMMSelection(), PureOSQP.IPMSelection())
+        @test Ext.sparse_form(P, budget, n, m, sel) === :kkt
+    end
+    @test Ext.sparse_form(P, budget[2:end, :], n, m - 1, PureOSQP.ADMMSelection()) === :reduced
+
+    # A pattern with no sparsity left to exploit is served by neither sparse form under the
+    # interior-point method, whose terminal is the dense KKT factorization.
+    full = sparse(randn(m, n))
+    @test Ext.sparse_form(sparse(randn(n, n)), full, n, m, PureOSQP.IPMSelection()) === :none
+    @test Ext.sparse_form(P, full, n, m, PureOSQP.ADMMSelection()) === :none
+
+    # `row_pattern` is the one pass over `A` the rule needs.
+    densest, sumsq = Ext.row_pattern(A)
+    counts = [count(==(i), rowvals(A)) for i in 1:m]
+    @test densest == maximum(counts)
+    @test sumsq == sum(abs2, counts)
+end
+
+@testitem "recommend_linsys ranks what it measured" begin
+    using LinearAlgebra, SparseArrays, Random
+    using LDLFactorizations
+    Random.seed!(75)
+
+    # Banded, so a sparse factorization has something to win with and the ranking is not a
+    # tie between candidates doing the same dense arithmetic.
+    n = 150
+    P = sparse(SymTridiagonal(fill(2.0, n), fill(0.3, n - 1)))
+    A = sparse(Bidiagonal(fill(1.0, n), fill(-1.0, n - 1), :U))
+    q, l, u = collect(range(-1.0, 1.0; length = n)), fill(-1.0, n), fill(1.0, n)
+
+    advice = recommend_linsys(P, q, A, l, u; max_iter = 5, repeats = 2)
+    @test advice isa LinsysAdvice
+    @test advice.linsys in PureOSQP.LINSYS_OPTIONS
+    # Ranked fastest first, with the dense terminal and `:auto` both reached.
+    @test issorted(advice.candidates; by = c -> c.iterate_ms)
+    @test :auto in [c.linsys for c in advice.candidates]
+    @test :dense in [c.linsys for c in advice.candidates]
+    # Every candidate ran the same bounded number of iterations and reports a real fill.
+    for c in advice.candidates
+        @test 0 < c.iter <= 5
+        @test c.setup_ms > 0 && c.solve_ms > 0
+        @test c.factor_fill >= 0
+    end
+    # The name it reports is one `setup` accepts, and reaches the backend it was measured on.
+    ws = setup(P, q, A, l, u; linsys = advice.linsys)
+    @test PureOSQP.backend_name(ws.linsys) === first(advice.candidates).backend
+    # A name the pair refuses is left out of the ranking rather than raising.
+    @test !(:kronecker in [c.linsys for c in advice.candidates])
+    @test occursin("LinsysAdvice", sprint(show, MIME"text/plain"(), advice))
+
+    @test_throws "max_iter must be at least 1" recommend_linsys(P, q, A, l, u; max_iter = 0)
+    @test_throws "repeats must be at least 1" recommend_linsys(P, q, A, l, u; repeats = 0)
 end
 
 @testitem "every structured family reaches its recorded backend" begin
@@ -112,7 +187,6 @@ end
     sel = PureOSQP.ADMMSelection()
 
     # A materializable pair stops at the dense terminal, and the rungs above it decline.
-    @test isnothing(PureOSQP.density_gate_rung(P, A, prob, sel))
     @test isnothing(PureOSQP.formed_rung(P, A, prob, sel))
     ls, factored = PureOSQP.dense_rung(P, A, prob, sel)
     @test ls isa PureOSQP.ReducedCholesky

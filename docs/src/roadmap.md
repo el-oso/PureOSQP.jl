@@ -43,7 +43,7 @@ here, factorization 1.5–2.7× slower. A simplicial path would change that.
 reach setup parity and lose more in the loop: a sparse `LDLᵀ` of the reduced matrix or of the
 KKT; two `trsv` at the same flop count but serial; `trtri` with two `trmv` halves setup but
 doubles the loop. Equilibration is within 1.13× of libosqp's per sweep. The convexity test
-and the fill gate are fixed costs libosqp does not pay.
+and the pattern scan that selects the backend are fixed costs libosqp does not pay.
 
 ## Deliberate differences
 

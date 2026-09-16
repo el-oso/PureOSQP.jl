@@ -12,7 +12,7 @@ what is true now; this file is where the history lives.
   `InteriorPointWorkspace`; its default tolerances are `1e-8`, not ADMM's `1e-3`. It handles equality, one-sided, two-sided and free rows, uses
   equilibration as ADMM does, and solves its Newton systems with the direct backends: the
   dense full KKT factorization for dense data and for a dense `P` with a sparse `A`, and for
-  a sparse pair the sparse KKT factorization first. Diagonal, tridiagonal, banded, block and
+  a sparse pair whichever sparse form the sparsity pattern calls for. Diagonal, tridiagonal, banded, block and
   sparse reduced pairs keep their structured backends: on problems of each structure, QPs and
   LPs with and without equality rows, each solves in the same outer iterations as the full KKT
   factorization with a referee residual of at most `1.1e-8` (`bench/ipm_backends.jl`). A diagonal `P`
@@ -114,9 +114,32 @@ what is true now; this file is where the history lives.
   `Preconditioner`; a caller's preconditioner need not be one, and `setup` refuses one that has
   no `LinearAlgebra.ldiv!` method for the backend's vectors, naming the method.
   `dimensions` accepts an `InteriorPointWorkspace`.
+- **`recommend_linsys(P, q, A, l, u, alg)` measures the backend choice instead of predicting
+  it.** It builds every backend the pair admits, times `setup` and a bounded number of
+  iterations on each, and returns a `LinsysAdvice` ranked fastest first, carrying the `linsys`
+  name to pin, the times and the factor fills. `linsys = :auto` applies a rule fitted to a
+  benchmark suite; this runs the experiment on the problem in hand. It is a tool for the
+  caller: nothing on the solve path reaches it, and it adds no dependency.
 
 ### Changed
 
+- **`linsys = :auto` chooses from the sparsity pattern, and never factors a matrix to
+  decide.** For a `SparseMatrixCSC` pair the choice among the sparse KKT form, the sparse
+  reduced form and the algorithm's terminal now reads the densest row of `A`, `Σᵢ nnzᵢ²`, the
+  stored entries of the KKT matrix, the symbolic `AᵀA ∪ P` pattern count, `n` and `m`. The two
+  gates it replaces both cost something they then threw away: one factored a trial matrix and
+  read its fill, the other compared `nnz(A)/mn` against a measured density. The rule is fitted
+  to `bench/results/ipm_selection.json`, which times every backend each of 71 problems admits
+  under both algorithms: the backend it picks is within 1.3× of the fastest measured one on 69
+  of the 71 under `InteriorPoint` (worst case 1.52×) and within 1.03× on all 71 under
+  `OperatorSplitting`. Under `InteriorPoint` the benchmark suite's Random QP class goes from
+  the dense KKT factorization to the sparse reduced one (22.5 ms to 1.0 ms) and Control from
+  the dense KKT factorization to the sparse KKT one (56.8 ms to 1.9 ms); Lasso, SVM and Huber
+  move from the sparse KKT form to the sparse reduced one. Under `OperatorSplitting` the
+  Random QP and Eq QP classes accumulate the reduced matrix from the stored entries rather
+  than forming it with a dense product, which is the same arithmetic without the `m×n` buffer,
+  and every other class keeps the backend it had. `linsys = :sparse`, `:kkt` and `:dense`
+  remain unconditional overrides.
 - **The algorithm is an object, and the settings are split into its parameters and shared
   options.** `solve(P, q, A, l, u, alg; kwargs...)` and `setup` take the algorithm as an
   optional sixth argument: `OperatorSplitting(; rho, sigma, alpha, adaptive_rho, …,

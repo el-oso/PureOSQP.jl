@@ -496,21 +496,19 @@ whether that rung already carries a factorization of the current data.
 
 The rungs, in order:
 
-1. [`density_gate_rung`](@ref) — the reduced matrix is dense enough that assembling it from
-   stored entries loses to the dense product, so the pair goes straight to the terminal.
-2. [`kkt_rung`](@ref) — factor the full `(n+m)×(n+m)` quasi-definite matrix sparsely.
-3. [`reduced_rung`](@ref) — factor the `n×n` reduced matrix sparsely.
-4. [`block_rung`](@ref) — the reduced matrix decouples into independent blocks, solved one
+1. [`kkt_rung`](@ref) — factor the full `(n+m)×(n+m)` quasi-definite matrix sparsely.
+2. [`reduced_rung`](@ref) — factor the `n×n` reduced matrix sparsely.
+3. [`block_rung`](@ref) — the reduced matrix decouples into independent blocks, solved one
    at a time and never assembled whole.
-5. [`lowrank_rung`](@ref) — the reduced matrix is a structured core plus a low-rank
+4. [`lowrank_rung`](@ref) — the reduced matrix is a structured core plus a low-rank
    correction, solved through the correction rather than formed.
-6. [`formed_rung`](@ref) — assemble the reduced matrix from stored entries and invert it
+5. [`formed_rung`](@ref) — assemble the reduced matrix from stored entries and invert it
    densely.
-7. [`dense_rung`](@ref) — form the reduced matrix densely and invert it. Every pair that can
+6. [`dense_rung`](@ref) — form the reduced matrix densely and invert it. Every pair that can
    be materialized at all stops here.
-8. [`indirect_rung`](@ref) — matrix-free, for an operator the terminal cannot materialize.
+7. [`indirect_rung`](@ref) — matrix-free, for an operator the terminal cannot materialize.
 
-Rungs 2 and 3 decide by factoring the real equilibrated matrix and reading the fill, so the
+Rungs 1 and 2 decide from the sparsity pattern and then build what they chose, so the
 factorization they produce is the setup factorization and they return `true`. That is why a
 rung returns the backend rather than a verdict: a query answering only "does this fit" would
 throw that factorization away and pay for it twice.
@@ -521,9 +519,9 @@ outside it:
 - `linsys = :kkt`, `:dense`, `:indirect` and the named kinds (`:sparse`, `:diagonal`,
   `:tridiagonal`, `:block`, `:kronecker`, `:lowrank`) are handled in [`setup`](@ref) before
   the ladder is reached, so a caller who names a backend never descends it. `:sparse`
-  descends rungs 2, 3 and 6 only, and the named kinds reach their own rung or the
+  descends rungs 1, 2 and 5 only, and the named kinds reach their own rung or the
   [`choose_backend`](@ref) method for their pair rather than the whole ladder. `:indirect`
-  in particular reaches [`indirect_backend`](@ref) directly and not through rung 6.
+  in particular reaches [`indirect_backend`](@ref) directly and not through rung 5.
 - A [`choose_backend`](@ref) method for a specific `(P, A)` pair wins over this ladder by
   dispatch, which is how the structured and banded backends are chosen. The ladder is the
   body of the *fallback* method.
@@ -537,8 +535,6 @@ ladder by defining the method its representation needs. The order is fixed here,
 place, rather than emerging from where each gate happens to sit.
 """
 function select_backend(P, A, prob, wt, sel::ADMMSelection)
-    rung = density_gate_rung(P, A, prob, sel)
-    isnothing(rung) || return rung
     rung = kkt_rung(P, A, prob, wt, sel)
     isnothing(rung) || return rung
     rung = reduced_rung(P, A, prob, wt, sel)
@@ -557,47 +553,34 @@ function select_backend(P, A, prob, wt, sel::ADMMSelection)
 end
 
 """
-    density_gate_rung(P, A, prob, sel) -> (LinearSystem, Bool) or nothing
+    kkt_rung(P, A, prob, wt, sel; gated = true) -> (LinearSystem, Bool) or nothing
 
-Ladder rung 1: send a pair whose stored entries are too dense for sparse assembly to pay
-straight to [`dense_rung`](@ref), skipping the rungs between.
+Ladder rung 1: factor the full quasi-definite KKT matrix sparsely, when the sparsity pattern
+says this is the form to use. What it returns is already factored.
 
-Declines for a representation with no density to measure.
+`gated = false` skips that question and builds the backend for any pair whose representation
+admits it, which is what a caller who names `linsys = :sparse` gets: the named kind is an
+instruction rather than a hint, and only a representation mismatch or a genuine factorization
+failure can still refuse the pair.
 """
-density_gate_rung(P, A, prob, sel::SelectionFor) = nothing
-
-"""
-    kkt_rung(P, A, prob, wt, sel; fill_limit = <the ladder's own threshold>) -> (LinearSystem, Bool) or nothing
-
-Ladder rung 2: factor the full quasi-definite KKT matrix sparsely, when its factor clears
-`fill_limit`. Decides by factoring, so what it returns is already factored. Under
-`ADMMSelection` it is considered only where the reduced form would densify; under
-`IPMSelection` it is tried first.
-
-`fill_limit` is a fill threshold, not a comparison against the dense path: it accepts where
-the sparse factor is small, which is a sufficient condition for the sparse route to win and
-not a necessary one. A pair it declines on the default threshold is not thereby known to be
-better served densely. A caller who names `linsys = :sparse` reaches this with
-`fill_limit = Inf`, which disables the threshold entirely — the extension implementing this
-for `SparseMatrixCSC` is what gives the keyword its ladder default.
-"""
-kkt_rung(P, A, prob, wt, sel::SelectionFor; fill_limit::Real = Inf) = nothing
+kkt_rung(P, A, prob, wt, sel::SelectionFor; gated::Bool = true) = nothing
 
 """
-    reduced_rung(P, A, prob, wt, sel; fill_limit = <the ladder's own threshold>) -> (LinearSystem, Bool) or nothing
+    reduced_rung(P, A, prob, wt, sel; gated = true) -> (LinearSystem, Bool) or nothing
 
-Ladder rung 3: factor the reduced matrix sparsely, when its factor clears `fill_limit`.
-Decides by factoring, so what it returns is already factored. See [`kkt_rung`](@ref) on what
-`fill_limit = Inf` does for a named `linsys = :sparse`.
+Ladder rung 2: factor the reduced matrix sparsely, when the sparsity pattern says this is the
+form to use. What it returns is already factored. See [`kkt_rung`](@ref) on what
+`gated = false` does for a named `linsys = :sparse`.
 """
-reduced_rung(P, A, prob, wt, sel::SelectionFor; fill_limit::Real = Inf) = nothing
+reduced_rung(P, A, prob, wt, sel::SelectionFor; gated::Bool = true) = nothing
 
 """
     formed_rung(P, A, prob, sel::ADMMSelection) -> (LinearSystem, Bool) or nothing
 
-Ladder rung 6: form the reduced matrix by accumulating over stored entries, then invert it
+Ladder rung 5: form the reduced matrix by accumulating over stored entries, then invert it
 densely — the same dense arithmetic as [`dense_rung`](@ref) reached without the `m×n` buffer
-its product needs.
+its product needs. This is where a sparse `A` that no sparse factorization suits ends up, so
+the buffer is never allocated for one.
 
 Accumulating reads entries, so a method here declines an operand that answers
 [`is_materializable`](@ref) with `false`, as rung 6 does.
@@ -607,7 +590,7 @@ formed_rung(P, A, prob, sel::ADMMSelection) = nothing
 """
     dense_rung(P, A, prob, sel::ADMMSelection) -> (LinearSystem, Bool) or nothing
 
-Ladder rung 7, the terminal: [`ReducedCholesky`](@ref), which forms the reduced matrix with
+Ladder rung 6, the terminal: [`ReducedCholesky`](@ref), which forms the reduced matrix with
 one dense product and inverts it. It serves any pair of materializable matrices, which is
 why every rung above it may decline freely.
 
@@ -627,7 +610,7 @@ dense_rung(P, A, prob, sel::ADMMSelection) = nothing
 """
     indirect_rung(P, A, prob, sel::ADMMSelection) -> (LinearSystem, Bool)
 
-Ladder rung 8, below the terminal: conjugate gradients, which needs only products with `P`
+Ladder rung 7, below the terminal: conjugate gradients, which needs only products with `P`
 and `A` and so serves an operator no other rung can materialize.
 
 It has no gate: reaching it means nothing above could serve. Without Krylov loaded there is
@@ -970,11 +953,11 @@ function indirect_backend(proto::AbstractVector, n::Integer, m::Integer, precond
 end
 
 """
-    ldl_backend(gram, proto, n, fill_limit) -> LinearSystem or nothing
+    ldl_backend(gram, proto, n) -> LinearSystem or nothing
 
 A backend that factors the already-assembled reduced matrix `gram.R` with an `LDLᵀ` other
-than the one SparseArrays supplies, or `nothing` if no such factorization is available or
-its fill exceeds `fill_limit * n^2`.
+than the one SparseArrays supplies, or `nothing` if no such factorization is available or the
+matrix does not factor.
 
 The reduced matrix is passed in already built, so the extension answering this needs to know
 nothing about how it was assembled — and the sparse extension, in turn, needs no dependency
@@ -984,10 +967,10 @@ Only the factorization is delegated. The substitutions and the diagonal scaling 
 per-iteration path stay in this package, over whatever `L` and `D` the backend exposes,
 because they are as fast as any library's and they carry the allocation guarantee.
 """
-ldl_backend(gram, proto::AbstractVector, n::Integer, fill_limit::Real) = nothing
+ldl_backend(gram, proto::AbstractVector, n::Integer) = nothing
 
 """
-    ldl_kkt_backend(K, proto, n, m, fill_limit) -> LinearSystem or nothing
+    ldl_kkt_backend(K, proto, n, m) -> LinearSystem or nothing
 
 The same delegation for the full quasi-definite KKT matrix `K`, which is factored `LDLᵀ`
 without pivoting because a quasi-definite matrix admits one under any symmetric permutation.
@@ -996,7 +979,7 @@ Separate from [`ldl_backend`](@ref) because the solve differs, not the factoriza
 full system yields `z̃` from the eliminated multiplier where the reduced one recovers it with
 a product against `A`.
 """
-ldl_kkt_backend(gram, proto::AbstractVector, n::Integer, m::Integer, fill_limit::Real) = nothing
+ldl_kkt_backend(gram, proto::AbstractVector, n::Integer, m::Integer) = nothing
 
 """
     ldl_posdef(P, sigma) -> Bool or nothing

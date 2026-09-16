@@ -77,15 +77,14 @@ PureOSQP.backend_info(ls::SparseLDL) = PureOSQP.BackendInfo(
 )
 
 """
-    PureOSQP.ldl_backend(gram, proto, n, fill_limit) -> SparseLDL or nothing
+    PureOSQP.ldl_backend(gram, proto, n) -> SparseLDL or nothing
 
-Analyse and factor `gram.R`, and take the backend if the fill stays under the limit.
+Analyse and factor `gram.R`, with `ldl_analyze`'s own fill-reducing ordering.
 
-`ldl_analyze` chooses its own fill-reducing ordering; the fill it reports is what decides,
-exactly as the CHOLMOD path decides on `nnz(F.L)`. Returning `nothing` leaves that path to
-answer instead.
+Returning `nothing` leaves the CHOLMOD path to answer instead, which is what happens when the
+analysis fails or the reduced matrix turns out to be singular.
 """
-function PureOSQP.ldl_backend(gram, proto::AbstractVector{T}, n::Integer, fill_limit::Real) where {T <: Real}
+function PureOSQP.ldl_backend(gram, proto::AbstractVector{T}, n::Integer) where {T <: Real}
     R = gram.R
     M = Symmetric(R, :U)
     fact = try
@@ -98,7 +97,6 @@ function PureOSQP.ldl_backend(gram, proto::AbstractVector{T}, n::Integer, fill_l
     # `D` is singular exactly when the reduced matrix is, which for `P̃ + σI + Ãᵀ diag(ρ) Ã`
     # means the problem was not convex after all. Hand it back rather than divide by zero.
     any(iszero, fact.d) && return nothing
-    nnz(fact.L) < fill_limit * n^2 || return nothing
     Base.get_extension(PureOSQP, :PureOSQPSparseArraysExt).check_factor(fact.L, n)
     return SparseLDL{T, typeof(proto), typeof(gram), typeof(fact)}(
         gram, fact, fact_L(fact), fact_perm(fact), inv.(fact.d), similar(proto, T, n)
@@ -255,7 +253,7 @@ PureOSQP.backend_info(ls::LDLKKT) = PureOSQP.BackendInfo(
 )
 
 function PureOSQP.ldl_kkt_backend(
-        gram, proto::AbstractVector{T}, n::Integer, m::Integer, fill_limit::Real
+        gram, proto::AbstractVector{T}, n::Integer, m::Integer
     ) where {T <: Real}
     M = Symmetric(gram.K, :U)
     fact = try
@@ -266,8 +264,6 @@ function PureOSQP.ldl_kkt_backend(
     end
     ldl_factorize!(M, fact)
     any(iszero, fact.d) && return nothing
-    # Against the dense reduced factorization this replaces, whose cost is `n²`.
-    nnz(fact.L) < fill_limit * n^2 || return nothing
     Base.get_extension(PureOSQP, :PureOSQPSparseArraysExt).check_factor(fact.L, n + m)
     v = similar(proto, T, n + m)
     return LDLKKT{T, typeof(v), typeof(gram), typeof(fact)}(

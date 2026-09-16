@@ -2,7 +2,7 @@
   "blas_threads": 1,
   "cases": {
     "adaptive_rho/kkt_error/auto": {
-      "backend_name": "cholesky",
+      "backend_name": "sparse_formed",
       "iter": 1225,
       "refactor_count": 2,
       "status": "solved",
@@ -210,11 +210,11 @@
       "accel_declined": 0
     },
     "suite/Eq QP/auto": {
-      "backend_name": "cholesky",
+      "backend_name": "sparse_formed",
       "iter": 50,
       "refactor_count": 1,
       "status": "solved",
-      "obj_val": 554.7911457186,
+      "obj_val": 554.791145718,
       "accel_declined": 0
     },
     "suite/Eq QP/dense": {
@@ -274,7 +274,7 @@
       "accel_declined": 0
     },
     "suite/Random QP/auto": {
-      "backend_name": "cholesky",
+      "backend_name": "sparse_formed",
       "iter": 1225,
       "refactor_count": 2,
       "status": "solved",

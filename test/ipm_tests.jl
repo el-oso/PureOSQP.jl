@@ -78,7 +78,7 @@ end
     end
 end
 
-@testitem "interior point: sparse pairs try the KKT factorization first" begin
+@testitem "interior point: a sparse pair is factored sparsely" begin
     using LinearAlgebra, SparseArrays, OSQP, Random, LDLFactorizations
     include(joinpath(@__DIR__, "helpers.jl"))
     n = 400
@@ -90,8 +90,9 @@ end
     A = [A0; sparse(1.0I, n, n)]
     l, u = [b0 .- rand(n ÷ 2); fill(-1.0, n)], [b0 .+ rand(n ÷ 2); fill(1.0, n)]
     cases = [
-        # An LP on sparse data: the sparse KKT factor clears the fill gate.
-        ("sparse LP", spzeros(n, n), A, SPARSE_KKT_BACKENDS),
+        # An LP on banded data: the reduced pattern stays banded, which is the form the
+        # rule takes when `A` is tall and no row of it spans the variables.
+        ("sparse LP", spzeros(n, n), A, SPARSE_FACTOR_BACKENDS),
         # The sparse rungs need a sparse P, so these reach the dense terminal.
         ("dense P, sparse A", Matrix(P), A, (:bunchkaufman,)),
         ("dense LP", zeros(n, n), Matrix(A), (:bunchkaufman,)),

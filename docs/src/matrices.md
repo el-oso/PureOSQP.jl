@@ -306,9 +306,10 @@ it in `Symmetric` to say which triangle is the real one.
 
 Eliminating `ν` from the ADMM subproblem gives an `n×n` reduced matrix, and whether that
 matrix is worth keeping sparse depends on its pattern rather than on the input's density.
-`linsys = :auto` decides by asking CHOLMOD to factor the pattern and measuring the fill. Where
-that decision sits among the others is drawn in
-[Choosing a backend](@ref).
+`linsys = :auto` reads the pattern: the densest row of `A`, the count of the symbolic
+`AᵀA ∪ P` pattern, `n` and `m`. Nothing is factored to decide, so the factorization `setup`
+pays for is the one the solve goes on to use. Where that decision sits among the others is
+drawn in [Choosing a backend](@ref).
 
 ```@example storage
 band = 200
@@ -339,6 +340,29 @@ PureOSQP.backend_name(scattered.linsys)
 Both are reported by `PureOSQP.backend_name(ws.linsys)`, which names whichever backend the
 workspace ended up with. The dense default is `:cholesky`, and the full quasi-definite
 factorization is `:bunchkaufman`.
+
+#### Measuring the choice on your own problem
+
+The rule above is a rule: it is fitted to a benchmark suite, so it is right about a class of
+problems and not about any particular one. [`recommend_linsys`](@ref) runs the experiment
+instead — it builds every backend the pair admits, times `setup` and a bounded number of
+iterations on each, and ranks them.
+
+```julia
+julia> advice = recommend_linsys(P, q, A, l, u, InteriorPoint())
+LinsysAdvice: linsys = :sparse
+  linsys       backend               setup ms  solve ms   ms/iter      fill   iter  status
+  :auto        ldlfactorizations        0.495     1.108    0.1108    0.0015     10  solved
+  :sparse      ldlfactorizations        0.646      1.59     0.159    0.0015     10  solved
+  :dense       cholesky                 1.881   126.325   12.6325   0.50062     10  solved
+  :kkt         bunchkaufman            17.187     775.43    77.543   4.44263     10  solved
+
+julia> ws = setup(P, q, A, l, u, InteriorPoint(); linsys = advice.linsys);
+```
+
+It is a tool for the caller, not a stage of `setup`: nothing on the solve path calls it, and
+it costs a solve per candidate. Run it once for a problem shape you solve repeatedly, then
+pin the `linsys` it names.
 
 ### Which backend a structured matrix gets
 

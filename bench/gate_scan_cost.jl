@@ -1,9 +1,9 @@
-# What the density gate's scan of `A` costs against the setup it gates.
+# What the selection rule's scan of `A` costs against the setup it decides.
 #
-# `densest_row` runs once in `sparse_kkt_backend` and again in `cholmod_backend`, so a sparse
-# `setup` that descends past the first rung pays for two passes over `A`'s stored row indices.
-# Whether that duplication is worth removing is a question about its share of setup, and this
-# file measures both halves on the OSQP suite plus two larger sparse problems.
+# `row_pattern` runs once per rung that consults `sparse_form`, so a sparse `setup` that
+# descends past the KKT rung pays for two passes over `A`'s stored row indices. Whether that
+# duplication is worth removing is a question about its share of setup, and this file measures
+# both halves on the OSQP suite plus two larger sparse problems.
 #
 # Swept at two BLAS thread counts: the scan is scalar and `setup`'s factorizations are not, so
 # the share the scan holds depends on how many threads the caller gives the rest of setup.
@@ -53,8 +53,8 @@ for nthreads in THREADS
         A isa SparseMatrixCSC || continue
         n, m = size(A, 2), size(A, 1)
         backend = String(PureOSQP.backend_name(PureOSQP.setup(P, q, A, l, u).linsys))
-        EXT.densest_row(A)
-        sc = @be EXT.densest_row($A) seconds = BUDGET
+        EXT.row_pattern(A)
+        sc = @be EXT.row_pattern($A) seconds = BUDGET
         st = @be PureOSQP.setup($P, $q, $A, $l, $u) seconds = BUDGET
         tsc, tst = med(sc), med(st)
         push!(

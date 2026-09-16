@@ -76,10 +76,10 @@ function ipm_ws(kind, data)
         PureOSQP.FullKKT(prob.q0, n, m)
     elseif kind === :sparse_kkt
         (P isa SparseMatrixCSC && A isa SparseMatrixCSC) || return nothing
-        SExt.factored_kkt_backend(P, A, prob, wt; fill_limit = Inf)
+        SExt.factored_kkt_backend(P, A, prob, wt)
     elseif kind === :sparse_reduced
         (P isa SparseMatrixCSC && A isa SparseMatrixCSC) || return nothing
-        SExt.cholmod_backend(P, A, prob, wt; fill_limit = Inf)
+        SExt.cholmod_backend(P, A, prob, wt)
     elseif kind === :auto
         first(PureOSQP.choose_backend(P, A, prob, wt, PureOSQP.IPMSelection()))
     else

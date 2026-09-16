@@ -22,6 +22,7 @@ export Optimizer, Solution, Status, Options, default_options
 export QPAlgorithm, OperatorSplitting, InteriorPoint
 export QPWorkspace, OperatorSplittingWorkspace, InteriorPointWorkspace
 export has_solution, status_name
+export recommend_linsys, LinsysAdvice
 export backend_info, backend_name, factor_fill, BackendInfo
 export PolishStatus
 export adjoint_derivative, forward_derivative
@@ -60,6 +61,9 @@ include("ipm/workspace.jl")
 include("ipm/ipm.jl")
 # After InteriorPointWorkspace: the derivative methods below serve both algorithms' workspaces.
 include("core/derivative.jl")
+# Off the solve path and off every `--trim` entry point: it calls `setup` and `solve!` and is
+# called by neither.
+include("recommend.jl")
 
 """
     Optimizer(; kwargs...)

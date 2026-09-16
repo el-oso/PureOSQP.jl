@@ -136,52 +136,136 @@ struct SparseFormedInverse{T <: Real, M <: AbstractMatrix{T}} <: PureOSQP.Reduce
     Rinv::M
 end
 
-"""
-Density above which the dense product forms the reduced matrix faster than accumulating
-over stored entries, so a `SparseMatrixCSC` is served by [`PureOSQP.ReducedCholesky`](@ref)
-anyway.
+"A row of `A` touching this fraction of the columns fills the reduced matrix on its own."
+const DENSE_ROW_FRACTION = 0.5
 
-Accumulation does `Σᵢ nnzᵢ²` flops against the dense product's `mn²`, but it writes into `R`
-by scattered index where `syrk` streams contiguous memory, and that constant is worth about
-an order of magnitude. Measured, the two cross near 20% density; this is set below that, and
-matches the density above which callers are already advised to hand over dense copies.
 """
-const DENSE_FORM_DENSITY = 0.1
+Fraction of the `(n+m)²` entries of the interior-point method's dense KKT terminal that the
+KKT pattern may store before no sparse form can pay.
+"""
+const KKT_PATTERN_DENSITY = 0.25
 
-function PureOSQP.density_gate_rung(P, A::SparseMatrixCSC, prob, sel::PureOSQP.SelectionFor)
-    n, m = prob.n, prob.m
-    (n > 0 && m > 0 && nnz(A) > DENSE_FORM_DENSITY * m * n) || return nothing
-    return PureOSQP.dense_rung(P, A, prob, sel)
+"Fraction of the `n×n` reduced matrix the reduced pattern fills before it counts as full."
+const FULL_REDUCED_PATTERN = 0.9
+
+"""
+Multiple of the reduced matrix's `n²` entries that `Σᵢ nnzᵢ²` may reach before rebuilding it
+each outer iteration costs more than the KKT form's `O(nnz)` refill saves.
+"""
+const REDUCED_ASSEMBLY_LIMIT = 1.5
+
+"""
+Fraction of the `n×n` matrix ADMM would otherwise invert that the reduced pattern may fill and
+still be worth factoring, given that ADMM factors once and solves against that factorization
+for the rest of the run.
+
+Measured in `bench/results/ipm_selection.json`: a pattern at 0.06 loses to the dense inverse
+by 4.7× and one at 0.083 by 3.0×, because the factor of a scattered pattern fills in far past
+the pattern itself. Every pattern below this limit either wins or ties.
+"""
+const SPARSE_PATTERN_FRACTION = 0.05
+
+"""
+    row_pattern(A) -> (densest, sumsq)
+
+The most nonzeros any row of `A` holds, and `Σᵢ nnzᵢ²` over its rows, in one pass.
+
+`Ãᵀ W Ã` gives each row of `A` an outer product with itself, so `densest²` is a lower bound
+on `nnz(R)` and `sumsq` is the work of accumulating `R` from the stored entries.
+"""
+function row_pattern(A::SparseMatrixCSC)
+    counts = zeros(Int, size(A, 1))
+    for i in rowvals(A)
+        counts[i] += 1
+    end
+    densest, sumsq = 0, 0
+    for c in counts
+        densest = max(densest, c)
+        sumsq += c * c
+    end
+    return (densest, sumsq)
 end
 
-# Factoring sparsely beats inverting densely only when the factor stays sparse, which is a
-# property of the pattern and so is measured rather than assumed. Both of these rungs factor
-# the real matrix to find out, so a backend they return is ready to solve.
-#
-# `fill_limit` is the ladder's own threshold by default. A caller who names `linsys = :sparse`
-# passes `Inf` instead, which is what makes the named kind an instruction rather than a hint:
-# every gate below keyed on `fill_limit` then never declines, and only a representation
-# mismatch or a genuine factorization failure can still refuse the pair.
-function PureOSQP.kkt_rung(
-        P, A::SparseMatrixCSC, prob, wt, sel::PureOSQP.ADMMSelection; fill_limit::Real = DENSE_FACTOR_FILL
-    )
-    ls = sparse_kkt_backend(P, A, prob, wt; fill_limit)
-    return isnothing(ls) ? nothing : (ls, true)
+"""
+    sparse_form(P, A, n, m, sel) -> Symbol
+
+Which sparse form of the system `sel`'s algorithm solves this pattern is served by: `:kkt`
+for the `(n+m)×(n+m)` quasi-definite matrix, `:reduced` for the `n×n` `P̃ + σI + Ãᵀ W Ã`, or
+`:none` for neither, which leaves the pair to the algorithm's terminal rung.
+
+The answer is read from the patterns of `P` and `A` alone — the densest row, `Σᵢ nnzᵢ²`, the
+stored entries of the KKT matrix, and [`reduced_nnz`](@ref)'s count of the symbolic
+`AᵀA ∪ P ∪ I` pattern. Nothing is factored, so the backend the ladder then builds is the
+only factorization `setup` pays for.
+
+`bench/results/ipm_selection.json` records every backend each of 71 problems admits, timed
+under both algorithms, alongside the backend this rule picked. Under `InteriorPoint` the
+pick is within 1.3× of the fastest measured backend on 69 of the 71, worst case 1.52×; under
+`OperatorSplitting` it is within 1.03× on all 71.
+"""
+function sparse_form(P::SparseMatrixCSC, A::SparseMatrixCSC, n::Integer, m::Integer, ::PureOSQP.IPMSelection)
+    # The terminal is the dense `(n+m)` KKT factorization, so what decides against a sparse
+    # form is how much of that matrix is stored to begin with: past a quarter there is too
+    # little structure left for any ordering to exploit, and `syrk`-backed dense arithmetic
+    # wins. This is what sends the random-`P` families to the terminal and keeps the sparse
+    # suite classes off it.
+    kkt_entries = nnz(P) + 2 * nnz(A) + n + m
+    kkt_entries >= KKT_PATTERN_DENSITY * (n + m)^2 && return :none
+    densest, sumsq = row_pattern(A)
+    # One row of `A` spanning the variables fills `R` by itself, whatever the rest of the
+    # pattern looks like; the KKT form never squares it. The Portfolio class's budget row
+    # `1ᵀx = 1` is this case, and the reduced form is 139× slower there.
+    densest >= DENSE_ROW_FRACTION * n && return :kkt
+    # With few rows the KKT matrix is barely wider than the reduced one, so keeping `A`
+    # unsquared costs nothing.
+    2 * m <= n && return :kkt
+    # `reduced_nnz` stops counting once the pattern passes `limit`, so this costs a fraction
+    # of a full count on exactly the patterns that would be most expensive to count.
+    limit = cld(n^2, 2) * FULL_REDUCED_PATTERN
+    # A reduced pattern this full has no sparsity to lose: factoring it is dense work at `n`,
+    # which beats a sparse factorization of a matrix `n + m` wide.
+    reduced_nnz(P, A, n, floor(Int, limit)) > limit && return :reduced
+    # The reduced matrix is rebuilt and refactored every outer iteration. Accumulating it
+    # costs `Σᵢ nnzᵢ²` where refilling the KKT matrix costs `O(nnz)`, so a wide `A` is
+    # cheaper to keep unsquared even when its reduced pattern stays sparse.
+    return sumsq > REDUCED_ASSEMBLY_LIMIT * n^2 ? :kkt : :reduced
 end
 
-# The interior-point Newton system's weights reach `1/δ_d`, which the reduced form squares into
-# its conditioning, so the KKT factorization is tried whether or not the reduced one densifies.
+function sparse_form(P::SparseMatrixCSC, A::SparseMatrixCSC, n::Integer, m::Integer, ::PureOSQP.ADMMSelection)
+    # ADMM factors once and solves against that factorization for the rest of the run, so
+    # what decides is the per-iteration solve: a pair of sparse triangular solves against a
+    # `symv` on the `n×n` inverse the terminal holds. Both sparse forms are therefore
+    # measured against `n²`, the terminal's size, and not against their own.
+    densest, _ = row_pattern(A)
+    if densest >= DENSE_ROW_FRACTION * n
+        # The reduced form is out — one row fills it — so the KKT form is the only sparse
+        # candidate, and it pays while its whole pattern is smaller than half the matrix the
+        # terminal inverts. Portfolio-shaped pairs sit two orders of magnitude inside that;
+        # a pair whose `A` is both wide and dense sits outside it.
+        return 2 * (nnz(P) + 2 * nnz(A) + n + m) <= n^2 ? :kkt : :none
+    end
+    limit = SPARSE_PATTERN_FRACTION * n^2
+    return reduced_nnz(P, A, n, floor(Int, limit / 2)) * 2 <= limit ? :reduced : :none
+end
+
+# Both rungs consult the same rule, so the form it names is the one built and the other
+# declines. `gated = false` is what a caller who named `linsys = :sparse` gets: the rule is
+# skipped and only a representation mismatch or a factorization failure can still refuse.
 function PureOSQP.kkt_rung(
-        P, A::SparseMatrixCSC, prob, wt, sel::PureOSQP.IPMSelection; fill_limit::Real = DENSE_FACTOR_FILL
+        P, A::SparseMatrixCSC, prob, wt, sel::PureOSQP.SelectionFor; gated::Bool = true
     )
-    ls = factored_kkt_backend(P, A, prob, wt; fill_limit)
+    P isa SparseMatrixCSC || return nothing
+    gated && sparse_form(P, A, prob.n, prob.m, sel) !== :kkt && return nothing
+    ls = factored_kkt_backend(P, A, prob, wt)
     return isnothing(ls) ? nothing : (ls, true)
 end
 
 function PureOSQP.reduced_rung(
-        P, A::SparseMatrixCSC, prob, wt, sel::PureOSQP.SelectionFor; fill_limit::Real = DENSE_FACTOR_FILL
+        P, A::SparseMatrixCSC, prob, wt, sel::PureOSQP.SelectionFor; gated::Bool = true
     )
-    ls = cholmod_backend(P, A, prob, wt; fill_limit)
+    P isa SparseMatrixCSC || return nothing
+    gated && sparse_form(P, A, prob.n, prob.m, sel) !== :reduced && return nothing
+    ls = cholmod_backend(P, A, prob, wt)
     return isnothing(ls) ? nothing : (ls, true)
 end
 
@@ -616,59 +700,34 @@ function PureOSQP.solve_multiplier!(
 end
 
 """
-    sparse_kkt_backend(P, A, prob, wt; fill_limit = DENSE_FACTOR_FILL) -> SparseKKT or nothing
+    factored_kkt_backend(P, A, prob, wt) -> SparseKKT or nothing
 
-Build the full-KKT backend when the reduced form would densify and this one would not.
+Assemble the full KKT matrix from the equilibrated data and factor it sparsely.
 
-Both conditions are measured. The reduced matrix is rejected on the bound in
-[`densest_row`](@ref); the KKT matrix is accepted on the fill CHOLMOD reports for its
-pattern, against the `n²` a dense reduced factorization would cost.
-
-The matrix is assembled from the equilibrated data, so the factorization that answers the
-fill question is the one the solver goes on to use — a backend returned from here needs no
-further `factorize!`.
-
-`fill_limit = Inf` skips straight to [`factored_kkt_backend`](@ref): "only worth considering
-where the reduced form loses" is a cost comparison, and a caller who named this backend is not
-asking for the cheaper of two options.
+Whether this form suits the pair is [`sparse_form`](@ref)'s question and is already settled
+before this is called, so the factorization produced here is the one the solver goes on to
+use — a backend returned from here needs no further `factorize!`. `nothing` means the
+representation does not match or the matrix does not factor at this regularization.
 """
-function sparse_kkt_backend(
-        P, A, prob::PureOSQP.Problem{T}, wt::PureOSQP.SystemWeights{T}; fill_limit::Real = DENSE_FACTOR_FILL
+function factored_kkt_backend(
+        P, A, prob::PureOSQP.Problem{T}, wt::PureOSQP.SystemWeights{T}
     ) where {T <: Real}
     n, m = prob.n, prob.m
     # The concrete type, not `issparse`: everything downstream of here — `kkt_gram`,
     # `refill_kkt!` — is written against `SparseMatrixCSC`'s stored columns, and a
     # `Symmetric` wrapper over one answers `issparse` while matching none of it.
     (P isa SparseMatrixCSC && n > 0 && m > 0) || return nothing
-    # Only worth considering where the reduced form loses, which is what the dense row means.
-    isfinite(fill_limit) && densest_row(A)^2 < fill_limit * n^2 && return nothing
-    return factored_kkt_backend(P, A, prob, wt; fill_limit)
-end
-
-"""
-    factored_kkt_backend(P, A, prob, wt; fill_limit = DENSE_FACTOR_FILL) -> SparseKKT or nothing
-
-Factor the full KKT matrix sparsely and keep the backend when its factor clears `fill_limit`,
-without [`sparse_kkt_backend`](@ref)'s test of whether the reduced form would densify.
-"""
-function factored_kkt_backend(
-        P, A, prob::PureOSQP.Problem{T}, wt::PureOSQP.SystemWeights{T}; fill_limit::Real = DENSE_FACTOR_FILL
-    ) where {T <: Real}
-    n, m = prob.n, prob.m
-    (P isa SparseMatrixCSC && n > 0 && m > 0) || return nothing
     gram = kkt_gram(T, P, A, n, m)
     K = refill_kkt!(gram, P, A, wt.w_inv, prob.E, prob.D, prob.c, wt.sigma)
     # As for the reduced matrix: a pure-Julia LDLᵀ, where one is loaded, factors this faster
     # and needs nothing extracted from a foreign factor afterwards.
-    alt = PureOSQP.ldl_kkt_backend(gram, prob.q0, n, m, fill_limit)
+    alt = PureOSQP.ldl_kkt_backend(gram, prob.q0, n, m)
     isnothing(alt) || return alt
     F = ldlt(Symmetric(K, :U); check = false)
     issuccess(F) || return nothing
     LD = sparse(F.LD)::SparseMatrixCSC{T, Int}
     d = diag(LD)
     any(iszero, d) && return nothing
-    # Against the dense reduced factorization this replaces, whose cost is `n²`.
-    nnz(LD) < fill_limit * n^2 || return nothing
     check_factor(LD, n + m)
     v = similar(prob.q0, T, n + m)
     return SparseKKT{T, typeof(v), typeof(F)}(
@@ -678,19 +737,6 @@ end
 
 @verify SparseFormedInverse trim_compat = true
 
-
-"""
-Fill fraction `nnz(L)/n²` above which a sparse factorization stops paying, so a sparse `R`
-is factored densely anyway.
-
-Measured at `n = 2000` over a bandwidth sweep: against the dense inverse's `symv`, the pair
-of sparse triangular solves is 12.6× faster at a fill of 0.0025, 1.53× at 0.044, and loses
-at 0.086 — crossing near 0.06. The limit sits below that crossing so the accepted region
-wins on *both* the factorization and the per-iteration solve, which keeps the choice from
-depending on how a particular run divides its time between the two. The factorization alone
-favors sparse much further out, to 5.2× at a fill of 0.28.
-"""
-const DENSE_FACTOR_FILL = 0.05
 
 """
     ReducedGram{T}
@@ -742,8 +788,8 @@ This cannot be a [`PureOSQP.ReducedInverse`](@ref): that stores `R⁻¹` and sol
 `symv`, and the inverse of a sparse matrix is dense. The Cholesky factor is kept instead and
 each solve is a pair of sparse triangular solves. On a banded `R` that is the better trade by
 a wide margin — at `n = 4000` a refactorization goes from 1063 ms to 0.66 ms and a solve from
-1430 µs to 71 µs — and on a filled-in `R` it is worse, which [`DENSE_FACTOR_FILL`](@ref)
-decides.
+1430 µs to 71 µs — and on a filled-in `R` it is worse, which [`sparse_form`](@ref) decides
+from the pattern.
 
 `L` and `perm` are extracted from the factorization rather than solved through it, because
 CHOLMOD's `ldiv!` allocates a result and workspace on every call — 64 KB per solve at
@@ -1171,64 +1217,28 @@ function PureOSQP.solve_system!(ls::SparseCholmod{T}, prob, wt, rhs_x, rhs_z, x,
 end
 
 """
-    densest_row(A) -> Int
+    cholmod_backend(P, A, prob, wt) -> SparseCholmod or nothing
 
-The most nonzeros any row of `A` holds.
+Form the reduced matrix from the equilibrated data and factor it sparsely.
 
-`Ãᵀ diag(ρ) Ã` gives each row of `A` an outer product with itself, so the densest row alone
-contributes a dense `nnzᵢ × nnzᵢ` block to the reduced matrix and `nnzᵢ²` is a lower bound
-on `nnz(R)`. That is enough to reject a problem before forming `R` at all, which matters
-because forming it is a sparse product over the whole matrix: on the OSQP suite's Portfolio
-class, whose budget row `1ᵀx = 1` touches every column, that product was 27% of `setup` and
-its only outcome was a rejection.
-"""
-function densest_row(A::SparseMatrixCSC)
-    counts = zeros(Int, size(A, 1))
-    for i in rowvals(A)
-        counts[i] += 1
-    end
-    return isempty(counts) ? 0 : maximum(counts)
-end
-
-
-"""
-    cholmod_backend(P, A, prob, wt; fill_limit = DENSE_FACTOR_FILL) -> SparseCholmod or nothing
-
-Build the reduced sparse-factorization backend if it suits these matrices, and return
-`nothing` if it does not.
-
-The decision is measured rather than guessed: CHOLMOD is asked to factor the reduced matrix
-and the fill it reports settles it against `fill_limit`. That costs one factorization, and
-none of it is wasted when the answer is yes — the matrix is built from the equilibrated data,
-so the factor is the one the solver goes on to solve against and its symbolic part is what
-every later refactorization reuses. When the answer is no, [`densest_row`](@ref) usually says
-so before `R` is formed at all, and `nnz(R)` catches the rest.
-
-`fill_limit = Inf` disables every one of those checks, which is what a caller who named this
-backend gets: the pair is served whenever `P` is a `SparseMatrixCSC` and the factorization
-succeeds, whatever its fill turns out to be.
+Whether this form suits the pair is [`sparse_form`](@ref)'s question and is already settled
+before this is called, so the factor produced here is the one the solver goes on to solve
+against and its symbolic part is what every later refactorization reuses. `nothing` means the
+representation does not match or the matrix does not factor at this regularization.
 """
 function cholmod_backend(
-        P, A, prob::PureOSQP.Problem{T}, wt::PureOSQP.SystemWeights{T}; fill_limit::Real = DENSE_FACTOR_FILL
+        P, A, prob::PureOSQP.Problem{T}, wt::PureOSQP.SystemWeights{T}
     ) where {T <: Real}
     n = prob.n
     proto = prob.q0
-    # As in `sparse_kkt_backend`: `reduced_gram` and `refill!` need `SparseMatrixCSC`'s
+    # As in `factored_kkt_backend`: `reduced_gram` and `refill!` need `SparseMatrixCSC`'s
     # stored columns, which a `Symmetric` wrapper over one does not present.
     (P isa SparseMatrixCSC && n > 0) || return nothing
-    # A lower bound on `nnz(R)`, computed in one pass over `A`'s stored entries.
-    densest_row(A)^2 < fill_limit * n^2 || return nothing
-    # Counted rather than formed: the gate wants `nnz(R)` and nothing else, and that comes
-    # from the patterns. `reduced_nnz` reports one triangle where the limit is stated for the
-    # whole matrix. `floor` has no `Inf` method, so an unlimited fill skips straight to the
-    # function's own unlimited default instead.
-    limit = isfinite(fill_limit) ? floor(Int, fill_limit * n^2) : typemax(Int)
-    reduced_nnz(P, A, n, limit) < limit || return nothing
     gram = reduced_gram(T, P, A, n)
     R = refill!(gram, P, A, wt.w, prob.E, prob.D, prob.c, wt.sigma)
     # A pure-Julia LDLᵀ, if one is loaded, factors this faster than CHOLMOD does and hands
     # back `L` and `D` as plain arrays, so nothing has to be extracted from a foreign factor.
-    alt = PureOSQP.ldl_backend(gram, proto, n, fill_limit)
+    alt = PureOSQP.ldl_backend(gram, proto, n)
     isnothing(alt) || return alt
     F = cholesky(Symmetric(R, :U); check = false)
     issuccess(F) || return nothing
@@ -1239,7 +1249,6 @@ function cholmod_backend(
         err isa InterruptException && rethrow()
         return nothing
     end
-    nnz(L) < fill_limit * n^2 || return nothing
     Lt = SparseMatrixCSC(transpose(L))
     check_factor(L, n)
     check_factor(Lt, n)
