@@ -42,6 +42,15 @@ function status_name(s::Status)
     return "unsolved"
 end
 
+"Name of a polishing outcome, for messages."
+function polish_status_name(s::PolishStatus)
+    s === POLISH_SUCCESS && return "success"
+    s === POLISH_FAILED && return "failed"
+    s === POLISH_LINSYS_ERROR && return "linear system error"
+    s === POLISH_NO_ACTIVE_SET_FOUND && return "no active set found"
+    return "not performed"
+end
+
 # The `verbose` output.
 #
 # Everything here writes to `Core.stdout` and formats by hand. That is not a style choice:

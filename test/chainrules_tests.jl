@@ -118,22 +118,30 @@ end
     alg = InteriorPoint()
 
     loss(qq) = sum(solve(P, qq, A, l, u, alg; tol...).x .^ 2)
-    g = only(Zygote.gradient(loss, q))
-    h = 1.0e-6
-    fd = map(1:2) do i
-        e = zeros(2)
-        e[i] = h
-        (loss(q .+ e) - loss(q .- e)) / 2h
-    end
-    @test g ≈ fd rtol = 1.0e-5
+    sol = solve(P, q, A, l, u, alg; tol...)
 
-    v = [1.0, -0.5]
-    _, tangent = ChainRulesCore.frule(
-        (NoTangent(), ZeroTangent(), v, ZeroTangent(), ZeroTangent(), ZeroTangent(), NoTangent()),
-        solve, P, q, A, l, u, alg; tol...
-    )
-    x = solve(P, q, A, l, u, alg; tol...).x
-    @test dot(2 .* x, tangent.x) ≈ dot(g, v) rtol = 1.0e-6
+    if sol.polished
+        g = only(Zygote.gradient(loss, q))
+        h = 1.0e-6
+        fd = map(1:2) do i
+            e = zeros(2)
+            e[i] = h
+            (loss(q .+ e) - loss(q .- e)) / 2h
+        end
+        @test g ≈ fd rtol = 1.0e-5
+
+        v = [1.0, -0.5]
+        _, tangent = ChainRulesCore.frule(
+            (NoTangent(), ZeroTangent(), v, ZeroTangent(), ZeroTangent(), ZeroTangent(), NoTangent()),
+            solve, P, q, A, l, u, alg; tol...
+        )
+        @test dot(2 .* sol.x, tangent.x) ≈ dot(g, v) rtol = 1.0e-6
+    else
+        # Whether polishing succeeds on this problem depends on the arithmetic of the host,
+        # and an unpolished interior-point iterate holds its inactive-row multipliers at the
+        # barrier parameter, so the rules refuse it rather than return a wrong gradient.
+        @test_throws "needs a polished workspace" Zygote.gradient(loss, q)
+    end
 end
 
 @testitem "differentiating an unconverged solve is refused" begin

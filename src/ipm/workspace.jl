@@ -442,7 +442,9 @@ function derivative_ready(ws::InteriorPointWorkspace)
             "the derivative of an interior-point solution needs a polished workspace: its " *
                 "inactive-row multipliers sit at the barrier parameter rather than at zero, " *
                 "which the active-set test cannot tell apart from a genuinely active row. " *
-                "Solve with polishing = true first."
+                "Polishing ended as " * polish_status_name(ws.status_polish) *
+                ": solve with polishing = true, and if it is already on, tighten the " *
+                "tolerances so polishing has a clean active set to work from."
         )
     )
     return nothing
