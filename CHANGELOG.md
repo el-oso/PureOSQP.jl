@@ -183,6 +183,21 @@ what is true now; this file is where the history lives.
   (6.9 ms against 0.52 ms) and the whole solve 3.4× slower.
 - `polish_kernel!` no longer allocates three zero vectors on a path it declines: it returns
   the caller's own `x`, `y`, `z` instead, which the caller already knows not to use.
+- **A named `linsys` is honored whenever the representation allows it**, under either
+  algorithm. Before, `linsys = :sparse` still ran the `:auto` ladder's fill and density gates
+  internally and could throw on a pair with a perfectly good sparse representation — a sparse
+  `A` whose reduced or KKT factor simply came out denser than the ladder's threshold, or one
+  the ladder never reached because a cheaper rung answered first. `:block` and `:lowrank` had
+  the same problem: `:block` declined a single-block pair and `:lowrank` declined a coupling
+  wide enough that the correction stopped paying, both cost decisions rather than
+  representation ones. A named backend now tries the same rungs `:auto` would, at the same
+  threshold, first — which is what reaches the same backend `:auto` reaches wherever the gate
+  already passes — and only when every one of those declines retries with the gate disabled,
+  which is what reaches a backend for a pair `:auto` would otherwise send to the dense
+  terminal. It refuses only when it genuinely cannot serve the pair at either stage (wrong
+  matrix type, a missing weak dependency, or a factorization that does not succeed at the
+  current regularization) — never because a cheaper backend was measured to win. `:auto`'s
+  own choices are unchanged: the gates still decide which rung the ladder reaches on its own.
 
 ### Added
 

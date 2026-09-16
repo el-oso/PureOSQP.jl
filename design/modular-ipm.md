@@ -1016,6 +1016,16 @@ v1: certificate tests, not a homogeneous embedding.
 `IPMSelection` (§5). The IPM ladder has no `formed_rung` step and ends at `FullKKT`, skipping the low-rank rung: a diagonal `P` with a `RowCoupled` `A` reaches `FullKKT` instead, since the Woodbury solve does not reach tolerance on that pair's linear programs (measured, S10). The `sparse_kkt_backend` is split into the density pre-gate and `factored_kkt_backend`, which the IPM path calls directly; a sparse pair whose sparse KKT factor fails the fill gate lands on the sparse reduced backend, observed on `banded_qp(200, 300)`. `IndirectCG` under `:ipm` follows §9. Kronecker declines. GPU arrays are
 refused for `:ipm` through the GPU extension's `choose_backend` method.
 
+This fill gate, and `block_rung`'s single-block decline and `lowrank_rung`'s crossover
+decline, are what `:auto`'s ladder applies. A caller who names `linsys = :sparse`, `:block`
+or `:lowrank` tries the same rungs at the same threshold first — which is what reaches the
+same backend `:auto` would wherever the gate already passes — and only when every one of
+those declines retries `kkt_rung`/`reduced_rung`/`block_rung`/`lowrank_rung` with the gate
+disabled (`fill_limit = Inf`, `require_multiple = false`, `require_crossover = false`), which
+is what reaches a backend for a pair `:auto` would send to the dense terminal instead.
+Refusing still means the representation itself cannot serve the pair or the factorization
+does not succeed at either stage. `:auto` keeps the gates above unchanged.
+
 ### 8.9 Equilibration
 
 Identical to ADMM: the workspace holds `prob` with `D E c`; iterates are scaled;

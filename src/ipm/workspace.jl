@@ -291,13 +291,20 @@ function setup_backend(
         adopt_settings!(ws.linsys, algorithm, options)
         use_residual_stop!(ws.linsys, true)
     elseif LS === :sparse
+        # First at the ladder's own fill threshold, which is what picks the smaller or faster
+        # of two sparse backends exactly as `:auto` would (a KKT factor that stays sparser
+        # than the reduced one, say). Only when that finds nothing does `fill_limit = Inf`
+        # retry with the gate disabled, so a pair `:auto` would send to the dense terminal
+        # still reaches a sparse backend instead of throwing.
         rung = kkt_rung(P, A, prob, wt, sel)
         isnothing(rung) && (rung = reduced_rung(P, A, prob, wt, sel))
+        isnothing(rung) && (rung = kkt_rung(P, A, prob, wt, sel; fill_limit = Inf))
+        isnothing(rung) && (rung = reduced_rung(P, A, prob, wt, sel; fill_limit = Inf))
         isnothing(rung) && throw(
             ArgumentError(
                 "linsys = :sparse factors the reduced or KKT matrix sparsely and could not " *
-                    "serve this pair: it needs a SparseMatrixCSC A whose factor stays sparse " *
-                    "enough, and SparseArrays.jl loaded. Retry with linsys = :auto."
+                    "serve this pair: it needs a SparseMatrixCSC P and A, SparseArrays.jl " *
+                    "loaded, and a system that actually factors at this regularization."
             )
         )
         ws = ipm_workspace(first(rung), prob, wt, algorithm, options)
@@ -318,11 +325,16 @@ function setup_backend(
         )
         ws = ipm_workspace(first(choose_backend(P, A, prob, wt, sel)), prob, wt, algorithm, options)
     elseif LS === :block
+        # As for `:sparse`: the ladder's own `require_multiple = true` first, so a pair with
+        # more than one block reaches exactly the backend `:auto` would; `require_multiple =
+        # false` only as a retry, for the single-block pair `:auto` sends to the dense
+        # terminal instead.
         rung = block_rung(P, A, prob, wt, sel)
+        isnothing(rung) && (rung = block_rung(P, A, prob, wt, sel; require_multiple = false))
         isnothing(rung) && throw(
             ArgumentError(
                 "linsys = :block needs P and A both block diagonal over the same column " *
-                    "partition, with more than one block, and declines this pair"
+                    "partition, and declines this pair"
             )
         )
         ws = ipm_workspace(first(rung), prob, wt, algorithm, options)
@@ -381,9 +393,11 @@ dense_rung(P, A, prob, sel::IPMSelection) = nothing
 Declines, so the pair reaches [`FullKKT`](@ref). A variable that only the coupling rows reach
 has `δ_p` alone in the diagonal core wherever `P` is zero, which puts `1/δ_p` in the core's
 inverse; on linear programs over these pairs the Woodbury solve through it ends without a
-solution (`bench/ipm_backends.jl`).
+solution (`bench/ipm_backends.jl`). `linsys = :lowrank` is refused outright for
+`InteriorPoint()` before this is ever reached (see `setup_backend`), so `require_crossover`
+is accepted only for signature parity with the generic method.
 """
-lowrank_rung(P::Diagonal, A::RowCoupled, prob, wt, sel::IPMSelection) = nothing
+lowrank_rung(P::Diagonal, A::RowCoupled, prob, wt, sel::IPMSelection; require_crossover::Bool = true) = nothing
 
 """
     indirect_rung(P, A, prob, sel::IPMSelection)

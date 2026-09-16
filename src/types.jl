@@ -651,14 +651,22 @@ function setup_backend(
         refactor!(ws)
         return finish_setup!(ws, t0)
     elseif LS === :sparse
+        # First at the ladder's own fill threshold, which is what picks the smaller or faster
+        # of two sparse backends exactly as `:auto` would (a KKT factor that stays sparser
+        # than the reduced one, say, or a formed reduced matrix over a factored one). Only
+        # when that finds nothing does `fill_limit = Inf` retry with the gate disabled, so a
+        # pair `:auto` would send to the dense terminal still reaches a sparse backend
+        # instead of throwing.
         rung = kkt_rung(P, A, prob, wt, ADMMSelection())
         isnothing(rung) && (rung = reduced_rung(P, A, prob, wt, ADMMSelection()))
         isnothing(rung) && (rung = formed_rung(P, A, prob, ADMMSelection()))
+        isnothing(rung) && (rung = kkt_rung(P, A, prob, wt, ADMMSelection(); fill_limit = Inf))
+        isnothing(rung) && (rung = reduced_rung(P, A, prob, wt, ADMMSelection(); fill_limit = Inf))
         isnothing(rung) && throw(
             ArgumentError(
                 "linsys = :sparse factors the reduced or KKT matrix sparsely and could not " *
-                    "serve this pair: it needs a SparseMatrixCSC A whose factor stays sparse " *
-                    "enough, and SparseArrays.jl loaded. Retry with linsys = :auto."
+                    "serve this pair: it needs SparseArrays.jl loaded and A a SparseMatrixCSC, " *
+                    "with a system that actually factors at this regularization."
             )
         )
         ls, factored = rung
@@ -700,11 +708,16 @@ function setup_backend(
         factored || refactor!(ws)
         return finish_setup!(ws, t0)
     elseif LS === :block
+        # As for `:sparse`: the ladder's own `require_multiple = true` first, so a pair with
+        # more than one block reaches exactly the backend `:auto` would; `require_multiple =
+        # false` only as a retry, for the single-block pair `:auto` sends to the dense
+        # terminal instead.
         rung = block_rung(P, A, prob, wt, ADMMSelection())
+        isnothing(rung) && (rung = block_rung(P, A, prob, wt, ADMMSelection(); require_multiple = false))
         isnothing(rung) && throw(
             ArgumentError(
                 "linsys = :block needs P and A both block diagonal over the same column " *
-                    "partition, with more than one block, and declines this pair"
+                    "partition, and declines this pair"
             )
         )
         ls, factored = rung
@@ -712,11 +725,15 @@ function setup_backend(
         factored || refactor!(ws)
         return finish_setup!(ws, t0)
     elseif LS === :lowrank
+        # As for `:sparse` and `:block`: the crossover threshold first, so a coupling narrow
+        # enough to pay reaches exactly the backend `:auto` would; `require_crossover = false`
+        # only as a retry, for a coupling `:auto` sends to the dense terminal instead.
         rung = lowrank_rung(P, A, prob, wt, ADMMSelection())
+        isnothing(rung) && (rung = lowrank_rung(P, A, prob, wt, ADMMSelection(); require_crossover = false))
         isnothing(rung) && throw(
             ArgumentError(
-                "linsys = :lowrank needs a diagonal P and a RowCoupled A whose coupling rank " *
-                    "is small relative to n, and declines this pair"
+                "linsys = :lowrank needs a diagonal P and a RowCoupled A with at least one " *
+                    "coupling row, and declines this pair"
             )
         )
         ls, factored = rung

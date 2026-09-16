@@ -17,7 +17,7 @@
         "ipm_backends_tests.jl" => 3,
         "ipm_tests.jl" => 23,
         "kronecker_tests.jl" => 4,
-        "linsys_tests.jl" => 32,
+        "linsys_tests.jl" => 33,
         "meta_tests.jl" => 1,
         "moi_tests.jl" => 7,
         "operator_tests.jl" => 7,

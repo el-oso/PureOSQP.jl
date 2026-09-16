@@ -131,6 +131,29 @@ end
     @test sd.x ≈ sa.x rtol = 1.0e-6
 end
 
+@testitem "a named linsys = :sparse is an instruction, not a hint" begin
+    using LinearAlgebra, SparseArrays, LDLFactorizations
+    include(joinpath(@__DIR__, "helpers.jl"))
+    include(joinpath(@__DIR__, "..", "bench", "suite_problems.jl"))
+    sparse_names = (SPARSE_FACTOR_BACKENDS..., SPARSE_KKT_BACKENDS..., :sparse_formed)
+
+    # Random QP (n=50, m=500) and Control (n=320, m=540) both have a sparse A whose reduced
+    # or KKT form falls to the dense terminal under `:auto`'s IPM thresholds: naming the
+    # backend must build it regardless, for both algorithms.
+    for (P, q, A, l, u) in (random_qp(50), control(20)), alg in (OperatorSplitting(), InteriorPoint())
+        ws = setup(P, q, A, l, u, alg; linsys = :sparse)
+        @test PureOSQP.backend_name(ws.linsys) in sparse_names
+        @test solve!(ws).status == SOLVED
+    end
+
+    # A dense A has no sparse representation to serve through, named or not, and the refusal
+    # states only that -- not that the pair is unsuitable on cost grounds.
+    P, q, A, l, u = random_qp(50)
+    for alg in (OperatorSplitting(), InteriorPoint())
+        @test_throws "SparseMatrixCSC" setup(P, q, Matrix(A), l, u, alg; linsys = :sparse)
+    end
+end
+
 @testitem "the LinearSystem contract is enforced, not decorative" begin
     using LinearAlgebra, SparseArrays, OSQP, Random, Krylov, BandedMatrices, TypeContracts
     include(joinpath(@__DIR__, "helpers.jl"))

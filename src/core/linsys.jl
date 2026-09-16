@@ -567,26 +567,30 @@ Declines for a representation with no density to measure.
 density_gate_rung(P, A, prob, sel::SelectionFor) = nothing
 
 """
-    kkt_rung(P, A, prob, wt, sel) -> (LinearSystem, Bool) or nothing
+    kkt_rung(P, A, prob, wt, sel; fill_limit = <the ladder's own threshold>) -> (LinearSystem, Bool) or nothing
 
-Ladder rung 2: factor the full quasi-definite KKT matrix sparsely, when its factor stays
-sparse enough to clear the gate. Decides by factoring, so what it returns is already factored.
-Under `ADMMSelection` it is considered only where the reduced form would densify; under
+Ladder rung 2: factor the full quasi-definite KKT matrix sparsely, when its factor clears
+`fill_limit`. Decides by factoring, so what it returns is already factored. Under
+`ADMMSelection` it is considered only where the reduced form would densify; under
 `IPMSelection` it is tried first.
 
-The gate is a fill threshold, not a comparison against the dense path: it accepts where the
-sparse factor is small, which is a sufficient condition for the sparse route to win and not a
-necessary one. A pair it declines is not thereby known to be better served densely.
+`fill_limit` is a fill threshold, not a comparison against the dense path: it accepts where
+the sparse factor is small, which is a sufficient condition for the sparse route to win and
+not a necessary one. A pair it declines on the default threshold is not thereby known to be
+better served densely. A caller who names `linsys = :sparse` reaches this with
+`fill_limit = Inf`, which disables the threshold entirely — the extension implementing this
+for `SparseMatrixCSC` is what gives the keyword its ladder default.
 """
-kkt_rung(P, A, prob, wt, sel::SelectionFor) = nothing
+kkt_rung(P, A, prob, wt, sel::SelectionFor; fill_limit::Real = Inf) = nothing
 
 """
-    reduced_rung(P, A, prob, wt, sel) -> (LinearSystem, Bool) or nothing
+    reduced_rung(P, A, prob, wt, sel; fill_limit = <the ladder's own threshold>) -> (LinearSystem, Bool) or nothing
 
-Ladder rung 3: factor the reduced matrix sparsely, when its factor stays sparse. Decides by
-factoring, so what it returns is already factored.
+Ladder rung 3: factor the reduced matrix sparsely, when its factor clears `fill_limit`.
+Decides by factoring, so what it returns is already factored. See [`kkt_rung`](@ref) on what
+`fill_limit = Inf` does for a named `linsys = :sparse`.
 """
-reduced_rung(P, A, prob, wt, sel::SelectionFor) = nothing
+reduced_rung(P, A, prob, wt, sel::SelectionFor; fill_limit::Real = Inf) = nothing
 
 """
     formed_rung(P, A, prob, sel::ADMMSelection) -> (LinearSystem, Bool) or nothing

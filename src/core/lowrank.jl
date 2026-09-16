@@ -63,16 +63,22 @@ function backend_info(ls::DiagonalLowRank)
 end
 
 """
-    lowrank_rung(P, A, prob, wt, sel) -> (LinearSystem, Bool) or nothing
+    lowrank_rung(P, A, prob, wt, sel; require_crossover = true) -> (LinearSystem, Bool) or nothing
 
-Ladder rung for a reduced matrix that is a diagonal plus a low-rank correction. Declines when
-the correction is wide enough that `O(nk)` stops beating the dense `O(n²)` apply.
+Ladder rung for a reduced matrix that is a diagonal plus a low-rank correction. Declines
+unless `P` is `Diagonal` and `A` is [`RowCoupled`](@ref) with at least one coupling row.
+
+`require_crossover` also declines when the correction is wide enough that `O(nk)` stops
+beating the dense `O(n²)` apply — a cost comparison, not a representation one, so a caller who
+names `linsys = :lowrank` reaches this with `require_crossover = false` and gets the
+correction at any width.
 """
-lowrank_rung(P, A, prob, wt, sel::SelectionFor) = nothing
+lowrank_rung(P, A, prob, wt, sel::SelectionFor; require_crossover::Bool = true) = nothing
 
-function lowrank_rung(P::Diagonal, A::RowCoupled, prob, wt, sel::SelectionFor)
+function lowrank_rung(P::Diagonal, A::RowCoupled, prob, wt, sel::SelectionFor; require_crossover::Bool = true)
     k = coupling_rank(A)
     n = prob.n
+    k < 1 && return nothing
     # The apply is two `gemv`s against a `k×n` block where the rung below does one `symv`
     # against `n×n`, so on flops alone the correction wins until `k` reaches `n/2`. It does
     # not: `symv` is multithreaded and both `gemv`s here are narrow, so the measured crossing
@@ -80,7 +86,7 @@ function lowrank_rung(P::Diagonal, A::RowCoupled, prob, wt, sel::SelectionFor)
     # (`bench/results/gate_crossover_lowrank.json`). `src/` and `ext/` pin no threads, so the
     # limit has to hold at the threaded crossing, and it sits below it: at `k = n/10` the
     # solve is 1.78–2.27× ahead and setup 3.0–6.8× at every size measured.
-    (k < 1 || 10k > n) && return nothing
+    require_crossover && 10k > n && return nothing
     return (DiagonalLowRank(prob.q0, n, k), false)
 end
 
