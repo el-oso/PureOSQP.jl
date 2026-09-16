@@ -26,7 +26,8 @@ An algorithm is an object holding the parameters only that method reads, a subty
 Optional: `adopt_settings!(ls, alg, options)`, which copies the parameters a backend reads into
 it. Only the matrix-free backend reads any, so an algorithm that runs on it defines this method
 for that backend. It is optional because a direct backend reads none; the matrix-free one
-refuses to factorize without its settings rather than solving with a zero iteration budget.
+throws if it factorizes before its settings are copied in, rather than silently solving with a
+zero iteration budget.
 
 `setup_backend` declares no return type in the contract: inferred through the abstract data
 arguments of the contract's signature it is `Any`, although a call with concrete arguments
@@ -38,9 +39,10 @@ selection methods that have no algorithm-independent answer:
 [`dense_rung`](@ref PureOSQP.dense_rung), its terminal;
 [`indirect_rung`](@ref PureOSQP.indirect_rung), what sits below the terminal; and, if the
 sparse rungs are in that ladder, the SparseArrays extension's `sparse_form`. Every other
-selection method already takes any tag: the rungs whose default is to decline, the
-`choose_backend` methods for a structured pair, and the GPU extension's refusal. A tag with
-one of the four missing gets an error naming the method, not a `MethodError`.
+selection method already takes any tag: the rungs that, by default, are skipped so selection
+moves to the next one, the `choose_backend` methods for a structured pair, and the errors the
+GPU extension raises when a GPU array reaches a backend that cannot serve it. A tag with one of
+the four missing gets an error naming the method, not a `MethodError`.
 
 ## A workspace
 
@@ -106,5 +108,5 @@ methods:
 [`IdentityPreconditioner`](@ref) and [`JacobiPreconditioner`](@ref) are subtypes of
 [`Preconditioner`](@ref). A caller's preconditioner need not be: a `Cholesky` or any other
 factorization object has `ldiv!` already, and `TypeContracts.check_contract(typeof(M),
-Preconditioner)` checks one against the same list. [`setup`](@ref) refuses a preconditioner
-that has no `ldiv!` method for the backend's vectors, naming the method.
+Preconditioner)` checks one against the same list. [`setup`](@ref) throws, naming the missing
+method, when a preconditioner has no `ldiv!` method for the backend's vectors.

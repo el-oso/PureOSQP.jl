@@ -13,22 +13,9 @@ solver works.
 
 | item | note |
 |---|---|
-| CUDA in practice | the GPU path is designed for it but not tested: the JLArrays tests are excluded from the test run, and nobody has run it on a device |
-| `polishing` and derivatives on GPU | both build a dense `(n+k)×(n+k)` matrix and factor it with `bunchkaufman!`, so both stay on the host |
+| GPU arrays | not supported yet; planned |
 | a pure-Julia factorization by default | the `LDLᵀ` backends need LDLFactorizations.jl loaded; without it the sparse path is CHOLMOD, which is C and GPL |
 | setup parity on the dense path | Control's `setup` is 0.30× libosqp's, against 1.20× on the run as a whole |
-
-**CUDA in practice.** GPU arrays solve through `linsys = :indirect` only — see
-[Guarantees](@ref) for why the other backends are refused at [`setup`](@ref).
-`test/gpu_tests.jl` exercises the GPU path with JLArrays, but its items are tagged `:gpu` and
-`test/runtests.jl` excludes them: compiling that path crashes Julia 1.13.0 inside LLVM on
-AVX-512 targets. Even when run, JLArrays checks that nothing indexes a scalar and nothing else:
-`JLArray <: StridedArray` is true, so `cholesky!` on one succeeds through CPU LAPACK. A real
-device would exercise streams, `Krylov.cg!`'s device behavior, and the per-iteration
-synchronizations in `check_termination`.
-
-cuOSQP, by the OSQP authors, targets `nnz ≥ 1e4` and peaks near `nnz ≈ 1e8`. Below that a
-single CPU core wins, which is why the direct backends were not ported.
 
 **A pure-Julia factorization by default.** A sparse problem is factored by CHOLMOD — C and
 GPL — unless LDLFactorizations.jl is loaded. The `LDLᵀ` backends are also the faster path,

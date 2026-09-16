@@ -45,8 +45,8 @@ ipm = solve(P, q, A, l, u, InteriorPoint())
 ```
 
 [Choosing an algorithm](@ref) compares the two: which one converges faster at a given
-tolerance, what each supports on a repeated solve through [`update!`](@ref), and what each
-refuses.
+tolerance, what each supports on a repeated solve through [`update!`](@ref), and what throws
+under each.
 
 ## Least-squares
 
@@ -628,7 +628,7 @@ update_rho!(ws, 1.0)
 ```
 
 `update_rho!` sets the value the solver is running with; `ws.algorithm.rho` keeps the one
-`setup` was given. Two keywords are refused, because the workspace cannot act on them:
+`setup` was given. Two keywords throw, because the workspace cannot act on them:
 
 ```@example workspace
 try
@@ -774,8 +774,8 @@ workspace holds. From one factorization, it gives the gradients of a scalar loss
 respect to all five pieces of problem data. Given `∂L/∂x` and `∂L/∂y`, it returns
 `∂L/∂P`, `∂L/∂q`, `∂L/∂A`, `∂L/∂l` and `∂L/∂u`. Both algorithms support it; on an
 `InteriorPointWorkspace` it requires `polishing = true` on the solve that produced the
-solution, or it is refused by name ([Choosing an algorithm](@ref "Polishing, derivatives and
-infeasibility")).
+solution, or it throws, naming the workspace ([Choosing an algorithm](@ref "Polishing,
+derivatives and infeasibility")).
 
 Here `L = x₁`, with the budget row `x₁ + x₂ = 1` the only active constraint:
 
@@ -856,7 +856,7 @@ every step.
 conditions at the active set: one linear solve, reusing a factorization the solve already
 produced, independent of how many iterations it took.
 
-Two things follow, and both are refusals rather than approximations:
+Two things follow, and both throw rather than return an approximation:
 
 - **The solve must converge.** The KKT conditions hold only at the solution, so a run that
   stopped at `max_iter` raises rather than returning the gradient of a point that is not

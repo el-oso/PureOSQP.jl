@@ -408,9 +408,10 @@ equation would supply and a quadratic program does not use. A four-argument func
 overwrites the caller's vector.
 
 **An operator built with `*` needs `cache_operator` before it can multiply**, as do `kron` and
-`inv`. A single operator and a sum do not. `setup` refuses an uncached one and says so, rather
-than failing partway into a solve. It also refuses an operator with no transpose: `Aᵀ` runs
-every iteration, so a `FunctionOperator` needs either an `op_adjoint` or `issymmetric = true`.
+`inv`. A single operator and a sum do not. `setup` throws for an uncached one, naming the fix,
+rather than failing partway into a solve. It also throws for an operator with no transpose:
+`Aᵀ` runs every iteration, so a `FunctionOperator` needs either an `op_adjoint` or
+`issymmetric = true`.
 
 ```@example sciml
 using PureOSQP, SciMLOperators, LinearAlgebra, Krylov, Random

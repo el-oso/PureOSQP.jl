@@ -92,7 +92,7 @@ Of the thirty-one settings: twenty-two match upstream, three have no counterpart
 
 The reference implementation selects an *algebra* (`builtin` for CPU, `mkl` for Intel, `cuda` for NVIDIA GPUs).
 
-In this package, the library is determined by what is loaded in the Julia session. A GPU array is a matrix type, and reaches the solver just like any other array.
+In this package, the library is determined by what is loaded in the Julia session.
 
 The `linsys` setting selects the *formulation* of the linear system:
 

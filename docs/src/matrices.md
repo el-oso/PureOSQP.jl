@@ -162,8 +162,8 @@ LinearMaps composes these lazily, so an operator can be built from others — `B
 
 Everything the solver needs it gets by evaluating that program at a vector.
 
-Views (`SubArray`), `Symmetric` wrappers and GPU arrays are all accepted too; they are storage
-decisions rather than shapes, and carry no backend of their own.
+Views (`SubArray`) and `Symmetric` wrappers are all accepted too; they are storage decisions
+rather than shapes, and carry no backend of their own.
 
 | type | reduced matrix | backend |
 |---|---|---|
@@ -233,7 +233,7 @@ which only multiplies by the operator and whose convergence depends on condition
 operator with its own **direct** backend is solved by factoring instead, and conditioning then
 affects it only through the structure. This is [`OperatorSplitting`](@ref)'s `linsys = :auto`
 ladder; under [`InteriorPoint`](@ref) an operator needs `linsys = :indirect` named explicitly
-with a caller-supplied preconditioner ([Choosing an algorithm](@ref "What each refuses")).
+with a caller-supplied preconditioner ([Choosing an algorithm](@ref "What each algorithm throws on")).
 
 The Kronecker type is an example. `κ(A₁ ⊗ A₂) = κ(A₁)·κ(A₂)`, so an operator with `κ = 1e12` is
 built from two factors with `κ = 1e6` each, and the backend eigendecomposes the factors without
@@ -448,8 +448,7 @@ because `M[i, j]` on a `SparseMatrixCSC` is a binary search.
 **Per sweep.** `column_norms!` and `cost_norms!` are the whole of what equilibration asks
 per sweep, so a representation that answers in whole-matrix or closed form overrides those
 two and never sees a column index. The GPU extension is the shipped example: it replaces
-both with array reductions, which is what lets a device array equilibrate under
-`allowscalar(false)`.
+both with array reductions instead of indexing entries one at a time.
 
 Beyond equilibration there are three more override points, all optional:
 `PureOSQP.reduced_diagonal!` for the matrix-free preconditioner,
@@ -469,11 +468,11 @@ An operator that supplies **only** products — nothing to index at all — says
 PureOSQP.is_materializable(::MyOperator) = false
 ```
 
-`linsys = :auto` then declines the dense terminal and lands on the matrix-free backend, which
+`linsys = :auto` then skips the dense terminal and lands on the matrix-free backend, which
 needs Krylov.jl loaded. `polish!` and the two derivative entry points build a dense matrix
-out of `P` and `A` entry by entry, so they refuse such an operator by name rather than
-failing inside a factorization: pass `polishing = false`, and differentiate a materialized form
-of the problem. Equilibration also walks columns, so an operator that overrides neither seam
+out of `P` and `A` entry by entry, so they throw, naming the operator, rather than failing
+inside a factorization: pass `polishing = false`, and differentiate a materialized form of
+the problem. Equilibration also walks columns, so an operator that overrides neither seam
 level needs `scaling = 0`.
 
 The hot-path guarantees carry a condition here that they do not carry elsewhere. `admm_step!`
@@ -592,10 +591,11 @@ not silently skip the rescaling.
 **3. Declaring `issymmetric` and `isposdef` on `P`.** This is the one that surprises people.
 Write `LinearMap(Diagonal(fill(2.0, n)))` — obviously a positive-definite matrix — and ask it,
 and it says `isposdef == false`. LinearMaps does not inspect what you gave it; it reports only
-what you *told* it. So the solver sees an objective not claiming to be convex and refuses it.
+what you *told* it. So the solver sees an objective not claiming to be convex, and `setup`
+throws.
 
-That refusal is correct, not a bug: the solver cannot factor an operator to check, so an
-unclaimed property is an unknown one. Declare them at construction, as in the example. (Or
+That is correct, not a bug: the solver cannot factor an operator to check, so an unclaimed
+property is an unknown one. Declare them at construction, as in the example. (Or
 build the wrapper yourself with `ProductOperator{T}(map; symmetric, posdef)` if you want to
 override what a map claims.)
 
@@ -840,9 +840,9 @@ can turn on:
 The second is the one that catches people: **a single equality row disables this backend.** And
 a Kronecker *`P`* does not qualify for the first — it must be a multiple of the identity.
 
-This backend is [`OperatorSplitting`](@ref) only. [`InteriorPoint`](@ref) refuses
-`linsys = :kronecker` by name, because its row weights are not one number
-([Choosing an algorithm](@ref "What each refuses")).
+This backend is [`OperatorSplitting`](@ref) only. [`InteriorPoint`](@ref) throws for
+`linsys = :kronecker`, because its row weights are not one number
+([Choosing an algorithm](@ref "What each algorithm throws on")).
 
 If any condition fails the solver quietly uses the dense route instead, so you get the right
 answer either way. That is why every example here checks `backend_name`: it is the only way to
@@ -862,8 +862,8 @@ ws = setup(P, q, A, fill(-1.0, n), fill(1.0, n); scaling = 0)
 PureOSQP.backend_name(ws.linsys)
 ```
 
-Break any one condition and the rung declines — the problem is solved by the dense terminal
-instead, more slowly and just as correctly:
+Break any one condition and the Kronecker rung is not used — the problem is solved by the
+dense terminal instead, more slowly and just as correctly:
 
 ```@example kron
 equilibrated = setup(P, q, A, fill(-1.0, n), fill(1.0, n))   # scaling left at its default
@@ -950,11 +950,12 @@ fewer coupling rows you have: at one coupling row in 2000 variables it is
 [**923× faster**](@ref "Low-rank structure") than the dense route.
 
 **One condition:** the coupling rows have to be a small fraction of the variables — the backend
-declines once `10k > n`. Two coupling rows therefore need at least 20 variables, which is why
-`n = 24` above. Below that threshold the correction costs more than the dense solve it would
-replace, so declining is the right answer. `P` must also be `Diagonal`.
+is not used once `10k > n`. Two coupling rows therefore need at least 20 variables, which is
+why `n = 24` above. Below that threshold the correction costs more than the dense solve it
+would replace, so falling back to the dense route is the right answer. `P` must also be
+`Diagonal`.
 
 Under [`InteriorPoint`](@ref), `linsys = :auto` never chooses this backend: `linsys =
-:lowrank` is refused by name, because the Woodbury solve misses the tolerance on linear
+:lowrank` throws, because the Woodbury solve misses the tolerance on linear
 programs ([Backends under the interior-point method](@ref)). A `Diagonal` `P` with a
 `RowCoupled` `A` gets the full KKT factorization instead.

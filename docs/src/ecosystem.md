@@ -49,7 +49,6 @@ speed the descent toward it. If a badly conditioned problem is stopping at `max_
 | [SciMLOperators.jl](https://github.com/SciML/SciMLOperators.jl) | the same, and composed operators that apply without allocating | extension |
 | [Krylov.jl](https://github.com/JuliaSmoothOptimizers/Krylov.jl) | the matrix-free backend, needed for any operator | extension |
 | [LDLFactorizations.jl](https://github.com/JuliaSmoothOptimizers/LDLFactorizations.jl) | a pure-Julia sparse `LDLᵀ` instead of SuiteSparse | extension |
-| [GPUArraysCore.jl](https://github.com/JuliaGPU/GPUArrays.jl) | GPU arrays, matrix-free only | extension |
 
 [Which representation, and why](@ref) helps you choose.
 

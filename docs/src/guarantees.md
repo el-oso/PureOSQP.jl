@@ -4,7 +4,7 @@ This page provides evidence for three claims about PureOSQP and defines their li
 
 | claim | meaning | limit |
 |---|---|---|
-| **no allocation on the hot path** | No memory allocation occurs during iterations, avoiding garbage collection. | Guaranteed for `Vector`-backed workspaces. Not claimed for GPU arrays or custom operators. |
+| **no allocation on the hot path** | No memory allocation occurs during iterations, avoiding garbage collection. | Guaranteed for `Vector`-backed workspaces. Not claimed for custom operators. |
 | **type stability** | Performance is consistent because there is no hidden dynamic dispatch. | Checked for all reachable backends. |
 | **compiles under `juliac --trim`** | Can be built into a standalone binary with no Julia runtime. | Entry points are enumerated; sparse operands require a named backend. |
 
@@ -83,14 +83,3 @@ An operator provided by the user is only as efficient as its own `mul!` method.
   sequence and the derivatives, each under `InteriorPoint()`.
 
 For sparse problems, we require the backend to be explicitly named (e.of `:kkt`, `:dense`, or `:indirect`) to ensure compatibility.
-
-## What the guarantees cover on GPU arrays
-
-GPU support is limited to matrix-free operations under [`OperatorSplitting`](@ref).
-`linsys = :indirect` is the only supported backend for GPUs; [`InteriorPoint`](@ref) refuses a
-GPU array by name under every backend, since none of its own has a GPU counterpart.
-
-- **Type stability** and **`--trim` compatibility** are maintained for GPU arrays.
-- **Allocation-free** claims do not apply to GPU workspaces, as kernel launches and GPU communications involve allocations.
-
-The elementwise operations are implemented to work efficiently on both CPU and GPU.

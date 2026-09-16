@@ -17,7 +17,7 @@ The keyword arguments are the fields of [`Options`](@ref). The two methods defau
 them differently — `max_iter` is `4000` for `OperatorSplitting` and `100` for
 `InteriorPoint`, and the tolerances `1e-3` and `1e-8` — and [`default_options`](@ref) shows
 the full set for either. A value you pass is always used as given. A setting passed in the
-wrong place is refused with a message naming where it belongs:
+wrong place throws, naming where it belongs:
 
 ```julia
 InteriorPoint(rho = 0.2)                           # MethodError: rho is not an InteriorPoint parameter
@@ -82,18 +82,17 @@ outer iterations as a cold one (checked in `test/ipm_tests.jl`), but there is li
 the count is already 2 to 10 at the default tolerance, so a warm start shortens an already
 short run rather than replacing hundreds of iterations with dozens.
 
-## What each refuses
+## What each algorithm throws on
 
 Neither algorithm restricts the matrix types in [Matrix types](matrices.md) or
 [Structured operators](@ref) beyond what `linsys` demands. The differences are in what a
-caller-supplied operator and a GPU array need.
+caller-supplied operator needs, and in which `linsys` backends each algorithm accepts.
 
 | | `OperatorSplitting` | `InteriorPoint` |
 |---|---|---|
-| matrix-free operators (`linsys = :indirect`) | works with the built-in Jacobi preconditioner, or none | needs `linsys = :indirect`, a **caller-supplied** preconditioner, and `scaling = 0`; the built-in preconditioners and equilibration are refused by name ([Operators under the interior-point method](@ref)) |
-| GPU arrays | supported, through `linsys = :indirect` only | refused by name under every backend — none of its own has a GPU counterpart ([Guarantees](@ref "What the guarantees cover on GPU arrays")) |
-| `linsys = :kronecker` | supported | refused by name: the Kronecker backend needs one weight for every row, and the interior-point method's weights are per-row |
-| `linsys = :lowrank` | supported | refused by name: the Woodbury solve misses the tolerance on linear programs ([Algorithm](@ref "Backends under the interior-point method")) |
+| matrix-free operators (`linsys = :indirect`) | works with the built-in Jacobi preconditioner, or none | needs `linsys = :indirect`, a **caller-supplied** preconditioner, and `scaling = 0`; passing the built-in preconditioners or equilibration throws, naming the remedy ([Operators under the interior-point method](@ref)) |
+| `linsys = :kronecker` | works | throws: the Kronecker backend needs one weight for every row, and the interior-point method's weights are per-row |
+| `linsys = :lowrank` | works | throws: the Woodbury solve misses the tolerance on linear programs ([Algorithm](@ref "Backends under the interior-point method")) |
 
 The reason `InteriorPoint` needs a caller's own preconditioner on an operator is measured, not
 assumed: its row weights reach `1/reg_dual` (`1e8` by default) on equality and active rows and
@@ -119,8 +118,9 @@ multiplier being far from zero. ADMM projects its multipliers onto the feasible 
 so an inactive row's multiplier is already at (or near) zero and there is nothing extra to
 check. An interior-point solution holds an inactive row's multiplier at the barrier parameter
 `μ_final` instead, which the active-set test cannot tell apart from a genuinely active one — so
-an unpolished `InteriorPointWorkspace` is refused by name, and polishing is what brings that
-multiplier down before the derivative is taken.
+taking a derivative from an unpolished `InteriorPointWorkspace` throws, asking for
+`polishing = true` first, and polishing is what brings that multiplier down before the
+derivative is taken.
 
 **Infeasibility certificates are the same test under both.** `InteriorPoint` does not implement
 its own primal- and dual-infeasibility check; it reuses ADMM's certificate test, applied to its
@@ -144,15 +144,14 @@ many solves in a row; ADMM never reports it.
 | default tolerance | `1e-3` | `1e-8` |
 | `update!` | can skip refactorization entirely (`q`-only updates always do) | refactorizes every outer iteration regardless |
 | matrix-free operators | no restriction | needs a caller-supplied preconditioner and `scaling = 0` |
-| GPU arrays | supported (`linsys = :indirect`) | refused by name |
-| `linsys = :kronecker`, `:lowrank` | supported | refused by name |
+| `linsys = :kronecker`, `:lowrank` | works | throws |
 | derivatives | ready from the iterate as it stands | require `polishing = true` first |
 | infeasibility certificates | yes | yes, through the same test |
 
 Reach for `InteriorPoint` when the tolerance you need is tighter than ADMM reaches in a modest
 iteration count, or when you are solving once rather than in a loop that reuses a
-factorization. Reach for `OperatorSplitting` for repeated solves through `update!`, for
-matrix-free operators without a preconditioner of your own, and on GPU arrays.
+factorization. Reach for `OperatorSplitting` for repeated solves through `update!` and for
+matrix-free operators without a preconditioner of your own.
 
 Timing tables, not just iteration counts, are in [Benchmarks](@ref "The interior-point method
 against Clarabel") and the benchmark suite tables above it; this page states which algorithm

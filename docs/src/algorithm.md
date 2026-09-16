@@ -328,10 +328,10 @@ A run takes a few dozen iterations, each paying for a fresh factorization, and r
 `1e-8` by default rather than ADMM's `1e-3`. Choose it over ADMM when the accuracy target is
 tighter than ADMM reaches in a modest iteration count, or when ADMM's residuals fall slowly on
 a particular problem; choose ADMM when the same workspace is re-solved many times through
-[`update!`](@ref), when the matrices are matrix-free operators with no caller-supplied
-preconditioner, or on GPU arrays.
+[`update!`](@ref), or when the matrices are matrix-free operators with no caller-supplied
+preconditioner.
 
-### What it supports and refuses
+### What it accepts, and what throws
 
 - [`update!`](@ref), [`warm_start!`](@ref), [`cold_start!`](@ref) and
   [`update_settings!`](@ref) work as they do for ADMM; a settings change never forces a
@@ -342,8 +342,8 @@ preconditioner, or on GPU arrays.
   `O(μ_final)`, not at the near-zero a derivative through the active set needs, and polishing
   is what cleans that up.
 - The MathOptInterface extension accepts `InteriorPoint()` through the `"algorithm"` raw
-  attribute; switching algorithms on a live optimizer refuses a raw setting the new one does
-  not accept.
+  attribute; switching algorithms on a live optimizer throws if a raw setting already on it is
+  not one the new algorithm accepts, naming the setting.
 - `verbose` prints under either algorithm: a header, one line per termination check, and a
   footer, with `mu` and `alpha` in place of ADMM's `rho`. The interior-point method's footer
   also names the run time, and, on the matrix-free backend, its row gains a `cg iters` column
@@ -351,17 +351,15 @@ preconditioner, or on GPU arrays.
   `profile_primdual` is read only by [`OperatorSplitting`](@ref); passing it to
   `InteriorPoint()` throws naming the algorithm that owns it, since only ADMM's loop
   accumulates the primal-dual integral it fills.
-- `accelerator` is ADMM's fixed-point accelerator and is refused by name under
-  `InteriorPoint()`; a GPU array is refused by name, as it is under ADMM's non-`:indirect`
-  backends.
+- `accelerator` is ADMM's fixed-point accelerator; passing it to `InteriorPoint()` throws,
+  since the interior-point method has no fixed-point iteration to accelerate. Passing a GPU
+  array to `InteriorPoint()` also throws: none of its backends have a GPU counterpart.
 - `linsys = :indirect` runs only with a caller-supplied `preconditioner` and `scaling = 0`,
   on matrices and on operators alike — see [Operators under the interior-point method](@ref).
-  `linsys = :kronecker` and `linsys = :lowrank` are refused by name: the Kronecker backend
-  needs one weight for every row, which the interior-point method's per-row weights break,
-  and the low-rank backend's Woodbury solve misses the tolerance on linear programs (see the
-  table below).
-- Any `T <: Real` is accepted, with no element type refused; see the generic-element-type
-  paragraph below.
+  `linsys = :kronecker` and `linsys = :lowrank` throw: the Kronecker backend needs one weight
+  for every row, which the interior-point method's per-row weights break, and the low-rank
+  backend's Woodbury solve misses the tolerance on linear programs (see the table below).
+- Any `T <: Real` is accepted; see the generic-element-type paragraph below.
 
 ### Backends under the interior-point method
 
@@ -391,7 +389,7 @@ referee below `1e-5` in at most twice the iterations `:kkt` takes, judged on the
 table above. Every backend passes except `:lowrank`, which fails on linear programs: a variable that only the dense rows reach keeps
 nothing but `reg_primal` in the diagonal core when `P` is zero, which puts `1e8` in the core's
 inverse, and on those problems the Woodbury solve ends without a solution. Under `InteriorPoint()`, `linsys = :auto` therefore serves a
-diagonal `P` with a `RowCoupled` `A` with `:kkt`, and `linsys = :lowrank` is refused by name.
+diagonal `P` with a `RowCoupled` `A` with `:kkt`, and `linsys = :lowrank` throws.
 `:sparse_formed` has no interior-point counterpart: the interior-point selection has no rung
 that forms and inverts the reduced matrix.
 

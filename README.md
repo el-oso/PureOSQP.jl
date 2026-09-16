@@ -87,7 +87,7 @@ The banded row is slower with the structure passed. The sparse factor of a bande
 
 ## Correctness
 
-Validated against libosqp 0.6.2 and 1.x (the latter by `ccall`): the first 25 iterates match the C library to `1e-10`, the iteration count is identical to both on random QPs, and objectives agree to about `1e-15`. OSQP's own C test suite is ported, and an indefinite `P` is refused at setup.
+Validated against libosqp 0.6.2 and 1.x (the latter by `ccall`): the first 25 iterates match the C library to `1e-10`, the iteration count is identical to both on random QPs, and objectives agree to about `1e-15`. OSQP's own C test suite is ported, and `setup` throws for an indefinite `P`.
 
 ## Upstream
 

@@ -23,8 +23,8 @@ Three shipped examples serve as templates:
 
 `docs/src/examples.md` runs all three. The Kronecker backend is the cautionary case: it
 applies only when `P` is a scalar multiple of `I`, `ρ` is one number, and `scaling = 0`, so
-most of its design is the check that declines. A backend that would answer wrongly outside
-its conditions must check them.
+most of its design is the check that decides whether it can be used at all. A backend that
+would answer wrongly outside its conditions must check them.
 
 ## What to implement, in order
 
@@ -142,8 +142,8 @@ ladder proceeds to the dense terminal and nothing reports a problem.
 
 Return `(backend, false)` when the backend arrives unfactored, `(backend, true)` when it
 already carries a factorization of the current data. A rung inside the ladder instead returns
-`nothing` to decline; see [`PureOSQP.select_backend`](@ref) for the order and what each rung
-serves.
+`nothing` to leave the pair to the next rung; see [`PureOSQP.select_backend`](@ref) for the
+order and what each rung serves.
 
 ## What each omission costs
 
@@ -159,13 +159,13 @@ before a backend is chosen and their generic methods are `O(n²)` and `O(n³)` �
 does not override them pays that on every `setup`. [`PureOSQP.BlockDiagonal`](@ref) overrides
 both block-wise and is worth reading for the shape.
 
-## Paths that need entries, and how they decline
+## What happens on paths that need entries
 
 Polishing and the solution derivatives copy `P` and `A` into a dense factorization one entry
 at a time. An operator that cannot answer that declares
 [`PureOSQP.is_materializable`](@ref) `false`, and those paths then throw a message naming the
 remedy rather than a `MethodError` from inside the copy. The rungs that would form a matrix
-decline it too, so `linsys = :auto` reaches the matrix-free backend instead of failing inside
+are skipped too, so `linsys = :auto` reaches the matrix-free backend instead of failing inside
 a factorization.
 
 Conjugate gradients is the fallback for an operator with no structure to exploit, and it is

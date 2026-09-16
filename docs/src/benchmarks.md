@@ -292,8 +292,8 @@ divisions.
 BandedMatrices.jl loaded, since LinearAlgebra stores no symmetric banded type past
 `SymTridiagonal`; without it those problems take the dense path, correctly but densely.
 Selection is dispatch on the pair of types — no setting, no density gate — and the banded
-backend declines in both directions, below bandwidth 2 where the LinearAlgebra backends are
-cheaper and above a quarter of the matrix where the dense path wins per iteration.
+backend is not used in either direction: below bandwidth 2 the LinearAlgebra backends are
+cheaper, and above a quarter of the matrix the dense path wins per iteration.
 
 **Keyed on `A`, not `P`.** `ÃᵀρÃ` is dense for a general `A` whatever `P` looked like, so a
 `Diagonal` `P` with a dense `A` has a dense reduced matrix and correctly gets the dense
@@ -359,8 +359,8 @@ with `julia --project=bench bench/lowrank_backend.jl`; samples in
 | 2000 | 16 | 175 | 1.11 ms | 392 ms | 3.71 ms | 691 ms | **186×** |
 
 The ratio grows with `n` at fixed `k` and shrinks as `k` climbs, which is what `O(nk)` against
-`O(n²)` predicts. The rung declines once `10k > n`, below the measured crossing so the limit
-holds at any BLAS thread count — see the gate discussion in
+`O(n²)` predicts. The rung is not used once `10k > n`, below the measured crossing so the
+limit holds at any BLAS thread count — see the gate discussion in
 `bench/results/gate_crossover_lowrank.json`. Each row is a different problem, so read across
 a row rather than down a column.
 
@@ -504,7 +504,7 @@ dense, but one row — the budget constraint `1ᵀx = 1` — touches 99% of the 
 `Ãᵀ diag(ρ) Ã` is dense however sparse the rest of the pattern is, so the rule sends the pair
 straight past the reduced form. Nothing is accumulated or factored to reach that answer — the
 reduced matrix's own fill (`nnz(R)/n²` in the table below, which would be 99% here) is never
-computed for a pattern the densest-row test already declines. The `ldl_kkt` backend then
+computed for a pattern the densest-row test has already ruled out. The `ldl_kkt` backend then
 factors the full quasi-definite system instead, which keeps that row as one sparse row: its
 factor holds 2322 nonzeros against the KKT's 3305, so the elimination fills in nothing.
 Forming the reduced matrix here would mean a dense `505×505` factorization in place of a
@@ -526,8 +526,8 @@ Portfolio's densest row alone settles the question. Lasso, Huber and Control hav
 wide, so for them the rule goes on to compare the symbolic reduced-pattern count against a
 budget of 5% of `n²`. Lasso and Huber stay under it and reach the sparse `:reduced` form,
 factored here by `ldlfactorizations`. Control's reduced pattern fills 21% of `n²`, well past
-that budget, so the rule declines the sparse reduced form and the pair falls through to the
-`sparse_formed` terminal, which accumulates the same matrix from the stored entries and
+that budget, so the rule does not use the sparse reduced form, and the pair falls through to
+the `sparse_formed` terminal, which accumulates the same matrix from the stored entries and
 factors it densely.
 
 **Eq QP pays for its storage.** Its `P` is 99% dense but is passed as a `SparseMatrixCSC`, so
