@@ -19,7 +19,7 @@
         "kronecker_tests.jl" => 4,
         "linsys_tests.jl" => 33,
         "meta_tests.jl" => 1,
-        "moi_tests.jl" => 7,
+        "moi_tests.jl" => 14,
         "operator_tests.jl" => 7,
         "oracle_tests.jl" => 4,
         "polish_tests.jl" => 4,

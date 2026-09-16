@@ -1,27 +1,45 @@
-@testitem "the MathOptInterface wrapper passes MOI.Test" begin
-    using MathOptInterface, LinearAlgebra, SparseArrays
-    const MOI = MathOptInterface
+# `MOI.Test` is the point of these eight items: it is a far more thorough suite than anything
+# written here would be, and it is the same one every registered solver runs. It is split by
+# test-name prefix because compiling its several hundred test functions against this model
+# costs minutes, and six items compile their share of them in parallel.
+@testitem "the MathOptInterface wrapper passes MOI.Test: linear and quadratic" begin
+    include(joinpath(@__DIR__, "moi_helpers.jl"))
+    MOI.Test.runtests(moi_model(), moi_config(); include = MOI_GROUPS[1])
+end
 
-    # `MOI.Test` is the point of this test item: it is a far more thorough suite than
-    # anything written here would be, and it is the same one every registered solver runs.
-    model = MOI.Utilities.CachingOptimizer(
-        MOI.Utilities.UniversalFallback(MOI.Utilities.Model{Float64}()),
-        MOI.instantiate(PureOSQP.Optimizer; with_bridge_type = Float64),
-    )
-    MOI.set(model, MOI.Silent(), true)
-    # The solver's defaults are `1e-3`, matching upstream, and `MOI.Test` checks answers to
-    # `1e-4`. An ADMM solver asked for three digits and judged on four fails on the digit
-    # it was never asked to produce, so the tolerances are tightened rather than the
-    # comparison loosened.
-    MOI.set(model, MOI.RawOptimizerAttribute("eps_abs"), 1.0e-9)
-    MOI.set(model, MOI.RawOptimizerAttribute("eps_rel"), 1.0e-9)
-    MOI.Test.runtests(
-        model,
-        MOI.Test.Config(;
-            atol = 1.0e-4, rtol = 1.0e-4,
-            exclude = Any[MOI.ConstraintBasisStatus, MOI.VariableBasisStatus, MOI.ObjectiveBound],
-        ),
-    )
+@testitem "the MathOptInterface wrapper passes MOI.Test: conic" begin
+    include(joinpath(@__DIR__, "moi_helpers.jl"))
+    MOI.Test.runtests(moi_model(), moi_config(); include = MOI_GROUPS[2])
+end
+
+@testitem "the MathOptInterface wrapper passes MOI.Test: model, solve and modification" begin
+    include(joinpath(@__DIR__, "moi_helpers.jl"))
+    MOI.Test.runtests(moi_model(), moi_config(); include = MOI_GROUPS[3])
+end
+
+@testitem "the MathOptInterface wrapper passes MOI.Test: basic scalar constraints" begin
+    include(joinpath(@__DIR__, "moi_helpers.jl"))
+    MOI.Test.runtests(moi_model(), moi_config(); include = MOI_GROUPS[4])
+end
+
+@testitem "the MathOptInterface wrapper passes MOI.Test: basic VectorOfVariables constraints" begin
+    include(joinpath(@__DIR__, "moi_helpers.jl"))
+    MOI.Test.runtests(moi_model(), moi_config(); include = MOI_GROUPS[5])
+end
+
+@testitem "the MathOptInterface wrapper passes MOI.Test: basic VectorAffineFunction constraints" begin
+    include(joinpath(@__DIR__, "moi_helpers.jl"))
+    MOI.Test.runtests(moi_model(), moi_config(); include = MOI_GROUPS[6])
+end
+
+@testitem "the MathOptInterface wrapper passes MOI.Test: basic vector nonlinear constraints" begin
+    include(joinpath(@__DIR__, "moi_helpers.jl"))
+    MOI.Test.runtests(moi_model(), moi_config(); include = MOI_GROUPS[7])
+end
+
+@testitem "the MathOptInterface wrapper passes MOI.Test: the rest" begin
+    include(joinpath(@__DIR__, "moi_helpers.jl"))
+    MOI.Test.runtests(moi_model(), moi_config(); exclude = reduce(vcat, MOI_GROUPS))
 end
 
 @testitem "the MathOptInterface wrapper passes MOI.Test with algorithm = \"ipm\"" begin

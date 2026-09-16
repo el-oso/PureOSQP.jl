@@ -351,4 +351,30 @@ end
 MOI.get(o::Optimizer, ::MOI.NumberOfVariables) = o.n
 MOI.get(o::Optimizer, ::MOI.ListOfVariableIndices) = MOI.VariableIndex.(1:o.n)
 
+# Solving one model while this extension is being precompiled caches the bridge and
+# caching-optimizer code specialized on `Optimizer`, which costs far more to compile than
+# any model it then solves. The `jl_generating_output` guard keeps it out of a normal load.
+if ccall(:jl_generating_output, Cint, ()) == 1
+    let model = MOI.Utilities.CachingOptimizer(
+            MOI.Utilities.UniversalFallback(MOI.Utilities.Model{Float64}()),
+            MOI.instantiate(PureOSQP.Optimizer; with_bridge_type = Float64),
+        )
+        MOI.set(model, MOI.Silent(), true)
+        x = MOI.add_variables(model, 2)
+        MOI.add_constraint(model, 1.0 * x[1] + 1.0 * x[2], MOI.EqualTo(1.0))
+        MOI.add_constraint(model, 1.0 * x[1] - 1.0 * x[2], MOI.LessThan(0.5))
+        MOI.add_constraint(model, 1.0 * x[2], MOI.GreaterThan(0.0))
+        MOI.add_constraint(model, x[1], MOI.Interval(-1.0, 1.0))
+        MOI.set(model, MOI.ObjectiveSense(), MOI.MIN_SENSE)
+        MOI.set(
+            model, MOI.ObjectiveFunction{MOI.ScalarQuadraticFunction{Float64}}(),
+            1.0 * x[1] * x[1] + 1.0 * x[2] * x[2] + 1.0 * x[1],
+        )
+        MOI.optimize!(model)
+        MOI.get(model, MOI.TerminationStatus())
+        MOI.get(model, MOI.VariablePrimal(), x)
+        MOI.get(model, MOI.ObjectiveValue())
+    end
+end
+
 end
