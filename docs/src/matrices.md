@@ -346,23 +346,24 @@ factorization is `:bunchkaufman`.
 The rule above is a rule: it is fitted to a benchmark suite, so it is right about a class of
 problems and not about any particular one. [`recommend_linsys`](@ref) runs the experiment
 instead — it builds every backend the pair admits, times `setup` and a bounded number of
-iterations on each, and ranks them.
+iterations on each, and ranks them by what a whole solve costs: setup once, plus the
+per-iteration figure over the iterations one unbounded run actually takes.
 
 ```julia
 julia> advice = recommend_linsys(P, q, A, l, u, InteriorPoint())
-LinsysAdvice: linsys = :sparse
-  linsys       backend               setup ms  solve ms   ms/iter      fill   iter  status
-  :auto        ldlfactorizations        0.495     1.108    0.1108    0.0015     10  solved
-  :sparse      ldlfactorizations        0.646      1.59     0.159    0.0015     10  solved
-  :dense       cholesky                 1.881   126.325   12.6325   0.50062     10  solved
-  :kkt         bunchkaufman            17.187     775.43    77.543   4.44263     10  solved
+LinsysAdvice: linsys = :sparse, over a solve of 10 iterations
+  linsys       backend               total ms  setup ms  solve ms   ms/iter      fill   iter  status
+  :auto        ldlfactorizations        1.603     0.495     1.108    0.1108    0.0015     10  solved
+  :sparse      ldlfactorizations        2.236     0.646      1.59     0.159    0.0015     10  solved
+  :dense       cholesky               128.206     1.881   126.325   12.6325   0.50062     10  solved
+  :kkt         bunchkaufman           792.617    17.187    775.43    77.543   4.44263     10  solved
 
 julia> ws = setup(P, q, A, l, u, InteriorPoint(); linsys = advice.linsys);
 ```
 
 It is a tool for the caller, not a stage of `setup`: nothing on the solve path calls it, and
-it costs a solve per candidate. Run it once for a problem shape you solve repeatedly, then
-pin the `linsys` it names.
+it costs a bounded solve per candidate plus one unbounded solve for the iteration count. Run
+it once for a problem shape you solve repeatedly, then pin the `linsys` it names.
 
 ### Which backend a structured matrix gets
 

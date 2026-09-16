@@ -106,7 +106,7 @@ sol = solve(P, q, A, l, u, InteriorPoint(reg_primal = 1e-7); eps_abs = 1e-9, max
 
 ws = setup(P, q, A, l, u, InteriorPoint(); max_iter = 50)
 sol = solve!(ws)
-ws.algorithm     # InteriorPoint{Float64, Int64}: the parameters, in the solve's element type
+ws.algorithm     # InteriorPoint{Float64, Float64, Float64, Int64}: parameters in the solve's element type
 ws.options       # Options{Float64}: max_iter, the tolerances, linsys, polishing, …
 update_settings!(ws; eps_abs = 1e-10)                    # change an option
 update_settings!(ws, InteriorPoint(reg_primal = 1e-6))   # replace the algorithm parameters

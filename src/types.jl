@@ -632,122 +632,25 @@ function setup_backend(
         adopt_settings!(built.linsys, algorithm, options)
         return built
     end
-    # `LS` is a type parameter, so a named backend leaves exactly one of these branches live
-    # and the rest are gone before the trimmer sees them. `options` still holds and validates
-    # the same value; reading it back here instead would put the choice beyond inference's
-    # reach and make every branch reachable again.
-    if LS === :kkt
-        ws = make(FullKKT(q0, n, m))
-        refactor!(ws)
-        return finish_setup!(ws, t0)
-    elseif LS === :dense
-        # Past `choose_backend` entirely. Its rule for a sparse `A` reads the pattern and not
-        # the numbers, and this is the way to overrule one that misjudges a problem.
-        ws = make(ReducedCholesky(q0, n, m))
-        refactor!(ws)
-        return finish_setup!(ws, t0)
-    elseif LS === :indirect
-        check_preconditioner(preconditioner, typeof(q0))
-        ws = make(indirect_backend(q0, n, m, preconditioner))
-        refactor!(ws)
-        return finish_setup!(ws, t0)
-    elseif LS === :sparse
-        # First with the pattern rule in force, which is what picks the same sparse backend
-        # `:auto` would (a KKT form for a pair with a dense row, say, or the formed reduced
-        # matrix over a factored one). Only when that finds nothing does `gated = false`
-        # retry with the rule skipped, so a pair `:auto` would send to the dense terminal
-        # still reaches a sparse backend instead of throwing.
-        rung = kkt_rung(P, A, prob, wt, ADMMSelection())
-        isnothing(rung) && (rung = reduced_rung(P, A, prob, wt, ADMMSelection()))
-        isnothing(rung) && (rung = formed_rung(P, A, prob, ADMMSelection()))
-        isnothing(rung) && (rung = kkt_rung(P, A, prob, wt, ADMMSelection(); gated = false))
-        isnothing(rung) && (rung = reduced_rung(P, A, prob, wt, ADMMSelection(); gated = false))
-        isnothing(rung) && throw(
-            ArgumentError(
-                "linsys = :sparse factors the reduced or KKT matrix sparsely and could not " *
-                    "serve this pair: it needs SparseArrays.jl loaded and A a SparseMatrixCSC, " *
-                    "with a system that actually factors at this regularization."
-            )
-        )
-        ls, factored = rung
-        ws = make(ls)
-        factored || refactor!(ws)
-        return finish_setup!(ws, t0)
-    elseif LS === :diagonal
-        (P isa Diagonal && A isa Diagonal) || throw(
-            ArgumentError("linsys = :diagonal needs P and A both diagonal")
-        )
+    # `LS` is a type parameter, so a named backend leaves exactly one of `named_backend`'s
+    # branches live and the rest are gone before the trimmer sees them. `options` still holds
+    # and validates the same value; reading it back here instead would put the choice beyond
+    # inference's reach and make every branch reachable again.
+    named = named_backend(Val(LS), P, A, prob, wt, ADMMSelection(), preconditioner)
+    if isnothing(named)
+        # `choose_backend` picks by representation; the choice is settled here, once. The
+        # backend is then part of the workspace's type, so the per-iteration solve dispatches
+        # statically.
         ls, factored = choose_backend(P, A, prob, wt, ADMMSelection())
         ws = make(ls)
-        factored || refactor!(ws)
-        return finish_setup!(ws, t0)
-    elseif LS === :tridiagonal
-        tridiag_pair =
-            (P isa Union{SymTridiagonal, Tridiagonal} && A isa Diagonal) ||
-            (P isa Union{Diagonal, SymTridiagonal, Tridiagonal} && A isa Bidiagonal)
-        tridiag_pair || throw(
-            ArgumentError(
-                "linsys = :tridiagonal needs a diagonal, symmetric-tridiagonal or tridiagonal " *
-                    "P with a diagonal A, or any of those P with a bidiagonal A"
-            )
-        )
-        ls, factored = choose_backend(P, A, prob, wt, ADMMSelection())
-        ws = make(ls)
-        factored || refactor!(ws)
-        return finish_setup!(ws, t0)
-    elseif LS === :kronecker
-        rung = kronecker_rung(P, A, prob, wt, ADMMSelection())
-        isnothing(rung) && throw(
-            ArgumentError(
-                "linsys = :kronecker needs A a KroneckerOperator, P a scalar multiple of the " *
-                    "identity, a uniform rho and scaling = 0, and declines this pair"
-            )
-        )
-        ls, factored = rung
-        ws = make(ls)
-        factored || refactor!(ws)
-        return finish_setup!(ws, t0)
-    elseif LS === :block
-        # As for `:sparse`: the ladder's own `require_multiple = true` first, so a pair with
-        # more than one block reaches exactly the backend `:auto` would; `require_multiple =
-        # false` only as a retry, for the single-block pair `:auto` sends to the dense
-        # terminal instead.
-        rung = block_rung(P, A, prob, wt, ADMMSelection())
-        isnothing(rung) && (rung = block_rung(P, A, prob, wt, ADMMSelection(); require_multiple = false))
-        isnothing(rung) && throw(
-            ArgumentError(
-                "linsys = :block needs P and A both block diagonal over the same column " *
-                    "partition, and declines this pair"
-            )
-        )
-        ls, factored = rung
-        ws = make(ls)
-        factored || refactor!(ws)
-        return finish_setup!(ws, t0)
-    elseif LS === :lowrank
-        # As for `:sparse` and `:block`: the crossover threshold first, so a coupling narrow
-        # enough to pay reaches exactly the backend `:auto` would; `require_crossover = false`
-        # only as a retry, for a coupling `:auto` sends to the dense terminal instead.
-        rung = lowrank_rung(P, A, prob, wt, ADMMSelection())
-        isnothing(rung) && (rung = lowrank_rung(P, A, prob, wt, ADMMSelection(); require_crossover = false))
-        isnothing(rung) && throw(
-            ArgumentError(
-                "linsys = :lowrank needs a diagonal P and a RowCoupled A with at least one " *
-                    "coupling row, and declines this pair"
-            )
-        )
-        ls, factored = rung
-        ws = make(ls)
-        factored || refactor!(ws)
+        # A factorization that fails here throws, as it does at every later refactorization,
+        # and names `linsys = :kkt` as the remedy rather than switching backends unannounced.
+        factored ? (ws.refactor_count += 1) : refactor!(ws)
         return finish_setup!(ws, t0)
     end
-    # `choose_backend` picks by representation; the choice is settled here, once. The backend
-    # is then part of the workspace's type, so the per-iteration solve dispatches statically.
-    ls, factored = choose_backend(P, A, prob, wt, ADMMSelection())
+    ls, factored = named
     ws = make(ls)
-    # A factorization that fails here throws, as it does at every later refactorization, and
-    # names `linsys = :kkt` as the remedy rather than switching backends unannounced.
-    factored ? (ws.refactor_count += 1) : refactor!(ws)
+    factored || refactor!(ws)
     return finish_setup!(ws, t0)
 end
 

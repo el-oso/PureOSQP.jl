@@ -152,7 +152,7 @@ function MOI.set(o::Optimizer{T}, a::MOI.RawOptimizerAttribute, v) where {T}
     end
     alg = _algorithm(o)
     S = name in PureOSQP.OPTION_NAMES ? PureOSQP.Options{T} :
-        alg === :ipm ? PureOSQP.InteriorPoint{T, Int} : PureOSQP.OperatorSplitting{T}
+        alg === :ipm ? PureOSQP.InteriorPoint{T, T, T, Int} : PureOSQP.OperatorSplitting{T}
     v isa AbstractString && fieldtype(S, name) === Symbol && (v = Symbol(v))
     _build(o, alg, merge(o.settings, Dict(name => v)))
     o.settings[name] = v

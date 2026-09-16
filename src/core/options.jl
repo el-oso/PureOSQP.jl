@@ -162,3 +162,57 @@ function check_option_names(kwargs)
 end
 
 const OPTION_NAMES = fieldnames(Options{Float64})
+
+"""
+    update_settings!(ws; kwargs...) -> ws
+    update_settings!(ws, alg) -> ws
+
+Replace the workspace's [`Options`](@ref), keeping every option not named in `kwargs`, or
+replace its algorithm parameters with `alg`, an algorithm object of the workspace's own
+algorithm whose unnamed parameters take their defaults. Either is validated exactly as at
+[`setup`](@ref), so an out-of-range value throws and leaves the workspace untouched, and a
+keyword that is an algorithm parameter throws, naming the algorithm object it belongs in.
+
+On an [`OperatorSplittingWorkspace`](@ref), `rho`, `sigma` and `rho_is_vec` are built into the
+factorization, so changing any of them refactorizes; everything else is free. On an
+[`InteriorPointWorkspace`](@ref) nothing refactorizes: a solve resets the regularization from
+the algorithm parameters before its first iteration and refactorizes every iteration after.
+The settings a backend reads while solving — the `cg_*` settings of the matrix-free backend —
+reach it at once.
+
+`linsys` and `scaling` are rejected rather than honored. The backend is part of the
+workspace's *type*, so assigning new options cannot change it — accepting `linsys = :kkt`
+and then continuing to run the Cholesky would be a quiet lie. `scaling` is worse: the
+equilibration factors are computed once, from the data `setup` saw, so turning it off
+afterwards would leave `D`, `E` and `c` at their equilibrated values while flipping every
+branch that tests it, and the residuals and the returned `x` and `y` would come back in
+scaled space. Build a new workspace to change either.
+"""
+function update_settings!(ws::QPWorkspace{T}; kwargs...) where {T}
+    check_option_names(kwargs)
+    old = ws.options
+    new = Options{T}(; settings_tuple(old)..., kwargs...)
+    new.linsys === old.linsys || throw(
+        ArgumentError(
+            "linsys is fixed once the workspace is built, because the backend is part of " *
+                "its type. Call setup again to change it."
+        )
+    )
+    new.scaling == old.scaling || throw(
+        ArgumentError(
+            "scaling is fixed once the workspace is built, because the equilibration " *
+                "factors come from the data setup saw. Call setup again to change it."
+        )
+    )
+    ws.options = new
+    adopt_settings!(ws.linsys, ws.algorithm, new)
+    return ws
+end
+
+function update_settings!(ws::QPWorkspace, alg::QPAlgorithm)
+    throw(
+        ArgumentError(
+            lazy"this workspace runs $(nameof(typeof(ws.algorithm))), not $(nameof(typeof(alg))): the algorithm is fixed once the workspace is built. Call setup again to change it."
+        )
+    )
+end

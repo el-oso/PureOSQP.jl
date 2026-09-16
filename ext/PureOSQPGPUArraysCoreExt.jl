@@ -41,6 +41,36 @@ function unsupported_backend()
     )
 end
 
+"""
+    unsupported_gpu()
+
+What a GPU array gets under an algorithm this extension has no remedy to name.
+
+That a factorization has no GPU counterpart is a property of the factorization and not of
+the algorithm, so the refusal itself serves every [`PureOSQP.SelectionFor`](@ref); only the
+way out differs, which is why [`unsupported_backend`](@ref) and [`unsupported_ipm`](@ref)
+answer for the two algorithms that have one.
+"""
+function unsupported_gpu()
+    throw(
+        ArgumentError(
+            "a direct backend is not available for GPU arrays: every one of them factors a " *
+                "matrix, and only the matrix-free backend has a GPU counterpart. Move the " *
+                "problem to the host with `Array`."
+        )
+    )
+end
+
+PureOSQP.choose_backend(
+    P, A::AbstractGPUMatrix, prob, wt, sel::PureOSQP.SelectionFor
+) = unsupported_gpu()
+PureOSQP.choose_backend(
+    P::AbstractGPUMatrix, A, prob, wt, sel::PureOSQP.SelectionFor
+) = unsupported_gpu()
+PureOSQP.choose_backend(
+    P::AbstractGPUMatrix, A::AbstractGPUMatrix, prob, wt, sel::PureOSQP.SelectionFor
+) = unsupported_gpu()
+
 PureOSQP.choose_backend(
     P, A::AbstractGPUMatrix, prob, wt, sel::PureOSQP.ADMMSelection
 ) = unsupported_backend()

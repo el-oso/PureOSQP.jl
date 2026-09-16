@@ -149,7 +149,7 @@ mutable struct InteriorPointWorkspace{
     update_time::Float64
     solve_time::Float64
     polish_time::Float64
-    algorithm::InteriorPoint{T, Int}
+    algorithm::InteriorPoint{T, T, T, Int}
     options::Options{T}
 end
 
@@ -169,7 +169,7 @@ Classify the rows of `prob` and allocate the interior-point state around the bac
 which solves through the weights object `wt`.
 """
 function ipm_workspace(
-        ls::LinearSystem, prob::Problem{T}, wt::SystemWeights{T}, algorithm::InteriorPoint{T, Int},
+        ls::LinearSystem, prob::Problem{T}, wt::SystemWeights{T}, algorithm::InteriorPoint{T, T, T, Int},
         options::Options{T}
     ) where {T}
     n, m, q0 = prob.n, prob.m, prob.q0
@@ -281,64 +281,15 @@ function setup_backend(
     # the first factorization of a solve in place.
     wt = SystemWeights(fill!(similar(q0, T, m), one(T)), fill!(similar(q0, T, m), one(T)), algorithm.reg_primal)
     sel = IPMSelection()
-    if LS === :kkt
-        ws = ipm_workspace(FullKKT(q0, n, m), prob, wt, algorithm, options)
-    elseif LS === :dense
-        ws = ipm_workspace(ReducedCholesky(q0, n, m), prob, wt, algorithm, options)
-    elseif LS === :indirect
-        check_preconditioner(preconditioner, typeof(q0))
-        ws = ipm_workspace(indirect_backend(q0, n, m, preconditioner), prob, wt, algorithm, options)
+    # `named_backend` holds the branch per named kind for both algorithms; `:kronecker` and
+    # `:lowrank` are refused above, before the problem is built, so its branches for them are
+    # unreachable from here.
+    named = named_backend(Val(LS), P, A, prob, wt, sel, preconditioner)
+    ls = isnothing(named) ? first(choose_backend(P, A, prob, wt, sel)) : first(named)
+    ws = ipm_workspace(ls, prob, wt, algorithm, options)
+    if LS === :indirect
         adopt_settings!(ws.linsys, algorithm, options)
         use_residual_stop!(ws.linsys, true)
-    elseif LS === :sparse
-        # First with the pattern rule in force, which is what picks the same sparse backend
-        # `:auto` would. Only when that finds nothing does `gated = false` retry with the rule
-        # skipped, so a pair `:auto` would send to the dense terminal still reaches a sparse
-        # backend instead of throwing.
-        rung = kkt_rung(P, A, prob, wt, sel)
-        isnothing(rung) && (rung = reduced_rung(P, A, prob, wt, sel))
-        isnothing(rung) && (rung = kkt_rung(P, A, prob, wt, sel; gated = false))
-        isnothing(rung) && (rung = reduced_rung(P, A, prob, wt, sel; gated = false))
-        isnothing(rung) && throw(
-            ArgumentError(
-                "linsys = :sparse factors the reduced or KKT matrix sparsely and could not " *
-                    "serve this pair: it needs a SparseMatrixCSC P and A, SparseArrays.jl " *
-                    "loaded, and a system that actually factors at this regularization."
-            )
-        )
-        ws = ipm_workspace(first(rung), prob, wt, algorithm, options)
-    elseif LS === :diagonal
-        (P isa Diagonal && A isa Diagonal) || throw(
-            ArgumentError("linsys = :diagonal needs P and A both diagonal")
-        )
-        ws = ipm_workspace(first(choose_backend(P, A, prob, wt, sel)), prob, wt, algorithm, options)
-    elseif LS === :tridiagonal
-        tridiag_pair =
-            (P isa Union{SymTridiagonal, Tridiagonal} && A isa Diagonal) ||
-            (P isa Union{Diagonal, SymTridiagonal, Tridiagonal} && A isa Bidiagonal)
-        tridiag_pair || throw(
-            ArgumentError(
-                "linsys = :tridiagonal needs a diagonal, symmetric-tridiagonal or tridiagonal " *
-                    "P with a diagonal A, or any of those P with a bidiagonal A"
-            )
-        )
-        ws = ipm_workspace(first(choose_backend(P, A, prob, wt, sel)), prob, wt, algorithm, options)
-    elseif LS === :block
-        # As for `:sparse`: the ladder's own `require_multiple = true` first, so a pair with
-        # more than one block reaches exactly the backend `:auto` would; `require_multiple =
-        # false` only as a retry, for the single-block pair `:auto` sends to the dense
-        # terminal instead.
-        rung = block_rung(P, A, prob, wt, sel)
-        isnothing(rung) && (rung = block_rung(P, A, prob, wt, sel; require_multiple = false))
-        isnothing(rung) && throw(
-            ArgumentError(
-                "linsys = :block needs P and A both block diagonal over the same column " *
-                    "partition, and declines this pair"
-            )
-        )
-        ws = ipm_workspace(first(rung), prob, wt, algorithm, options)
-    else
-        ws = ipm_workspace(first(choose_backend(P, A, prob, wt, sel)), prob, wt, algorithm, options)
     end
     ws.setup_time = (time_ns() - t0) / 1.0e9
     return ws

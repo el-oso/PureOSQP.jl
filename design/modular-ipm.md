@@ -170,7 +170,8 @@ src/core/
   constants.jl                  INFTY, MIN/MAX_SCALING, RHO_* … (types.jl:84-94)
   status.jl                     Status, PolishStatus, has_solution, status_name, Solution
   blockdiagonal.jl kronecker.jl rowcoupled.jl operator.jl   (unchanged)
-  problem.jl                    Problem, validate, check_*, is_symmetric, is_convex
+  problem.jl                    Problem, validate, check_*, is_symmetric, is_convex,
+                                validate_update!, adopt_update!
   scaling.jl                    equilibrate!, traversals, mul_A!/mul_At!/mul_P!(·, prob, ·),
                                 reduced_diagonal!
   elementwise.jl                unchanged, plus the IPM's elementwise kernels
@@ -179,12 +180,13 @@ src/core/
                                 DiagonalReduced, TridiagonalReduced, reduced_rhs!, ladder
   block.jl lowrank.jl kronsolve.jl   (backends, on prob + wt)
   preconditioner.jl             update_preconditioner! interface, JacobiPreconditioner (§9.3)
-  residuals.jl                  residuals_at!, gap_terms, certificate tests, support kernels
-  update.jl                     validate_update!, adopt_update!, check_update(ls, P, A)
+  termination.jl                norm kernels, gap_terms, the tolerances both algorithms test
+                                against, certificate tests, support kernels
+  options.jl                    Options, default_options, update_settings!(::QPWorkspace)
   polish.jl                     polish_kernel!
   derivative.jl                 active_kkt(prob, x, y, z) and the two derivatives
 src/admm/
-  settings.jl workspace.jl rho.jl accelerate.jl termination.jl admm.jl api.jl
+  settings.jl workspace.jl rho.jl accelerate.jl termination.jl admm.jl update.jl api.jl
 src/ipm/
   settings.jl workspace.jl ipm.jl api.jl
 src/api.jl                      setup/solve(…; algorithm), capabilities, dimensions,
@@ -473,6 +475,13 @@ use_residual_stop!(ls::LinearSystem, flag) = nothing        # direct backends; n
 use_residual_stop!(ls::IndirectCG, flag) = (ls.use_residual_stop = flag; nothing)  # §9.4; off by default, ADMM keeps tolerance stop
 ```
 
+`adopt_settings!`'s default does nothing, which is right for a direct backend and silently
+wrong for `IndirectCG` under an algorithm with no method of its own: `max_iter` stays at its
+`0` placeholder and every solve returns its starting point. `factorize!(ls::IndirectCG, …)`
+refuses a zero `max_iter`, naming `adopt_settings!` — `Options` refuses a `cg_max_iter` of
+zero, so the placeholder is the only way to reach it, and the check is off the per-iteration
+path.
+
 `refresh_index` is owned by the algorithm: the IPM sets it to the outer iteration before
 `refactor_weights!` (`−1` before the starting-point factorization; a regularization bump
 refactors with the same index); ADMM sets it to `refactor_count` before `factorize!` and
@@ -668,6 +677,21 @@ as extra methods:
 `ReducedInverse` under IPM: the inversion costs `2n³/3` per iteration and buys a `symv` for
 2–4 solves. `FullKKT` is preferred instead; a factor-keeping `ReducedCholeskyFactor` is added
 only if the S13 bench shows the inversion above ~25% of an IPM iteration on a reached rung.
+
+**A third `SelectionFor`.** Every point above answers one, either by serving it or by naming
+what it still owes. The rungs whose default is to decline — `kkt_rung`, `reduced_rung`,
+`kronecker_rung`, `block_rung`, `lowrank_rung`, `formed_rung` — and the `choose_backend`
+methods for a structured pair take any subtype, as does the GPU refusal, which is a property
+of the factorization rather than of the algorithm. `select_backend`, `dense_rung`,
+`indirect_rung` and `sparse_form` have no algorithm-independent answer and throw through
+`refuse_selection`, naming themselves; a new algorithm defines those four (`sparse_form` only
+if the sparse rungs are in its ladder). `test/contract_tests.jl` asserts the whole set against
+a dummy subtype, so nothing here can regress to a `MethodError`.
+
+**Named kinds.** `named_backend(Val{LS}, P, A, prob, wt, sel, preconditioner)` in
+`src/core/linsys.jl` holds the branch per named `linsys` for both algorithms; `nothing` means
+`:auto` and the ladder. The kinds an algorithm cannot serve are refused by its own
+`setup_backend` before the problem is built, so the message can name the reason.
 
 ---
 
@@ -1123,7 +1147,7 @@ that the IPM's per-iteration allocation is the backend's factorization (and, for
 `IndirectCG`, the caller's `update_preconditioner!`). Rules: masks and classes preallocated;
 every elementwise update a two-schedule function in `elementwise.jl` style (`max_step`,
 `complementarity!`, `weights!`, `recover_slack_steps!`); loops over `eachindex`, no `findall`,
-no broadcasting on `Vector`; `norm_inf` only; `InteriorPoint{T, Int}` and `Options{T}` concrete; `lazy"…"` messages;
+no broadcasting on `Vector`; `norm_inf` only; `InteriorPoint{T, T, T, Int}` and `Options{T}` concrete; `lazy"…"` messages;
 verbose via `Core.stdout`. The `try`/`catch` that turns Krylov's definiteness throw into a miss
 (§9.3) lives in a `@noinline` helper outside the audited `solve_system!` kernel, so the
 `noalloc` row does not see the catch path. Trim entries: `solve_ipm_default`, `solve_ipm_kkt`,
@@ -1530,7 +1554,7 @@ sol = solve(P, q, A, l, u)                                    # OperatorSplittin
 sol = solve(P, q, A, l, u, OperatorSplitting(rho = 0.2, adaptive_rho = :kkt_error); eps_abs = 1e-6)
 sol = solve(P, q, A, l, u, InteriorPoint(reg_primal = 1e-7); eps_abs = 1e-9, max_iter = 50)
 ws  = setup(P, q, A, l, u, InteriorPoint(); max_iter = 50); sol = solve!(ws)
-ws.algorithm                                                  # InteriorPoint{Float64, Int}
+ws.algorithm                                                  # InteriorPoint{Float64, Float64, Float64, Int}
 ws.options                                                    # Options{Float64}
 update_settings!(ws; eps_abs = 1e-10)                         # options, merged into the current ones
 update_settings!(ws, InteriorPoint(reg_primal = 1e-6))        # parameters, replaced wholesale
@@ -1587,14 +1611,18 @@ adaptive_rho_interval adaptive_rho_fraction adaptive_rho_tolerance rho_is_vec cg
 profile_primdual`. Its keyword constructor `OperatorSplitting(; …)` validates and stores
 the values in `F = float(promote_type(…))` of the given reals (`Float64` for literals, so a
 `BigFloat` value is kept exactly); no default depends on `T`, and `setup` converts with
-`OperatorSplitting{T}(alg)`. `InteriorPoint{T, I}`: `reg_primal reg_dual max_reg_bumps
-refine_iter step_fraction cg_fail_limit`. Three parameters default to something the object
-cannot know without the solve (`reg_primal`, `reg_dual` are `ipm_floor(T)`; `refine_iter` is `0`
-under `linsys = :indirect`, else `1`), so `InteriorPoint(; …)` stores them as `nothing` in an
-`InteriorPoint{Union{Nothing, F}, Union{Nothing, Int}}`, and `setup` resolves them with
-`InteriorPoint{T}(alg, options.linsys)` into the concrete `InteriorPoint{T, Int}` the workspace
-holds. `I` exists only for `refine_iter`; a sentinel integer was the alternative and was not
-taken. `element_typed(alg, T, options)` is the one conversion entry point for both. Validation
+`OperatorSplitting{T}(alg)`. `InteriorPoint{T, RP, RD, RI}`: `reg_primal reg_dual
+max_reg_bumps refine_iter step_fraction cg_fail_limit`. Three parameters default to something
+the object cannot know without the solve (`reg_primal`, `reg_dual` are `ipm_floor(T)`;
+`refine_iter` is `0` under `linsys = :indirect`, else `1`), so `InteriorPoint(; …)` stores them
+as `nothing` and carries one type parameter for each, which makes the seed concrete:
+`InteriorPoint{F, Nothing, Nothing, Nothing}` with none of the three given,
+`InteriorPoint{F, F, Nothing, Nothing}` with `reg_primal` given. `setup` resolves them with
+`InteriorPoint{T}(alg, options.linsys)` into the `InteriorPoint{T, T, T, Int}` the workspace
+holds. `RP`, `RD` and `RI` are internal, computed by the constructors; a sentinel number for
+"not given" was the alternative and was not taken, since a reader of the object cannot tell a
+sentinel from a value. `element_typed(alg, T, options)` is the one conversion entry point for
+both. Validation
 lives with the field: `Options` validates the options, each algorithm constructor its own
 parameters, with the messages of the former settings structs.
 
@@ -1603,9 +1631,10 @@ as before and calls `setup_backend(alg, Val(linsys), T, …)`, dispatching on th
 (the former `Val(:admm)`/`Val(:ipm)` tags are gone). The selection tags `ADMMSelection` and
 `IPMSelection` are kept internally: the rungs dispatch on them in the core and in four
 extensions, and they carry no parameters, so threading the element-typed algorithm object
-through every rung would add nothing. `adopt_settings!(ls, alg, options)` dispatches on the
-algorithm for `IndirectCG`'s `tol_reduction`. `update_settings!(ws, alg)` with the other
-algorithm's object throws.
+through every rung would add nothing. Both `setup_backend` methods reach the named `linsys`
+kinds through one `named_backend(Val{LS}, …)` (§5). `adopt_settings!(ls, alg, options)`
+dispatches on the algorithm for `IndirectCG`'s `tol_reduction`. `update_settings!(ws, alg)`
+with the other algorithm's object throws.
 
 **Keyword errors.** `check_option_names(kwargs)` runs in `setup` and in
 `update_settings!(ws; …)` before `Options` is built: a name that is a field of

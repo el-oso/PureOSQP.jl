@@ -199,6 +199,9 @@ PureOSQP.check_symmetric_products
 PureOSQP.SelectionFor
 PureOSQP.ADMMSelection
 PureOSQP.IPMSelection
+PureOSQP.refuse_selection
+PureOSQP.named_backend
+PureOSQP.sparse_refusal
 PureOSQP.select_backend
 PureOSQP.kkt_rung
 PureOSQP.reduced_rung
@@ -225,4 +228,5 @@ PureOSQP.BackendInfo
 PureOSQP.recommend_linsys
 PureOSQP.LinsysAdvice
 PureOSQP.measure_linsys
+PureOSQP.solve_iterations
 ```

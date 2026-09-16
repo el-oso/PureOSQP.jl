@@ -61,13 +61,18 @@ function backend_info(ls::KroneckerReduced)
 end
 
 """
-    kronecker_rung(P, A, prob, wt, sel::ADMMSelection) -> (LinearSystem, Bool) or nothing
+    kronecker_rung(P, A, prob, wt, sel) -> (LinearSystem, Bool) or nothing
 
 Ladder rung for `A = A₁ ⊗ A₂` with a scalar `P`. Declines unless every condition the
 diagonalization needs holds: `P` a multiple of the identity, `ρ` uniform, and no equilibration
 scaling in force.
+
+The default declines for every algorithm. The uniform weight the diagonalization needs is a
+property of the algorithm, so the method that serves a pair is written for the
+[`SelectionFor`](@ref) whose weights are uniform, and the interior-point ladder — whose
+weights differ from row to row — does not reach this rung at all.
 """
-kronecker_rung(P, A, prob, wt, sel::ADMMSelection) = nothing
+kronecker_rung(P, A, prob, wt, sel::SelectionFor) = nothing
 
 function kronecker_rung(
         P, A::KroneckerOperator, prob, wt::SystemWeights{T}, sel::ADMMSelection

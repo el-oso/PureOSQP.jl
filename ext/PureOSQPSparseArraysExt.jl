@@ -193,6 +193,11 @@ Which sparse form of the system `sel`'s algorithm solves this pattern is served 
 for the `(n+m)×(n+m)` quasi-definite matrix, `:reduced` for the `n×n` `P̃ + σI + Ãᵀ W Ã`, or
 `:none` for neither, which leaves the pair to the algorithm's terminal rung.
 
+The thresholds are measured per algorithm — ADMM factors once and pays the pattern back over
+thousands of solves, the interior-point method rebuilds and refactors every outer iteration —
+so there is no generic method and a new [`PureOSQP.SelectionFor`](@ref) reaching this is told
+to define one.
+
 The answer is read from the patterns of `P` and `A` alone — the densest row, `Σᵢ nnzᵢ²`, the
 stored entries of the KKT matrix, and [`reduced_nnz`](@ref)'s count of the symbolic
 `AᵀA ∪ P ∪ I` pattern. Nothing is factored, so the backend the ladder then builds is the
@@ -206,6 +211,9 @@ in-sample: the rule was fitted to this set and scored on it. The `OperatorSplitt
 compares cost per iteration, since 10 of the 71 run to the iteration cap at the sweep's
 tolerance rather than converging.
 """
+sparse_form(P, A, n::Integer, m::Integer, sel::PureOSQP.SelectionFor) =
+    PureOSQP.refuse_selection("PureOSQPSparseArraysExt.sparse_form", sel)
+
 function sparse_form(P::SparseMatrixCSC, A::SparseMatrixCSC, n::Integer, m::Integer, ::PureOSQP.IPMSelection)
     # The terminal is the dense `(n+m)` KKT factorization, so what decides against a sparse
     # form is how much of that matrix is stored to begin with: past a quarter there is too

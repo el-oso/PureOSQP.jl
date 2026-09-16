@@ -77,15 +77,18 @@ end
     advice = recommend_linsys(P, q, A, l, u; max_iter = 5, repeats = 2)
     @test advice isa LinsysAdvice
     @test advice.linsys in PureOSQP.LINSYS_OPTIONS
-    # Ranked fastest first, with the dense terminal and `:auto` both reached.
-    @test issorted(advice.candidates; by = c -> c.iterate_ms)
+    # Ranked by the cost of a whole solve, with the dense terminal and `:auto` both reached.
+    @test issorted(advice.candidates; by = c -> c.total_ms)
+    @test advice.solve_iters >= 1
     @test :auto in [c.linsys for c in advice.candidates]
     @test :dense in [c.linsys for c in advice.candidates]
-    # Every candidate ran the same bounded number of iterations and reports a real fill.
+    # Every candidate ran the same bounded number of iterations and reports a real fill, and
+    # its total is its setup plus its per-iteration cost over the solve's own iterations.
     for c in advice.candidates
         @test 0 < c.iter <= 5
         @test c.setup_ms > 0 && c.solve_ms > 0
         @test c.factor_fill >= 0
+        @test c.total_ms ≈ c.setup_ms + c.iterate_ms * advice.solve_iters
     end
     # The name it reports is one `setup` accepts, and reaches the backend it was measured on.
     ws = setup(P, q, A, l, u; linsys = advice.linsys)

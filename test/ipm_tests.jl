@@ -669,7 +669,7 @@ end
     # algorithm parameters before the first iteration, so nothing here needs to trigger a
     # refactorization the way ADMM's `rho`/`sigma` do.
     update_settings!(ws, InteriorPoint(reg_primal = 1.0e-6, reg_dual = 1.0e-6))
-    @test ws.algorithm isa InteriorPoint{Float64, Int}
+    @test ws.algorithm isa InteriorPoint{Float64, Float64, Float64, Int}
     @test ws.algorithm.reg_primal == 1.0e-6
     @test ws.algorithm.reg_dual == 1.0e-6
     @test ws.options.eps_abs == 1.0e-9           # the options are untouched

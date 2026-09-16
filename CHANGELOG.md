@@ -205,6 +205,47 @@ what is true now; this file is where the history lives.
 
 ### Changed
 
+- **Every selection point answers a third algorithm, by serving it or by naming what it
+  must define.** A new `SelectionFor` subtype used to reach a `MethodError` from inside
+  `select_backend`, `dense_rung`, `indirect_rung`, `kronecker_rung`, `formed_rung`, the
+  SparseArrays extension's `sparse_form` and the GPU extension's refusals. The rungs whose
+  default is to decline now take any subtype, as `kkt_rung` and `block_rung` already did, and
+  the GPU refusal is generic. The four points with no algorithm-independent answer —
+  `select_backend`, `dense_rung`, `indirect_rung` and `sparse_form` — throw through
+  `PureOSQP.refuse_selection`, naming themselves. `test/contract_tests.jl` asserts the whole
+  set against a dummy subtype.
+- **The matrix-free backend refuses to factorize without its settings.** `adopt_settings!`'s
+  default does nothing, which is right for a backend that reads no settings and was silently
+  wrong for `IndirectCG`: under an algorithm with no `adopt_settings!` method of its own it
+  kept `cg_max_iter = 0` and every solve returned its starting point. `factorize!` now throws
+  and names `adopt_settings!`. `Options` refuses a `cg_max_iter` of zero, so the check cannot
+  fire on a legitimate setting, and it is off the per-iteration path.
+- **One `named_backend` serves both algorithms' named `linsys` kinds.** `setup_backend`
+  carried the same `Val{LS}` chain twice, once per algorithm. The refusals, the messages and
+  the two-stage rule for `:sparse`, `:block` and `:lowrank` are unchanged; `:sparse`'s message
+  still differs by algorithm, because what the two chains require of `P` differs.
+- **`recommend_linsys` ranks by what a whole solve costs**, `setup_ms + iterate_ms *
+  solve_iters`, rather than by cost per iteration alone. One unbounded run on `linsys = :auto`
+  measures `solve_iters`, and `LinsysAdvice` reports it beside the new `total_ms` column and
+  the existing `ms/iter` one. Per-iteration ranking treats setup as free, which decides
+  against a factorization that is slower to build and faster to solve against — the right
+  choice over four thousand ADMM iterations and the wrong one over twenty interior-point
+  iterations.
+- **`InteriorPoint()` is concretely typed.** The seed was
+  `InteriorPoint{Union{Nothing,Float64},Union{Nothing,Int}}`, an abstract type leaking into
+  `show` and into every error message naming it. `reg_primal`, `reg_dual` and `refine_iter`
+  now carry a type parameter each, so the seed is `InteriorPoint{Float64,Nothing,Nothing,
+  Nothing}`, `InteriorPoint(reg_primal = 1e-7)` is `InteriorPoint{Float64,Float64,Nothing,
+  Nothing}`, and the workspace holds `InteriorPoint{T,T,T,Int}`. `OperatorSplitting` has no
+  parameter it defaults from `T` and was already `OperatorSplitting{Float64}`.
+- **Files moved to the directory their contents belong to.** `src/core/update.jl` is
+  `src/admm/update.jl`, keeping ADMM's `update!`; the `Problem`-level `validate_update!` and
+  `adopt_update!` it also held are in `src/core/problem.jl`. The generic
+  `update_settings!(::QPWorkspace)` moved from `src/admm/api.jl` to `src/core/options.jl`.
+  The parts of `src/admm/termination.jl` the interior-point method calls — `eps_prim`,
+  `eps_dual`, `eps_duality_gap`, `is_primal_infeasible`, `is_dual_infeasible`, `gap_terms` and
+  the norm and recession-cone helpers they are built from — are in a new
+  `src/core/termination.jl`.
 - **`linsys = :auto` chooses from the sparsity pattern, and never factors a matrix to
   decide.** For a `SparseMatrixCSC` pair the choice among the sparse KKT form, the sparse
   reduced form and the algorithm's terminal now reads the densest row of `A`, `Σᵢ nnzᵢ²`, the

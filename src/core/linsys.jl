@@ -442,8 +442,35 @@ Which algorithm [`select_backend`](@ref) and the ladder rungs are choosing a bac
 A rung whose choice does not depend on the algorithm defines one method, taking any
 subtype; a rung whose choice differs adds a method for the specific subtype that needs the
 different answer.
+
+Four selection points have no algorithm-independent answer, so a new subtype must define
+each of them before selection can serve it: [`select_backend`](@ref), which fixes the order
+of the ladder; [`dense_rung`](@ref), its terminal; [`indirect_rung`](@ref), what sits below
+the terminal; and, when the sparse rungs are in the ladder, the SparseArrays extension's
+`sparse_form`, the rule that reads a sparsity pattern. Each throws through
+[`refuse_selection`](@ref) until it is defined. Everything else — [`choose_backend`](@ref),
+[`kkt_rung`](@ref), [`reduced_rung`](@ref), [`kronecker_rung`](@ref), [`block_rung`](@ref),
+[`lowrank_rung`](@ref), [`formed_rung`](@ref) and the refusals the GPU extension raises —
+takes any subtype already.
 """
 abstract type SelectionFor end
+
+"""
+    refuse_selection(what, sel)
+
+Throw, naming the selection method `sel`'s algorithm still has to define.
+
+`what` is that method's qualified name. This is what a selection point whose answer differs
+by algorithm does for a [`SelectionFor`](@ref) it has no method for, in place of the
+`MethodError` from a call that looks unrelated to the algorithm being added.
+"""
+@noinline function refuse_selection(what::String, sel::SelectionFor)
+    throw(
+        ArgumentError(
+            lazy"selecting a backend for $(nameof(typeof(sel))) needs a `$what` method and there is none. A rung whose choice does not depend on the algorithm already serves every SelectionFor by declining; this one's answer differs by algorithm, so define `$what` for $(nameof(typeof(sel)))."
+        )
+    )
+end
 
 """
     ADMMSelection <: SelectionFor
@@ -533,6 +560,9 @@ Each rung is a generic function whose default declines, so an extension adds its
 ladder by defining the method its representation needs. The order is fixed here, in one
 place, rather than emerging from where each gate happens to sit.
 """
+select_backend(P, A, prob, wt, sel::SelectionFor) =
+    refuse_selection("PureOSQP.select_backend", sel)
+
 function select_backend(P, A, prob, wt, sel::ADMMSelection)
     rung = kkt_rung(P, A, prob, wt, sel)
     isnothing(rung) || return rung
@@ -574,7 +604,7 @@ form to use. What it returns is already factored. See [`kkt_rung`](@ref) on what
 reduced_rung(P, A, prob, wt, sel::SelectionFor; gated::Bool = true) = nothing
 
 """
-    formed_rung(P, A, prob, sel::ADMMSelection) -> (LinearSystem, Bool) or nothing
+    formed_rung(P, A, prob, sel) -> (LinearSystem, Bool) or nothing
 
 Ladder rung 5: form the reduced matrix by accumulating over stored entries, then invert it
 densely — the same dense arithmetic as [`dense_rung`](@ref) reached without the `m×n` buffer
@@ -583,18 +613,32 @@ the buffer is never allocated for one.
 
 Accumulating reads entries, so a method here declines an operand that answers
 [`is_materializable`](@ref) with `false`, as rung 6 does.
+
+The default declines for every algorithm. Whether the rung is worth having at all is a
+property of the algorithm — an inverse rebuilt once serves ADMM's whole run, where an
+interior-point method would rebuild it every outer iteration — so the method that serves a
+pair is written for the [`SelectionFor`](@ref) that wants it, and the interior-point ladder
+does not reach this rung at all.
 """
-formed_rung(P, A, prob, sel::ADMMSelection) = nothing
+formed_rung(P, A, prob, sel::SelectionFor) = nothing
+
+"""
+    dense_rung(P, A, prob, sel) -> (LinearSystem, Bool) or nothing
+
+The ladder's terminal, which serves any pair of materializable matrices and is why every
+rung above it may decline freely. What it builds differs by algorithm, so there is no
+generic method: for [`ADMMSelection`](@ref) it is rung 6, [`ReducedCholesky`](@ref), which
+forms the reduced matrix with one dense product and inverts it.
+
+Declines when either operand answers [`is_materializable`](@ref) with `false`, since forming
+the product reads entries. The ladder then falls through to [`indirect_rung`](@ref).
+"""
+dense_rung(P, A, prob, sel::SelectionFor) = refuse_selection("PureOSQP.dense_rung", sel)
 
 """
     dense_rung(P, A, prob, sel::ADMMSelection) -> (LinearSystem, Bool) or nothing
 
-Ladder rung 6, the terminal: [`ReducedCholesky`](@ref), which forms the reduced matrix with
-one dense product and inverts it. It serves any pair of materializable matrices, which is
-why every rung above it may decline freely.
-
-Declines when either operand answers [`is_materializable`](@ref) with `false`, since forming
-the product reads entries. The ladder then falls through to [`indirect_rung`](@ref).
+Ladder rung 6, the ADMM terminal: [`ReducedCholesky`](@ref).
 """
 function dense_rung(P::AbstractMatrix, A::AbstractMatrix, prob, sel::ADMMSelection)
     (is_materializable(P) && is_materializable(A)) || return nothing
@@ -607,13 +651,21 @@ end
 dense_rung(P, A, prob, sel::ADMMSelection) = nothing
 
 """
+    indirect_rung(P, A, prob, sel) -> (LinearSystem, Bool)
+
+What sits below the terminal, reached by an operator [`dense_rung`](@ref) cannot
+materialize. It has no gate: reaching it means nothing above could serve. Whether a
+matrix-free solve is acceptable at all is the algorithm's decision — ADMM takes it, the
+interior-point method refuses — so there is no generic method.
+"""
+indirect_rung(P, A, prob, sel::SelectionFor) = refuse_selection("PureOSQP.indirect_rung", sel)
+
+"""
     indirect_rung(P, A, prob, sel::ADMMSelection) -> (LinearSystem, Bool)
 
-Ladder rung 7, below the terminal: conjugate gradients, which needs only products with `P`
-and `A` and so serves an operator no other rung can materialize.
-
-It has no gate: reaching it means nothing above could serve. Without Krylov loaded there is
-no such backend and [`indirect_backend`](@ref) says so.
+Ladder rung 7, below the ADMM terminal: conjugate gradients, which needs only products with
+`P` and `A` and so serves an operator no other rung can materialize. Without Krylov loaded
+there is no such backend and [`indirect_backend`](@ref) says so.
 """
 indirect_rung(P, A, prob, sel::ADMMSelection) =
     (indirect_backend(prob.q0, prob.n, prob.m, nothing), false)
@@ -635,6 +687,122 @@ choose_backend(
 choose_backend(
     P::Union{Diagonal, SymTridiagonal, Tridiagonal}, A::Bidiagonal, prob, wt, sel::SelectionFor
 ) = (TridiagonalReduced(prob.q0, prob.n), false)
+
+"""
+    sparse_refusal(sel) -> String
+
+Why `linsys = :sparse` could not serve a pair, in the terms of `sel`'s algorithm.
+
+The two algorithms ask for different things: ADMM's chain ends at [`formed_rung`](@ref),
+which needs only `A` stored sparsely, where the interior-point chain is the two factored
+rungs and both of them read `P`'s pattern as well.
+"""
+sparse_refusal(sel::SelectionFor) =
+    "linsys = :sparse factors the reduced or KKT matrix sparsely and could not serve this " *
+    "pair: it needs SparseArrays.jl loaded and a representation the sparse rungs accept, " *
+    "with a system that actually factors at this regularization."
+
+sparse_refusal(::ADMMSelection) =
+    "linsys = :sparse factors the reduced or KKT matrix sparsely and could not " *
+    "serve this pair: it needs SparseArrays.jl loaded and A a SparseMatrixCSC, " *
+    "with a system that actually factors at this regularization."
+
+sparse_refusal(::IPMSelection) =
+    "linsys = :sparse factors the reduced or KKT matrix sparsely and could not " *
+    "serve this pair: it needs a SparseMatrixCSC P and A, SparseArrays.jl " *
+    "loaded, and a system that actually factors at this regularization."
+
+"""
+    named_backend(::Val{LS}, P, A, prob, wt, sel, preconditioner) -> (LinearSystem, Bool) or nothing
+
+The backend `linsys = LS` names, and whether it already carries a factorization of the
+current data. `nothing` for `LS === :auto`, the one name that descends
+[`select_backend`](@ref)'s ladder instead.
+
+`LS` is a type parameter rather than a value so that naming a backend leaves exactly one
+branch live and the rest are gone by specialization — the same reason [`setup`](@ref)
+carries it that way, and what keeps a named kind from dragging every other backend's code
+onto the trimmed path.
+
+A named kind is an instruction, not a hint. `:kkt`, `:dense` and `:indirect` build their
+backend outright. The structured kinds reach their own rung, and `:sparse`, `:block` and
+`:lowrank` do it in two stages: first with the ladder's own gate in force, so a pair the
+gate accepts reaches exactly the backend `:auto` would, then with the gate skipped, so a
+pair `:auto` sends to the dense terminal still reaches the named kind instead of throwing.
+Only a representation mismatch or a factorization failure refuses after that, and the
+refusal names the condition.
+
+Both algorithms call this. The rungs it reaches answer for the `sel` they are handed, so the
+kinds an algorithm cannot serve are refused by its own [`setup_backend`](@ref) before the
+problem is built, where the message can name the reason.
+"""
+function named_backend(::Val{LS}, P, A, prob, wt, sel::SelectionFor, preconditioner) where {LS}
+    q0, n, m = prob.q0, prob.n, prob.m
+    if LS === :kkt
+        return (FullKKT(q0, n, m), false)
+    elseif LS === :dense
+        # Past `choose_backend` entirely. Its rule for a sparse `A` reads the pattern and not
+        # the numbers, and this is the way to overrule one that misjudges a problem.
+        return (ReducedCholesky(q0, n, m), false)
+    elseif LS === :indirect
+        check_preconditioner(preconditioner, typeof(q0))
+        return (indirect_backend(q0, n, m, preconditioner), false)
+    elseif LS === :sparse
+        rung = kkt_rung(P, A, prob, wt, sel)
+        isnothing(rung) && (rung = reduced_rung(P, A, prob, wt, sel))
+        isnothing(rung) && (rung = formed_rung(P, A, prob, sel))
+        isnothing(rung) && (rung = kkt_rung(P, A, prob, wt, sel; gated = false))
+        isnothing(rung) && (rung = reduced_rung(P, A, prob, wt, sel; gated = false))
+        isnothing(rung) && throw(ArgumentError(sparse_refusal(sel)))
+        return rung
+    elseif LS === :diagonal
+        (P isa Diagonal && A isa Diagonal) || throw(
+            ArgumentError("linsys = :diagonal needs P and A both diagonal")
+        )
+        return choose_backend(P, A, prob, wt, sel)
+    elseif LS === :tridiagonal
+        tridiag_pair =
+            (P isa Union{SymTridiagonal, Tridiagonal} && A isa Diagonal) ||
+            (P isa Union{Diagonal, SymTridiagonal, Tridiagonal} && A isa Bidiagonal)
+        tridiag_pair || throw(
+            ArgumentError(
+                "linsys = :tridiagonal needs a diagonal, symmetric-tridiagonal or tridiagonal " *
+                    "P with a diagonal A, or any of those P with a bidiagonal A"
+            )
+        )
+        return choose_backend(P, A, prob, wt, sel)
+    elseif LS === :kronecker
+        rung = kronecker_rung(P, A, prob, wt, sel)
+        isnothing(rung) && throw(
+            ArgumentError(
+                "linsys = :kronecker needs A a KroneckerOperator, P a scalar multiple of the " *
+                    "identity, a uniform rho and scaling = 0, and declines this pair"
+            )
+        )
+        return rung
+    elseif LS === :block
+        rung = block_rung(P, A, prob, wt, sel)
+        isnothing(rung) && (rung = block_rung(P, A, prob, wt, sel; require_multiple = false))
+        isnothing(rung) && throw(
+            ArgumentError(
+                "linsys = :block needs P and A both block diagonal over the same column " *
+                    "partition, and declines this pair"
+            )
+        )
+        return rung
+    elseif LS === :lowrank
+        rung = lowrank_rung(P, A, prob, wt, sel)
+        isnothing(rung) && (rung = lowrank_rung(P, A, prob, wt, sel; require_crossover = false))
+        isnothing(rung) && throw(
+            ArgumentError(
+                "linsys = :lowrank needs a diagonal P and a RowCoupled A with at least one " *
+                    "coupling row, and declines this pair"
+            )
+        )
+        return rung
+    end
+    return nothing
+end
 
 "Name of the backend, for reporting."
 backend_name(::ReducedCholesky) = :cholesky

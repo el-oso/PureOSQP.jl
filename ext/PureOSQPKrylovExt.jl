@@ -155,6 +155,25 @@ function PureOSQP.adopt_settings!(ls::IndirectCG, ::PureOSQP.InteriorPoint, opti
     return nothing
 end
 
+"""
+    no_settings_adopted()
+
+What this backend raises when it reaches a factorization still holding its placeholder
+settings. `PureOSQP.adopt_settings!`'s default does nothing, which is right for a backend
+that reads no settings and silently wrong for this one.
+"""
+@noinline function no_settings_adopted()
+    throw(
+        ArgumentError(
+            "the matrix-free backend never received its conjugate-gradient settings: no " *
+                "`PureOSQP.adopt_settings!(::IndirectCG, alg, options)` method matched this " *
+                "workspace's algorithm, so `cg_max_iter` is still zero and every solve would " *
+                "return its starting point unchanged. Define `PureOSQP.adopt_settings!` for " *
+                "the algorithm; it must set `max_iter`, `tol_fraction` and `tol_reduction`."
+        )
+    )
+end
+
 function PureOSQP.set_refresh_index!(ls::IndirectCG, k::Int)
     ls.refresh_index = k
     return nothing
@@ -177,8 +196,16 @@ default `JacobiPreconditioner` that is the reduced diagonal
 
 Succeeds unless `update_preconditioner!` returns an object of another type, which throws:
 there is no factorization here that can be singular.
+
+Also where an inner budget that never arrived is caught. `max_iter` holds the placeholder
+`0` until `PureOSQP.adopt_settings!` copies `cg_max_iter` in, and `Options` refuses a
+`cg_max_iter` of zero, so a zero here means no `adopt_settings!` method ran for the
+workspace's algorithm — under which every solve would take no iteration and return its
+starting point. Every path to a solve factorizes first, so the check sits here rather than
+in `solve_system!`, where it would be on the per-iteration path.
 """
 function PureOSQP.factorize!(ls::IndirectCG{T, V, K, M}, prob, wt)::Bool where {T, V, K, M}
+    ls.max_iter > 0 || no_settings_adopted()
     fresh = PureOSQP.update_preconditioner!(ls.precond, prob, wt, ls.refresh_index)
     fresh isa M || throw(
         ArgumentError(

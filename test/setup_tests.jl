@@ -138,7 +138,7 @@ end
         @test os.options isa Options{T}
         @test os.algorithm.rho == T(0.1)
         ip = setup(c(P), c(q), c(A), c(l), c(u), InteriorPoint())
-        @test ip.algorithm isa InteriorPoint{T, Int}
+        @test ip.algorithm isa InteriorPoint{T, T, T, Int}
         @test ip.options isa Options{T}
         @test ip.algorithm.reg_primal == PureOSQP.ipm_floor(T)
         @test ip.options.eps_abs == PureOSQP.ipm_floor(T)

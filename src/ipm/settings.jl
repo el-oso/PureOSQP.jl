@@ -42,14 +42,19 @@ explicitly is used as given.
 
 The object is built without an element type, and a parameter left out holds `nothing` until
 [`setup`](@ref) resolves it for the solve's element type and `linsys`; the workspace holds
-that `InteriorPoint{T}`, every parameter concrete, as `ws.algorithm`. `I` is the type of
-`refine_iter`: `Int` once resolved.
+the resolved `InteriorPoint{T, T, T, Int}`, every field concrete, as `ws.algorithm`.
+
+`T` is the element type of `step_fraction`, which is always given. The three parameters
+after it are the field types of `reg_primal`, `reg_dual` and `refine_iter`: `Nothing` while
+the parameter is unresolved and `T`, `T`, `Int` once it is. They are internal — the
+constructors compute them — and they exist so that every instance is concretely typed,
+seeds included.
 """
-struct InteriorPoint{T, I} <: QPAlgorithm
-    reg_primal::T
-    reg_dual::T
+struct InteriorPoint{T <: Real, RP, RD, RI} <: QPAlgorithm
+    reg_primal::RP
+    reg_dual::RD
     max_reg_bumps::Int
-    refine_iter::I
+    refine_iter::RI
     step_fraction::T
     cg_fail_limit::Int
 end
@@ -69,12 +74,13 @@ function InteriorPoint(;
     0 < step_fraction < 1 || throw(ArgumentError("step_fraction must lie in (0, 1), got $step_fraction"))
     cg_fail_limit > 0 || throw(ArgumentError("cg_fail_limit must be positive, got $cg_fail_limit"))
     F = float(promote_type(stored_real(reg_primal), stored_real(reg_dual), typeof(step_fraction)))
-    return InteriorPoint{Union{Nothing, F}, Union{Nothing, Int}}(
-        isnothing(reg_primal) ? nothing : F(reg_primal),
-        isnothing(reg_dual) ? nothing : F(reg_dual),
-        Int(max_reg_bumps),
-        isnothing(refine_iter) ? nothing : Int(refine_iter),
-        F(step_fraction), Int(cg_fail_limit),
+    rp = isnothing(reg_primal) ? nothing : F(reg_primal)
+    rd = isnothing(reg_dual) ? nothing : F(reg_dual)
+    ri = isnothing(refine_iter) ? nothing : Int(refine_iter)
+    # Straight to the inner constructor: the three trailing parameters are the field types
+    # just computed, so there is nothing left for an outer method to narrow.
+    return InteriorPoint{F, typeof(rp), typeof(rd), typeof(ri)}(
+        rp, rd, Int(max_reg_bumps), ri, F(step_fraction), Int(cg_fail_limit),
     )
 end
 
@@ -86,7 +92,7 @@ and `refine_iter` left out to `0` under `linsys = :indirect` and `1` otherwise.
 """
 function InteriorPoint{T}(a::InteriorPoint, linsys::Symbol) where {T <: Real}
     floor = ipm_floor(T)
-    return InteriorPoint{T, Int}(
+    return InteriorPoint{T, T, T, Int}(
         isnothing(a.reg_primal) ? floor : T(a.reg_primal),
         isnothing(a.reg_dual) ? floor : T(a.reg_dual),
         a.max_reg_bumps,
