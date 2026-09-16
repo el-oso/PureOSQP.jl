@@ -451,17 +451,18 @@ and compared with libosqp 1.0. Reproduce the totals with
 Both solvers get `SparseMatrixCSC` and run with `eps_abs = eps_rel = 1e-5` and
 `check_dualgap` off. They stop at the same iteration in every class, so the times compare the
 cost of the work, not the number of iterations. libosqp is timed on `osqp_setup` and
-`osqp_solve` from CSC arrays built beforehand.
+`osqp_solve` from CSC arrays built beforehand. Measured on Julia 1.13.0, single-threaded BLAS,
+pinned to core 15, on a workstation with an unpinned clock.
 
 | class | n | m | PureOSQP backend | PureOSQP | libosqp 1.0 | vs libosqp | per iteration | setup |
 |---|---|---|---|---|---|---|---|---|
-| Random QP | 50 | 500 | `sparse_formed` | 5.08 ms | 9.53 ms | **1.88×** | 1.78× | 3.50× |
-| Eq QP | 200 | 100 | `sparse_formed` | 2.44 ms | 4.12 ms | **1.69×** | 5.20× | 1.14× |
-| SVM | 808 | 1600 | `ldlfactorizations` | 3.85 ms | 5.91 ms | **1.54×** | 1.60× | 0.99× |
-| Portfolio | 505 | 506 | `ldl_kkt` | 3.57 ms | 4.26 ms | **1.20×** | 1.22× | 0.98× |
-| Control | 320 | 540 | `sparse_formed` | 6.24 ms | 7.43 ms | **1.19×** | 1.65× | 0.29× |
-| Lasso | 816 | 816 | `ldlfactorizations` | 1.50 ms | 1.65 ms | **1.10×** | 1.20× | 0.88× |
-| Huber | 1806 | 1800 | `ldlfactorizations` | 3.60 ms | 3.83 ms | **1.06×** | 1.13× | 0.86× |
+| Random QP | 50 | 500 | `sparse_formed` | 4.94 ms | 9.47 ms | **1.92×** | 1.80× | 3.68× |
+| Eq QP | 200 | 100 | `sparse_formed` | 2.37 ms | 4.13 ms | **1.74×** | 5.44× | 1.16× |
+| SVM | 808 | 1600 | `ldlfactorizations` | 3.63 ms | 5.82 ms | **1.61×** | 1.70× | 0.98× |
+| Portfolio | 505 | 506 | `ldl_kkt` | 3.52 ms | 4.31 ms | **1.22×** | 1.25× | 1.01× |
+| Control | 320 | 540 | `sparse_formed` | 6.18 ms | 7.44 ms | **1.20×** | 1.69× | 0.30× |
+| Lasso | 816 | 816 | `ldlfactorizations` | 1.51 ms | 1.65 ms | **1.09×** | 1.23× | 0.95× |
+| Huber | 1806 | 1800 | `ldlfactorizations` | 3.47 ms | 3.77 ms | **1.08×** | 1.17× | 0.88× |
 
 The last two columns are libosqp's time divided by PureOSQP's, for the iterations and for
 setup. The objectives agree to `1e-13` or better in six classes and to `1e-9` in the seventh.
@@ -469,7 +470,7 @@ Random QP and Eq QP read `sparse_formed`: their reduced matrix is now accumulate
 stored entries of `P` and `A` rather than formed with a dense product, the same arithmetic
 without the `m×n` buffer. The other five classes keep the backend they had.
 
-**PureOSQP is faster in all seven classes, by 1.06× to 1.88×.** These problems have the block
+**PureOSQP is faster in all seven classes, by 1.08× to 1.92×.** These problems have the block
 and band structure real problems tend to have. The random sparse families elsewhere on this
 page have none, which is the hardest case for any sparse factorization.
 
@@ -483,7 +484,7 @@ slow drift during a row affects both solvers equally.
 
 **Control's setup is 3.4× slower on purpose.** PureOSQP forms the reduced matrix `R` and
 inverts it, which costs `O(n³)` once and makes each iteration a single `symv`. That makes the
-iterations 1.65× faster over 325 of them. A sparse `LDLᵀ` of the reduced matrix or of the KKT
+iterations 1.69× faster over 325 of them. A sparse `LDLᵀ` of the reduced matrix or of the KKT
 system matches libosqp's setup but makes the iterations slower, so the dense path is kept.
 
 Most of that setup is the inverse, not forming `R`: `potrf` costs `n³/3` and the `potri` after
@@ -566,19 +567,19 @@ of each OSQP suite problem class, alongside [`OperatorSplitting`](@ref) on the s
 `InteriorPoint` and Clarabel both run at `eps_abs = eps_rel = 1e-8`; `OperatorSplitting` runs
 at `1e-6`, the tightest tolerance ADMM reaches in a modest iteration count on these problems.
 These are not committed benchmarks to reproduce and compare against: the figures below are
-`bench/results/ipm_vs_clarabel.json`, measured once at commit `1609934`, pinned to core 15
-with BLAS at one thread, on a workstation with an unpinned clock, so the times are indicative
-rather than a claim about relative speed.
+`bench/results/ipm_vs_clarabel.json`, measured once at commit `c7d2c92` on Julia 1.13.0, pinned
+to core 15 with BLAS at one thread, on a workstation with an unpinned clock, so the times are
+indicative rather than a claim about relative speed.
 
 | class | n | m | ADMM iter | ADMM time | IPM iter | IPM time | Clarabel iter | Clarabel time | `x`, IPM vs Clarabel |
 |---|---|---|---|---|---|---|---|---|---|
-| Random QP | 6 | 60 | 200 | 72.9 µs | 9 | 110.7 µs | 9 | 135.8 µs | 2.4e-8 |
-| Eq QP | 20 | 10 | 50 | 36.0 µs | 2 | 48.0 µs | 6 | 103.4 µs | 8.2e-11 |
-| Portfolio | 101 | 102 | 125 | 243.1 µs | 10 | 340.0 µs | 11 | 544.2 µs | 2.1e-5 |
-| Lasso | 204 | 204 | 100 | 304.1 µs | 6 | 286.9 µs | 9 | 818.7 µs | 1.0e-6 |
-| SVM | 202 | 400 | 375 | 1009.5 µs | 9 | 496.0 µs | 8 | 680.1 µs | 3.0e-9 |
-| Huber | 602 | 600 | 125 | 1122.2 µs | 9 | 1207.8 µs | 10 | 1953.7 µs | 1.8e-5 |
-| Control | 64 | 108 | 50 | 137.8 µs | 7 | 325.2 µs | 8 | 594.1 µs | 8.4e-9 |
+| Random QP | 6 | 60 | 200 | 67.1 µs | 9 | 103.7 µs | 9 | 128.5 µs | 2.4e-8 |
+| Eq QP | 20 | 10 | 50 | 34.0 µs | 2 | 45.1 µs | 6 | 94.4 µs | 8.2e-11 |
+| Portfolio | 101 | 102 | 125 | 238.7 µs | 10 | 321.8 µs | 11 | 530.8 µs | 2.1e-5 |
+| Lasso | 204 | 204 | 100 | 293.7 µs | 6 | 270.5 µs | 9 | 771.6 µs | 1.0e-6 |
+| SVM | 202 | 400 | 375 | 957.3 µs | 9 | 468.2 µs | 8 | 661.0 µs | 3.0e-9 |
+| Huber | 602 | 600 | 125 | 1070.1 µs | 9 | 1145.5 µs | 10 | 1943.9 µs | 1.8e-5 |
+| Control | 64 | 108 | 50 | 131.1 µs | 7 | 311.0 µs | 8 | 573.3 µs | 8.4e-9 |
 
 The last column is the largest component of `x` where the interior-point solution and
 Clarabel's differ, relative to the largest component of `x`. It is `8.2e-11` on Eq QP, the
