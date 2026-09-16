@@ -407,6 +407,10 @@ The two problem families below favor different approaches, so both are shown.
 PureOSQP factors it with CHOLMOD. This is the kind of problem libosqp's sparse factorization of
 the full KKT system is designed for.
 
+The `cholmod` figures below predate the change to how `SparseCholmod` reads its factor
+(commit `1609934`), which cut its `factorize!` cost — they have not been re-measured since, so
+treat PureOSQP's margin here as a lower bound rather than the current number.
+
 | n | m | nnz(A) | PureOSQP backend | PureOSQP | libosqp 1.0 | vs libosqp | iterations |
 |---|---|---|---|---|---|---|---|
 | 200 | 400 | 2775 | `cholmod` | 7.57 ms | 11.4 ms | 1.50× | 1400 |
@@ -451,13 +455,13 @@ cost of the work, not the number of iterations. libosqp is timed on `osqp_setup`
 
 | class | n | m | PureOSQP backend | PureOSQP | libosqp 1.0 | vs libosqp | per iteration | setup |
 |---|---|---|---|---|---|---|---|---|
-| Random QP | 50 | 500 | `sparse_formed` | 4.88 ms | 9.58 ms | **1.96×** | 1.87× | 3.68× |
-| Eq QP | 200 | 100 | `sparse_formed` | 2.37 ms | 4.16 ms | **1.75×** | 5.40× | 1.15× |
-| SVM | 808 | 1600 | `ldlfactorizations` | 3.62 ms | 5.81 ms | **1.61×** | 1.74× | 0.99× |
-| Control | 320 | 540 | `sparse_formed` | 6.15 ms | 7.45 ms | **1.21×** | 1.70× | 0.30× |
-| Portfolio | 505 | 506 | `ldl_kkt` | 3.56 ms | 4.27 ms | **1.20×** | 1.24× | 1.00× |
-| Lasso | 816 | 816 | `ldlfactorizations` | 1.52 ms | 1.69 ms | **1.11×** | 1.26× | 0.95× |
-| Huber | 1806 | 1800 | `ldlfactorizations` | 3.49 ms | 3.78 ms | **1.08×** | 1.29× | 0.88× |
+| Random QP | 50 | 500 | `sparse_formed` | 5.08 ms | 9.53 ms | **1.88×** | 1.78× | 3.50× |
+| Eq QP | 200 | 100 | `sparse_formed` | 2.44 ms | 4.12 ms | **1.69×** | 5.20× | 1.14× |
+| SVM | 808 | 1600 | `ldlfactorizations` | 3.85 ms | 5.91 ms | **1.54×** | 1.60× | 0.99× |
+| Portfolio | 505 | 506 | `ldl_kkt` | 3.57 ms | 4.26 ms | **1.20×** | 1.22× | 0.98× |
+| Control | 320 | 540 | `sparse_formed` | 6.24 ms | 7.43 ms | **1.19×** | 1.65× | 0.29× |
+| Lasso | 816 | 816 | `ldlfactorizations` | 1.50 ms | 1.65 ms | **1.10×** | 1.20× | 0.88× |
+| Huber | 1806 | 1800 | `ldlfactorizations` | 3.60 ms | 3.83 ms | **1.06×** | 1.13× | 0.86× |
 
 The last two columns are libosqp's time divided by PureOSQP's, for the iterations and for
 setup. The objectives agree to `1e-13` or better in six classes and to `1e-9` in the seventh.
@@ -465,7 +469,7 @@ Random QP and Eq QP read `sparse_formed`: their reduced matrix is now accumulate
 stored entries of `P` and `A` rather than formed with a dense product, the same arithmetic
 without the `m×n` buffer. The other five classes keep the backend they had.
 
-**PureOSQP is faster in all seven classes, by 1.08× to 1.96×.** These problems have the block
+**PureOSQP is faster in all seven classes, by 1.06× to 1.88×.** These problems have the block
 and band structure real problems tend to have. The random sparse families elsewhere on this
 page have none, which is the hardest case for any sparse factorization.
 
@@ -477,9 +481,9 @@ Every figure is a median over ten seconds of samples. The two solvers run in the
 PureOSQP, libosqp, libosqp, PureOSQP, and the median is taken over both turns together, so a
 slow drift during a row affects both solvers equally.
 
-**Control's setup is 3.3× slower on purpose.** PureOSQP forms the reduced matrix `R` and
+**Control's setup is 3.4× slower on purpose.** PureOSQP forms the reduced matrix `R` and
 inverts it, which costs `O(n³)` once and makes each iteration a single `symv`. That makes the
-iterations 1.70× faster over 325 of them. A sparse `LDLᵀ` of the reduced matrix or of the KKT
+iterations 1.65× faster over 325 of them. A sparse `LDLᵀ` of the reduced matrix or of the KKT
 system matches libosqp's setup but makes the iterations slower, so the dense path is kept.
 
 Most of that setup is the inverse, not forming `R`: `potrf` costs `n³/3` and the `potri` after
@@ -562,18 +566,19 @@ of each OSQP suite problem class, alongside [`OperatorSplitting`](@ref) on the s
 `InteriorPoint` and Clarabel both run at `eps_abs = eps_rel = 1e-8`; `OperatorSplitting` runs
 at `1e-6`, the tightest tolerance ADMM reaches in a modest iteration count on these problems.
 These are not committed benchmarks to reproduce and compare against: the figures below are
-`bench/results/ipm_vs_clarabel.json`, measured once at commit `75faacd` on a workstation with
-an unpinned clock, so the times are indicative rather than a claim about relative speed.
+`bench/results/ipm_vs_clarabel.json`, measured once at commit `1609934`, pinned to core 15
+with BLAS at one thread, on a workstation with an unpinned clock, so the times are indicative
+rather than a claim about relative speed.
 
 | class | n | m | ADMM iter | ADMM time | IPM iter | IPM time | Clarabel iter | Clarabel time | `x`, IPM vs Clarabel |
 |---|---|---|---|---|---|---|---|---|---|
-| Random QP | 6 | 60 | 200 | 54.1 µs | 9 | 211.3 µs | 9 | 103.1 µs | 2.4e-8 |
-| Eq QP | 20 | 10 | 50 | 25.9 µs | 2 | 25.1 µs | 6 | 75.0 µs | 8.2e-11 |
-| Portfolio | 101 | 102 | 125 | 186.6 µs | 10 | 294.7 µs | 11 | 394.6 µs | 2.1e-5 |
-| Lasso | 204 | 204 | 100 | 216.8 µs | 6 | 300.9 µs | 9 | 621.2 µs | 1.0e-6 |
-| SVM | 202 | 400 | 375 | 725.6 µs | 9 | 579.5 µs | 8 | 511.3 µs | 3.0e-9 |
-| Huber | 602 | 600 | 125 | 807.6 µs | 9 | 1137.0 µs | 10 | 1466.2 µs | 1.8e-5 |
-| Control | 64 | 108 | 50 | 98.2 µs | 7 | 1177.9 µs | 8 | 429.9 µs | 8.4e-9 |
+| Random QP | 6 | 60 | 200 | 72.9 µs | 9 | 110.7 µs | 9 | 135.8 µs | 2.4e-8 |
+| Eq QP | 20 | 10 | 50 | 36.0 µs | 2 | 48.0 µs | 6 | 103.4 µs | 8.2e-11 |
+| Portfolio | 101 | 102 | 125 | 243.1 µs | 10 | 340.0 µs | 11 | 544.2 µs | 2.1e-5 |
+| Lasso | 204 | 204 | 100 | 304.1 µs | 6 | 286.9 µs | 9 | 818.7 µs | 1.0e-6 |
+| SVM | 202 | 400 | 375 | 1009.5 µs | 9 | 496.0 µs | 8 | 680.1 µs | 3.0e-9 |
+| Huber | 602 | 600 | 125 | 1122.2 µs | 9 | 1207.8 µs | 10 | 1953.7 µs | 1.8e-5 |
+| Control | 64 | 108 | 50 | 137.8 µs | 7 | 325.2 µs | 8 | 594.1 µs | 8.4e-9 |
 
 The last column is the largest component of `x` where the interior-point solution and
 Clarabel's differ, relative to the largest component of `x`. It is `8.2e-11` on Eq QP, the

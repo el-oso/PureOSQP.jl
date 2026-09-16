@@ -53,15 +53,15 @@ These are the seven problem classes from OSQP's own benchmark suite, compared wi
 
 | class | n | m | nnz(`A`) | iterations | backend | PureOSQP | libosqp 1.0 | vs libosqp |
 |---|---|---|---|---|---|---|---|---|
-| Random QP | 50 | 500 | 3 782 | 925 | `sparse_formed` | 4.88 ms | 9.58 ms | **1.96×** |
-| Eq QP | 200 | 100 | 2 881 | 50 | `sparse_formed` | 2.37 ms | 4.16 ms | **1.75×** |
-| SVM | 808 | 1600 | 2 549 | 300 | `ldlfactorizations` | 3.62 ms | 5.81 ms | **1.61×** |
-| Control | 320 | 540 | 6 540 | 325 | `sparse_formed` | 6.15 ms | 7.45 ms | 1.21× |
-| Portfolio | 505 | 506 | 2 294 | 450 | `ldl_kkt` | 3.56 ms | 4.27 ms | 1.20× |
-| Lasso | 816 | 816 | 1 786 | 100 | `ldlfactorizations` | 1.52 ms | 1.69 ms | 1.11× |
-| Huber | 1806 | 1800 | 3 526 | 125 | `ldlfactorizations` | 3.49 ms | 3.78 ms | 1.08× |
+| Random QP | 50 | 500 | 3 782 | 925 | `sparse_formed` | 5.08 ms | 9.53 ms | **1.88×** |
+| Eq QP | 200 | 100 | 2 881 | 50 | `sparse_formed` | 2.44 ms | 4.12 ms | **1.69×** |
+| SVM | 808 | 1600 | 2 549 | 300 | `ldlfactorizations` | 3.85 ms | 5.91 ms | **1.54×** |
+| Portfolio | 505 | 506 | 2 294 | 450 | `ldl_kkt` | 3.57 ms | 4.26 ms | 1.20× |
+| Control | 320 | 540 | 6 540 | 325 | `sparse_formed` | 6.24 ms | 7.43 ms | 1.19× |
+| Lasso | 816 | 816 | 1 786 | 100 | `ldlfactorizations` | 1.50 ms | 1.65 ms | 1.10× |
+| Huber | 1806 | 1800 | 3 526 | 125 | `ldlfactorizations` | 3.60 ms | 3.83 ms | 1.06× |
 
-The objectives agree to `1e-13` or better in six classes and to `1e-9` in the seventh. Both solvers run with the duality-gap test (`check_dualgap`) off, because each computes the gap at a different point in the iteration. libosqp is timed on its setup and solve calls, from CSC arrays built beforehand. The backend column is what PureOSQP chose on its own: Random QP and Eq QP accumulate the reduced matrix from the stored entries rather than forming it with a dense product, which is why both now read `sparse_formed`. Each iteration is 1.24× to 5.40× faster; libosqp's setup is faster in five classes. Full tables, including sparse and dense families: [Benchmarks](https://el-oso.github.io/PureOSQP.jl/dev/benchmarks).
+The objectives agree to `1e-13` or better in six classes and to `1e-9` in the seventh. Both solvers run with the duality-gap test (`check_dualgap`) off, because each computes the gap at a different point in the iteration. libosqp is timed on its setup and solve calls, from CSC arrays built beforehand. The backend column is what PureOSQP chose on its own: Random QP and Eq QP accumulate the reduced matrix from the stored entries rather than forming it with a dense product, which is why both now read `sparse_formed`. Each iteration is 1.13× to 5.20× faster; libosqp's setup is faster in five classes. Full tables, including sparse and dense families: [Benchmarks](https://el-oso.github.io/PureOSQP.jl/dev/benchmarks).
 
 ### Structure a sparsity pattern cannot express
 

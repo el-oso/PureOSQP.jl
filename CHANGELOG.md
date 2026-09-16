@@ -291,7 +291,10 @@ what is true now; this file is where the history lives.
   Random QP and Eq QP classes accumulate the reduced matrix from the stored entries rather
   than forming it with a dense product, which is the same arithmetic without the `m×n` buffer,
   and every other class keeps the backend it had. `linsys = :sparse`, `:kkt` and `:dense`
-  remain unconditional overrides.
+  remain unconditional overrides. The `56.8 ms to 1.9 ms` figure above uses the sparse KKT
+  backend and predates the CHOLMOD factor-read change below, which cut that backend's
+  `factorize!` cost; it has not been re-measured since, so read it as a lower bound on the
+  margin rather than the current number.
 - **The algorithm is an object, and the settings are split into its parameters and shared
   options.** `solve(P, q, A, l, u, alg; kwargs...)` and `setup` take the algorithm as an
   optional sixth argument: `OperatorSplitting(; rho, sigma, alpha, adaptive_rho, …,
