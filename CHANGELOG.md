@@ -214,6 +214,25 @@ what is true now; this file is where the history lives.
 
 ### Changed
 
+- **The two CHOLMOD backends gather their factor instead of rebuilding it.** A
+  refactorization runs every outer iteration of the interior-point method and every time ADMM
+  retunes `ρ`, and `SparseKKT` and `SparseCholmod` each ended one by asking CHOLMOD for
+  `sparse(F.LD)` or `sparse(F.L)`, which copies the whole factor inside CHOLMOD, converts the
+  copy, and allocates three fresh arrays from it. A simplicial factor already holds its
+  values column by column, so `factor_csc!` reads them into the buffers the backend already
+  owns in one pass, bounding the row indices as it goes; `D⁻¹` is read from the diagonal each
+  column stores first, the transposed factor is refreshed through `transpose!`, and the
+  ordering is reread only when a new symbolic analysis is done, which is the only thing that
+  moves it. A supernodal factor, which stores no column-wise pattern, still goes through
+  CHOLMOD's conversion. Minima on one core with one BLAS thread, on the classes
+  `bench/clarabel_rs_compare.jl` times: Random QP (`n = 6`, `m = 60`, `sparse_kkt`)
+  `factorize!` 5.46 → 3.43 µs and 70 → 30 allocations, whole solve 133.2 → 110.5 µs and
+  993 → 593 allocations; Lasso (`n = m = 204`, `cholmod`) `factorize!` 12.08 → 10.03 µs and
+  61 → 28 allocations, solve 298.6 → 281.5 µs; Huber (`n = 602`, `m = 600`, `cholmod`)
+  `factorize!` 40.85 → 39.31 µs and 71 → 31 allocations, solve 1251.6 → 1197.9 µs. What a
+  refactorization saves is 1.5–2 µs across all three, so its share is largest on the smallest
+  problem. The factors are bit-identical to what the conversion returned: the 41-case
+  snapshot matches unchanged and iteration counts do not move.
 - **Every selection point answers a third algorithm, by serving it or by naming what it
   must define.** A new `SelectionFor` subtype used to reach a `MethodError` from inside
   `select_backend`, `dense_rung`, `indirect_rung`, `kronecker_rung`, `formed_rung`, the

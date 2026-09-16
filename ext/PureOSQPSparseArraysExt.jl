@@ -22,8 +22,9 @@ using PureOSQP: PureOSQP
 using TypeContracts: TypeContracts, @verify
 using LinearAlgebra: Symmetric, Diagonal, LowerTriangular, UpperTriangular,
     UnitLowerTriangular, UnitUpperTriangular, I, diag,
-    cholesky, cholesky!, ldlt, ldlt!, issuccess, ldiv!, transpose
+    cholesky, cholesky!, ldlt, ldlt!, issuccess, ldiv!, transpose, transpose!
 using SparseArrays: SparseMatrixCSC, nnz, nzrange, rowvals, nonzeros, sparse
+using SparseArrays.CHOLMOD: CHOLMOD
 
 """
     PureOSQP.check_storage(M::SparseMatrixCSC, rows, cols)
@@ -592,6 +593,9 @@ function PureOSQP.factorize!(ls::SparseKKT{T}, prob, wt)::Bool where {T}
         ls.gram = kkt_gram(T, P, A, prob.n, prob.m)
         K = refill_kkt!(ls.gram, P, A, wt.w_inv, prob.E, prob.D, prob.c, wt.sigma)
         ls.fact = ldlt(Symmetric(K, :U); check = false)
+        # The ordering belongs to the symbolic analysis, so it is reread exactly when a new
+        # one is done.
+        ls.perm = ls.fact.p::Vector{Int}
     else
         # The pattern does not depend on ρ or the equilibration factors, so every
         # refactorization after the first reuses the ordering and the symbolic phase.
@@ -599,16 +603,12 @@ function PureOSQP.factorize!(ls::SparseKKT{T}, prob, wt)::Bool where {T}
         ldlt!(ls.fact, Symmetric(K, :U); check = false)
     end
     issuccess(ls.fact) || return false
-    LD = sparse(ls.fact.LD)::SparseMatrixCSC{T, Int}
-    d = diag(LD)
-    any(iszero, d) && return false
-    ls.dinv = inv.(d)
-    # `LD` packs `D` on the diagonal of a unit-triangular `L`; the solve below uses
-    # `UnitLowerTriangular`, which ignores the stored diagonal.
-    ls.L = LD
-    check_factor(LD, prob.n + prob.m)
-    ls.perm = ls.fact.p::Vector{Int}
-    return true
+    N = prob.n + prob.m
+    # `ls.L` packs `D` on the diagonal of a unit-triangular `L`. The substitutions skip that
+    # stored diagonal and `D⁻¹` is applied between them, so `dinv` is read from it here.
+    ls.L = factor_csc!(ls.L, ls.fact, N, false)
+    length(ls.dinv) == N || resize!(ls.dinv, N)
+    return ldl_dinv!(ls.dinv, ls.L, N)
 end
 
 """
@@ -1100,6 +1100,9 @@ function PureOSQP.factorize!(ls::SparseCholmod{T}, prob, wt)::Bool where {T}
         ls.gram = reduced_gram(T, P, A, prob.n)
         R = refill!(ls.gram, P, A, wt.w, prob.E, prob.D, prob.c, wt.sigma)
         ls.fact = cholesky(Symmetric(R, :U); check = false)
+        # The ordering belongs to the symbolic analysis, so it is reread exactly when a new
+        # one is done.
+        ls.perm = ls.fact.p::Vector{Int}
     else
         # The pattern is unchanged, so the symbolic factorization still describes it and
         # only the values need redoing. This is the case every time `ρ` moves.
@@ -1107,16 +1110,12 @@ function PureOSQP.factorize!(ls::SparseCholmod{T}, prob, wt)::Bool where {T}
         cholesky!(ls.fact, Symmetric(R, :U); check = false)
     end
     issuccess(ls.fact) || return false
-    # `F.L` is defined only for an LLᵀ factorization. `choose_backend` selects this backend
-    # only after checking that CHOLMOD produces one for this pattern, and the pattern is
-    # what decides it, so this holds for the workspace's life.
-    # Asserted, not assumed: `getproperty` on a CHOLMOD factor branches on the symbol and
-    # is not inferrable, and an unannotated result costs `factorize!` type stability.
-    ls.L = sparse(ls.fact.L)::SparseMatrixCSC{T, Int}
-    ls.Lt = SparseMatrixCSC(transpose(ls.L))
-    check_factor(ls.L, prob.n)
+    # `choose_backend` selects this backend only after checking that CHOLMOD produces an
+    # `L Lᵀ` for this pattern, and the pattern is what decides it, so that holds for the
+    # workspace's life; `factor_csc!` refuses anything else rather than reading `D` as ones.
+    ls.L = factor_csc!(ls.L, ls.fact, prob.n, true)
+    transpose!(ls.Lt, ls.L)
     check_factor(ls.Lt, prob.n)
-    ls.perm = ls.fact.p::Vector{Int}
     return true
 end
 
@@ -1158,6 +1157,102 @@ function check_factor(L::SparseMatrixCSC, N::Integer)
         )
     end
     return nothing
+end
+
+"""
+    factor_csc!(L, F, N, ll) -> SparseMatrixCSC
+
+`F`'s numeric factor as an order-`N` `SparseMatrixCSC`, written into `L`'s own buffers.
+
+A simplicial CHOLMOD factor already holds its values column by column: column `j` stores
+`nz[j]` entries from `p[j]` onwards, with row indices ascending and the diagonal first.
+The columns sit in no particular order and carry slack between them, so the arrays are not a
+column pointer and a row vector as they stand, but gathering them into one is a single pass
+over the stored entries and reuses the buffers `L` already owns. `sparse(F.LD)` answers the
+same question by copying the whole factor inside CHOLMOD, converting the copy, and
+allocating three fresh arrays from it; a refactorization happens every outer iteration, and
+on the OSQP suite's smallest Random QP going through CHOLMOD costs `factorize!` 5.46 µs
+against 3.43 µs here.
+
+`ll` is the form the caller's substitutions read — `true` for `L Lᵀ`, `false` for the `LD` of
+an `L D Lᵀ`, which packs `D` where `L Lᵀ` keeps ones. A factor of the other form throws,
+because the two put different numbers in the same places.
+
+Nothing here assumes the pattern is unchanged: the column pointer and the row indices are
+rebuilt from what `F` currently holds, and the buffers are resized when the count moves. Row
+indices are bounded as [`check_factor`](@ref) bounds them and the column pointer is
+increasing by construction, which is what the substitutions need to run unchecked.
+"""
+function factor_csc!(L::SparseMatrixCSC{T, Int}, F, N::Integer, ll::Bool) where {T}
+    s = unsafe_load(CHOLMOD.typedpointer(F))
+    is_ll = !iszero(s.is_ll)
+    is_ll == ll || throw(
+        ArgumentError(
+            "CHOLMOD returned an $(is_ll ? "L Lᵀ" : "L D Lᵀ") factorization " *
+                "where the backend reads an $(ll ? "L Lᵀ" : "L D Lᵀ") one"
+        )
+    )
+    if !iszero(s.is_super) || s.nz == C_NULL
+        # A supernodal factor stores its values by supernode rather than by column, so there
+        # is no column-wise pattern to read and CHOLMOD converts a copy of the factor.
+        # Supernodal factors are `L Lᵀ`, and `ldlt` asks for a simplicial factorization, so
+        # only the `L Lᵀ` backend reaches this.
+        G = sparse(F.L)::SparseMatrixCSC{T, Int}
+        check_factor(G, N)
+        return G
+    end
+    n = Int(s.n)
+    n == N || throw(ArgumentError("factor is order $n for an order-$N system"))
+    colstart = unsafe_wrap(Array, s.p, (n + 1,); own = false)
+    colcount = unsafe_wrap(Array, s.nz, (n,); own = false)
+    rows = unsafe_wrap(Array, s.i, (Int(s.nzmax),); own = false)
+    vals = unsafe_wrap(Array, Ptr{T}(s.x), (Int(s.nzmax),); own = false)
+    total = 0
+    for j in 1:n
+        total += Int(colcount[j])
+    end
+    colptr, rowval, nzval = L.colptr, rowvals(L), nonzeros(L)
+    if length(rowval) != total
+        resize!(rowval, total)
+        resize!(nzval, total)
+    end
+    t = 1
+    for j in 1:n
+        colptr[j] = t
+        base = Int(colstart[j])
+        for k in 1:Int(colcount[j])
+            i = Int(rows[base + k]) + 1
+            1 <= i <= N || throw(
+                ArgumentError("factor stores row index $i in column $j, outside 1:$N")
+            )
+            rowval[t] = i
+            nzval[t] = vals[base + k]
+            t += 1
+        end
+    end
+    colptr[n + 1] = t
+    return L
+end
+
+"""
+    ldl_dinv!(dinv, L, N) -> Bool
+
+Write `1 / D[j]` into `dinv` for each column of CHOLMOD's packed `LD`, or `false` at the
+first column whose pivot is missing or zero.
+
+`D[j]` is the first value stored in column `j`: row indices ascend within a column and `L` is
+lower triangular, so the diagonal entry is the one at `colptr[j]` when it is stored at all.
+"""
+function ldl_dinv!(dinv::Vector{T}, L::SparseMatrixCSC{T, Int}, N::Integer) where {T}
+    colptr, rows, vals = L.colptr, rowvals(L), nonzeros(L)
+    for j in 1:N
+        k = colptr[j]
+        (k < colptr[j + 1] && rows[k] == j) || return false
+        d = vals[k]
+        iszero(d) && return false
+        dinv[j] = inv(d)
+    end
+    return true
 end
 
 """
