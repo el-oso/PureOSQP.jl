@@ -34,7 +34,14 @@
         return out
     end
     # The probe above is a `LinearSystem` like any other and would otherwise be swept as one.
-    backends = filter(!=(TrimUnsafeProbe), concrete_subtypes!(Type[], PureOSQP.LinearSystem))
+    # Filtered by name, not by identity: this `@testitem` runs in a fresh module each time it
+    # executes, so a worker that ran it before still carries earlier runs' probe types as
+    # registered `LinearSystem` subtypes -- Julia's type graph never forgets a subtype, and
+    # they are distinct types from this run's `TrimUnsafeProbe` even though they share its
+    # name. Excluding by identity would leave those stale probes in `backends`, where
+    # `check_trim_compat` correctly rejects them and the sweep below fails on a worker that is
+    # merely being reused.
+    backends = filter(S -> nameof(S) !== :TrimUnsafeProbe, concrete_subtypes!(Type[], PureOSQP.LinearSystem))
 
     # Guards the guard: if loading an extension ever stops registering its backends, the sweep
     # below would pass by checking almost nothing.
