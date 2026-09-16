@@ -733,8 +733,8 @@ Only a representation mismatch or a factorization failure refuses after that, an
 refusal names the condition.
 
 Both algorithms call this. The rungs it reaches answer for the `sel` they are handed, so the
-kinds an algorithm cannot serve are refused by its own [`setup_backend`](@ref) before the
-problem is built, where the message can name the reason.
+kinds an algorithm cannot serve are refused where it builds its workspace, before the problem
+is built, so the message can name the reason.
 """
 function named_backend(::Val{LS}, P, A, prob, wt, sel::SelectionFor, preconditioner) where {LS}
     q0, n, m = prob.q0, prob.n, prob.m
