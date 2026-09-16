@@ -477,11 +477,10 @@ of the workspace's type, so the per-iteration solve still dispatches statically.
 stay explicit arguments, alongside `prob` that also holds them, because dispatch on them is
 the point.
 
-`prob` and `wt` are passed in because deciding well means building the reduced matrix and
-reading the fill its factorization produces — and once that is done with the values the
-solver will actually use, the factorization is the setup factorization. A method that works
-that way returns `true` and [`setup`](@ref) does not factor again; one that only picks a
-representation returns `false`.
+`prob` and `wt` are passed in because a method may build its factorization here, with the
+values the solver will actually use, in which case that factorization is the setup
+factorization: such a method returns `true` and [`setup`](@ref) does not factor again. A
+method that only picks a representation returns `false`.
 
 A `(P, A)` pair with no method of its own descends [`select_backend`](@ref)'s ladder, whose
 named terminal rung is the dense reduced matrix.
