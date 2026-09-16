@@ -9,7 +9,11 @@
 # unavailable, so nothing here can break a normal `Pkg.test()` or CI run.
 #
 # Rerun:
-#     julia --project=bench bench/clarabel_rs_compare.jl
+#     julia --project=bench bench/clarabel_rs_compare.jl [run_label]
+# `run_label`, if given, is appended to the results filename (`clarabel_rs_compare_<label>.json`)
+# so that two independent invocations can be diffed against each other instead of one
+# overwriting the other — the run-to-run spread that decides whether a measured gap between
+# solvers is real or still inside the noise (see the protocol notes below).
 #
 # The first run builds bench/clarabel_rs (Cargo.toml + src/main.rs) out-of-tree, with a
 # target directory under `tempdir()` rather than inside the repository:
@@ -17,26 +21,90 @@
 # Rebuild explicitly (e.g. after editing src/main.rs) with:
 #     rm -rf <tmp>   # printed by this script on first run
 #
-# Methodology: for each class, PureOSQP's `InteriorPoint()` and Clarabel.jl are benchmarked
-# with Chairmarks (`@b`, which reports the field-wise *minimum* over samples collected in a
-# `SECONDS`-long window). Clarabel.rs's own `main.rs` times `DefaultSolver::new` + `solve()`
-# with its own `std::time::Instant` clock in the same way (minimum over repeats in the same
-# window) and prints that as `solve_time_self_s`; this script separately times its own
-# `run(::Cmd)` wall clock, which additionally includes process start and JSON on stdout, so
-# the two numbers are reported side by side rather than conflated. Problem files (CSC arrays
-# plus one-sided bounds, `Ax <= b`) are written to a scratch directory excluded from both
-# timings. Both processes are pinned to core 15 and run single-threaded.
+# Protocol (tight enough to tell a real difference from measurement noise):
+#   - The two Julia solvers (`InteriorPoint()` and `Clarabel.jl`) are measured in this one
+#     warm process, interleaved per class as A-B-B-A (`IPM, Clarabel.jl, Clarabel.jl, IPM`)
+#     rather than one solver's whole run followed by the other's — a slow drift over the
+#     run (thermal ramp, a scheduler hiccup) then lands on both solvers instead of biasing
+#     whichever ran second. Each block is its own `@be` pass (Chairmarks); the two `IPM`
+#     blocks' samples are pooled, and likewise the two `Clarabel.jl` blocks', before taking
+#     the field-wise minimum and median.
+#   - The one-shot `ipm`/`clar` solves above the benchmarked blocks double as the warm-up
+#     call each solver needs before its first timed sample (compilation is otherwise paid
+#     inside the first `@be` sample, not before it).
+#   - Both solvers see the same `P, q, A, l, u`, generated once per class and reused for
+#     every block; both run at `eps_abs = eps_rel = 1e-8`; `BLAS.set_num_threads(1)`; the
+#     whole process is pinned to `CORE` via `sched_setaffinity` (see `pin_to_cpu!` below) —
+#     `taskset -c $CORE` from the shell would only pin the shell's child, which is this same
+#     process, but pinning from inside means the pin holds regardless of how the script is
+#     launched.
+#   - Chairmarks reports `gc_fraction` per sample. Each pooled result records whether the
+#     *fastest* sample had any GC in its window (`min_gc`, which would mean the reported
+#     minimum is itself contaminated) and whether *any* pooled sample did (`any_gc`/`n_gc`),
+#     without excluding those samples — the field-wise minimum already discounts them unless
+#     GC ran in literally the fastest one.
+#   - Clarabel.rs cannot join that one process: it is measured the way its own binary can be
+#     measured, which is a *different* process. `main.rs` times `DefaultSolver::new` + `solve()`
+#     with its own `std::time::Instant` clock, taking the minimum over repeats inside the same
+#     `SECONDS` budget (its own analogue of Chairmarks' field-wise minimum), and reports that as
+#     `solve_time_self_s`. This script separately times its own `run(::Cmd)` wall clock, which
+#     additionally includes process start and JSON on stdout — the two numbers are reported side
+#     by side rather than conflated. This means Clarabel.rs's number and the two Julia solvers'
+#     numbers are NOT measurements of the same process state (page cache, branch predictor,
+#     core residency going in) even though all three are pinned to the same core in turn; a
+#     cross-language gap here carries that caveat, a within-Julia gap does not.
+#   - Problem files (CSC arrays plus one-sided bounds, `Ax <= b`) are written to a scratch
+#     directory excluded from both timings.
 using PureOSQP, Clarabel
-using LinearAlgebra, SparseArrays, Random, JSON, Chairmarks, Printf
+using LinearAlgebra, SparseArrays, Random, JSON, Chairmarks, Printf, Statistics
 
 include(joinpath(@__DIR__, "suite_problems.jl"))
 
 BLAS.set_num_threads(1)
 
-const RESULTS = joinpath(@__DIR__, "results", "clarabel_rs_compare.json")
+const RUN_LABEL = isempty(ARGS) ? "" : "_" * ARGS[1]
+const RESULTS = joinpath(@__DIR__, "results", "clarabel_rs_compare$(RUN_LABEL).json")
 const TOL = 1.0e-8
 const SECONDS = 0.3
 const CORE = 15
+
+"""
+Pin this process to `cpu` via `sched_setaffinity` (glibc/Linux). `cpu_set_t` is a 1024-bit
+mask (16 `UInt64` words) in the glibc ABI on x86_64. Pinning inside the process, rather than
+relying on a `taskset` wrapper around it, holds regardless of how the script is launched.
+"""
+function pin_to_cpu!(cpu::Integer)
+    mask = zeros(UInt64, 16)
+    mask[cpu ÷ 64 + 1] |= UInt64(1) << (cpu % 64)
+    ret = ccall(:sched_setaffinity, Cint, (Cint, Csize_t, Ptr{UInt64}), 0, sizeof(mask), mask)
+    ok = iszero(ret)
+    ok || @warn "sched_setaffinity($cpu) failed" errno = Base.Libc.errno()
+    return ok
+end
+
+"The other logical CPU sharing `cpu`'s physical core (its SMT sibling), or `nothing`."
+function smt_sibling(cpu::Integer)
+    path = "/sys/devices/system/cpu/cpu$cpu/topology/thread_siblings_list"
+    isfile(path) || return nothing
+    ids = parse.(Int, split(strip(read(path, String)), ','))
+    others = filter(!=(cpu), ids)
+    return isempty(others) ? nothing : first(others)
+end
+
+"`scaling_governor` for cpu0, standing in for the machine-wide policy."
+function cpu_governor()
+    path = "/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor"
+    return isfile(path) ? strip(read(path, String)) : "unknown"
+end
+
+pinned = pin_to_cpu!(CORE)
+sibling = smt_sibling(CORE)
+governor = cpu_governor()
+println("taskset core=$CORE (pinned=$pinned, SMT sibling=$sibling), scaling_governor=$governor")
+if governor != "powersave"
+    @warn "expected scaling_governor=powersave on this machine; got $governor"
+end
+flush(stdout)
 
 "The smallest size of each suite class that still exercises its structure (matches bench/ipm_vs_clarabel.jl)."
 const SMALL_CASES = [
@@ -128,15 +196,45 @@ function run_clarabel_rs(bin, data_dir)
     return parsed, wall
 end
 
+"""
+Field-wise minimum and median over a pooled set of Chairmarks `Sample`s (already the
+combined samples of both `A` or both `B` blocks of the interleave). `min_gc` flags whether
+the single fastest sample also had `gc_fraction > 0` — the one case where the reported
+minimum is itself contaminated by garbage collection rather than merely coexisting with GC
+elsewhere in the pool. `any_gc`/`n_gc` report the wider contamination without excluding it:
+at these sub-millisecond scales, a benchmark that ran long enough to see zero GC-affected
+samples out of thousands would prove nothing about steady-state behavior.
+"""
+function summarize(samples)
+    times = getfield.(samples, :time)
+    gcs = getfield.(samples, :gc_fraction)
+    i = argmin(times)
+    return (;
+        n = length(samples),
+        min_s = times[i],
+        min_gc = gcs[i] > 0,
+        median_s = median(times),
+        any_gc = any(>(0), gcs),
+        n_gc = count(>(0), gcs),
+    )
+end
+
 function run_case(name, gen, data_dir, idx)
     P, q, A, l, u = gen()
     n, m = size(A, 2), size(A, 1)
 
+    # Warm-up (compiles both call paths) and the correctness check `dx_clarabel` needs.
     ipm = PureOSQP.solve(P, q, A, l, u, PureOSQP.InteriorPoint(); eps_abs = TOL, eps_rel = TOL)
-    ipm_bm = @b PureOSQP.solve($P, $q, $A, $l, $u, PureOSQP.InteriorPoint(); eps_abs = TOL, eps_rel = TOL) seconds = SECONDS
-
     clar = run_clarabel(P, q, A, l, u)
-    clar_bm = @b run_clarabel($P, $q, $A, $l, $u) seconds = SECONDS
+
+    # Interleaved A-B-B-A: two `@be` passes per solver, pooled below.
+    ipm_a1 = @be PureOSQP.solve($P, $q, $A, $l, $u, PureOSQP.InteriorPoint(); eps_abs = TOL, eps_rel = TOL) seconds = SECONDS
+    clar_b1 = @be run_clarabel($P, $q, $A, $l, $u) seconds = SECONDS
+    clar_b2 = @be run_clarabel($P, $q, $A, $l, $u) seconds = SECONDS
+    ipm_a2 = @be PureOSQP.solve($P, $q, $A, $l, $u, PureOSQP.InteriorPoint(); eps_abs = TOL, eps_rel = TOL) seconds = SECONDS
+
+    ipm_stats = summarize(vcat(ipm_a1.samples, ipm_a2.samples))
+    clar_stats = summarize(vcat(clar_b1.samples, clar_b2.samples))
 
     Pc, Ac, bc = clarabel_form(P, A, l, u)
     slug = replace(lowercase(name), ' ' => '_')
@@ -144,7 +242,7 @@ function run_case(name, gen, data_dir, idx)
 
     dx_clarabel = maximum(abs, ipm.x .- clar.x; init = 0.0) / max(1.0, maximum(abs, ipm.x; init = 0.0))
 
-    return (; name, n, m, ipm, ipm_bm, clar, clar_bm, dx_clarabel)
+    return (; name, n, m, ipm, ipm_stats, clar, clar_stats, dx_clarabel)
 end
 
 mkpath(dirname(RESULTS))
@@ -155,31 +253,45 @@ bin = ensure_clarabel_rs_binary()
 clarabel_rs, rs_wall = isnothing(bin) ? (nothing, NaN) : run_clarabel_rs(bin, data_dir)
 
 @printf(
-    "%-10s %-8s %-7s | %-16s | %-16s | %-16s | %s\n",
-    "class", "n", "m", "IPM", "Clarabel.jl", "Clarabel.rs", "max |Δx| (IPM vs Clarabel.jl / .rs)"
+    "%-10s %-8s %-7s | %-22s | %-22s | %-16s | %s\n",
+    "class", "n", "m", "IPM (min/med, µs)", "Clarabel.jl (min/med, µs)", "Clarabel.rs (µs)", "max |Δx| (IPM vs .jl / .rs)"
 )
-println("-"^140)
+println("-"^150)
 
 results = map(enumerate(cases)) do (i, c)
     rs = isnothing(clarabel_rs) ? nothing : clarabel_rs[i]
-    rs_ms = isnothing(rs) ? NaN : 1.0e3 * rs["solve_time_self_s"]
+    rs_us = isnothing(rs) ? NaN : 1.0e6 * rs["solve_time_self_s"]
     rs_iter = isnothing(rs) ? -1 : rs["iterations"]
     dx_rs = isnothing(rs) ? NaN : maximum(abs, c.ipm.x .- rs["x"]; init = 0.0) / max(1.0, maximum(abs, c.ipm.x; init = 0.0))
 
+    gc_flag(s) = s.min_gc ? "*" : (s.any_gc ? "+" : " ")
+
     @printf(
-        "%-10s n=%-4d m=%-5d | %3d it %7.3f ms | %3d it %7.3f ms | %3d it %7.3f ms | %.1e / %.1e\n",
-        c.name, c.n, c.m, c.ipm.iter, 1.0e3c.ipm_bm.time,
-        c.clar.iterations, 1.0e3c.clar_bm.time, rs_iter, rs_ms,
+        "%-10s n=%-4d m=%-5d | %3d it %8.3f/%7.3f%s | %3d it %8.3f/%7.3f%s | %3d it %8.3f | %.1e / %.1e\n",
+        c.name, c.n, c.m,
+        c.ipm.iter, 1.0e6c.ipm_stats.min_s, 1.0e6c.ipm_stats.median_s, gc_flag(c.ipm_stats),
+        c.clar.iterations, 1.0e6c.clar_stats.min_s, 1.0e6c.clar_stats.median_s, gc_flag(c.clar_stats),
+        rs_iter, rs_us,
         c.dx_clarabel, dx_rs,
     )
     flush(stdout)
 
     Dict(
         "name" => c.name, "n" => c.n, "m" => c.m,
-        "ipm" => Dict("iter" => c.ipm.iter, "status" => String(Symbol(c.ipm.status)), "time_ms" => 1.0e3c.ipm_bm.time, "obj" => c.ipm.obj_val),
-        "clarabel_jl" => Dict("iter" => c.clar.iterations, "status" => String(Symbol(c.clar.status)), "time_ms" => 1.0e3c.clar_bm.time, "obj" => c.clar.obj_val),
+        "ipm" => Dict(
+            "iter" => c.ipm.iter, "status" => String(Symbol(c.ipm.status)), "obj" => c.ipm.obj_val,
+            "min_us" => 1.0e6c.ipm_stats.min_s, "median_us" => 1.0e6c.ipm_stats.median_s,
+            "n_samples" => c.ipm_stats.n, "min_sample_gc" => c.ipm_stats.min_gc,
+            "any_sample_gc" => c.ipm_stats.any_gc, "n_gc_samples" => c.ipm_stats.n_gc,
+        ),
+        "clarabel_jl" => Dict(
+            "iter" => c.clar.iterations, "status" => String(Symbol(c.clar.status)), "obj" => c.clar.obj_val,
+            "min_us" => 1.0e6c.clar_stats.min_s, "median_us" => 1.0e6c.clar_stats.median_s,
+            "n_samples" => c.clar_stats.n, "min_sample_gc" => c.clar_stats.min_gc,
+            "any_sample_gc" => c.clar_stats.any_gc, "n_gc_samples" => c.clar_stats.n_gc,
+        ),
         "clarabel_rs" => isnothing(rs) ? nothing : Dict(
-                "iter" => rs["iterations"], "status" => rs["status"], "time_ms" => rs_ms,
+                "iter" => rs["iterations"], "status" => rs["status"], "min_us" => rs_us,
                 "obj" => rs["obj_val"], "reps" => rs["reps"], "linsolver" => rs["linsolver"],
             ),
         "dx_ipm_clarabel_jl" => c.dx_clarabel, "dx_ipm_clarabel_rs" => dx_rs,
@@ -194,6 +306,9 @@ open(RESULTS, "w") do io
             "tol" => TOL,
             "seconds_per_benchmark" => SECONDS,
             "taskset_core" => CORE,
+            "taskset_pinned" => pinned,
+            "smt_sibling_core" => sibling,
+            "cpu_scaling_governor" => governor,
             "clarabel_jl_version" => string(pkgversion(Clarabel)),
             "clarabel_rs_available" => !isnothing(bin),
             "clarabel_rs_subprocess_wall_s" => rs_wall,
@@ -209,3 +324,4 @@ if isnothing(bin)
 else
     @printf("Clarabel.rs subprocess wall clock (all %d cases, includes process start + JSON I/O): %.3f s\n", length(cases), rs_wall)
 end
+println("(* = fastest sample had GC running in its window; + = some pooled sample did, fastest did not)")
