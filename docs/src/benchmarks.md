@@ -451,18 +451,21 @@ cost of the work, not the number of iterations. libosqp is timed on `osqp_setup`
 
 | class | n | m | PureOSQP backend | PureOSQP | libosqp 1.0 | vs libosqp | per iteration | setup |
 |---|---|---|---|---|---|---|---|---|
-| Random QP | 50 | 500 | `cholesky` | 3.55 ms | 6.86 ms | **1.93×** | 1.79× | 3.70× |
-| Eq QP | 200 | 100 | `cholesky` | 1.72 ms | 2.98 ms | **1.73×** | 5.46× | 1.14× |
-| SVM | 808 | 1600 | `ldlfactorizations` | 2.63 ms | 4.23 ms | **1.61×** | 1.72× | 0.94× |
-| Control | 320 | 540 | `sparse_formed` | 4.46 ms | 5.37 ms | **1.20×** | 1.77× | 0.30× |
-| Portfolio | 505 | 506 | `ldl_kkt` | 2.68 ms | 3.12 ms | **1.17×** | 1.17× | 0.96× |
-| Lasso | 816 | 816 | `ldlfactorizations` | 1.05 ms | 1.20 ms | **1.15×** | 1.18× | 0.90× |
-| Huber | 1806 | 1800 | `ldlfactorizations` | 2.51 ms | 2.75 ms | **1.09×** | 1.16× | 0.86× |
+| Random QP | 50 | 500 | `sparse_formed` | 4.88 ms | 9.58 ms | **1.96×** | 1.87× | 3.68× |
+| Eq QP | 200 | 100 | `sparse_formed` | 2.37 ms | 4.16 ms | **1.75×** | 5.40× | 1.15× |
+| SVM | 808 | 1600 | `ldlfactorizations` | 3.62 ms | 5.81 ms | **1.61×** | 1.74× | 0.99× |
+| Control | 320 | 540 | `sparse_formed` | 6.15 ms | 7.45 ms | **1.21×** | 1.70× | 0.30× |
+| Portfolio | 505 | 506 | `ldl_kkt` | 3.56 ms | 4.27 ms | **1.20×** | 1.24× | 1.00× |
+| Lasso | 816 | 816 | `ldlfactorizations` | 1.52 ms | 1.69 ms | **1.11×** | 1.26× | 0.95× |
+| Huber | 1806 | 1800 | `ldlfactorizations` | 3.49 ms | 3.78 ms | **1.08×** | 1.29× | 0.88× |
 
 The last two columns are libosqp's time divided by PureOSQP's, for the iterations and for
 setup. The objectives agree to `1e-13` or better in six classes and to `1e-9` in the seventh.
+Random QP and Eq QP read `sparse_formed`: their reduced matrix is now accumulated from the
+stored entries of `P` and `A` rather than formed with a dense product, the same arithmetic
+without the `m×n` buffer. The other five classes keep the backend they had.
 
-**PureOSQP is faster in all seven classes, by 1.09× to 1.93×.** These problems have the block
+**PureOSQP is faster in all seven classes, by 1.08× to 1.96×.** These problems have the block
 and band structure real problems tend to have. The random sparse families elsewhere on this
 page have none, which is the hardest case for any sparse factorization.
 
@@ -476,7 +479,7 @@ slow drift during a row affects both solvers equally.
 
 **Control's setup is 3.3× slower on purpose.** PureOSQP forms the reduced matrix `R` and
 inverts it, which costs `O(n³)` once and makes each iteration a single `symv`. That makes the
-iterations 1.77× faster over 325 of them. A sparse `LDLᵀ` of the reduced matrix or of the KKT
+iterations 1.70× faster over 325 of them. A sparse `LDLᵀ` of the reduced matrix or of the KKT
 system matches libosqp's setup but makes the iterations slower, so the dense path is kept.
 
 Most of that setup is the inverse, not forming `R`: `potrf` costs `n³/3` and the `potri` after
@@ -490,13 +493,17 @@ numbers within a few percent of each other. Read Portfolio's, SVM's, Lasso's and
 ratios as roughly equal. Other programs running on the machine move these ratios more than
 anything else does, so run the benchmarks on an otherwise idle machine.
 
-**Portfolio is what a dense row costs.** Its `A` is 0.9% dense, and the reduced matrix
-`R = P̃ + σI + Ãᵀ diag(ρ) Ã` would be **99% dense**: one row of `A` — the budget constraint
-`1ᵀx = 1` — touches 99% of the columns, and a single dense row makes `AᵀA` dense however
-sparse the rest of it is. The `ldl_kkt` backend factors the full quasi-definite system
-instead, which keeps that row as one sparse row: its factor holds 2322 nonzeros against the
-KKT's 3305, so the elimination fills in nothing. Forming the reduced matrix here would mean a
-dense `505×505` factorization in place of a sparse `1011×1011` one.
+**Portfolio is what a dense row costs, read without forming anything.** Its `A` is 0.9%
+dense, but one row — the budget constraint `1ᵀx = 1` — touches 99% of the columns.
+`sparse_form` reads that row directly: once the densest row spans half of `n`,
+`Ãᵀ diag(ρ) Ã` is dense however sparse the rest of the pattern is, so the rule sends the pair
+straight past the reduced form. Nothing is accumulated or factored to reach that answer — the
+reduced matrix's own fill (`nnz(R)/n²` in the table below, which would be 99% here) is never
+computed for a pattern the densest-row test already declines. The `ldl_kkt` backend then
+factors the full quasi-definite system instead, which keeps that row as one sparse row: its
+factor holds 2322 nonzeros against the KKT's 3305, so the elimination fills in nothing.
+Forming the reduced matrix here would mean a dense `505×505` factorization in place of a
+sparse `1011×1011` one.
 
 | class | nnz(A)/mn | nnz(R)/n² | densest row of A | backend |
 |---|---|---|---|---|
@@ -504,6 +511,19 @@ dense `505×505` factorization in place of a sparse `1011×1011` one.
 | Lasso | 0.003 | 0.004 | 0.007 | `ldlfactorizations` |
 | Huber | 0.001 | 0.003 | 0.004 | `ldlfactorizations` |
 | Control | 0.038 | 0.209 | 0.097 | `sparse_formed` |
+
+`nnz(R)/n²` is shown for context — what the reduced matrix's fill turns out to be — not
+because the rule computes it for every pattern. `sparse_form` reads only the densest row of
+`A`, the number of stored entries in the KKT matrix, and the symbolic `AᵀA ∪ P` pattern count
+that `reduced_nnz` returns; it stops counting once a pattern would fail its budget anyway, so
+even that count costs a fraction of a full pass on the patterns most expensive to check.
+Portfolio's densest row alone settles the question. Lasso, Huber and Control have no row that
+wide, so for them the rule goes on to compare the symbolic reduced-pattern count against a
+budget of 5% of `n²`. Lasso and Huber stay under it and reach the sparse `:reduced` form,
+factored here by `ldlfactorizations`. Control's reduced pattern fills 21% of `n²`, well past
+that budget, so the rule declines the sparse reduced form and the pair falls through to the
+`sparse_formed` terminal, which accumulates the same matrix from the stored entries and
+factors it densely.
 
 **Eq QP pays for its storage.** Its `P` is 99% dense but is passed as a `SparseMatrixCSC`, so
 equilibration reads it entry by entry through the sparse structure. Passing the same matrix as a
@@ -533,6 +553,39 @@ when the caller already has sparse matrices to pass.
 
 A test asserts the two storages produce **identical** `D`, `E` and `c`, so the extension
 cannot drift into being a behaviour change.
+
+## The interior-point method against Clarabel
+
+[`InteriorPoint`](@ref) and [Clarabel](https://github.com/oxfordcontrol/Clarabel.jl) 0.11.1
+are both interior-point methods; `bench/ipm_vs_clarabel.jl` runs them on the smallest instance
+of each OSQP suite problem class, alongside [`OperatorSplitting`](@ref) on the same instance.
+`InteriorPoint` and Clarabel both run at `eps_abs = eps_rel = 1e-8`; `OperatorSplitting` runs
+at `1e-6`, the tightest tolerance ADMM reaches in a modest iteration count on these problems.
+These are not committed benchmarks to reproduce and compare against: the figures below are
+`bench/results/ipm_vs_clarabel.json`, measured once at commit `75faacd` on a workstation with
+an unpinned clock, so the times are indicative rather than a claim about relative speed.
+
+| class | n | m | ADMM iter | ADMM time | IPM iter | IPM time | Clarabel iter | Clarabel time | `x`, IPM vs Clarabel |
+|---|---|---|---|---|---|---|---|---|---|
+| Random QP | 6 | 60 | 200 | 54.1 µs | 9 | 211.3 µs | 9 | 103.1 µs | 2.4e-8 |
+| Eq QP | 20 | 10 | 50 | 25.9 µs | 2 | 25.1 µs | 6 | 75.0 µs | 8.2e-11 |
+| Portfolio | 101 | 102 | 125 | 186.6 µs | 10 | 294.7 µs | 11 | 394.6 µs | 2.1e-5 |
+| Lasso | 204 | 204 | 100 | 216.8 µs | 6 | 300.9 µs | 9 | 621.2 µs | 1.0e-6 |
+| SVM | 202 | 400 | 375 | 725.6 µs | 9 | 579.5 µs | 8 | 511.3 µs | 3.0e-9 |
+| Huber | 602 | 600 | 125 | 807.6 µs | 9 | 1137.0 µs | 10 | 1466.2 µs | 1.8e-5 |
+| Control | 64 | 108 | 50 | 98.2 µs | 7 | 1177.9 µs | 8 | 429.9 µs | 8.4e-9 |
+
+The last column is the largest component of `x` where the interior-point solution and
+Clarabel's differ, relative to the largest component of `x`. It is `8.2e-11` on Eq QP, the
+class with the fewest active rows, and `1.8e-5`–`2.1e-5` on Huber and Portfolio, the two with
+the loosest conditioning; the other four classes fall between `1e-9` and `1e-6`. Both solvers
+aim at the same `1e-8` accuracy, so this is agreement between two independent implementations
+of the same method, not a referee against a known solution.
+
+The interior-point method reaches 2–11 outer iterations on every class here, close to
+Clarabel's count on the same problem. ADMM's iteration counts are not comparable to either —
+it stops at a looser tolerance and by a different test — so its column states what ADMM costs
+on the same instance, not a claim about which method is faster.
 
 ## The matrix-free backend
 

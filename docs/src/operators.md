@@ -126,17 +126,19 @@ the ladder by being more specific, which is the whole mechanism:
 
 ```julia
 function PureOSQP.choose_backend(
-        P::Blocks, A::Blocks, proto::AbstractVector, n::Integer, m::Integer,
-        D, E, c, rho_vec, sigma
+        P::Blocks, A::Blocks, prob::PureOSQP.Problem, wt::PureOSQP.SystemWeights,
+        sel::PureOSQP.SelectionFor
     )
     return (BlockSolve(...), false)
 end
 ```
 
-The ten arguments are the seam's signature: `D`, `E`, `c` and `rho_vec` are there because
-two rungs decide by factoring the *equilibrated* matrix and handing that factorization on.
-Define a method with fewer arguments and it never dispatches — the ladder proceeds to the
-dense terminal and nothing reports a problem.
+`prob` is the [`PureOSQP.Problem`](@ref) holding `P`, `A` and the equilibration factors; `wt`
+is the [`PureOSQP.SystemWeights`](@ref) holding `ρ` and `σ`; `sel` is
+[`PureOSQP.ADMMSelection`](@ref) or [`PureOSQP.IPMSelection`](@ref), which lets a method serve
+one algorithm's ladder, the other's, or both by leaving it untyped as `SelectionFor` above.
+Define a method that matches neither `P` nor `A` specifically and it never dispatches — the
+ladder proceeds to the dense terminal and nothing reports a problem.
 
 Return `(backend, false)` when the backend arrives unfactored, `(backend, true)` when it
 already carries a factorization of the current data. A rung inside the ladder instead returns

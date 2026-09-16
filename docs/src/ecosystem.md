@@ -78,8 +78,8 @@ selected algorithm. A setting that takes a symbol also accepts its name as a str
 value throws when it is set, and so does switching `"algorithm"` while a parameter of the
 other one is set. Reading a setting you have not set returns its default for the selected
 algorithm. `MOI.TimeLimitSec` sets
-`time_limit`, which limits only the ADMM iterations. Setup and polishing are not counted
-against it.
+`time_limit`, which limits the iterations of either algorithm. Setup and polishing are not
+counted against it.
 
 ## Differentiating a solve
 

@@ -224,8 +224,10 @@ measurements above this does not happen with equilibration on.
 
 The whole selection, top to bottom. A pair whose types name a backend outright takes it
 without descending; every other pair starts at rung 1 and stops at the first rung that
-accepts it. The two sparse factorization rungs decide by factoring and keep the factor they
-produce, so a `yes` there costs nothing extra.
+accepts it. The two sparse factorization rungs decide from the pattern alone — the densest
+row of `A`, the stored entries of the KKT matrix, and the symbolic `AᵀA ∪ P` pattern count —
+without factoring anything to find out; once a rung accepts a pair it builds and factors the
+backend it named, so that factorization is the one `setup` keeps.
 
 ::: details Code that draws the figure
 
@@ -236,9 +238,8 @@ steps = [
     ("Diagonal P and Diagonal A", ":diagonal — n divisions"),
     ("SymTridiagonal/Tridiagonal P with Diagonal A,\nor Diagonal/tridiagonal P with Bidiagonal A", ":tridiagonal — ldlt, O(n)"),
     ("banded P and A, 2 ≤ bandwidth(R) ≤ n/4\n(BandedMatrices loaded)", ":banded — banded Cholesky, O(nb²)"),
-    ("sparse A with more than 10% nonzeros", ":cholesky — dense reduced matrix"),
-    ("sparse A: factor the full KKT matrix;\nfactor under 5% of n² nonzeros?", ":sparse_kkt"),
-    ("sparse A: factor R sparsely;\nfactor under 5% of n² nonzeros?", ":cholmod"),
+    ("sparse A: a row spans half of n,\nor the KKT pattern stays under n²/4?", ":sparse_kkt — factor the full KKT matrix"),
+    ("sparse A: symbolic reduced pattern\nunder 5% of n²?", ":cholmod — factor R sparsely"),
     ("KroneckerOperator A, P = μI,\none ρ for all rows, scaling = 0", ":kronecker — eigenbases of the factors"),
     ("BlockDiagonal P and A, same partition", ":block — one solve per block"),
     ("Diagonal P and RowCoupled A, 10k ≤ n", ":lowrank — Woodbury, O(nk)"),

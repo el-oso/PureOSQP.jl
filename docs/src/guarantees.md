@@ -86,7 +86,9 @@ For sparse problems, we require the backend to be explicitly named (e.of `:kkt`,
 
 ## What the guarantees cover on GPU arrays
 
-GPU support is limited to matrix-free operations. `linsys = :indirect` is the only supported backend for GPUs.
+GPU support is limited to matrix-free operations under [`OperatorSplitting`](@ref).
+`linsys = :indirect` is the only supported backend for GPUs; [`InteriorPoint`](@ref) refuses a
+GPU array by name under every backend, since none of its own has a GPU counterpart.
 
 - **Type stability** and **`--trim` compatibility** are maintained for GPU arrays.
 - **Allocation-free** claims do not apply to GPU workspaces, as kernel launches and GPU communications involve allocations.
