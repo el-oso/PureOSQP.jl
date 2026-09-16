@@ -16,7 +16,7 @@
 # `linsys` names it.
 #
 #     julia --project=bench bench/ipm_backends.jl    # writes bench/results/ipm_backends.json
-using PureOSQP, LinearAlgebra, SparseArrays, Random, JSON, Chairmarks
+using PureOSQP, PureQPBase, LinearAlgebra, SparseArrays, Random, JSON, Chairmarks
 using LDLFactorizations, BandedMatrices
 
 BLAS.set_num_threads(1)
@@ -26,7 +26,7 @@ include(joinpath(@__DIR__, "structured_problems.jl"))
 
 const RESULTS = joinpath(@__DIR__, "results", "ipm_backends.json")
 const REFEREE = 1.0e-5
-const SExt = Base.get_extension(PureOSQP, :PureOSQPSparseArraysExt)
+const SExt = Base.get_extension(PureQPBase, :PureQPBaseSparseArraysExt)
 
 "The referee of `test/helpers.jl`: primal, dual and gap residuals from the original data."
 function kkt_residuals(P, q, A, l, u, x, y)

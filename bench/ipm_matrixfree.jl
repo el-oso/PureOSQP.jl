@@ -19,11 +19,11 @@
 # `IncompleteLDL`, which does not enter the verdict.
 #
 #     julia -t 4 --project=bench bench/ipm_matrixfree.jl
-using PureOSQP, LinearAlgebra, SparseArrays, Random, Statistics, Krylov, LinearMaps, JSON, Printf
+using PureOSQP, PureQPBase, LinearAlgebra, SparseArrays, Random, Statistics, Krylov, LinearMaps, JSON, Printf
 BLAS.set_num_threads(1)
 include(joinpath(@__DIR__, "ipm_preconditioners.jl"))
 
-const KrylovExt = Base.get_extension(PureOSQP, :PureOSQPKrylovExt)
+const KrylovExt = Base.get_extension(PureQPBase, :PureQPBaseKrylovExt)
 const EPS = 1.0e-6
 const REFEREE = 1.0e-5
 

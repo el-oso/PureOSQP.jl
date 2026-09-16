@@ -9,7 +9,7 @@
 # take the workspace's problem and weights, not their own copy — so one is built by `setup` and the
 # other constructed beside it. Nothing here extends `choose_backend`, so running this file
 # leaves selection exactly as it ships.
-using PureOSQP, BandedMatrices, LinearAlgebra
+using PureOSQP, PureQPBase, BandedMatrices, LinearAlgebra
 using Chairmarks, Printf, JSON, Statistics, Random
 
 BLAS.set_num_threads(1)
@@ -19,7 +19,7 @@ const BUDGET = parse(Float64, get(ENV, "GATE_BUDGET", "0.3"))
 const SIZES = isempty(ARGS) ? (200, 500, 1000) : Tuple(parse.(Int, ARGS))
 const FRACTIONS = (0.01, 0.02, 0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.7, 0.9, 0.99)
 
-const Ext = Base.get_extension(PureOSQP, :PureOSQPBandedMatricesExt)
+const Ext = Base.get_extension(PureQPBase, :PureQPBaseBandedMatricesExt)
 
 """
     problem(n, b) -> (P, q, A, l, u)

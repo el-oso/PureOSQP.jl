@@ -7,12 +7,12 @@
 #
 # Swept at two BLAS thread counts: the scan is scalar and `setup`'s factorizations are not, so
 # the share the scan holds depends on how many threads the caller gives the rest of setup.
-using PureOSQP, LinearAlgebra, SparseArrays
+using PureOSQP, PureQPBase, LinearAlgebra, SparseArrays
 using Chairmarks, Printf, JSON, Statistics, Random
 
 include(joinpath(@__DIR__, "suite_problems.jl"))
 
-const EXT = Base.get_extension(PureOSQP, :PureOSQPSparseArraysExt)
+const EXT = Base.get_extension(PureQPBase, :PureQPBaseSparseArraysExt)
 const THREADS = (1, min(8, Sys.CPU_THREADS))
 const BUDGET = 0.3
 const RESULTS = joinpath(@__DIR__, "results", "gate_scan_cost.json")

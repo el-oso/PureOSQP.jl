@@ -7,6 +7,7 @@
 # and JET. StrictMode's own value-free scan agrees with it on this package's hot path, but it
 # only reports, so it cannot gate.
 using PureOSQP
+using PureQPBase               # holds the backends and their extensions
 using Krylov                   # supplies the :indirect backend, a weak dependency
 using LDLFactorizations        # supplies the LDLᵀ backends, likewise
 using BandedMatrices           # supplies the banded backend, likewise
@@ -323,7 +324,7 @@ const GUARANTEES = Dict(
     # what Krylov owns is measured. See `measured_noalloc` and the `ReducedOperator` check.
     :hot_measured => (:typestable,),
     # `SparseCholmod`, `SparseKKT`, `SparseLDL` and `LDLKKT` all build their matrix through
-    # `PureOSQPSparseArraysExt`'s `reduced_gram`/`kkt_gram`, whose constructors validate
+    # `PureQPBaseSparseArraysExt`'s `reduced_gram`/`kkt_gram`, whose constructors validate
     # dimensions and format the message through code a static analyzer cannot see past -- the
     # same never-taken error path that costs any caller of those constructors its
     # inferrability. That reaches `factorize!`, `refactor_weights!` and, through them,
@@ -401,7 +402,7 @@ for backend in (
     if matrix_free
         # The operator is this package's own code and gets the full static guarantee, with
         # no exemption: it is where a matrix-free product would allocate if one did.
-        op = Base.get_extension(PureOSQP, :PureOSQPKrylovExt).ReducedOperator(ws.prob, ws.weights)
+        op = Base.get_extension(PureQPBase, :PureQPBaseKrylovExt).ReducedOperator(ws.prob, ws.weights)
         push!(checks, (LinearAlgebra.mul!, (V, typeof(op), V), :hot, nothing))
     end
     if backend === :cholmod
@@ -409,7 +410,7 @@ for backend in (
         # package owns -- rebuilding the reduced matrix -- is plain loops over vectors and
         # carries the full guarantee. A refactorization runs every time `ρ` moves, so an
         # allocation here would land inside the solve loop, not just at setup.
-        Ext = Base.get_extension(PureOSQP, :PureOSQPSparseArraysExt)
+        Ext = Base.get_extension(PureQPBase, :PureQPBaseSparseArraysExt)
         G = typeof(ws.linsys.gram)
         M = typeof(ws.prob.P)
         push!(
@@ -471,7 +472,7 @@ for example_kind in (:auto, :sparse_kkt, :diagonal, :tridiagonal, :banded, :bloc
         (PureOSQP.solve!, (W,), warm, nothing),
     ]
     if matrix_free
-        op = Base.get_extension(PureOSQP, :PureOSQPKrylovExt).ReducedOperator(ws.prob, ws.weights)
+        op = Base.get_extension(PureQPBase, :PureQPBaseKrylovExt).ReducedOperator(ws.prob, ws.weights)
         push!(checks, (LinearAlgebra.mul!, (V, typeof(op), V), :hot, nothing))
     end
     label_name = PureOSQP.backend_name(ws.linsys)

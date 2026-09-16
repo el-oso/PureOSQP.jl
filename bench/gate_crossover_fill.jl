@@ -1,6 +1,6 @@
 # How the sparse-factored backends compare with the dense one as the factor fills in.
 #
-# `PureOSQPSparseArraysExt` takes a sparse factorization only while `nnz(L) < 0.05 n^2`, and
+# `PureQPBaseSparseArraysExt` takes a sparse factorization only while `nnz(L) < 0.05 n^2`, and
 # rejects the reduced matrix even earlier if `nnz(R)` alone passes that same limit. This file
 # measures what those limits are worth: it sweeps the fill a factor carries from about 1% of
 # `n^2` up past 40%, and at each point times a whole `solve` -- setup, factorization and
@@ -18,12 +18,12 @@
 # Julia session, where two scripts sharing `Main` would silently share their constants.
 module GateCrossoverFill
 
-using PureOSQP, LinearAlgebra, SparseArrays, Random, Printf, JSON, Chairmarks, Statistics
+using PureOSQP, PureQPBase, LinearAlgebra, SparseArrays, Random, Printf, JSON, Chairmarks, Statistics
 using LDLFactorizations
 
 BLAS.set_num_threads(1)
 
-const Ext = Base.get_extension(PureOSQP, :PureOSQPSparseArraysExt)
+const Ext = Base.get_extension(PureQPBase, :PureQPBaseSparseArraysExt)
 
 # Which backend `setup` builds for a sparse pair: `:auto` leaves the shipped selection alone,
 # `:ldl` and `:cholmod` take that sparse backend at any fill.

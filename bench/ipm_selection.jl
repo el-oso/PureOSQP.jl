@@ -33,7 +33,7 @@
 # not an assumption, and the recorded `factorize_ms` is the evidence.
 #
 #     julia --project=bench bench/ipm_selection.jl   # writes bench/results/ipm_selection.json
-using PureOSQP, LinearAlgebra, SparseArrays, Random, JSON, Chairmarks, Statistics
+using PureOSQP, PureQPBase, LinearAlgebra, SparseArrays, Random, JSON, Chairmarks, Statistics
 using LDLFactorizations, BandedMatrices
 
 BLAS.set_num_threads(1)
@@ -42,7 +42,7 @@ include(joinpath(@__DIR__, "suite_problems.jl"))
 include(joinpath(@__DIR__, "structured_problems.jl"))
 
 const RESULTS = joinpath(@__DIR__, "results", "ipm_selection.json")
-const SExt = Base.get_extension(PureOSQP, :PureOSQPSparseArraysExt)
+const SExt = Base.get_extension(PureQPBase, :PureQPBaseSparseArraysExt)
 const EPS = 1.0e-8
 # A solve predicted past this from one measured factorization is recorded and skipped.
 const SKIP_MS = 2500.0
