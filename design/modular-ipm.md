@@ -1099,7 +1099,14 @@ seeding returns `NaN` for `x` and `y` while the workspace keeps the last iterate
 
 Audit rows per backend: `ipm_step!(W)` and `ipm_residuals!(W)` hot (`typestable`,
 `noalloc`); `solve_system!`/`solve_multiplier!` hot; `refactor_weights!`, `factorize!`,
-`check_termination(W, Bool)`, `solve!(W)` warm; the `:indirect` row measured. The docs state
+`check_termination(W, Bool)`, `solve!(W)` warm (`typestable`); the `:indirect` row measured.
+`check_termination` never touches a factorization and keeps `typestable` on every backend. The
+sparse KKT family (`SparseCholmod`, `SparseKKT`, `SparseLDL`, `LDLKKT`) claims neither
+`typestable` nor `noalloc` on `factorize!`, `refactor_weights!` and `solve!`: their shared
+`reduced_gram`/`kkt_gram` assembly (`PureOSQPSparseArraysExt`) routes through SparseArrays'
+sparse-matrix constructors, whose dimension-validating error path a static analyzer cannot see
+past, which costs the caller its inferrability — measured as JET's `internal instability /
+runtime dispatch` finding on `factorize!` and `solve!` (88 reports on the KKT family). The docs state
 that the IPM's per-iteration allocation is the backend's factorization (and, for
 `IndirectCG`, the caller's `update_preconditioner!`). Rules: masks and classes preallocated;
 every elementwise update a two-schedule function in `elementwise.jl` style (`max_step`,

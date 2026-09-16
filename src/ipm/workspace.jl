@@ -109,12 +109,14 @@ mutable struct InteriorPointWorkspace{
     # next factorization must be a full one.
     sigma_changed::Bool
     # Guards: consecutive steps shorter than `STALL_STEP`, consecutive iterations whose merit
-    # (`mu`, or `rnorm` without an inequality side) did not fall, the previous merit, and
-    # whether the certificate tests now run every iteration.
+    # (`mu`, or `rnorm` without an inequality side) did not fall, the previous merit, whether
+    # the certificate tests now run every iteration, and whether the iterate has passed the
+    # divergence ceiling.
     short_steps::Int
     flat_merit::Int
     last_merit::T
     alert::Bool
+    diverged::Bool
     mu::T
     rnorm::T
     alpha::T
@@ -183,7 +185,7 @@ function ipm_workspace(
         buf(n), buf(m), buf(n), buf(m),
         buf(n), buf(m),
         algorithm.reg_primal, algorithm.reg_dual, 0, false,
-        0, 0, zero(T), false,
+        0, 0, zero(T), false, false,
         zero(T), zero(T), zero(T),
         zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), zero(T),
         zero(T), zero(T), zero(T), zero(T),

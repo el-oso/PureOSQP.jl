@@ -49,7 +49,7 @@
             @test PureOSQP.backend_name(ws.linsys) === :bunchkaufman
             s = solve!(ws)
             @test s.status == SOLVED
-            @test s.iter <= 30
+            @test s.iter <= 20
             r = maximum(kkt_residuals(Matrix(P), q, Matrix(A), l, u, s.x, s.y))
             @test r < 1.0e-5
             ref = PureOSQP.solve(
@@ -72,7 +72,7 @@ end
         )
         s = PureOSQP.solve(P, q, A, l, u, InteriorPoint())
         @test s.status == SOLVED
-        @test s.iter <= 30
+        @test s.iter <= 20
         @test maximum(kkt_residuals(P, q, A, l, u, s.x, s.y)) < 1.0e-5
         @test abs(s.obj_val - c.info.obj_val) <= 1.0e-6 * max(1, abs(c.info.obj_val))
     end
@@ -101,7 +101,7 @@ end
         @test PureOSQP.backend_name(ws.linsys) in backends
         s = solve!(ws)
         @test s.status == SOLVED
-        @test s.iter <= 30
+        @test s.iter <= 20
         @test maximum(kkt_residuals(Matrix(Pc), q, Matrix(Ac), l, u, s.x, s.y)) < 1.0e-5
     end
 end
@@ -126,7 +126,7 @@ end
     for sc in (0, 10)
         s = PureOSQP.solve(P, q, A, l, u, InteriorPoint(); scaling = sc)
         @test s.status == SOLVED
-        @test s.iter <= 30
+        @test s.iter <= 20
         @test maximum(kkt_residuals(P, q, A, l, u, s.x, s.y)) < 1.0e-5
         # A free row carries no multiplier.
         @test all(iszero, s.y[37:42])
@@ -486,6 +486,53 @@ end
     @test ws.flat_merit >= PureOSQP.STALL_MERIT
     @test is_primal_certificate(A, l, u, s.prim_inf_cert)
     # A run without a point leaves no seed behind.
+    @test !ws.seeded
+end
+
+@testitem "interior point: a diverging iterate ends the run without a point" begin
+    using LinearAlgebra, Random
+    # A backend that solves the Newton system correctly and then scales the recovered `dx` by
+    # `factor`, driving `x` away from the data without ever failing to factorize or leaving a
+    # certificate to detect: an equality-only problem has no inequality side, so `max_step`
+    # never caps the step and every iteration takes the full (blown-up) step.
+    mutable struct Blowup{L <: PureOSQP.LinearSystem} <: PureOSQP.LinearSystem
+        inner::L
+        factor::Float64
+    end
+    PureOSQP.factorize!(g::Blowup, prob, wt)::Bool = PureOSQP.factorize!(g.inner, prob, wt)
+    PureOSQP.refactor_weights!(g::Blowup, prob, wt)::Bool = PureOSQP.refactor_weights!(g.inner, prob, wt)
+    PureOSQP.solve_system!(g::Blowup, prob, wt, rx, rz, x, z)::Nothing =
+        PureOSQP.solve_system!(g.inner, prob, wt, rx, rz, x, z)
+    function PureOSQP.solve_multiplier!(g::Blowup, prob, wt, rx, rz, x, nu)::Nothing
+        PureOSQP.solve_multiplier!(g.inner, prob, wt, rx, rz, x, nu)
+        x .*= g.factor
+        return nothing
+    end
+    PureOSQP.backend_info(g::Blowup) = PureOSQP.backend_info(g.inner)
+
+    n, m = 8, 5
+    Random.seed!(200)
+    X = randn(n, n)
+    P = X'X / n + I
+    A = randn(m, n)
+    xstar = randn(n)
+    b = A * xstar
+    q = randn(n)
+    prob = PureOSQP.Problem(Float64, P, q, A, b, b; scaling = 0)
+    wt = PureOSQP.SystemWeights(ones(m), ones(m), 1.0e-8)
+    options = Options{Float64}(; PureOSQP.algorithm_defaults(InteriorPoint(), Float64)..., scaling = 0, max_iter = 60)
+    ls = Blowup(FullKKT(zeros(n), n, m), 3.0)
+    ws = PureOSQP.ipm_workspace(ls, prob, wt, InteriorPoint{Float64}(InteriorPoint(), :auto), options)
+    s = solve!(ws)
+    @test s.status == NUMERICAL_ERROR
+    @test !has_solution(s.status)
+    @test all(isnan, s.x)
+    @test all(isnan, s.y)
+    # The iterate blew up while every residual stayed finite: this is the divergence ceiling,
+    # not the non-finite-residual guard.
+    @test ws.diverged
+    @test norm(ws.x, Inf) > PureOSQP.DIVERGENCE_CEILING(Float64) * PureOSQP.iterate_bound(ws)
+    @test isfinite(norm(ws.x, Inf))
     @test !ws.seeded
 end
 

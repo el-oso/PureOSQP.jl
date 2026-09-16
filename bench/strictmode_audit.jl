@@ -322,13 +322,18 @@ const GUARANTEES = Dict(
     # out, so the claim is split instead: what this package owns is proved statically, and
     # what Krylov owns is measured. See `measured_noalloc` and the `ReducedOperator` check.
     :hot_measured => (:typestable,),
-    # `SparseCholmod` builds the reduced matrix through SparseArrays' own sparse products,
-    # whose constructors validate dimensions and format the message through code a static
-    # analyzer cannot see past -- the same never-taken error path that costs any caller of
-    # those constructors its inferrability. That reaches `factorize!` and, through it,
-    # `solve!`. It does not reach the hot path, which keeps every guarantee: `admm_step!`,
-    # `update_residuals!` and `solve_system!` are checked here exactly as for every other
-    # backend. Stated rather than hidden, because the claim really is narrower here.
+    # `SparseCholmod`, `SparseKKT`, `SparseLDL` and `LDLKKT` all build their matrix through
+    # `PureOSQPSparseArraysExt`'s `reduced_gram`/`kkt_gram`, whose constructors validate
+    # dimensions and format the message through code a static analyzer cannot see past -- the
+    # same never-taken error path that costs any caller of those constructors its
+    # inferrability. That reaches `factorize!`, `refactor_weights!` and, through them,
+    # `solve!`: not just `noalloc` but `typestable` too fails for these three, confirmed by
+    # `test_signatures` reporting JET's `internal instability / runtime dispatch` finding on
+    # `factorize!` and `solve!` here (88 reports on the KKT family). It does not reach the hot
+    # path, which keeps every guarantee: `admm_step!`, `update_residuals!` and `solve_system!`
+    # are checked here exactly as for every other backend, and `check_termination` -- which
+    # never touches the gram assembly -- stays on the plain `:warm` claim below. Stated rather
+    # than hidden, because the claim really is narrower here.
     :warm_sparse => (),
 )
 

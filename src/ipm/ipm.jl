@@ -22,6 +22,12 @@
 const STALL_STEPS = 3
 "Iterations in a row whose merit does not fall before the certificate tests run every iteration."
 const STALL_MERIT = 10
+"""
+Multiple of [`iterate_bound`](@ref) past which an iterate cannot be recovered by further
+steps: three orders of magnitude past the point where certificate testing already runs every
+iteration is past any margin a genuine convergent or infeasible run needs.
+"""
+@inline DIVERGENCE_CEILING(::Type{T}) where {T} = T(1000)
 
 """
     set_regularization!(ws, reg_primal, reg_dual) -> ws
@@ -402,15 +408,18 @@ function ipm_step!(ws::InteriorPointWorkspace{T}) where {T}
 end
 
 """
-    primal_certificate!(ws, eps) -> Bool
+    primal_certificate!(ws, eps, test_direction) -> Bool
 
-Run the primal infeasibility test on the last step `Δy` and then on `y/‖y‖∞`, copied into
-`cert_y`. `true` leaves the passing candidate, projected, in `cert_y`.
+Run the primal infeasibility test on `y/‖y‖∞`, copied into `cert_y`, and, when
+`test_direction`, first on the last step `Δy`. `true` leaves the passing candidate, projected,
+in `cert_y`.
 """
-function primal_certificate!(ws::InteriorPointWorkspace{T}, eps::T) where {T}
+function primal_certificate!(ws::InteriorPointWorkspace{T}, eps::T, test_direction::Bool) where {T}
     prob, cert = ws.prob, ws.cert_y
-    copyto!(cert, ws.dy)
-    is_primal_infeasible(prob, cert, eps) && return true
+    if test_direction
+        copyto!(cert, ws.dy)
+        is_primal_infeasible(prob, cert, eps) && return true
+    end
     ny = norm_inf(ws.y)
     ny > zero(T) || return false
     for i in eachindex(cert)
@@ -420,15 +429,17 @@ function primal_certificate!(ws::InteriorPointWorkspace{T}, eps::T) where {T}
 end
 
 """
-    dual_certificate!(ws, eps) -> Bool
+    dual_certificate!(ws, eps, test_direction) -> Bool
 
-Run the dual infeasibility test on the last step `Δx` and then on `x/‖x‖∞`, copied into
-`cert_x`. `true` leaves the passing candidate in `cert_x`.
+Run the dual infeasibility test on `x/‖x‖∞`, copied into `cert_x`, and, when `test_direction`,
+first on the last step `Δx`. `true` leaves the passing candidate in `cert_x`.
 """
-function dual_certificate!(ws::InteriorPointWorkspace{T}, eps::T) where {T}
+function dual_certificate!(ws::InteriorPointWorkspace{T}, eps::T, test_direction::Bool) where {T}
     prob, cert = ws.prob, ws.cert_x
-    copyto!(cert, ws.dx)
-    is_dual_infeasible(prob, cert, eps) && return true
+    if test_direction
+        copyto!(cert, ws.dx)
+        is_dual_infeasible(prob, cert, eps) && return true
+    end
     nx = norm_inf(ws.x)
     nx > zero(T) || return false
     for j in eachindex(cert)
@@ -438,29 +449,33 @@ function dual_certificate!(ws::InteriorPointWorkspace{T}, eps::T) where {T}
 end
 
 """
-    check_termination(ws::InteriorPointWorkspace, approximate = false) -> Status
+    check_termination(ws::InteriorPointWorkspace, approximate = false, test_direction = false) -> Status
 
 `SOLVED` when the primal residual, the dual residual and, with `check_dualgap`, the duality
 gap pass the tolerances [`eps_prim`](@ref), [`eps_dual`](@ref) and
 [`eps_duality_gap`](@ref), exactly as ADMM tests them. A primal residual that fails runs the
 primal infeasibility test at `eps_prim_inf`, and a dual residual that fails runs the dual one
-at `eps_dual_inf`, each on the last step and then on the normalized iterate (see
-[`is_primal_infeasible`](@ref), [`is_dual_infeasible`](@ref)); a passing test gives
+at `eps_dual_inf`, each on the normalized iterate and, when `test_direction`, first on the last
+step (see [`is_primal_infeasible`](@ref), [`is_dual_infeasible`](@ref)); a passing test gives
 `PRIMAL_INFEASIBLE` or `DUAL_INFEASIBLE`. `UNSOLVED` otherwise. With `approximate = true`
 every tolerance is ten times larger and the statuses are the `*_INACCURATE` variants.
+`test_direction` is reserved for a termination check the stall or divergence guard has
+triggered; a plain periodic check tests the normalized iterate only.
 """
-function check_termination(ws::InteriorPointWorkspace{T}, approximate::Bool = false) where {T}
+function check_termination(
+        ws::InteriorPointWorkspace{T}, approximate::Bool = false, test_direction::Bool = false
+    ) where {T}
     s, prob = ws.options, ws.prob
     f = approximate ? T(10) : one(T)
     scaled_term = s.scaled_termination && prob.scaling > 0
     pres = scaled_term ? ws.scaled_prim_res : ws.prim_res
     dres = scaled_term ? ws.scaled_dual_res : ws.dual_res
     prim_ok = iszero(prob.m) || pres < f * eps_prim(prob, s, ws.z, ws.Ax)
-    if !prim_ok && primal_certificate!(ws, f * s.eps_prim_inf)
+    if !prim_ok && primal_certificate!(ws, f * s.eps_prim_inf, test_direction)
         return approximate ? PRIMAL_INFEASIBLE_INACCURATE : PRIMAL_INFEASIBLE
     end
     dual_ok = dres < f * eps_dual(prob, s, ws.Aty, ws.Px)
-    if !dual_ok && dual_certificate!(ws, f * s.eps_dual_inf)
+    if !dual_ok && dual_certificate!(ws, f * s.eps_dual_inf, test_direction)
         return approximate ? DUAL_INFEASIBLE_INACCURATE : DUAL_INFEASIBLE
     end
     (prim_ok && dual_ok) || return UNSOLVED
@@ -497,15 +512,18 @@ consecutive steps shorter than `STALL_STEP`. `alert` is raised, and stays raised
 solve, after `STALL_MERIT` consecutive iterations whose merit, `μ` (`‖r‖∞` without an
 inequality side), is not below the previous iteration's, or once `‖x‖∞` or `‖y‖∞` exceeds
 `bound`. A rising `μ` is what an infeasible problem's diverging multipliers produce, so it
-calls for the certificate tests rather than ending the run.
+calls for the certificate tests rather than ending the run. `diverged` is raised once `‖x‖∞`
+or `‖y‖∞` exceeds `DIVERGENCE_CEILING(T)` times `bound`, past which the iterate is beyond
+recovery regardless of what the certificate tests find.
 """
 function stalled!(ws::InteriorPointWorkspace{T}, bound::T) where {T}
     ws.short_steps = ws.alpha < STALL_STEP(T) ? ws.short_steps + 1 : 0
     merit = ws.n_sides > 0 ? ws.mu : ws.rnorm
     ws.flat_merit = merit < ws.last_merit ? 0 : ws.flat_merit + 1
     ws.last_merit = merit
-    (ws.flat_merit >= STALL_MERIT || norm_inf(ws.x) > bound || norm_inf(ws.y) > bound) &&
-        (ws.alert = true)
+    nx, ny = norm_inf(ws.x), norm_inf(ws.y)
+    (ws.flat_merit >= STALL_MERIT || nx > bound || ny > bound) && (ws.alert = true)
+    ws.diverged = nx > DIVERGENCE_CEILING(T) * bound || ny > DIVERGENCE_CEILING(T) * bound
     return ws.short_steps >= STALL_STEPS
 end
 
@@ -529,11 +547,15 @@ Safeguards, checked every iteration:
   [`last_solve_converged`](@ref)) end the run `NUMERICAL_ERROR`. With `linsys = :indirect` a
   miss is a solve that spent `cg_max_iter` iterations or that conjugate gradients abandoned,
   which a preconditioner that is not symmetric positive definite causes.
-- A stalled iteration (see [`stalled!`](@ref)) runs the tests at once, then at ten times the
-  tolerances, and ends `NUMERICAL_ERROR` if neither passes.
+- A stalled iteration (see [`stalled!`](@ref)) runs the tests at once, on the step direction
+  and the normalized iterate, then at ten times the tolerances, and ends `NUMERICAL_ERROR` if
+  neither passes.
 - Once `μ` has stopped falling for `STALL_MERIT` iterations, or an iterate exceeds
-  [`iterate_bound`](@ref), the tests run every iteration, whatever `check_termination` says,
-  and the run continues.
+  [`iterate_bound`](@ref), the tests run every iteration, on the step direction and the
+  normalized iterate, whatever `check_termination` says, and the run continues.
+- An iterate past `DIVERGENCE_CEILING(T)` times [`iterate_bound`](@ref) ends the run
+  `NUMERICAL_ERROR` once that iteration's own termination check (already running, per the
+  previous point) finds no certificate.
 - `time_limit` and an `InterruptException` end the run `TIME_LIMIT_REACHED` and
   `INTERRUPTED` with the point reached, as for ADMM; the clock includes the starting point.
 
@@ -555,6 +577,7 @@ function solve!(ws::InteriorPointWorkspace{T}) where {T}
     ws.flat_merit = 0
     ws.last_merit = INFTY(T)
     ws.alert = false
+    ws.diverged = false
     ws.cg_misses = 0
     ws.polish_time = 0.0
     bound = iterate_bound(ws)
@@ -591,15 +614,20 @@ function solve!(ws::InteriorPointWorkspace{T}) where {T}
             end
             stall = stalled!(ws, bound)
             checking = s.check_termination > 0 && iszero(iter % s.check_termination)
-            if checking || stall || ws.alert
-                st = check_termination(ws, false)
+            triggered = stall || ws.alert
+            if checking || triggered
+                st = check_termination(ws, false, triggered)
                 if st != UNSOLVED
                     ws.status = st
                     break
                 end
             end
+            if ws.diverged
+                ws.status = NUMERICAL_ERROR
+                break
+            end
             if stall
-                st = check_termination(ws, true)
+                st = check_termination(ws, true, true)
                 ws.status = st == UNSOLVED ? NUMERICAL_ERROR : st
                 break
             end
@@ -611,8 +639,8 @@ function solve!(ws::InteriorPointWorkspace{T}) where {T}
         ws.status = INTERRUPTED
     end
     if ws.status == UNSOLVED
-        st = check_termination(ws, false)
-        st == UNSOLVED && (st = check_termination(ws, true))
+        st = check_termination(ws, false, ws.alert)
+        st == UNSOLVED && (st = check_termination(ws, true, ws.alert))
         ws.status = st == UNSOLVED ? MAX_ITER_REACHED : st
     end
     ws.solve_time = (time_ns() - started) / 1.0e9

@@ -98,8 +98,9 @@ what is true now; this file is where the history lives.
   `setup` → `solve!` → `update!` → `solve!` sequence and the derivatives.
 - **`bench/ipm_vs_clarabel.jl`** runs `InteriorPoint()` against Clarabel, also an
   interior-point method, and against `OperatorSplitting()` at a looser tolerance, on the
-  smallest instance of each OSQP suite problem class. `x` agrees with Clarabel's to about
-  `1e-5`–`1e-8` relative across the seven classes; results are written to
+  smallest instance of each OSQP suite problem class. `x` agrees with Clarabel's to `8e-11`
+  relative on the tightest class and `1.8e-5`–`2.1e-5` on the loosest two (Huber and
+  Portfolio); the other four classes fall between `1e-9` and `1e-6`. Results are written to
   `bench/results/ipm_vs_clarabel.json`.
 - **`QPAlgorithm`, `QPWorkspace` and `Preconditioner` declare interface contracts**, and
   `LinearSystem`'s contract lists its optional methods too, so `TypeContracts.describe` prints

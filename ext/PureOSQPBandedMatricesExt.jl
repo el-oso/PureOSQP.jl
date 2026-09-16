@@ -16,6 +16,7 @@ using BandedMatrices
 using LinearAlgebra
 
 using PureOSQP: LinearSystem, reduced_rhs!, mul_A!
+using TypeContracts: TypeContracts, @verify
 
 """
     BandedReduced{T,M,F} <: LinearSystem
@@ -211,5 +212,7 @@ function PureOSQP.is_convex(
     end
     return issuccess(cholesky!(Symmetric(S); check = false))
 end
+
+@verify BandedReduced trim_compat = true
 
 end

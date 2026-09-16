@@ -18,6 +18,7 @@ module PureOSQPKrylovExt
 using PureOSQP: PureOSQP, LinearSystem, SystemWeights, mul_A!, mul_At!, mul_P!, norm_inf
 using Krylov: Krylov, CgWorkspace, cg!
 using LinearAlgebra: LinearAlgebra, mul!
+using TypeContracts: TypeContracts, @verify
 
 """
     ReducedOperator{T,PB,WT}
@@ -285,5 +286,7 @@ function PureOSQP.solve_system!(ls::IndirectCG{T}, prob, wt, rhs_x, rhs_z, x, z)
     m > 0 && mul_A!(z, prob, x)
     return nothing
 end
+
+@verify IndirectCG trim_compat = true
 
 end # module PureOSQPKrylovExt

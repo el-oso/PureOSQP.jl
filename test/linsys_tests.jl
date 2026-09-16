@@ -132,7 +132,7 @@ end
 end
 
 @testitem "the LinearSystem contract is enforced, not decorative" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random, TypeContracts
+    using LinearAlgebra, SparseArrays, OSQP, Random, Krylov, BandedMatrices, TypeContracts
     include(joinpath(@__DIR__, "helpers.jl"))
     LS = PureOSQP.LinearSystem
     spec = TypeContracts.list_contract(LS)
@@ -153,6 +153,19 @@ end
         )
         @test TypeContracts.satisfies(B, LS).satisfied
     end
+
+    # The two backends declared in weak-dependency extensions satisfy the same contract:
+    # `IndirectCG` (Krylov.jl, the matrix-free path) and `BandedReduced` (BandedMatrices.jl).
+    P, q, A, l, u = random_qp(10, 15; seed = 5)
+    chol = cholesky(Symmetric(P + I))
+    ws_indirect = setup(P, q, A, l, u; linsys = :indirect, scaling = 0, preconditioner = chol)
+    @test TypeContracts.satisfies(typeof(ws_indirect.linsys), LS).satisfied
+
+    Pt = SymTridiagonal(rand(20) .+ 4, rand(19) ./ 8)
+    At = Tridiagonal(rand(19) ./ 4, rand(20) .+ 1, rand(19) ./ 4)
+    ws_banded = setup(Pt, randn(20), At, -rand(20), rand(20))
+    @test PureOSQP.backend_name(ws_banded.linsys) === :banded
+    @test TypeContracts.satisfies(typeof(ws_banded.linsys), LS).satisfied
 
     # And a type that declares the supertype without implementing it is rejected. Without
     # this the contract could be satisfied vacuously and nobody would notice.
