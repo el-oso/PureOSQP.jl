@@ -106,6 +106,15 @@ what is true now; this file is where the history lives.
   relative on the tightest class and `1.8e-5`–`2.1e-5` on the loosest two (Huber and
   Portfolio); the other four classes fall between `1e-9` and `1e-6`. Results are written to
   `bench/results/ipm_vs_clarabel.json`.
+- **`bench/clarabel_rs_compare.jl`** adds Clarabel.rs (crates.io `clarabel` 0.11.1, built with
+  its `faer-sparse` feature and `direct_solve_method = "faer"` forced, since `"auto"` stays on
+  its bundled QDLDL below faer's fill-based switch threshold at these sizes) to the same seven
+  classes and tolerance as `ipm_vs_clarabel.jl`. Its solver iterations and objective match
+  Clarabel.jl's on every class; its own `DefaultSolver::new` + `solve()` time (via
+  `bench/clarabel_rs`, a Cargo-built driver read through a subprocess, not a package
+  dependency) runs from about 0.65x to 1.1x Clarabel.jl's time on these small instances, with no
+  consistent direction. Results are written to `bench/results/clarabel_rs_compare.json`; the
+  comparison degrades to Julia-only when `cargo` or the crate build is unavailable.
 - **`QPAlgorithm`, `QPWorkspace` and `Preconditioner` declare interface contracts**, and
   `LinearSystem`'s contract lists its optional methods too, so `TypeContracts.describe` prints
   what a new algorithm, workspace, backend or preconditioner implements. Every subtype in the
