@@ -379,8 +379,8 @@ shown.
 | `:lowrank` | the same pairs as LPs | not solved (3 of 4 at 100 iterations, 1 numerical error) | up to 1e24 | 54–100 / 8–11 |
 
 A backend stays in the interior-point selection when it solves every one of its problems with a
-referee below `1e-5` in at most twice the iterations `:kkt` takes. Every backend passes except
-`:lowrank`, which fails on linear programs: a variable that only the dense rows reach keeps
+referee below `1e-5` in at most twice the iterations `:kkt` takes, judged on the problems in the
+table above. Every backend passes except `:lowrank`, which fails on linear programs: a variable that only the dense rows reach keeps
 nothing but `reg_primal` in the diagonal core when `P` is zero, which puts `1e8` in the core's
 inverse, and on those problems the Woodbury solve ends without a solution. Under `InteriorPoint()`, `linsys = :auto` therefore serves a
 diagonal `P` with a `RowCoupled` `A` with `:kkt`, and `linsys = :lowrank` is refused by name.

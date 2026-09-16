@@ -481,3 +481,18 @@ function update_settings!(ws::InteriorPointWorkspace{T}, alg::InteriorPoint) whe
     adopt_settings!(ws.linsys, new, ws.options)
     return ws
 end
+
+# Inactive rows carry a multiplier of the size of the final barrier parameter rather than
+# zero, which the active-set test cannot tell apart from a row that is genuinely active.
+# Polishing recomputes the point from the guessed active set, which restores the distinction.
+function derivative_ready(ws::InteriorPointWorkspace)
+    ws.polished || throw(
+        ArgumentError(
+            "the derivative of an interior-point solution needs a polished workspace: its " *
+                "inactive-row multipliers sit at the barrier parameter rather than at zero, " *
+                "which the active-set test cannot tell apart from a genuinely active row. " *
+                "Solve with polishing = true first."
+        )
+    )
+    return nothing
+end

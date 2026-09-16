@@ -283,6 +283,7 @@ end
     update_settings!(::Self)::Self => "merge the keywords into `ws.options`"
     update_settings!(::Self, ::QPAlgorithm)::Self => "replace `ws.algorithm`; throws for another algorithm's object"
     dimensions(::Self)::Tuple{Int, Int} => "the number of variables and of constraint rows"
+    derivative_ready(::Self)::Nothing => "throw unless the iterate's multipliers are ones the active-set test can read"
     :optional
     update_rho!(::Self, ::Real)::Self => "set the ADMM step size and refactorize"
     constraint_violation(::Self)::AbstractVector => "the violation of each row at the current iterate; `constraint_violation!` writes it in place"

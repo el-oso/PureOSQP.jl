@@ -214,7 +214,8 @@ what is true now; this file is where the history lives.
   to `bench/results/ipm_selection.json`, which times every backend each of 71 problems admits
   under both algorithms: the backend it picks is within 1.3× of the fastest measured one on 69
   of the 71 under `InteriorPoint` (worst case 1.52×) and within 1.03× on all 71 under
-  `OperatorSplitting`. Under `InteriorPoint` the benchmark suite's Random QP class goes from
+  `OperatorSplitting`. Both figures are in-sample, and the `OperatorSplitting` comparison is
+  per iteration, since 10 of the 71 reach the iteration cap at the sweep's tolerance. Under `InteriorPoint` the benchmark suite's Random QP class goes from
   the dense KKT factorization to the sparse reduced one (22.5 ms to 1.0 ms) and Control from
   the dense KKT factorization to the sparse KKT one (56.8 ms to 1.9 ms); Lasso, SVM and Huber
   move from the sparse KKT form to the sparse reduced one. Under `OperatorSplitting` the

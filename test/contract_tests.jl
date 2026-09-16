@@ -11,6 +11,7 @@
         "update_settings!(::Self) :: Self",
         "update_settings!(::Self, ::QPAlgorithm) :: Self",
         "dimensions(::Self) :: Tuple{Int, Int}",
+        "derivative_ready(::Self) :: Nothing",
     ]
     @test sort([nameof(s.f) for s in spec if s.optional]) ==
         [:constraint_violation, :update_rho!]

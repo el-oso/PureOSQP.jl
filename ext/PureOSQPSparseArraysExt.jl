@@ -198,10 +198,13 @@ stored entries of the KKT matrix, and [`reduced_nnz`](@ref)'s count of the symbo
 `AᵀA ∪ P ∪ I` pattern. Nothing is factored, so the backend the ladder then builds is the
 only factorization `setup` pays for.
 
-`bench/results/ipm_selection.json` records every backend each of 71 problems admits, timed
-under both algorithms, alongside the backend this rule picked. Under `InteriorPoint` the
-pick is within 1.3× of the fastest measured backend on 69 of the 71, worst case 1.52×; under
-`OperatorSplitting` it is within 1.03× on all 71.
+The thresholds come from `bench/results/ipm_selection.json`, which records every backend each
+of 71 problems admits, timed under both algorithms, alongside the backend this rule picked.
+Under `InteriorPoint` the pick is within 1.3× of the fastest measured backend on 69 of the 71,
+worst case 1.52×; under `OperatorSplitting` it is within 1.03× on all 71. Those figures are
+in-sample: the rule was fitted to this set and scored on it. The `OperatorSplitting` column
+compares cost per iteration, since 10 of the 71 run to the iteration cap at the sweep's
+tolerance rather than converging.
 """
 function sparse_form(P::SparseMatrixCSC, A::SparseMatrixCSC, n::Integer, m::Integer, ::PureOSQP.IPMSelection)
     # The terminal is the dense `(n+m)` KKT factorization, so what decides against a sparse

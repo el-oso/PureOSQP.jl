@@ -102,6 +102,19 @@ function active_kkt(
 end
 
 """
+    derivative_ready(ws) -> Nothing
+
+Throw unless `ws`'s iterate is one the active-set test can read.
+
+The test calls a row active when its multiplier is far from zero. An algorithm whose
+inactive-row multipliers settle somewhere else owes the caller a refusal here, because the
+derivative that follows is wrong rather than imprecise. `OperatorSplittingWorkspace`
+projects its multipliers, so it has nothing to check; `InteriorPointWorkspace` holds
+inactive rows at the barrier parameter and requires polishing.
+"""
+derivative_ready(ws::QPWorkspace) = nothing
+
+"""
     active_kkt(ws) -> (F, M, act, lower, x, y)
 
 Check that `ws` holds a converged, host-resident solution, unscale it into problem space,
@@ -134,19 +147,7 @@ function active_kkt(ws::QPWorkspace{T}) where {T}
             "has no matrix-free form: re-express the problem with a matrix `P` and `A` to " *
             "differentiate it."
     )
-    # An interior-point solution carries inactive-row multipliers of size `μ_final`, not the
-    # near-zero a projection gives: the active-set threshold below cannot tell those apart
-    # from a genuinely active row, and the resulting derivative is silently wrong rather than
-    # merely imprecise. Polishing recomputes the point from the guessed active set exactly,
-    # which is what makes the threshold meaningful again.
-    ws isa InteriorPointWorkspace && !ws.polished && throw(
-        ArgumentError(
-            "the derivative of an interior-point solution needs a polished workspace: its " *
-                "inactive-row multipliers sit at the barrier parameter rather than at zero, " *
-                "which the active-set test cannot tell apart from a genuinely active row. " *
-                "Solve with polishing = true first."
-        )
-    )
+    derivative_ready(ws)
     x = prob.D .* ws.x
     y = (prob.E .* ws.y) ./ prob.c
     z = ws.z ./ prob.E
