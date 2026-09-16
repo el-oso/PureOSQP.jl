@@ -215,8 +215,8 @@ probing(M) = M isa ProductOperator && M.probe
 
 function setup_backend(
         alg::InteriorPoint, ::Val{LS}, ::Type{T}, P::AbstractMatrix, q::AbstractVector,
-        A::AbstractMatrix, l::AbstractVector, u::AbstractVector; preconditioner = nothing,
-        accelerator = nothing, kwargs...
+        A::AbstractMatrix, l::AbstractVector, u::AbstractVector, options::Options,
+        preconditioner, accelerator
     ) where {LS, T <: Real}
     t0 = time_ns()
     isnothing(accelerator) || throw(
@@ -226,7 +226,6 @@ function setup_backend(
         )
     )
     nv, mv = validate(P, q, A, l, u)
-    options = Options{T}(; algorithm_defaults(alg, T)..., linsys = LS, kwargs...)
     algorithm = element_typed(alg, T, options)
     isnothing(preconditioner) || LS === :indirect || throw(
         ArgumentError(

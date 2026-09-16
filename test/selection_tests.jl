@@ -24,9 +24,10 @@
 end
 
 @testitem "the sparse rule reads the pattern and nothing else" begin
+    using PureQPBase
     using LinearAlgebra, SparseArrays, Random
     using LDLFactorizations
-    Ext = Base.get_extension(PureOSQP, :PureOSQPSparseArraysExt)
+    Ext = Base.get_extension(PureQPBase, :PureQPBaseSparseArraysExt)
     Random.seed!(74)
 
     # A pattern's answer must not move when the stored values do: that is what "decides from

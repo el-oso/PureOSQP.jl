@@ -1081,6 +1081,16 @@ function refactor_rho!(ws)
     return refactored!(ws, refactor_weights!(ws.linsys, ws.prob, ws.weights))
 end
 
+"""
+    accelerator_reset!(accel) -> accel
+
+Drop the history an accelerator has built up, called from [`refactored!`](@ref) whenever a
+refactorization makes the iteration a fixed point of a different map — a window spanning
+both would extrapolate across two maps rather than one. `nothing` with no accelerator; an
+algorithm that accepts one defines further methods for its own accelerator types.
+"""
+accelerator_reset!(::Nothing) = nothing
+
 function refactored!(ws, ok::Bool)
     # The reduced form squares `cond(A)`, so the full quasi-definite system is the remedy —
     # but only for a backend that is not already solving it.

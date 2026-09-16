@@ -156,6 +156,7 @@ end
 end
 
 @testitem "interior point: outer iterations of the reference prototype" begin
+    using PureQPBase
     using LinearAlgebra, SparseArrays, Random
     # The dense generator of `bench/ipm_matrixfree_spike.jl` (`make_instance`), every row
     # two-sided, and with the row mix of `bench/ipm_rowtypes_spike.jl` (`mixed`: 20% equality,
@@ -220,7 +221,7 @@ end
     end
 
     # The sparse KKT backend on dense data, which its fill gate would never select.
-    Ext = Base.get_extension(PureOSQP, :PureOSQPSparseArraysExt)
+    Ext = Base.get_extension(PureQPBase, :PureQPBaseSparseArraysExt)
     function sparse_kkt_workspace(P, q, A, l, u; kwargs...)
         Ps, As = sparse(P), sparse(A)
         m, n = size(A)
@@ -293,7 +294,8 @@ end
     @test_throws "build them without probe" setup(
         Pop, q, Aprobe, l, u, InteriorPoint(); linsys = :indirect, scaling = 0, preconditioner = F
     )
-    @test_throws MethodError setup(P, q, A, l, u; algorithm = :ipm)
+    # The algorithm is the sixth positional argument, not a keyword.
+    @test_throws "algorithm is not an option" setup(P, q, A, l, u; algorithm = :ipm)
 
     n1, n2 = 3, 4
     K = PureOSQP.KroneckerOperator(randn(n1, n1), randn(n2, n2))

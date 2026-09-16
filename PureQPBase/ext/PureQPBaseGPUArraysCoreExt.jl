@@ -1,5 +1,5 @@
 """
-    PureOSQPGPUArraysCoreExt
+    PureQPBaseGPUArraysCoreExt
 
 Backend routing and whole-matrix traversals for GPU arrays.
 
@@ -16,9 +16,9 @@ other backend is refused at [`setup`](@ref) rather than left to fail inside `fac
 `polishing` and the derivatives stay on the host, since both build a dense `(n+k)×(n+k)`
 matrix and factor it with `bunchkaufman!`.
 """
-module PureOSQPGPUArraysCoreExt
+module PureQPBaseGPUArraysCoreExt
 
-using PureOSQP: PureOSQP
+using PureQPBase: PureQPBase
 using GPUArraysCore: AbstractGPUMatrix, AbstractGPUVector
 
 """
@@ -47,7 +47,7 @@ end
 What a GPU array gets under an algorithm this extension has no remedy to name.
 
 That a factorization has no GPU counterpart is a property of the factorization and not of
-the algorithm, so the refusal itself serves every [`PureOSQP.SelectionFor`](@ref); only the
+the algorithm, so the refusal itself serves every [`PureQPBase.SelectionFor`](@ref); only the
 way out differs, which is why [`unsupported_backend`](@ref) and [`unsupported_ipm`](@ref)
 answer for the two algorithms that have one.
 """
@@ -61,24 +61,24 @@ function unsupported_gpu()
     )
 end
 
-PureOSQP.choose_backend(
-    P, A::AbstractGPUMatrix, prob, wt, sel::PureOSQP.SelectionFor
+PureQPBase.choose_backend(
+    P, A::AbstractGPUMatrix, prob, wt, sel::PureQPBase.SelectionFor
 ) = unsupported_gpu()
-PureOSQP.choose_backend(
-    P::AbstractGPUMatrix, A, prob, wt, sel::PureOSQP.SelectionFor
+PureQPBase.choose_backend(
+    P::AbstractGPUMatrix, A, prob, wt, sel::PureQPBase.SelectionFor
 ) = unsupported_gpu()
-PureOSQP.choose_backend(
-    P::AbstractGPUMatrix, A::AbstractGPUMatrix, prob, wt, sel::PureOSQP.SelectionFor
+PureQPBase.choose_backend(
+    P::AbstractGPUMatrix, A::AbstractGPUMatrix, prob, wt, sel::PureQPBase.SelectionFor
 ) = unsupported_gpu()
 
-PureOSQP.choose_backend(
-    P, A::AbstractGPUMatrix, prob, wt, sel::PureOSQP.ADMMSelection
+PureQPBase.choose_backend(
+    P, A::AbstractGPUMatrix, prob, wt, sel::PureQPBase.ADMMSelection
 ) = unsupported_backend()
-PureOSQP.choose_backend(
-    P::AbstractGPUMatrix, A, prob, wt, sel::PureOSQP.ADMMSelection
+PureQPBase.choose_backend(
+    P::AbstractGPUMatrix, A, prob, wt, sel::PureQPBase.ADMMSelection
 ) = unsupported_backend()
-PureOSQP.choose_backend(
-    P::AbstractGPUMatrix, A::AbstractGPUMatrix, prob, wt, sel::PureOSQP.ADMMSelection
+PureQPBase.choose_backend(
+    P::AbstractGPUMatrix, A::AbstractGPUMatrix, prob, wt, sel::PureQPBase.ADMMSelection
 ) = unsupported_backend()
 
 "What a GPU array gets from `InteriorPoint()`, which has no matrix-free backend to offer."
@@ -92,18 +92,18 @@ function unsupported_ipm()
     )
 end
 
-PureOSQP.choose_backend(
-    P, A::AbstractGPUMatrix, prob, wt, sel::PureOSQP.IPMSelection
+PureQPBase.choose_backend(
+    P, A::AbstractGPUMatrix, prob, wt, sel::PureQPBase.IPMSelection
 ) = unsupported_ipm()
-PureOSQP.choose_backend(
-    P::AbstractGPUMatrix, A, prob, wt, sel::PureOSQP.IPMSelection
+PureQPBase.choose_backend(
+    P::AbstractGPUMatrix, A, prob, wt, sel::PureQPBase.IPMSelection
 ) = unsupported_ipm()
-PureOSQP.choose_backend(
-    P::AbstractGPUMatrix, A::AbstractGPUMatrix, prob, wt, sel::PureOSQP.IPMSelection
+PureQPBase.choose_backend(
+    P::AbstractGPUMatrix, A::AbstractGPUMatrix, prob, wt, sel::PureQPBase.IPMSelection
 ) = unsupported_ipm()
 
 """
-    PureOSQP.check_finite(M::AbstractGPUMatrix, rows, cols, name)
+    PureQPBase.check_finite(M::AbstractGPUMatrix, rows, cols, name)
 
 Establish that `M` holds no NaN or Inf, by reduction rather than by walking entries.
 
@@ -112,7 +112,7 @@ The generic check reads `M[i, j]`, which a device array refuses; the refusal arr
 being told. The offending entry cannot be named without reading one, so the message names
 the matrix instead.
 """
-function PureOSQP.check_finite(
+function PureQPBase.check_finite(
         M::AbstractGPUMatrix, rows::Integer, cols::Integer, name::String
     )
     all(isfinite, M) || throw(ArgumentError("$name is not finite"))
@@ -137,7 +137,7 @@ onehot(M::AbstractGPUMatrix) = (1:size(M, 1)) .== permutedims(1:size(M, 2))
 # indexes; whole-matrix reductions answer the same questions. Both run at setup or per
 # refactorization, never per iteration, so their temporaries are not on the hot path.
 
-function PureOSQP.column_norms!(
+function PureQPBase.column_norms!(
         d::AbstractGPUVector, e::AbstractGPUVector, ::Type{T},
         pcol::AbstractGPUVector, A::AbstractGPUMatrix, D, E, c
     ) where {T}
@@ -145,20 +145,20 @@ function PureOSQP.column_norms!(
     # traversals apply through their weight vectors.
     scaled_a = abs.(E .* A)
     e .= vec(maximum(scaled_a .* permutedims(D); dims = 2))
-    d .= PureOSQP.limit_scaling.(
+    d .= PureQPBase.limit_scaling.(
         max.(c .* D .* pcol, D .* vec(maximum(scaled_a; dims = 1)))
     )
     return d
 end
 
-function PureOSQP.cost_norms!(
+function PureQPBase.cost_norms!(
         pcol::AbstractGPUVector, ::Type{T}, P::AbstractGPUMatrix, D::AbstractGPUVector, c, n
     ) where {T}
     pcol .= vec(maximum(abs.(D .* P); dims = 1))
     return sum(c .* D .* pcol) / n
 end
 
-function PureOSQP.reduced_diagonal!(
+function PureQPBase.reduced_diagonal!(
         dest::AbstractGPUVector, ::Type{T}, P::AbstractGPUMatrix, A::AbstractGPUMatrix,
         rho, E, D, sigma, c
     ) where {T}
@@ -167,4 +167,4 @@ function PureOSQP.reduced_diagonal!(
     return dest
 end
 
-end # module PureOSQPGPUArraysCoreExt
+end # module PureQPBaseGPUArraysCoreExt

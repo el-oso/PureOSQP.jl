@@ -83,6 +83,22 @@ end
     s === SOLVED || s === SOLVED_INACCURATE || s === MAX_ITER_REACHED ||
     s === TIME_LIMIT_REACHED || s === INTERRUPTED
 
+"Name of a status, for `verbose` output and for `Solution`'s `show` method."
+function status_name(s::Status)
+    s === SOLVED && return "solved"
+    s === SOLVED_INACCURATE && return "solved inaccurate"
+    s === PRIMAL_INFEASIBLE && return "primal infeasible"
+    s === PRIMAL_INFEASIBLE_INACCURATE && return "primal infeasible inaccurate"
+    s === DUAL_INFEASIBLE && return "dual infeasible"
+    s === DUAL_INFEASIBLE_INACCURATE && return "dual infeasible inaccurate"
+    s === MAX_ITER_REACHED && return "maximum iterations reached"
+    s === TIME_LIMIT_REACHED && return "time limit reached"
+    s === INTERRUPTED && return "interrupted"
+    s === NON_CONVEX && return "problem non convex"
+    s === NUMERICAL_ERROR && return "numerical error"
+    return "unsolved"
+end
+
 @inline INFTY(::Type{T}) where {T} = min(T(1.0e30), prevfloat(typemax(T)))
 @inline MIN_SCALING(::Type{T}) where {T} = T(1.0e-4)
 @inline MAX_SCALING(::Type{T}) where {T} = T(1.0e4)
@@ -192,7 +208,7 @@ end
 # `setup_backend` declares no return type: inferred through the abstract data arguments of this
 # signature it is `Any`, although every call with concrete arguments returns a concrete workspace.
 @contract QPAlgorithm begin
-    setup_backend(::Self, ::Val, ::Type{<:Real}, ::AbstractMatrix, ::AbstractVector, ::AbstractMatrix, ::AbstractVector, ::AbstractVector) => "build and factorize the workspace; `setup` calls it with the backend name lifted into the `Val`"
+    setup_backend(::Self, ::Val, ::Type{<:Real}, ::AbstractMatrix, ::AbstractVector, ::AbstractMatrix, ::AbstractVector, ::AbstractVector, ::Options, ::Any, ::Any) => "build and factorize the workspace; `setup` calls it with the backend name lifted into the `Val`, the options it built, and the caller's preconditioner and accelerator"
     algorithm_defaults(::Self, ::Type{<:Real})::NamedTuple => "the `Options` defaults of this algorithm that have no common default"
     default_options(::Self, ::Type{<:Real})::Options => "the `Options` a solve runs with when no keyword is passed"
     element_typed(::Self, ::Type{<:Real}, ::Options)::QPAlgorithm => "the object in the solve's element type, every default resolved"
@@ -299,20 +315,20 @@ which the compiler can already prove.
 check_storage(M, rows::Integer, cols::Integer) = nothing
 
 """
-    setup(P, q, A, l, u, alg = OperatorSplitting(); kwargs...) -> QPWorkspace
+    setup(P, q, A, l, u, alg; kwargs...) -> QPWorkspace
 
 Build a workspace for `min ½xᵀPx + qᵀx  s.t.  l ≤ Ax ≤ u`.
 
 `P` must be a full symmetric matrix (or a `Symmetric` wrapper), not a stored triangle.
 `P` and `A` may be any `AbstractMatrix` and are not copied or modified. `alg` is the
 algorithm and its parameters; the keyword arguments are the fields of [`Options`](@ref), whose
-defaults depend on `alg` ([`default_options`](@ref)), plus `preconditioner` and, for
-[`OperatorSplitting`](@ref) only, `accelerator`. A keyword that is a parameter of an algorithm
+defaults depend on `alg` ([`default_options`](@ref)), plus `preconditioner` and, for an
+algorithm that accepts one, `accelerator`. A keyword that is a parameter of an algorithm
 (`rho`, `reg_primal`, …) throws, naming the algorithm object it belongs in.
 
-[`OperatorSplitting`](@ref), the default, builds an [`OperatorSplittingWorkspace`](@ref).
-[`InteriorPoint`](@ref) builds an [`InteriorPointWorkspace`](@ref) for the interior-point
-method instead. It runs on the host for any real element type and refuses GPU arrays,
+An `OperatorSplitting` algorithm builds an `OperatorSplittingWorkspace`. An `InteriorPoint`
+algorithm builds an `InteriorPointWorkspace` instead. It runs on the host for any real
+element type and refuses GPU arrays,
 `linsys = :kronecker` and `linsys = :lowrank` by name. It solves an operator that supplies
 products only, and runs conjugate gradients on any pair, only with `linsys = :indirect`, a
 caller-supplied `preconditioner` and `scaling = 0`; without those it throws, and
@@ -330,9 +346,12 @@ A `Symmetric` wrapper is accepted over any parent, but it costs something over a
 wrapped one descends past them, and equilibration walks the wrapper entrywise rather than by
 stored column. Pass the full `SparseMatrixCSC` to reach those backends.
 """
-function setup(
+# `@constprop :aggressive` because this frame forwards the keywords that the method below
+# turns into the `Val` naming the backend: constant propagation needs every frame in the
+# chain to carry it, and a frame that only forwards is still a frame.
+@inline Base.@constprop :aggressive function setup(
         P::AbstractMatrix, q::AbstractVector, A::AbstractMatrix,
-        l::AbstractVector, u::AbstractVector, alg::QPAlgorithm = OperatorSplitting(); kwargs...
+        l::AbstractVector, u::AbstractVector, alg::QPAlgorithm; kwargs...
     )
     T = float(promote_type(eltype(P), eltype(q), eltype(A), eltype(l), eltype(u)))
     return setup(T, P, q, A, l, u, alg; kwargs...)
@@ -354,15 +373,50 @@ end
 # carried as a type parameter and the dead branches are gone by specialization instead.
 Base.@constprop :aggressive function setup(
         ::Type{T}, P::AbstractMatrix, q::AbstractVector, A::AbstractMatrix,
-        l::AbstractVector, u::AbstractVector, alg::QPAlgorithm = OperatorSplitting();
-        linsys::Symbol = :auto, kwargs...
+        l::AbstractVector, u::AbstractVector, alg::QPAlgorithm;
+        linsys::Symbol = :auto, preconditioner = nothing, accelerator = nothing, kwargs...
     ) where {T <: Real}
-    # Rejected here rather than left to `Options`: past this point the name becomes a type
-    # parameter, and an unusable one would specialize the whole of `setup_backend` before the
-    # options it cannot satisfy are ever built.
-    linsys in LINSYS_OPTIONS || throw(
-        ArgumentError("linsys must be one of $(join(LINSYS_OPTIONS, ", ")), got :$linsys")
+    return build_workspace(
+        T, alg, check_linsys(linsys), P, q, A, l, u, preconditioner, accelerator; kwargs...
     )
-    check_option_names(kwargs)
-    return setup_backend(alg, Val(linsys), T, P, q, A, l, u; kwargs...)
+end
+
+"""
+    check_linsys(linsys) -> Val{linsys}
+
+Refuse a backend name that is not one, and lift the name into the `Val` that carries it
+through `setup_backend`.
+
+The name is checked before it becomes a type parameter: past that point an unusable one
+would specialize the whole of `setup_backend` before the options it cannot satisfy are ever
+built. [`setup`](@ref) and [`solve`](@ref) each call this in their own frame, where the
+caller's `linsys` keyword is still a literal, and pass the `Val` down by position. Deciding
+it any deeper would leave the name to reach `setup_backend` by constant propagation, whose
+budget a solve with four keywords already exhausts, and an unresolved call is what `--trim`
+rejects.
+"""
+Base.@constprop :aggressive function check_linsys(linsys::Symbol)
+    linsys in LINSYS_OPTIONS || throw(
+        ArgumentError(lazy"linsys must be one of $LINSYS_LIST, got :$linsys")
+    )
+    return Val(linsys)
+end
+
+"""
+    build_workspace(T, alg, Val(linsys), P, q, A, l, u, preconditioner, accelerator; kwargs...)
+
+Build the [`Options`](@ref) and hand everything to the algorithm's `setup_backend`, which
+takes it all by position: a keyword call carries a `NamedTuple` whose names inference loses
+track of once more than one keyword survives to it.
+"""
+function build_workspace(
+        ::Type{T}, alg::QPAlgorithm, ::Val{LS}, P::AbstractMatrix, q::AbstractVector,
+        A::AbstractMatrix, l::AbstractVector, u::AbstractVector, preconditioner, accelerator;
+        kwargs...
+    ) where {T <: Real, LS}
+    check_option_names(kwargs, alg)
+    options = Options{T}(; algorithm_defaults(alg, T)..., linsys = LS, kwargs...)
+    return setup_backend(
+        alg, Val(LS), T, P, q, A, l, u, options, preconditioner, accelerator
+    )
 end

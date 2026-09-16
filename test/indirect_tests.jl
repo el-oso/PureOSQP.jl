@@ -57,6 +57,7 @@ end
 end
 
 @testitem "asking for the matrix-free backend without Krylov says so" begin
+    using PureQPBase
     # The core cannot build it, and the error has to name the remedy rather than surface a
     # MethodError from somewhere inside `setup`.
     P = [4.0 1.0; 1.0 2.0]
@@ -64,7 +65,7 @@ end
     A = [1.0 1.0; 1.0 0.0; 0.0 1.0]
     l = [1.0, 0.0, 0.0]
     u = [1.0, 0.7, 0.7]
-    if isnothing(Base.get_extension(PureOSQP, :PureOSQPKrylovExt))
+    if isnothing(Base.get_extension(PureQPBase, :PureQPBaseKrylovExt))
         @test_throws "needs Krylov.jl" setup(P, q, A, l, u; linsys = :indirect)
     else
         # Krylov is loaded by the other items in this file, so the backend exists here.

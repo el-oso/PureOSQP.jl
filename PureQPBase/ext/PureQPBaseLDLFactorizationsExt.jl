@@ -1,5 +1,5 @@
 """
-    PureOSQPLDLFactorizationsExt
+    PureQPBaseLDLFactorizationsExt
 
 Factors the reduced matrix with LDLFactorizations.jl instead of CHOLMOD.
 
@@ -23,9 +23,9 @@ this package: measured against LDLFactorizations' own solve they are as fast or 
 (2.74 µs against 3.02 on Lasso, 8.10 against 8.17 on Huber), and they are the code the
 allocation guarantee is proved on.
 """
-module PureOSQPLDLFactorizationsExt
+module PureQPBaseLDLFactorizationsExt
 
-using PureOSQP: PureOSQP
+using PureQPBase: PureQPBase
 using TypeContracts: TypeContracts, @verify
 using LinearAlgebra: Symmetric, I
 using SparseArrays: SparseMatrixCSC, nnz, nzrange, rowvals, nonzeros, triu
@@ -50,7 +50,7 @@ fact_L(F) = F.L::SparseMatrixCSC{<:Real, Int}
 fact_perm(F)::Vector{Int} = F.P
 
 """
-    SparseLDL{T,V,G,F} <: PureOSQP.LinearSystem
+    SparseLDL{T,V,G,F} <: PureQPBase.LinearSystem
 
 The reduced backend factored by LDLFactorizations, solved by this package.
 
@@ -61,7 +61,7 @@ diagonal is never loaded and never divided by.
 `gram` rebuilds `R`'s values in place when `ρ` moves; `fact` holds the ordering and the
 symbolic analysis, so a refactorization is numeric only.
 """
-mutable struct SparseLDL{T <: Real, V <: AbstractVector{T}, G, F} <: PureOSQP.LinearSystem
+mutable struct SparseLDL{T <: Real, V <: AbstractVector{T}, G, F} <: PureQPBase.LinearSystem
     gram::G
     fact::F
     L::SparseMatrixCSC{T, Int}
@@ -70,21 +70,21 @@ mutable struct SparseLDL{T <: Real, V <: AbstractVector{T}, G, F} <: PureOSQP.Li
     permuted::V
 end
 
-PureOSQP.backend_name(::SparseLDL) = :ldlfactorizations
+PureQPBase.backend_name(::SparseLDL) = :ldlfactorizations
 
-PureOSQP.backend_info(ls::SparseLDL) = PureOSQP.BackendInfo(
-    PureOSQP.backend_name(ls), true, :reduced, size(ls.L, 1), nnz(ls.L)
+PureQPBase.backend_info(ls::SparseLDL) = PureQPBase.BackendInfo(
+    PureQPBase.backend_name(ls), true, :reduced, size(ls.L, 1), nnz(ls.L)
 )
 
 """
-    PureOSQP.ldl_backend(gram, proto, n) -> SparseLDL or nothing
+    PureQPBase.ldl_backend(gram, proto, n) -> SparseLDL or nothing
 
 Analyse and factor `gram.R`, with `ldl_analyze`'s own fill-reducing ordering.
 
 Returning `nothing` leaves the CHOLMOD path to answer instead, which is what happens when the
 analysis fails or the reduced matrix turns out to be singular.
 """
-function PureOSQP.ldl_backend(gram, proto::AbstractVector{T}, n::Integer) where {T <: Real}
+function PureQPBase.ldl_backend(gram, proto::AbstractVector{T}, n::Integer) where {T <: Real}
     R = gram.R
     M = Symmetric(R, :U)
     fact = try
@@ -97,7 +97,7 @@ function PureOSQP.ldl_backend(gram, proto::AbstractVector{T}, n::Integer) where 
     # `D` is singular exactly when the reduced matrix is, which for `P̃ + σI + Ãᵀ diag(ρ) Ã`
     # means the problem was not convex after all. Hand it back rather than divide by zero.
     any(iszero, fact.d) && return nothing
-    Base.get_extension(PureOSQP, :PureOSQPSparseArraysExt).check_factor(fact.L, n)
+    Base.get_extension(PureQPBase, :PureQPBaseSparseArraysExt).check_factor(fact.L, n)
     return SparseLDL{T, typeof(proto), typeof(gram), typeof(fact)}(
         gram, fact, fact_L(fact), fact_perm(fact), inv.(fact.d), similar(proto, T, n)
     )
@@ -108,7 +108,7 @@ end
 
 Whether `P + σI` is positive definite, read off the `LDLᵀ` factorization's diagonal.
 
-The return is `Bool` and not `Union{Bool, Nothing}` on purpose: [`PureOSQP.is_convex`](@ref)
+The return is `Bool` and not `Union{Bool, Nothing}` on purpose: [`PureQPBase.is_convex`](@ref)
 keeps a factorization of its own for when this is unavailable, and a maybe-answer would leave
 that fallback reachable for the trimmer even though dispatch has already settled the question.
 
@@ -118,7 +118,7 @@ detected. It is a verdict and not a refusal to answer: the factorization stops e
 not be read in that case — it is filled only as far as the column that stopped, and holds
 uninitialized memory beyond it.
 """
-function PureOSQP.ldl_posdef(P::SparseMatrixCSC, sigma)
+function PureQPBase.ldl_posdef(P::SparseMatrixCSC, sigma)
     # No rows, nothing to violate definiteness, and `ldl_analyze` indexes unconditionally.
     isempty(P) && return true
     # Only the triangle: `ldl_factorize!` consumes every stored entry rather than reading the
@@ -135,9 +135,9 @@ function PureOSQP.ldl_posdef(P::SparseMatrixCSC, sigma)
     return true
 end
 
-function PureOSQP.factorize!(ls::SparseLDL{T}, prob, wt)::Bool where {T}
+function PureQPBase.factorize!(ls::SparseLDL{T}, prob, wt)::Bool where {T}
     P, A = prob.P, prob.A
-    Ext = Base.get_extension(PureOSQP, :PureOSQPSparseArraysExt)
+    Ext = Base.get_extension(PureQPBase, :PureQPBaseSparseArraysExt)
     if !Ext.describes(ls.gram, P, A)
         # `update!` replaced P or A with one storing entries elsewhere, so both the slot map
         # and the analysis built on its pattern are stale.
@@ -201,8 +201,8 @@ function unit_backward!(x::AbstractVector, L::SparseMatrixCSC, N::Integer)
     return x
 end
 
-function PureOSQP.solve_system!(ls::SparseLDL{T}, prob, wt, rhs_x, rhs_z, x, z)::Nothing where {T}
-    rhs = PureOSQP.reduced_rhs!(prob, wt, rhs_x, rhs_z)
+function PureQPBase.solve_system!(ls::SparseLDL{T}, prob, wt, rhs_x, rhs_z, x, z)::Nothing where {T}
+    rhs = PureQPBase.reduced_rhs!(prob, wt, rhs_x, rhs_z)
     perm, work, n = ls.perm, ls.permuted, prob.n
     L, dinv = ls.L, ls.dinv
     # R[perm, perm] = Lᵤ D Lᵤᵀ, so the solve is a permutation, two substitutions and the
@@ -218,12 +218,12 @@ function PureOSQP.solve_system!(ls::SparseLDL{T}, prob, wt, rhs_x, rhs_z, x, z):
     for i in 1:n
         x[perm[i]] = work[i]
     end
-    prob.m > 0 && PureOSQP.mul_A!(z, prob, x)
+    prob.m > 0 && PureQPBase.mul_A!(z, prob, x)
     return nothing
 end
 
 """
-    LDLKKT{T,V,F} <: PureOSQP.LinearSystem
+    LDLKKT{T,V,F} <: PureQPBase.LinearSystem
 
 The full quasi-definite KKT backend, factored by LDLFactorizations.
 
@@ -237,7 +237,7 @@ pivoting for stability. `D` carries the signs.
 Unlike [`SparseLDL`](@ref) this recovers `z̃` from the eliminated multiplier, so the solve
 needs no product against `A`.
 """
-mutable struct LDLKKT{T <: Real, V <: AbstractVector{T}, G, F} <: PureOSQP.LinearSystem
+mutable struct LDLKKT{T <: Real, V <: AbstractVector{T}, G, F} <: PureQPBase.LinearSystem
     gram::G
     fact::F
     L::SparseMatrixCSC{T, Int}
@@ -246,13 +246,13 @@ mutable struct LDLKKT{T <: Real, V <: AbstractVector{T}, G, F} <: PureOSQP.Linea
     work::V
 end
 
-PureOSQP.backend_name(::LDLKKT) = :ldl_kkt
+PureQPBase.backend_name(::LDLKKT) = :ldl_kkt
 
-PureOSQP.backend_info(ls::LDLKKT) = PureOSQP.BackendInfo(
-    PureOSQP.backend_name(ls), true, :kkt, size(ls.L, 1), nnz(ls.L)
+PureQPBase.backend_info(ls::LDLKKT) = PureQPBase.BackendInfo(
+    PureQPBase.backend_name(ls), true, :kkt, size(ls.L, 1), nnz(ls.L)
 )
 
-function PureOSQP.ldl_kkt_backend(
+function PureQPBase.ldl_kkt_backend(
         gram, proto::AbstractVector{T}, n::Integer, m::Integer
     ) where {T <: Real}
     M = Symmetric(gram.K, :U)
@@ -264,15 +264,15 @@ function PureOSQP.ldl_kkt_backend(
     end
     ldl_factorize!(M, fact)
     any(iszero, fact.d) && return nothing
-    Base.get_extension(PureOSQP, :PureOSQPSparseArraysExt).check_factor(fact.L, n + m)
+    Base.get_extension(PureQPBase, :PureQPBaseSparseArraysExt).check_factor(fact.L, n + m)
     v = similar(proto, T, n + m)
     return LDLKKT{T, typeof(v), typeof(gram), typeof(fact)}(
         gram, fact, fact_L(fact), fact_perm(fact), inv.(fact.d), v
     )
 end
 
-function PureOSQP.factorize!(ls::LDLKKT{T}, prob, wt)::Bool where {T}
-    Ext = Base.get_extension(PureOSQP, :PureOSQPSparseArraysExt)
+function PureQPBase.factorize!(ls::LDLKKT{T}, prob, wt)::Bool where {T}
+    Ext = Base.get_extension(PureQPBase, :PureQPBaseSparseArraysExt)
     P, A = prob.P, prob.A
     if !Ext.describes(ls.gram, P, A)
         # `update!` replaced P or A with one storing entries elsewhere, so the slot map and
@@ -288,13 +288,13 @@ function PureOSQP.factorize!(ls::LDLKKT{T}, prob, wt)::Bool where {T}
     any(iszero, d) && return false
     ls.L = fact_L(ls.fact)
     ls.perm = fact_perm(ls.fact)
-    Base.get_extension(PureOSQP, :PureOSQPSparseArraysExt).check_factor(ls.L, prob.n + prob.m)
+    Base.get_extension(PureQPBase, :PureQPBaseSparseArraysExt).check_factor(ls.L, prob.n + prob.m)
     length(ls.dinv) == length(d) || resize!(ls.dinv, length(d))
     ls.dinv .= inv.(d)
     return true
 end
 
-function PureOSQP.solve_system!(ls::LDLKKT{T}, prob, wt, rhs_x, rhs_z, x, z)::Nothing where {T}
+function PureQPBase.solve_system!(ls::LDLKKT{T}, prob, wt, rhs_x, rhs_z, x, z)::Nothing where {T}
     n, m = prob.n, prob.m
     N = n + m
     perm, work = ls.perm, ls.work
@@ -327,13 +327,13 @@ function PureOSQP.solve_system!(ls::LDLKKT{T}, prob, wt, rhs_x, rhs_z, x, z)::No
 end
 
 """
-    PureOSQP.solve_multiplier!(ls::LDLKKT, prob, wt, rhs_x, rhs_z, x, nu) -> Nothing
+    PureQPBase.solve_multiplier!(ls::LDLKKT, prob, wt, rhs_x, rhs_z, x, nu) -> Nothing
 
 The forward-backward solve already leaves `ν` in `work` before the eliminated multiplier
-would be turned into `z̃ = rhs_z + w_inv ⊙ ν`, so this is [`PureOSQP.solve_system!`](@ref)
+would be turned into `z̃ = rhs_z + w_inv ⊙ ν`, so this is [`PureQPBase.solve_system!`](@ref)
 minus that last loop.
 """
-function PureOSQP.solve_multiplier!(
+function PureQPBase.solve_multiplier!(
         ls::LDLKKT{T}, prob, wt, rhs_x, rhs_z, x, nu
     )::Nothing where {T}
     n, m = prob.n, prob.m
@@ -365,4 +365,4 @@ end
 @verify SparseLDL
 @verify LDLKKT
 
-end # module PureOSQPLDLFactorizationsExt
+end # module PureQPBaseLDLFactorizationsExt

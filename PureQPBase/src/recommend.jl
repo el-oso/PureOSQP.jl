@@ -49,14 +49,14 @@ function Base.show(io::IO, ::MIME"text/plain", a::LinsysAdvice)
 end
 
 """
-    recommend_linsys(P, q, A, l, u, alg = OperatorSplitting(); max_iter = 25, repeats = 3, kwargs...)
+    recommend_linsys(P, q, A, l, u, alg; max_iter = 25, repeats = 3, kwargs...)
 
 Measure every backend this problem admits and rank them by what a full solve would cost.
 
 [`setup`](@ref) chooses a backend from the types of `P` and `A` and, for a `SparseMatrixCSC`
 pair, a property of their sparsity pattern. That is a rule fitted to a benchmark suite, so it
 is right about a class of problems and not about any particular one. This runs the experiment
-instead: for each of `PureOSQP.LINSYS_OPTIONS` the pair accepts it builds the workspace, runs
+instead: for each of [`LINSYS_OPTIONS`](@ref) the pair accepts it builds the workspace, runs
 `max_iter` iterations, and reports the times and the factor fill. Pass the winner's `linsys`
 to `setup` to pin it.
 
@@ -67,11 +67,11 @@ will use — `scaling` in particular changes the matrices every backend factors.
 
 `max_iter` bounds the timed run, so the candidates are compared on cost per iteration and not
 on whether they converge. That cost is then charged over the iterations a real solve takes,
-which one unbounded run on `linsys = :auto` measures once
-([`PureOSQP.solve_iterations`](@ref)) and every candidate is charged: ranking on the
-per-iteration figure alone would treat setup as free, and ranking on `max_iter` iterations of
-it would treat setup as the whole cost. `repeats` runs each candidate that many times after a
-warm-up and keeps the fastest, which is what takes Julia's compilation out of the numbers.
+which one unbounded run on `linsys = :auto` measures once ([`solve_iterations`](@ref)) and
+every candidate is charged: ranking on the per-iteration figure alone would treat setup as
+free, and ranking on `max_iter` iterations of it would treat setup as the whole cost.
+`repeats` runs each candidate that many times after a warm-up and keeps the fastest, which is
+what takes Julia's compilation out of the numbers.
 
 ```julia
 julia> using PureOSQP, SparseArrays
@@ -86,7 +86,7 @@ julia> ws = setup(P, q, A, l, u, InteriorPoint(); linsys = advice.linsys);
 """
 function recommend_linsys(
         P::AbstractMatrix, q::AbstractVector, A::AbstractMatrix, l::AbstractVector,
-        u::AbstractVector, alg::QPAlgorithm = OperatorSplitting();
+        u::AbstractVector, alg::QPAlgorithm;
         max_iter::Integer = 25, repeats::Integer = 3, kwargs...
     )
     max_iter >= 1 || throw(ArgumentError("max_iter must be at least 1, got $max_iter"))

@@ -7,15 +7,15 @@ past what `SymTridiagonal` can hold. BandedMatrices.jl stores any bandwidth, and
 the `O(n³)` and `O(n²)` the dense backend would spend on the same problem.
 
 Loading BandedMatrices is what makes this reachable. Without it a banded problem is served by
-[`PureOSQP.ReducedCholesky`](@ref) as before, correctly but densely.
+[`PureQPBase.ReducedCholesky`](@ref) as before, correctly but densely.
 """
-module PureOSQPBandedMatricesExt
+module PureQPBaseBandedMatricesExt
 
-using PureOSQP
+using PureQPBase
 using BandedMatrices
 using LinearAlgebra
 
-using PureOSQP: LinearSystem, reduced_rhs!, mul_A!
+using PureQPBase: LinearSystem, reduced_rhs!, mul_A!
 using TypeContracts: TypeContracts, @verify
 
 """
@@ -28,7 +28,7 @@ with the factor — so between factorizations `R` holds the factor, not the matr
 refactorization refills the bands from scratch before factoring, which is why that is safe.
 
 Unlike the tridiagonal backend's `ldlt`, a banded Cholesky reports indefiniteness through
-`issuccess`, so [`PureOSQP.factorize!`](@ref) needs no separate test of the pivots.
+`issuccess`, so [`PureQPBase.factorize!`](@ref) needs no separate test of the pivots.
 """
 mutable struct BandedReduced{T <: Real, M, F} <: LinearSystem
     R::M
@@ -54,12 +54,12 @@ banded_bandwidth(M::Symmetric{<:Any, <:BandedMatrix}) = banded_bandwidth(parent(
 # Without these the generic method reports every row, so a matrix holding `O(nb)` entries is
 # visited `O(n^2)` times per Ruiz sweep. Both derive their bounds from the bandwidths stated
 # above rather than encoding them again.
-@inline PureOSQP.structural_rows(M::BandedMatrix, j::Integer) =
+@inline PureQPBase.structural_rows(M::BandedMatrix, j::Integer) =
     max(firstindex(M, 1), j - bandwidth(M, 2)):min(lastindex(M, 1), j + bandwidth(M, 1))
 
 # The wrapper mirrors one triangle across the diagonal, so the rows it can hold a nonzero in
 # span the wider of the parent's two bandwidths on both sides.
-@inline function PureOSQP.structural_rows(M::Symmetric{<:Any, <:BandedMatrix}, j::Integer)
+@inline function PureQPBase.structural_rows(M::Symmetric{<:Any, <:BandedMatrix}, j::Integer)
     b = banded_bandwidth(M)
     return max(firstindex(M, 1), j - b):min(lastindex(M, 1), j + b)
 end
@@ -77,7 +77,7 @@ const BandedLike = Union{
     BandedMatrix, Symmetric{<:Any, <:BandedMatrix},
 }
 
-# The types PureOSQP itself has no backend for. The two methods below split so that neither
+# The types PureQPBase itself has no backend for. The two methods below split so that neither
 # overlaps the other, nor the `(Diagonal, Diagonal)`,
 # `(SymTridiagonal|Tridiagonal, Diagonal)` and
 # `(Diagonal|SymTridiagonal|Tridiagonal, Bidiagonal)` methods in `src/core/linsys.jl`, whose
@@ -87,17 +87,17 @@ const BandedLike = Union{
 const WideBand = Union{Tridiagonal, BandedMatrix, Symmetric{<:Any, <:BandedMatrix}}
 const NarrowBand = Union{Diagonal, Bidiagonal}
 
-PureOSQP.choose_backend(
-    P::BandedLike, A::WideBand, prob, wt, sel::PureOSQP.SelectionFor
+PureQPBase.choose_backend(
+    P::BandedLike, A::WideBand, prob, wt, sel::PureQPBase.SelectionFor
 ) = banded_backend(P, A, prob, sel)
 
-PureOSQP.choose_backend(
+PureQPBase.choose_backend(
     P::Union{BandedMatrix, Symmetric{<:Any, <:BandedMatrix}}, A::NarrowBand,
-    prob, wt, sel::PureOSQP.SelectionFor
+    prob, wt, sel::PureQPBase.SelectionFor
 ) = banded_backend(P, A, prob, sel)
 
 function banded_backend(
-        P, A, prob::PureOSQP.Problem{T}, sel::PureOSQP.SelectionFor
+        P, A, prob::PureQPBase.Problem{T}, sel::PureQPBase.SelectionFor
     ) where {T <: Real}
     n = prob.n
     b = reduced_bandwidth(P, A)
@@ -118,7 +118,7 @@ function banded_backend(
     # `b <= n/4` also implies the band is the smaller representation — `(2b+1)n` against the
     # dense backend's `mn + n^2` — and implies `b < n - 1`, so neither needs testing separately.
     # See `bench/gate_band_beyond.jl`.
-    (b < 2 || 4b > n) && return PureOSQP.dense_rung(P, A, prob, sel)
+    (b < 2 || 4b > n) && return PureQPBase.dense_rung(P, A, prob, sel)
     R = BandedMatrix{T}(undef, (n, n), (b, b))
     fill!(R.data, zero(T))
     for i in 1:n
@@ -128,18 +128,18 @@ function banded_backend(
     return (BandedReduced{T, typeof(R), typeof(fact)}(R, fact, b), false)
 end
 
-PureOSQP.backend_name(::BandedReduced) = :banded
+PureQPBase.backend_name(::BandedReduced) = :banded
 
 # The factor keeps `R`'s lower bandwidth, so one triangle of an `n×n` matrix of bandwidth
 # `bw` is `n(bw+1)` entries less the `bw(bw+1)/2` that run off the top-left corner.
-function PureOSQP.backend_info(ls::BandedReduced)
+function PureQPBase.backend_info(ls::BandedReduced)
     dim, bw = size(ls.R, 1), ls.bw
-    return PureOSQP.BackendInfo(
-        PureOSQP.backend_name(ls), true, :reduced, dim, dim * (bw + 1) - bw * (bw + 1) ÷ 2
+    return PureQPBase.BackendInfo(
+        PureQPBase.backend_name(ls), true, :reduced, dim, dim * (bw + 1) - bw * (bw + 1) ÷ 2
     )
 end
 
-function PureOSQP.factorize!(ls::BandedReduced{T}, prob, wt)::Bool where {T}
+function PureQPBase.factorize!(ls::BandedReduced{T}, prob, wt)::Bool where {T}
     n, m, b = prob.n, prob.m, ls.bw
     P, A, D, E, c = prob.P, prob.A, prob.D, prob.E, prob.c
     rho, sigma = wt.w, wt.sigma
@@ -173,7 +173,7 @@ function PureOSQP.factorize!(ls::BandedReduced{T}, prob, wt)::Bool where {T}
     return issuccess(ls.fact)
 end
 
-function PureOSQP.solve_system!(ls::BandedReduced, prob, wt, rhs_x, rhs_z, x, z)::Nothing
+function PureQPBase.solve_system!(ls::BandedReduced, prob, wt, rhs_x, rhs_z, x, z)::Nothing
     reduced_rhs!(prob, wt, rhs_x, rhs_z)
     copyto!(x, prob.work_n)
     ldiv!(ls.fact, x)
@@ -185,9 +185,9 @@ end
 # only the stored band has to be compared: a pair `(i, j)` with either entry stored is
 # reached from column `j` or from column `i`, and a pair with neither is zero against zero.
 # The generic entrywise scan is `O(n²)` and is the largest single term in a banded `setup`.
-function PureOSQP.is_symmetric(M::BandedMatrix)
+function PureQPBase.is_symmetric(M::BandedMatrix)
     size(M, 1) == size(M, 2) || return false
-    for j in axes(M, 2), i in PureOSQP.structural_rows(M, j)
+    for j in axes(M, 2), i in PureQPBase.structural_rows(M, j)
         M[i, j] == M[j, i] || return false
     end
     return true
@@ -197,7 +197,7 @@ end
 # wrapper is admitted alongside the bare matrix because everything below reads `P` through
 # `banded_bandwidth`, `size` and `P[i, j]`, all of which the wrapper answers. The union is
 # narrower than `BandedLike`: the other types it names have their own methods in `src/`.
-function PureOSQP.is_convex(
+function PureQPBase.is_convex(
         ::Type{T}, P::Union{BandedMatrix, Symmetric{<:Any, <:BandedMatrix}}, sigma
     ) where {T}
     isempty(P) && return true

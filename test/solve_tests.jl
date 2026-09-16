@@ -562,6 +562,7 @@ end
 end
 
 @testitem "the introspection surface reports what this build does" begin
+    using PureQPBase
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(6, 14; seed = 5)
@@ -574,7 +575,7 @@ end
     @test c.derivatives
     # The matrix-free backend lives in an extension, so this reports what is loaded now
     # rather than a property of the package -- which is the whole point of the field.
-    @test c.indirect_solver == !isnothing(Base.get_extension(PureOSQP, :PureOSQPKrylovExt))
+    @test c.indirect_solver == !isnothing(Base.get_extension(PureQPBase, :PureQPBaseKrylovExt))
     # Claimed only where true: C code generation is a roadmap item still open.
     @test !c.codegen
 end

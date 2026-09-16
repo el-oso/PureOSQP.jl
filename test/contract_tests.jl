@@ -56,6 +56,7 @@ end
 end
 
 @testitem "every selection point serves a new SelectionFor or names what to implement" begin
+    using PureQPBase
     using LinearAlgebra, SparseArrays, Krylov, LDLFactorizations, GPUArraysCore, JLArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
 
@@ -93,7 +94,7 @@ end
     # the ladder as what is missing.
     @test_throws "PureOSQP.select_backend" PureOSQP.choose_backend(P, A, prob, wt, sel)
 
-    Ext = Base.get_extension(PureOSQP, :PureOSQPSparseArraysExt)
+    Ext = Base.get_extension(PureQPBase, :PureQPBaseSparseArraysExt)
     @test_throws "sparse_form" Ext.sparse_form(Ps, As, n, m, sel)
     # The two sparse rungs consult that rule, so a gated call reports it rather than the rung.
     @test_throws "sparse_form" PureOSQP.kkt_rung(Ps, As, prob, wt, sel)

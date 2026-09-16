@@ -2,9 +2,10 @@
     QPAlgorithm
 
 The method a solve runs, passed as the sixth positional argument of [`setup`](@ref) and
-[`solve`](@ref): [`OperatorSplitting`](@ref) (the default) or [`InteriorPoint`](@ref). An
-algorithm object holds the parameters only that method reads; everything both methods read
-is an [`Options`](@ref) field, passed as a keyword argument.
+[`solve`](@ref) — [`PureOSQP.OperatorSplitting`](@ref) or [`PureOSQP.InteriorPoint`](@ref),
+neither of which this package defines. An algorithm object holds the parameters only that
+method reads; everything both methods read is an [`Options`](@ref) field, passed as a
+keyword argument.
 
 A subtype implements the methods `TypeContracts.describe(QPAlgorithm)` lists, checked at
 precompilation; see [Interfaces](@ref).
@@ -43,7 +44,7 @@ given.
 | `check_dualgap` | `true` | `true` | require the duality gap to pass its tolerance too |
 | `scaled_termination` | `false` | `false` | judge the residuals in the equilibrated space |
 | `warm_starting` | `true` | `true` | start a re-solve from the previous point |
-| `linsys` | `:auto` | `:auto` | the backend (see `PureOSQP.LINSYS_OPTIONS`) |
+| `linsys` | `:auto` | `:auto` | the backend (see [`LINSYS_OPTIONS`](@ref)) |
 | `polishing` | `false` | `false` | refine a converged point by an active-set solve |
 | `polish_refine_iter` | `3` | `3` | iterative-refinement steps of the polishing solve |
 | `delta` | `1e-6` | `1e-6` | regularization of the polishing solve |
@@ -89,6 +90,10 @@ const LINSYS_OPTIONS = (
     :sparse, :diagonal, :tridiagonal, :block, :kronecker, :lowrank,
 )
 
+"The backend names as one string. Interpolating the tuple instead would build the message
+from four pieces, which `--trim` rejects on a branch it analyses whether or not it runs."
+const LINSYS_LIST = join(LINSYS_OPTIONS, ", ")
+
 # The options whose defaults differ by algorithm have no keyword default here: they come from
 # `algorithm_defaults`, merged in ahead of the caller's keywords.
 function Options{T}(;
@@ -98,7 +103,7 @@ function Options{T}(;
         delta = 1.0e-6, cg_max_iter, cg_tol_fraction, verbose = false,
     ) where {T <: Real}
     linsys in LINSYS_OPTIONS || throw(
-        ArgumentError("linsys must be one of $(join(LINSYS_OPTIONS, ", ")), got :$linsys")
+        ArgumentError(lazy"linsys must be one of $LINSYS_LIST, got :$linsys")
     )
     max_iter > 0 || throw(ArgumentError("max_iter must be positive, got $max_iter"))
     time_limit > 0 || throw(ArgumentError("time_limit must be positive (Inf disables it), got $time_limit"))
@@ -141,27 +146,47 @@ function settings_tuple(s::S) where {S}
 end
 
 """
-    check_option_names(kwargs)
+    check_option_names(kwargs, alg)
 
-Throw, naming the algorithm it belongs to, for a keyword that is a parameter of an algorithm
-rather than an option. Any other name that is not an option is left for the
-[`Options`](@ref) constructor to refuse.
+Throw for a keyword that is not an option of a solve with `alg`. A parameter of `alg` is
+named as belonging inside the algorithm object; any other unrecognized name is refused
+here, where the name is still known, rather than reaching the [`Options`](@ref) keyword
+constructor, whose `MethodError` lists every option without saying which name was wrong.
+
+`accelerator` and `preconditioner` are keywords of [`setup`](@ref) rather than fields of
+[`Options`](@ref), so they pass.
 """
-function check_option_names(kwargs)
+function check_option_names(kwargs, alg::QPAlgorithm)
     for name in keys(kwargs)
         name in OPTION_NAMES && continue
-        owner = name in OPERATOR_SPLITTING_NAMES ? "OperatorSplitting" :
-            name in INTERIOR_POINT_NAMES ? "InteriorPoint" : ""
-        isempty(owner) || throw(
-            ArgumentError(
-                lazy"$name is a parameter of $owner, not an option: pass it as $owner($name = ...)."
-            )
-        )
+        name in SETUP_NAMES && continue
+        refuse_option_name(name, nameof(typeof(alg)), name in fieldnames(typeof(alg)))
     end
     return nothing
 end
 
+# Out of line: `setup` propagates its keywords as constants into the `Val` that names the
+# backend, and inference gives up on that once the frame it must reason about grows.
+@noinline function refuse_option_name(name::Symbol, alg_name::Symbol, is_parameter::Bool)
+    is_parameter && throw(
+        ArgumentError(
+            lazy"$name is a parameter of $alg_name, not an option: pass it as $alg_name($name = ...)."
+        )
+    )
+    throw(
+        ArgumentError(
+            lazy"$name is not an option, and not a parameter of $alg_name. The options are $OPTION_LIST."
+        )
+    )
+end
+
 const OPTION_NAMES = fieldnames(Options{Float64})
+
+"The option names as one string, for the message that lists them."
+const OPTION_LIST = join(OPTION_NAMES, ", ")
+
+"Keywords [`setup`](@ref) takes that are not fields of [`Options`](@ref)."
+const SETUP_NAMES = (:accelerator, :preconditioner)
 
 """
     update_settings!(ws; kwargs...) -> ws
@@ -189,7 +214,7 @@ branch that tests it, and the residuals and the returned `x` and `y` would come 
 scaled space. Build a new workspace to change either.
 """
 function update_settings!(ws::QPWorkspace{T}; kwargs...) where {T}
-    check_option_names(kwargs)
+    check_option_names(kwargs, ws.algorithm)
     old = ws.options
     new = Options{T}(; settings_tuple(old)..., kwargs...)
     new.linsys === old.linsys || throw(

@@ -1,9 +1,9 @@
 """
-Accepts a `SciMLOperators.AbstractSciMLOperator` wherever [`PureOSQP.setup`](@ref) takes a
+Accepts a `SciMLOperators.AbstractSciMLOperator` wherever [`PureQPBase.setup`](@ref) takes a
 matrix.
 
 An `AbstractSciMLOperator` is not an `AbstractMatrix`, so it reaches the solver through
-[`PureOSQP.ProductOperator`](@ref), as a `LinearMaps.LinearMap` does. Wrapping is all this
+[`PureQPBase.ProductOperator`](@ref), as a `LinearMaps.LinearMap` does. Wrapping is all this
 extension does; the protocol the wrapper implements lives in `src/core/operator.jl` and needs no
 dependency.
 
@@ -26,9 +26,9 @@ The wrapper holds the operator and its adjoint, both taken once at `setup`. Upda
 operator in place afterwards, through `update_coefficients!` or a `MatrixOperator`'s
 `update_func!`, is applied to `A` but not to `Aᵀ`: build a new workspace instead.
 """
-module PureOSQPSciMLOperatorsExt
+module PureQPBaseSciMLOperatorsExt
 
-using PureOSQP
+using PureQPBase
 using SciMLOperators
 using SciMLOperators: AbstractSciMLOperator
 using LinearAlgebra
@@ -69,7 +69,7 @@ no_adjoint() = throw(
 )
 
 """
-    PureOSQP.ProductOperator{T}(op::AbstractSciMLOperator; symmetric, posdef)
+    PureQPBase.ProductOperator{T}(op::AbstractSciMLOperator; symmetric, posdef)
 
 Wrap a SciMLOperator, taking `symmetric` and `posdef` from its own traits unless the caller
 states otherwise.
@@ -81,7 +81,7 @@ An operator that reports `iscached` as `false`, or that cannot supply its transp
 refused here rather than at its first product, which is several iterations into a solve and
 reports a failed assertion from inside the operator instead of a remedy.
 """
-function PureOSQP.ProductOperator{T}(
+function PureQPBase.ProductOperator{T}(
         op::AbstractSciMLOperator;
         symmetric::Bool = issymmetric(op), posdef::Bool = isposdef(op),
         probe::Bool = false
@@ -92,7 +92,7 @@ function PureOSQP.ProductOperator{T}(
     basis = zeros(T, probe ? cols : 0)
     column = zeros(T, probe ? rows : 0)
     opt = adjoint(op)
-    return PureOSQP.ProductOperator{T, typeof(op), typeof(opt), typeof(basis)}(
+    return PureQPBase.ProductOperator{T, typeof(op), typeof(opt), typeof(basis)}(
         op, opt, rows, cols, symmetric, posdef, probe, basis, column
     )
 end
@@ -102,21 +102,21 @@ end
 
 Solve with an operator cost, an operator constraint, or both.
 
-Each operator is wrapped in a [`PureOSQP.ProductOperator`](@ref); a matrix argument is passed
+Each operator is wrapped in a [`PureQPBase.ProductOperator`](@ref); a matrix argument is passed
 through untouched, so mixing the two is ordinary. The element type is taken from `q`, which is
 the vector the solve is carried out in.
 
 Equilibration cannot read an operator's entries, so `scaling = 0` is required unless the
-wrapped operator has a `PureOSQP.structural_rows` method; without it, `setup` throws and names
+wrapped operator has a `PureQPBase.structural_rows` method; without it, `setup` throws and names
 both remedies.
 """
-function PureOSQP.setup(
+function PureQPBase.setup(
         P::Union{AbstractSciMLOperator, AbstractMatrix}, q::AbstractVector,
         A::Union{AbstractSciMLOperator, AbstractMatrix},
-        l::AbstractVector, u::AbstractVector, alg::PureOSQP.QPAlgorithm...; kwargs...
+        l::AbstractVector, u::AbstractVector, alg::PureQPBase.QPAlgorithm...; kwargs...
     )
     T = float(eltype(q))
-    return PureOSQP.setup(as_operator(T, P), q, as_operator(T, A), l, u, alg...; kwargs...)
+    return PureQPBase.setup(as_operator(T, P), q, as_operator(T, A), l, u, alg...; kwargs...)
 end
 
 """
@@ -127,13 +127,13 @@ Set up and solve in one call, wrapping each operator as [`setup`](@ref) does.
 `solve` takes `AbstractMatrix` arguments, so an operator reaches neither it nor the
 `warm_start!` it forwards to without this.
 """
-function PureOSQP.solve(
+function PureQPBase.solve(
         P::Union{AbstractSciMLOperator, AbstractMatrix}, q::AbstractVector,
         A::Union{AbstractSciMLOperator, AbstractMatrix},
-        l::AbstractVector, u::AbstractVector, alg::PureOSQP.QPAlgorithm...; kwargs...
+        l::AbstractVector, u::AbstractVector, alg::PureQPBase.QPAlgorithm...; kwargs...
     )
     T = float(eltype(q))
-    return PureOSQP.solve(as_operator(T, P), q, as_operator(T, A), l, u, alg...; kwargs...)
+    return PureQPBase.solve(as_operator(T, P), q, as_operator(T, A), l, u, alg...; kwargs...)
 end
 
 """
@@ -146,7 +146,7 @@ the factoring backends, which a wrapper would hide. Any other SciMLOperator is w
 matrix is already what the solver wants.
 """
 as_operator(::Type{T}, M::MatrixOperator) where {T} = convert(AbstractMatrix, M)
-as_operator(::Type{T}, M::AbstractSciMLOperator) where {T} = PureOSQP.ProductOperator{T}(M)
+as_operator(::Type{T}, M::AbstractSciMLOperator) where {T} = PureQPBase.ProductOperator{T}(M)
 as_operator(::Type{T}, M::AbstractMatrix) where {T} = M
 
 end

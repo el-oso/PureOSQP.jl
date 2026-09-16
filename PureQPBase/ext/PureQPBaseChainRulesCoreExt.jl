@@ -1,12 +1,12 @@
 """
-Makes [`PureOSQP.solve`](@ref) differentiable for every AD backend that consumes ChainRules.
+Makes [`PureQPBase.solve`](@ref) differentiable for every AD backend that consumes ChainRules.
 
 One `rrule` and one `frule` over the implicit derivatives this package already computes, so a
 QP can sit inside a loss and be trained through. Zygote reaches this; Mooncake needs an
 explicit `Mooncake.@from_rrule`, and Enzyme its own `EnzymeRules` shim.
 
 **These rules differentiate the solution, not the iteration.** Both call
-[`PureOSQP.adjoint_derivative`](@ref) or [`PureOSQP.forward_derivative`](@ref), which
+[`PureQPBase.adjoint_derivative`](@ref) or [`PureQPBase.forward_derivative`](@ref), which
 differentiate the KKT conditions at the active set — one linear solve, reusing a
 factorization the solve already produced, and independent of how many iterations were taken.
 Differentiating the ADMM loop instead would tape every iteration, cost memory in proportion,
@@ -18,25 +18,25 @@ nowhere else. And they inherit `adjoint_derivative`'s refusal on a degenerate ac
 least-squares answer there would carry the right shape and units while being a different
 quantity, and nothing downstream could tell.
 """
-module PureOSQPChainRulesCoreExt
+module PureQPBaseChainRulesCoreExt
 
-using PureOSQP: PureOSQP
+using PureQPBase: PureQPBase
 using ChainRulesCore: ChainRulesCore, NoTangent, ZeroTangent, unthunk, @thunk
 
 """
     differentiable_workspace(P, q, A, l, u, alg...; kwargs...)
 
 Solve, and refuse to hand back a workspace whose solution cannot be differentiated. `alg` is
-the optional algorithm argument of [`PureOSQP.solve`](@ref).
+the optional algorithm argument of [`PureQPBase.solve`](@ref).
 
 `polishing = true` unless the caller said otherwise: the derivative is taken at the active set,
 and polishing is what identifies it exactly. Without it the active set is whatever the ADMM
 iterate happened to be near, and the gradient is of a nearby problem.
 """
 function differentiable_workspace(P, q, A, l, u, alg...; kwargs...)
-    ws = PureOSQP.setup(P, q, A, l, u, alg...; polishing = true, kwargs...)
-    sol = PureOSQP.solve!(ws)
-    sol.status === PureOSQP.SOLVED || throw(
+    ws = PureQPBase.setup(P, q, A, l, u, alg...; polishing = true, kwargs...)
+    sol = PureQPBase.solve!(ws)
+    sol.status === PureQPBase.SOLVED || throw(
         ArgumentError(
             "cannot differentiate a solve that ended $(sol.status): the KKT conditions the " *
                 "derivative differentiates hold at the solution. Tighten eps_abs/eps_rel or " *
@@ -47,7 +47,7 @@ function differentiable_workspace(P, q, A, l, u, alg...; kwargs...)
 end
 
 function ChainRulesCore.rrule(
-        ::typeof(PureOSQP.solve), P, q, A, l, u, alg::PureOSQP.QPAlgorithm...; kwargs...
+        ::typeof(PureQPBase.solve), P, q, A, l, u, alg::PureQPBase.QPAlgorithm...; kwargs...
     )
     ws, sol = differentiable_workspace(P, q, A, l, u, alg...; kwargs...)
     function solve_pullback(Δsol)
@@ -56,7 +56,7 @@ function ChainRulesCore.rrule(
         Δ = unthunk(Δsol)
         dx = tangent_or_zeros(Δ, :x, length(sol.x))
         dy = tangent_or_zeros(Δ, :y, length(sol.y))
-        g = PureOSQP.adjoint_derivative(ws, dx, dy)
+        g = PureQPBase.adjoint_derivative(ws, dx, dy)
         return (
             NoTangent(), @thunk(g.dP), @thunk(g.dq), @thunk(g.dA), @thunk(g.dl), @thunk(g.du),
             map(_ -> NoTangent(), alg)...,
@@ -66,11 +66,11 @@ function ChainRulesCore.rrule(
 end
 
 function ChainRulesCore.frule(
-        Δargs, ::typeof(PureOSQP.solve), P, q, A, l, u, alg::PureOSQP.QPAlgorithm...; kwargs...
+        Δargs, ::typeof(PureQPBase.solve), P, q, A, l, u, alg::PureQPBase.QPAlgorithm...; kwargs...
     )
     _, ΔP, Δq, ΔA, Δl, Δu = Δargs
     ws, sol = differentiable_workspace(P, q, A, l, u, alg...; kwargs...)
-    dx, dy = PureOSQP.forward_derivative(
+    dx, dy = PureQPBase.forward_derivative(
         ws;
         dP = as_perturbation(ΔP, P), dq = as_perturbation(Δq, q),
         dA = as_perturbation(ΔA, A), dl = as_perturbation(Δl, l),
@@ -92,4 +92,4 @@ end
 "A tangent as something `forward_derivative` can use, or `nothing` for no perturbation."
 as_perturbation(Δ, ::Any) = Δ isa Union{ZeroTangent, NoTangent} ? nothing : unthunk(Δ)
 
-end # module PureOSQPChainRulesCoreExt
+end # module PureQPBaseChainRulesCoreExt

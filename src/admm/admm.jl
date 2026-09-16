@@ -26,22 +26,6 @@ function admm_step!(ws::OperatorSplittingWorkspace{T}) where {T}
     return ws
 end
 
-"Name of a status, for `verbose` output."
-function status_name(s::Status)
-    s === SOLVED && return "solved"
-    s === SOLVED_INACCURATE && return "solved inaccurate"
-    s === PRIMAL_INFEASIBLE && return "primal infeasible"
-    s === PRIMAL_INFEASIBLE_INACCURATE && return "primal infeasible inaccurate"
-    s === DUAL_INFEASIBLE && return "dual infeasible"
-    s === DUAL_INFEASIBLE_INACCURATE && return "dual infeasible inaccurate"
-    s === MAX_ITER_REACHED && return "maximum iterations reached"
-    s === TIME_LIMIT_REACHED && return "time limit reached"
-    s === INTERRUPTED && return "interrupted"
-    s === NON_CONVEX && return "problem non convex"
-    s === NUMERICAL_ERROR && return "numerical error"
-    return "unsolved"
-end
-
 "Name of a polishing outcome, for messages."
 function polish_status_name(s::PolishStatus)
     s === POLISH_SUCCESS && return "success"
@@ -142,7 +126,7 @@ so on a fresh workspace the wall-clock cost of `solve` exceeds the limit by howe
 setup took. The status is returned as soon as the budget is spent, without re-checking the
 tolerances, so a run that stops this way reports `TIME_LIMIT_REACHED` even if its last
 point would have passed. The iterates are still meaningful and
-[`has_solution`](@ref PureOSQP.has_solution) accepts it, as it does `MAX_ITER_REACHED`.
+[`has_solution`](@ref) accepts it, as it does `MAX_ITER_REACHED`.
 
 An `InterruptException` raised during the loop — a `Ctrl-C` — returns `INTERRUPTED` with
 the point reached rather than losing the run; its residuals are recomputed first, since an
@@ -321,54 +305,4 @@ function build_solution(ws::OperatorSplittingWorkspace{T}) where {T}
     return solution_from(
         ws, x, y, ws.obj_val, ws.dual_obj_val, ws.duality_gap, T[], T[]
     )
-end
-
-# `@constprop :aggressive` for the same reason [`setup`](@ref) carries it, at the second of two
-# barriers: without it the keyword values arrive at `setup`'s call site as runtime values, so
-# `setup`'s own annotation has no constants to propagate. Both are needed; either alone leaves
-# the widening in place.
-"""
-    solve(P, q, A, l, u, alg = OperatorSplitting(); x0 = nothing, y0 = nothing, kwargs...) -> Solution
-
-Solve `min ½xᵀPx + qᵀx  s.t.  l ≤ Ax ≤ u` in one call: build the workspace, warm-start
-from `x0` and `y0` when given, and run the loop.
-
-`P` must be symmetric and the problem convex, and the five inputs are validated exactly as in
-[`setup`](@ref): `q` finite, `l ≤ u` elementwise, `l` free of `+Inf` and `u` free of `-Inf`
-(which spell an unbounded row), and every stored entry of `P` and `A` finite. `P` and `A` may
-be any `AbstractMatrix` and are never modified; the solve runs in the promotion of the five
-inputs' element types.
-
-`alg` is the algorithm, [`OperatorSplitting`](@ref) or [`InteriorPoint`](@ref), with its
-parameters. The keyword arguments are the fields of [`Options`](@ref) — `max_iter`,
-`time_limit`, the tolerances, `scaling`, `check_dualgap`, `polishing`, `warm_starting`,
-`linsys` and the rest — plus `preconditioner` and `accelerator`; [`setup`](@ref) describes
-them.
-
-`x0` and `y0` seed the iteration in problem space. With `warm_starting = true` (the
-default), a later [`solve!`](@ref) on the same workspace starts from its last point instead.
-
-Returns a [`Solution`](@ref). Its `status` says how the run ended and
-[`has_solution`](@ref) says whether its `x` and `y` are a meaningful point; failures that
-are not outcomes of the algorithm — a non-symmetric `P`, a dimension mismatch, a bad
-setting — raise rather than returning a status.
-"""
-Base.@constprop :aggressive function solve(
-        P::AbstractMatrix, q::AbstractVector, A::AbstractMatrix,
-        l::AbstractVector, u::AbstractVector, alg::QPAlgorithm = OperatorSplitting();
-        x0 = nothing, y0 = nothing, kwargs...
-    )
-    ws = setup(P, q, A, l, u, alg; kwargs...)
-    if !isnothing(x0) || !isnothing(y0)
-        # `solve!` cold starts when `warm_starting` is off, so a seed given alongside it
-        # would be written and then discarded before the first step.
-        ws.options.warm_starting || throw(
-            ArgumentError(
-                "x0 and y0 seed the iteration, which warm_starting = false then discards " *
-                    "before the first step. Pass one or the other."
-            )
-        )
-        warm_start!(ws; x = x0, y = y0)
-    end
-    return solve!(ws)
 end

@@ -1,9 +1,9 @@
 """
-    PureOSQPSparseArraysExt
+    PureQPBaseSparseArraysExt
 
 Sparse-aware traversals and a sparse-forming reduced backend, for `SparseMatrixCSC`.
 
-PureOSQP's per-iteration products already go through `mul!`, which sparse matrices handle
+PureQPBase's per-iteration products already go through `mul!`, which sparse matrices handle
 well on their own. Equilibration and the factorization are different: they walk the
 caller's matrices entry by entry, and the generic loop visits every structural zero and
 reaches each one through `M[i, j]`, which on CSC is a binary search within the column. On a
@@ -16,9 +16,9 @@ entries but still factors densely, and [`SparseCholmod`](@ref), which also facto
 when the factor stays sparse enough to pay — and a convexity test that does not densify `P`.
 Nothing else in the solver needs to know the storage.
 """
-module PureOSQPSparseArraysExt
+module PureQPBaseSparseArraysExt
 
-using PureOSQP: PureOSQP
+using PureQPBase: PureQPBase
 using TypeContracts: TypeContracts, @verify
 using LinearAlgebra: Symmetric, Diagonal, LowerTriangular, UpperTriangular,
     UnitLowerTriangular, UnitUpperTriangular, I, diag,
@@ -27,7 +27,7 @@ using SparseArrays: SparseMatrixCSC, nnz, nzrange, rowvals, nonzeros, sparse
 using SparseArrays.CHOLMOD: CHOLMOD
 
 """
-    PureOSQP.check_storage(M::SparseMatrixCSC, rows, cols)
+    PureQPBase.check_storage(M::SparseMatrixCSC, rows, cols)
 
 Establish that the four column traversals below can index by a row read out of `M` without
 checking it, or throw.
@@ -42,7 +42,7 @@ traverse the same entries. `SparseMatrixCSC`'s own constructor already enforces 
 checking again is cheap and is what makes dropping the per-entry check defensible rather than
 assumed.
 """
-function PureOSQP.check_storage(M::SparseMatrixCSC, rows::Integer, cols::Integer)
+function PureQPBase.check_storage(M::SparseMatrixCSC, rows::Integer, cols::Integer)
     size(M) == (rows, cols) || throw(
         ArgumentError("expected a $(rows)×$(cols) matrix, got $(size(M))")
     )
@@ -68,7 +68,7 @@ end
 # `dest` are indexed at a stored row, and every caller passes one sized to the matrix's rows:
 # `validate` checks the dimensions and the workspace buffers are built from them.
 
-@inline function PureOSQP.weighted_colmax(
+@inline function PureQPBase.weighted_colmax(
         ::Type{T}, M::SparseMatrixCSC, j::Integer, w::AbstractVector
     ) where {T}
     r = zero(T)
@@ -79,7 +79,7 @@ end
     return r
 end
 
-@inline function PureOSQP.weighted_colmax_rowmax!(
+@inline function PureQPBase.weighted_colmax_rowmax!(
         ::Type{T}, e::AbstractVector, M::SparseMatrixCSC, j::Integer,
         w::AbstractVector, s
     ) where {T}
@@ -94,7 +94,7 @@ end
     return r
 end
 
-@inline function PureOSQP.scaled_col!(
+@inline function PureQPBase.scaled_col!(
         ::Type{T}, dest::AbstractMatrix, M::SparseMatrixCSC, j::Integer, f::F
     ) where {T, F}
     rows, vals = rowvals(M), nonzeros(M)
@@ -105,7 +105,7 @@ end
     return dest
 end
 
-@inline function PureOSQP.add_scaled_col!(
+@inline function PureQPBase.add_scaled_col!(
         ::Type{T}, dest::AbstractMatrix, M::SparseMatrixCSC, j::Integer, f::F
     ) where {T, F}
     rows, vals = rowvals(M), nonzeros(M)
@@ -118,12 +118,12 @@ end
 
 
 """
-    SparseFormedInverse{T,M} <: PureOSQP.ReducedInverse
+    SparseFormedInverse{T,M} <: PureQPBase.ReducedInverse
 
 The reduced backend for a sparse `A`, which forms `Ãᵀ diag(ρ) Ã` from the stored entries
 instead of through a dense product.
 
-[`PureOSQP.ReducedCholesky`](@ref) writes the scaled `Ã` into an `m×n` dense buffer so that
+[`PureQPBase.ReducedCholesky`](@ref) writes the scaled `Ã` into an `m×n` dense buffer so that
 one `syrk` produces the reduced matrix. That buffer is mostly zeros when `A` is sparse, and
 the `syrk` does `mn²` flops to multiply them: on a 2000×4000 problem at 0.25% density it is
 about 63% of a refactorization and 65% of the workspace. Accumulating over the stored
@@ -133,7 +133,7 @@ inverse.
 The reduced matrix itself is still dense, and everything after it is forming — the
 Cholesky, the inversion, the per-iteration `symv` — is exactly what the dense backend does.
 """
-struct SparseFormedInverse{T <: Real, M <: AbstractMatrix{T}} <: PureOSQP.ReducedInverse
+struct SparseFormedInverse{T <: Real, M <: AbstractMatrix{T}} <: PureQPBase.ReducedInverse
     Rinv::M
 end
 
@@ -196,7 +196,7 @@ for the `(n+m)×(n+m)` quasi-definite matrix, `:reduced` for the `n×n` `P̃ + �
 
 The thresholds are measured per algorithm — ADMM factors once and pays the pattern back over
 thousands of solves, the interior-point method rebuilds and refactors every outer iteration —
-so there is no generic method and a new [`PureOSQP.SelectionFor`](@ref) reaching this is told
+so there is no generic method and a new [`PureQPBase.SelectionFor`](@ref) reaching this is told
 to define one.
 
 The answer is read from the patterns of `P` and `A` alone — the densest row, `Σᵢ nnzᵢ²`, the
@@ -212,10 +212,10 @@ in-sample: the rule was fitted to this set and scored on it. The `OperatorSplitt
 compares cost per iteration, since 10 of the 71 run to the iteration cap at the sweep's
 tolerance rather than converging.
 """
-sparse_form(P, A, n::Integer, m::Integer, sel::PureOSQP.SelectionFor) =
-    PureOSQP.refuse_selection("PureOSQPSparseArraysExt.sparse_form", sel)
+sparse_form(P, A, n::Integer, m::Integer, sel::PureQPBase.SelectionFor) =
+    PureQPBase.refuse_selection("PureQPBaseSparseArraysExt.sparse_form", sel)
 
-function sparse_form(P::SparseMatrixCSC, A::SparseMatrixCSC, n::Integer, m::Integer, ::PureOSQP.IPMSelection)
+function sparse_form(P::SparseMatrixCSC, A::SparseMatrixCSC, n::Integer, m::Integer, ::PureQPBase.IPMSelection)
     # The terminal is the dense `(n+m)` KKT factorization, so what decides against a sparse
     # form is how much of that matrix is stored to begin with: past a quarter there is too
     # little structure left for any ordering to exploit, and `syrk`-backed dense arithmetic
@@ -243,7 +243,7 @@ function sparse_form(P::SparseMatrixCSC, A::SparseMatrixCSC, n::Integer, m::Inte
     return sumsq > REDUCED_ASSEMBLY_LIMIT * n^2 ? :kkt : :reduced
 end
 
-function sparse_form(P::SparseMatrixCSC, A::SparseMatrixCSC, n::Integer, m::Integer, ::PureOSQP.ADMMSelection)
+function sparse_form(P::SparseMatrixCSC, A::SparseMatrixCSC, n::Integer, m::Integer, ::PureQPBase.ADMMSelection)
     # ADMM factors once and solves against that factorization for the rest of the run, so
     # what decides is the per-iteration solve: a pair of sparse triangular solves against a
     # `symv` on the `n×n` inverse the terminal holds. Both sparse forms are therefore
@@ -263,8 +263,8 @@ end
 # Both rungs consult the same rule, so the form it names is the one built and the other
 # declines. `gated = false` is what a caller who named `linsys = :sparse` gets: the rule is
 # skipped and only a representation mismatch or a factorization failure can still refuse.
-function PureOSQP.kkt_rung(
-        P, A::SparseMatrixCSC, prob, wt, sel::PureOSQP.SelectionFor; gated::Bool = true
+function PureQPBase.kkt_rung(
+        P, A::SparseMatrixCSC, prob, wt, sel::PureQPBase.SelectionFor; gated::Bool = true
     )
     P isa SparseMatrixCSC || return nothing
     gated && sparse_form(P, A, prob.n, prob.m, sel) !== :kkt && return nothing
@@ -272,8 +272,8 @@ function PureOSQP.kkt_rung(
     return isnothing(ls) ? nothing : (ls, true)
 end
 
-function PureOSQP.reduced_rung(
-        P, A::SparseMatrixCSC, prob, wt, sel::PureOSQP.SelectionFor; gated::Bool = true
+function PureQPBase.reduced_rung(
+        P, A::SparseMatrixCSC, prob, wt, sel::PureQPBase.SelectionFor; gated::Bool = true
     )
     P isa SparseMatrixCSC || return nothing
     gated && sparse_form(P, A, prob.n, prob.m, sel) !== :reduced && return nothing
@@ -281,24 +281,24 @@ function PureOSQP.reduced_rung(
     return isnothing(ls) ? nothing : (ls, true)
 end
 
-function PureOSQP.formed_rung(
-        P, A::SparseMatrixCSC, prob::PureOSQP.Problem{T}, sel::PureOSQP.ADMMSelection
+function PureQPBase.formed_rung(
+        P, A::SparseMatrixCSC, prob::PureQPBase.Problem{T}, sel::PureQPBase.ADMMSelection
     ) where {T <: Real}
     # `SparseFormedInverse.factorize!` accumulates `P`'s columns through `add_scaled_col!`,
     # which indexes. `A` is a `SparseMatrixCSC` here and so always readable; `P` is not
     # constrained by the signature.
-    PureOSQP.is_materializable(P) || return nothing
+    PureQPBase.is_materializable(P) || return nothing
     n = prob.n
     Rinv = similar(prob.q0, T, n, n)
     return (SparseFormedInverse{T, typeof(Rinv)}(Rinv), false)
 end
 
-PureOSQP.backend_name(::SparseFormedInverse) = :sparse_formed
+PureQPBase.backend_name(::SparseFormedInverse) = :sparse_formed
 
-function PureOSQP.backend_info(ls::SparseFormedInverse)
+function PureQPBase.backend_info(ls::SparseFormedInverse)
     dim = size(ls.Rinv, 1)
-    return PureOSQP.BackendInfo(
-        PureOSQP.backend_name(ls), true, :reduced, dim, PureOSQP.dense_triangle(dim)
+    return PureQPBase.BackendInfo(
+        PureQPBase.backend_name(ls), true, :reduced, dim, PureQPBase.dense_triangle(dim)
     )
 end
 
@@ -379,7 +379,7 @@ function gram_upper!(
     return R
 end
 
-function PureOSQP.factorize!(ls::SparseFormedInverse{T}, prob, wt)::Bool where {T}
+function PureQPBase.factorize!(ls::SparseFormedInverse{T}, prob, wt)::Bool where {T}
     P, A, D, E, c, n, m = prob.P, prob.A, prob.D, prob.E, prob.c, prob.n, prob.m
     R = ls.Rinv
     fill!(R, zero(T))
@@ -392,14 +392,14 @@ function PureOSQP.factorize!(ls::SparseFormedInverse{T}, prob, wt)::Bool where {
     end
     for j in 1:n
         dj = D[j]
-        PureOSQP.add_scaled_col!(T, R, P, j, (p, i) -> c * D[i] * p * dj)
+        PureQPBase.add_scaled_col!(T, R, P, j, (p, i) -> c * D[i] * p * dj)
     end
     for i in 1:n
         R[i, i] += wt.sigma
     end
     F = cholesky!(Symmetric(R); check = false)
     issuccess(F) || return false
-    PureOSQP.invert_spd!(R, F)
+    PureQPBase.invert_spd!(R, F)
     return true
 end
 
@@ -440,7 +440,7 @@ struct KKTGram{T}
 end
 
 """
-    SparseKKT{T,V,F} <: PureOSQP.LinearSystem
+    SparseKKT{T,V,F} <: PureQPBase.LinearSystem
 
 Factors the full `(n+m)×(n+m)` quasi-definite system sparsely, with CHOLMOD's `ldlt`.
 
@@ -461,9 +461,9 @@ the property upstream's own solver rests on.
 
 `L`, `D⁻¹` and the permutation are extracted rather than solved through, because CHOLMOD's
 `ldiv!` allocates on every call and the hot path may not. See
-[`PureOSQP.reduced_rhs!`](@ref) for the reduced backends' equivalent.
+[`PureQPBase.reduced_rhs!`](@ref) for the reduced backends' equivalent.
 """
-mutable struct SparseKKT{T <: Real, V <: AbstractVector{T}, F} <: PureOSQP.LinearSystem
+mutable struct SparseKKT{T <: Real, V <: AbstractVector{T}, F} <: PureQPBase.LinearSystem
     gram::KKTGram{T}
     fact::F
     L::SparseMatrixCSC{T, Int}
@@ -473,10 +473,10 @@ mutable struct SparseKKT{T <: Real, V <: AbstractVector{T}, F} <: PureOSQP.Linea
     work::V
 end
 
-PureOSQP.backend_name(::SparseKKT) = :sparse_kkt
+PureQPBase.backend_name(::SparseKKT) = :sparse_kkt
 
-PureOSQP.backend_info(ls::SparseKKT) = PureOSQP.BackendInfo(
-    PureOSQP.backend_name(ls), true, :kkt, size(ls.L, 1), nnz(ls.L)
+PureQPBase.backend_info(ls::SparseKKT) = PureQPBase.BackendInfo(
+    PureQPBase.backend_name(ls), true, :kkt, size(ls.L, 1), nnz(ls.L)
 )
 
 """
@@ -585,7 +585,7 @@ function refill_kkt!(
     return g.K
 end
 
-function PureOSQP.factorize!(ls::SparseKKT{T}, prob, wt)::Bool where {T}
+function PureQPBase.factorize!(ls::SparseKKT{T}, prob, wt)::Bool where {T}
     P, A = prob.P, prob.A
     if !describes(ls.gram, P, A)
         # `update!` replaced P or A with one storing entries elsewhere, so the slot map and
@@ -649,7 +649,7 @@ function ldl_backward!(x::AbstractVector, L::SparseMatrixCSC, N::Integer)
     return x
 end
 
-function PureOSQP.solve_system!(ls::SparseKKT{T}, prob, wt, rhs_x, rhs_z, x, z)::Nothing where {T}
+function PureQPBase.solve_system!(ls::SparseKKT{T}, prob, wt, rhs_x, rhs_z, x, z)::Nothing where {T}
     n, m = prob.n, prob.m
     N = n + m
     perm, work = ls.perm, ls.work
@@ -680,13 +680,13 @@ function PureOSQP.solve_system!(ls::SparseKKT{T}, prob, wt, rhs_x, rhs_z, x, z):
 end
 
 """
-    PureOSQP.solve_multiplier!(ls::SparseKKT, prob, wt, rhs_x, rhs_z, x, nu) -> Nothing
+    PureQPBase.solve_multiplier!(ls::SparseKKT, prob, wt, rhs_x, rhs_z, x, nu) -> Nothing
 
 The forward-backward solve already leaves `ν` in `work` before the eliminated multiplier
-would be turned into `z̃ = rhs_z + w_inv ⊙ ν`, so this is [`PureOSQP.solve_system!`](@ref)
+would be turned into `z̃ = rhs_z + w_inv ⊙ ν`, so this is [`PureQPBase.solve_system!`](@ref)
 minus that last loop.
 """
-function PureOSQP.solve_multiplier!(
+function PureQPBase.solve_multiplier!(
         ls::SparseKKT{T}, prob, wt, rhs_x, rhs_z, x, nu
     )::Nothing where {T}
     n, m = prob.n, prob.m
@@ -721,7 +721,7 @@ use — a backend returned from here needs no further `factorize!`. `nothing` me
 representation does not match or the matrix does not factor at this regularization.
 """
 function factored_kkt_backend(
-        P, A, prob::PureOSQP.Problem{T}, wt::PureOSQP.SystemWeights{T}
+        P, A, prob::PureQPBase.Problem{T}, wt::PureQPBase.SystemWeights{T}
     ) where {T <: Real}
     n, m = prob.n, prob.m
     # The concrete type, not `issparse`: everything downstream of here — `kkt_gram`,
@@ -732,7 +732,7 @@ function factored_kkt_backend(
     K = refill_kkt!(gram, P, A, wt.w_inv, prob.E, prob.D, prob.c, wt.sigma)
     # As for the reduced matrix: a pure-Julia LDLᵀ, where one is loaded, factors this faster
     # and needs nothing extracted from a foreign factor afterwards.
-    alt = PureOSQP.ldl_kkt_backend(gram, prob.q0, n, m)
+    alt = PureQPBase.ldl_kkt_backend(gram, prob.q0, n, m)
     isnothing(alt) || return alt
     F = ldlt(Symmetric(K, :U); check = false)
     issuccess(F) || return nothing
@@ -786,7 +786,7 @@ struct ReducedGram{T}
 end
 
 """
-    SparseCholmod{T,V,F} <: PureOSQP.LinearSystem
+    SparseCholmod{T,V,F} <: PureQPBase.LinearSystem
 
 Forms the reduced matrix sparsely *and* factors it sparsely, through SparseArrays.
 
@@ -795,7 +795,7 @@ symbolic analysis it already did, so every refactorization after the first pays 
 numeric phase. The factorization is `L Lᵀ`, not `L D Lᵀ`; the solve below depends on that and
 [`cholmod_backend`](@ref) checks it before selecting this backend.
 
-This cannot be a [`PureOSQP.ReducedInverse`](@ref): that stores `R⁻¹` and solves with one
+This cannot be a [`PureQPBase.ReducedInverse`](@ref): that stores `R⁻¹` and solves with one
 `symv`, and the inverse of a sparse matrix is dense. The Cholesky factor is kept instead and
 each solve is a pair of sparse triangular solves. On a banded `R` that is the better trade by
 a wide margin — at `n = 4000` a refactorization goes from 1063 ms to 0.66 ms and a solve from
@@ -811,7 +811,7 @@ solves over preallocated buffers allocates nothing and measures slightly faster 
 gather — see [`llt_backward!`](@ref). It costs one transpose per factorization, which is
 `O(nnz(L))` against the factorization's own cost.
 """
-mutable struct SparseCholmod{T <: Real, V <: AbstractVector{T}, F} <: PureOSQP.LinearSystem
+mutable struct SparseCholmod{T <: Real, V <: AbstractVector{T}, F} <: PureQPBase.LinearSystem
     gram::ReducedGram{T}
     fact::F
     L::SparseMatrixCSC{T, Int}
@@ -820,10 +820,10 @@ mutable struct SparseCholmod{T <: Real, V <: AbstractVector{T}, F} <: PureOSQP.L
     permuted::V
 end
 
-PureOSQP.backend_name(::SparseCholmod) = :cholmod
+PureQPBase.backend_name(::SparseCholmod) = :cholmod
 
-PureOSQP.backend_info(ls::SparseCholmod) = PureOSQP.BackendInfo(
-    PureOSQP.backend_name(ls), true, :reduced, size(ls.L, 1), nnz(ls.L)
+PureQPBase.backend_info(ls::SparseCholmod) = PureQPBase.BackendInfo(
+    PureQPBase.backend_name(ls), true, :reduced, size(ls.L, 1), nnz(ls.L)
 )
 
 
@@ -1092,7 +1092,7 @@ function refill!(
     return g.R
 end
 
-function PureOSQP.factorize!(ls::SparseCholmod{T}, prob, wt)::Bool where {T}
+function PureQPBase.factorize!(ls::SparseCholmod{T}, prob, wt)::Bool where {T}
     P, A = prob.P, prob.A
     if !describes(ls.gram, P, A)
         # `update!` replaced P or A with one storing entries somewhere else, so every slot
@@ -1305,8 +1305,8 @@ function llt_backward!(x::AbstractVector, Lt::SparseMatrixCSC, N::Integer)
     return x
 end
 
-function PureOSQP.solve_system!(ls::SparseCholmod{T}, prob, wt, rhs_x, rhs_z, x, z)::Nothing where {T}
-    rhs = PureOSQP.reduced_rhs!(prob, wt, rhs_x, rhs_z)
+function PureQPBase.solve_system!(ls::SparseCholmod{T}, prob, wt, rhs_x, rhs_z, x, z)::Nothing where {T}
+    rhs = PureQPBase.reduced_rhs!(prob, wt, rhs_x, rhs_z)
     perm, work, n = ls.perm, ls.permuted, prob.n
     # R[perm, perm] = L Lᵀ, so the solve is a permutation, two triangular solves, and the
     # inverse permutation -- all over buffers this backend owns.
@@ -1318,7 +1318,7 @@ function PureOSQP.solve_system!(ls::SparseCholmod{T}, prob, wt, rhs_x, rhs_z, x,
     for i in 1:n
         x[perm[i]] = work[i]
     end
-    prob.m > 0 && PureOSQP.mul_A!(z, prob, x)
+    prob.m > 0 && PureQPBase.mul_A!(z, prob, x)
     return nothing
 end
 
@@ -1333,7 +1333,7 @@ against and its symbolic part is what every later refactorization reuses. `nothi
 representation does not match or the matrix does not factor at this regularization.
 """
 function cholmod_backend(
-        P, A, prob::PureOSQP.Problem{T}, wt::PureOSQP.SystemWeights{T}
+        P, A, prob::PureQPBase.Problem{T}, wt::PureQPBase.SystemWeights{T}
     ) where {T <: Real}
     n = prob.n
     proto = prob.q0
@@ -1344,7 +1344,7 @@ function cholmod_backend(
     R = refill!(gram, P, A, wt.w, prob.E, prob.D, prob.c, wt.sigma)
     # A pure-Julia LDLᵀ, if one is loaded, factors this faster than CHOLMOD does and hands
     # back `L` and `D` as plain arrays, so nothing has to be extracted from a foreign factor.
-    alt = PureOSQP.ldl_backend(gram, proto, n)
+    alt = PureQPBase.ldl_backend(gram, proto, n)
     isnothing(alt) || return alt
     F = cholesky(Symmetric(R, :U); check = false)
     issuccess(F) || return nothing
@@ -1384,10 +1384,10 @@ end
     check_finite(M::SparseMatrixCSC, rows, cols, name)
 
 Check the stored entries only. The generic method reads every `(i, j)` that
-[`PureOSQP.structural_rows`](@ref) names, which for a `SparseMatrixCSC` is every row, and each
+[`PureQPBase.structural_rows`](@ref) names, which for a `SparseMatrixCSC` is every row, and each
 read is a search through the column: `m × n` searches for a matrix with `nnz` entries.
 """
-function PureOSQP.check_finite(M::SparseMatrixCSC, rows::Integer, cols::Integer, name::String)
+function PureQPBase.check_finite(M::SparseMatrixCSC, rows::Integer, cols::Integer, name::String)
     rv, nz = rowvals(M), nonzeros(M)
     for j in 1:cols, k in nzrange(M, j)
         isfinite(nz[k]) || throw(ArgumentError("$name is not finite at entry ($(rv[k]), $j)"))
@@ -1403,7 +1403,7 @@ costs `O(nnz(L))` where the generic dense test costs `O(n³)` — 0.24 ms agains
 tridiagonal `P` at `n = 2000`, which was half of `setup` on a banded problem. A diagonal `P`
 skips the factorization entirely.
 """
-function PureOSQP.is_convex(::Type{T}, P::SparseMatrixCSC, sigma) where {T}
+function PureQPBase.is_convex(::Type{T}, P::SparseMatrixCSC, sigma) where {T}
     isempty(P) && return true
     # A diagonal `P` needs no factorization: `P + σI` is diagonal, so it is positive definite
     # exactly when every entry clears `-σ`. This is not a corner case — an epigraph
@@ -1421,9 +1421,9 @@ function PureOSQP.is_convex(::Type{T}, P::SparseMatrixCSC, sigma) where {T}
     # unreachable — which is what keeps a sparse `P` inside `juliac --trim`. The bindings
     # reached from `cholesky` are not resolvable statically, so leaving them on a live branch
     # would cost the guarantee whether or not they ever run.
-    answer = PureOSQP.ldl_posdef(P, sigma)
+    answer = PureQPBase.ldl_posdef(P, sigma)
     isnothing(answer) || return answer
     return issuccess(cholesky(Symmetric(SparseMatrixCSC{T, Int}(P) + sigma * I); check = false))
 end
 
-end # module PureOSQPSparseArraysExt
+end # module PureQPBaseSparseArraysExt

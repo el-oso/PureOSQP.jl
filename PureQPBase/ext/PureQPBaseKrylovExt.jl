@@ -1,5 +1,5 @@
 """
-    PureOSQPKrylovExt
+    PureQPBaseKrylovExt
 
 The matrix-free linear-system backend, loaded when Krylov.jl is.
 
@@ -13,9 +13,9 @@ own, but it costs about 185 ms to load against the 76 ms of this whole package, 
 direct factorization is some two orders of magnitude faster whenever the matrix *can* be
 formed. Nobody should pay that who is not using this backend.
 """
-module PureOSQPKrylovExt
+module PureQPBaseKrylovExt
 
-using PureOSQP: PureOSQP, LinearSystem, SystemWeights, mul_A!, mul_At!, mul_P!, norm_inf
+using PureQPBase: PureQPBase, LinearSystem, SystemWeights, mul_A!, mul_At!, mul_P!, norm_inf
 using Krylov: Krylov, CgWorkspace, cg!
 using LinearAlgebra: LinearAlgebra, mul!
 using TypeContracts: TypeContracts, @verify
@@ -29,7 +29,7 @@ anything.
 Built inside `solve_system!` from the problem and weights it is given, so it is concretely
 typed at the call site.
 """
-struct ReducedOperator{T <: Real, PB <: PureOSQP.Problem{T}, WT <: SystemWeights{T}}
+struct ReducedOperator{T <: Real, PB <: PureQPBase.Problem{T}, WT <: SystemWeights{T}}
     prob::PB
     wt::WT
 end
@@ -37,7 +37,7 @@ end
 # `T` is carried in the operator's own type. Krylov checks `eltype(A)` against the vectors'
 # and falls back to a slower, allocating path when they disagree, so this cannot be left to
 # a generic `eltype` of the problem type.
-ReducedOperator(prob::PureOSQP.Problem{T}, wt::SystemWeights{T}) where {T} =
+ReducedOperator(prob::PureQPBase.Problem{T}, wt::SystemWeights{T}) where {T} =
     ReducedOperator{T, typeof(prob), typeof(wt)}(prob, wt)
 
 Base.size(op::ReducedOperator) = (op.prob.n, op.prob.n)
@@ -50,13 +50,13 @@ function LinearAlgebra.mul!(y::AbstractVector, op::ReducedOperator, x::AbstractV
     # the intermediate here rather than aliasing theirs.
     if prob.m > 0
         mul_A!(prob.work_m, prob, x)
-        PureOSQP.multiply!(prob.work_m, prob.work_m, wt.w)
+        PureQPBase.multiply!(prob.work_m, prob.work_m, wt.w)
         mul_At!(y, prob, prob.work_m)
     else
         fill!(y, zero(eltype(y)))
     end
     mul_P!(prob.work_n, prob, x)
-    PureOSQP.add_scaled!(y, prob.work_n, wt.sigma, x)
+    PureQPBase.add_scaled!(y, prob.work_n, wt.sigma, x)
     return y
 end
 
@@ -66,21 +66,21 @@ end
 Conjugate gradients on the reduced system, preconditioned by `precond::M`.
 
 `factorize!` refreshes the preconditioner rather than building a factorization, through
-`PureOSQP.update_preconditioner!` with the refresh index last set by
-`PureOSQP.set_refresh_index!`. The default `JacobiPreconditioner` holds the inverted diagonal
+`PureQPBase.update_preconditioner!` with the refresh index last set by
+`PureQPBase.set_refresh_index!`. The default `JacobiPreconditioner` holds the inverted diagonal
 of the reduced matrix, which is computable column by column without assembling the matrix
 itself. The Krylov workspace is allocated once and reused, so the per-iteration solve
 allocates nothing.
 
 `level` is the residual level the next solve's tolerance is relative to, set through
-`PureOSQP.set_tolerance_level!`. `max_iter` and `tol_fraction` are the workspace's
+`PureQPBase.set_tolerance_level!`. `max_iter` and `tol_fraction` are the workspace's
 `cg_max_iter` and `cg_tol_fraction` options and `tol_reduction` its algorithm's
-`cg_tol_reduction`, copied in by `PureOSQP.adopt_settings!` when the workspace is built and
+`cg_tol_reduction`, copied in by `PureQPBase.adopt_settings!` when the workspace is built and
 whenever its options or algorithm parameters are replaced.
 
 `total_iters` counts CG iterations over the backend's life and `misses` the solves that did
 not meet their stopping test; `last_reached` is whether the most recent one did.
-`residual_stop` selects the stopping rule, set through `PureOSQP.use_residual_stop!`.
+`residual_stop` selects the stopping rule, set through `PureQPBase.use_residual_stop!`.
 """
 mutable struct IndirectCG{T <: Real, V <: AbstractVector{T}, K, M} <: LinearSystem
     const kws::K        # Krylov's CgWorkspace, reused across solves
@@ -99,7 +99,7 @@ mutable struct IndirectCG{T <: Real, V <: AbstractVector{T}, K, M} <: LinearSyst
     residual_stop::Bool
 end
 
-function PureOSQP.indirect_backend(
+function PureQPBase.indirect_backend(
         proto::AbstractVector{T}, n::Integer, m::Integer, preconditioner
     ) where {T <: Real}
     kws = CgWorkspace(n, n, typeof(similar(proto, T, n)))
@@ -108,8 +108,8 @@ function PureOSQP.indirect_backend(
     # solve after the first.
     kws.z = similar(proto, T, n)
     precond = isnothing(preconditioner) ?
-        PureOSQP.JacobiPreconditioner(fill!(similar(proto, T, n), one(T))) : preconditioner
-    precond isa PureOSQP.JacobiPreconditioner && length(precond.dinv) != n && throw(
+        PureQPBase.JacobiPreconditioner(fill!(similar(proto, T, n), one(T))) : preconditioner
+    precond isa PureQPBase.JacobiPreconditioner && length(precond.dinv) != n && throw(
         DimensionMismatch("a JacobiPreconditioner needs one entry per variable")
     )
     # The level and the settings hold placeholders until `set_tolerance_level!` and
@@ -124,34 +124,36 @@ end
 # Krylov tests `M === I` and then skips the preconditioned vector entirely, which is exact
 # and cheaper than copying the residual into it.
 krylov_preconditioner(M) = M
-krylov_preconditioner(::PureOSQP.IdentityPreconditioner) = LinearAlgebra.I
+krylov_preconditioner(::PureQPBase.IdentityPreconditioner) = LinearAlgebra.I
 
-PureOSQP.backend_name(::IndirectCG) = :indirect
+PureQPBase.backend_name(::IndirectCG) = :indirect
 
 # Matrix-free: the preconditioner is not a factorization this backend owns, so there is no
 # factor to count.
-PureOSQP.backend_info(ls::IndirectCG) = PureOSQP.BackendInfo(
-    PureOSQP.backend_name(ls), false, :reduced, length(ls.rhs), 0
+PureQPBase.backend_info(ls::IndirectCG) = PureQPBase.BackendInfo(
+    PureQPBase.backend_name(ls), false, :reduced, length(ls.rhs), 0
 )
 
-function PureOSQP.set_tolerance_level!(ls::IndirectCG, level)
+function PureQPBase.set_tolerance_level!(ls::IndirectCG, level)
     ls.level = level
     return nothing
 end
 
-function PureOSQP.adopt_settings!(ls::IndirectCG, alg::PureOSQP.OperatorSplitting, options)
-    ls.max_iter = options.cg_max_iter
-    ls.tol_fraction = options.cg_tol_fraction
-    ls.tol_reduction = alg.cg_tol_reduction
-    return nothing
-end
+"""
+    adopt_settings!(ls::IndirectCG, alg::QPAlgorithm, options)
 
-# The interior-point method sets a fresh tolerance level before every solve and starts CG from
-# zero, so the tolerance is never halved.
-function PureOSQP.adopt_settings!(ls::IndirectCG, ::PureOSQP.InteriorPoint, options)
+Copy `cg_max_iter` and `cg_tol_fraction` from `options` and the CG tolerance-reduction
+factor from `alg`. `alg.cg_tol_reduction`, when `alg` has that field, is how much the
+tolerance is allowed to shrink between the conjugate-gradient solves of an iterative
+algorithm as its outer residual falls; an algorithm with no such field (it sets a fresh
+tolerance and starts CG from zero before every solve, so the tolerance would never shrink
+between solves) reads as `typemax(Int)`, disabling the shrink outright.
+"""
+function PureQPBase.adopt_settings!(ls::IndirectCG, alg::PureQPBase.QPAlgorithm, options)
     ls.max_iter = options.cg_max_iter
     ls.tol_fraction = options.cg_tol_fraction
-    ls.tol_reduction = typemax(Int)
+    ls.tol_reduction = hasfield(typeof(alg), :cg_tol_reduction) ?
+        alg.cg_tol_reduction : typemax(Int)
     return nothing
 end
 
@@ -159,33 +161,33 @@ end
     no_settings_adopted()
 
 What this backend raises when it reaches a factorization still holding its placeholder
-settings. `PureOSQP.adopt_settings!`'s default does nothing, which is right for a backend
+settings. `PureQPBase.adopt_settings!`'s default does nothing, which is right for a backend
 that reads no settings and silently wrong for this one.
 """
 @noinline function no_settings_adopted()
     throw(
         ArgumentError(
             "the matrix-free backend never received its conjugate-gradient settings: no " *
-                "`PureOSQP.adopt_settings!(::IndirectCG, alg, options)` method matched this " *
+                "`PureQPBase.adopt_settings!(::IndirectCG, alg, options)` method matched this " *
                 "workspace's algorithm, so `cg_max_iter` is still zero and every solve would " *
-                "return its starting point unchanged. Define `PureOSQP.adopt_settings!` for " *
+                "return its starting point unchanged. Define `PureQPBase.adopt_settings!` for " *
                 "the algorithm; it must set `max_iter`, `tol_fraction` and `tol_reduction`."
         )
     )
 end
 
-function PureOSQP.set_refresh_index!(ls::IndirectCG, k::Int)
+function PureQPBase.set_refresh_index!(ls::IndirectCG, k::Int)
     ls.refresh_index = k
     return nothing
 end
 
-function PureOSQP.use_residual_stop!(ls::IndirectCG, on::Bool)
+function PureQPBase.use_residual_stop!(ls::IndirectCG, on::Bool)
     ls.residual_stop = on
     return nothing
 end
 
-PureOSQP.last_solve_converged(ls::IndirectCG) = ls.last_reached
-PureOSQP.inner_iterations(ls::IndirectCG) = ls.total_iters
+PureQPBase.last_solve_converged(ls::IndirectCG) = ls.last_reached
+PureQPBase.inner_iterations(ls::IndirectCG) = ls.total_iters
 
 """
     factorize!(ls::IndirectCG, prob, wt) -> Bool
@@ -198,15 +200,15 @@ Succeeds unless `update_preconditioner!` returns an object of another type, whic
 there is no factorization here that can be singular.
 
 Also where an inner budget that never arrived is caught. `max_iter` holds the placeholder
-`0` until `PureOSQP.adopt_settings!` copies `cg_max_iter` in, and `Options` refuses a
+`0` until `PureQPBase.adopt_settings!` copies `cg_max_iter` in, and `Options` refuses a
 `cg_max_iter` of zero, so a zero here means no `adopt_settings!` method ran for the
 workspace's algorithm — under which every solve would take no iteration and return its
 starting point. Every path to a solve factorizes first, so the check sits here rather than
 in `solve_system!`, where it would be on the per-iteration path.
 """
-function PureOSQP.factorize!(ls::IndirectCG{T, V, K, M}, prob, wt)::Bool where {T, V, K, M}
+function PureQPBase.factorize!(ls::IndirectCG{T, V, K, M}, prob, wt)::Bool where {T, V, K, M}
     ls.max_iter > 0 || no_settings_adopted()
-    fresh = PureOSQP.update_preconditioner!(ls.precond, prob, wt, ls.refresh_index)
+    fresh = PureQPBase.update_preconditioner!(ls.precond, prob, wt, ls.refresh_index)
     fresh isa M || throw(
         ArgumentError(
             lazy"update_preconditioner! must return a preconditioner of the type it was given, $M, and returned a $(typeof(fresh))"
@@ -269,12 +271,12 @@ preconditioner or operator that is not positive definite returns `x = 0`. Either
 counts as converged when it stopped on its test (or on Krylov's machine-precision stop), and as
 a miss when it spent `cg_max_iter` iterations or broke down.
 """
-function PureOSQP.solve_system!(ls::IndirectCG{T}, prob, wt, rhs_x, rhs_z, x, z)::Nothing where {T}
+function PureQPBase.solve_system!(ls::IndirectCG{T}, prob, wt, rhs_x, rhs_z, x, z)::Nothing where {T}
     m = prob.m
     if m > 0
-        PureOSQP.multiply!(prob.work_m, wt.w, rhs_z)
+        PureQPBase.multiply!(prob.work_m, wt.w, rhs_z)
         mul_At!(ls.rhs, prob, prob.work_m)
-        PureOSQP.increment!(ls.rhs, rhs_x)
+        PureQPBase.increment!(ls.rhs, rhs_x)
     else
         copyto!(ls.rhs, rhs_x)
     end
@@ -316,4 +318,4 @@ end
 
 @verify IndirectCG trim_compat = true
 
-end # module PureOSQPKrylovExt
+end # module PureQPBaseKrylovExt

@@ -35,32 +35,6 @@ function update_rho!(ws::OperatorSplittingWorkspace{T}, rho::Real) where {T}
 end
 
 """
-    dimensions(ws) -> (n, m)
-
-Number of variables and of constraint rows.
-"""
-dimensions(ws::QPWorkspace) = (ws.prob.n, ws.prob.m)
-
-"""
-    capabilities() -> NamedTuple
-
-What this build of the solver supports, reported for the packages currently loaded rather
-than for the package alone: `indirect_solver` is true once Krylov.jl is loaded and the
-matrix-free extension exists. The names mirror libosqp's `osqp_capabilities`
-bit-flags, so a caller porting from the C API can check the same things.
-
-There is no `error_message` counterpart: this package throws exceptions carrying their own
-messages rather than returning codes to be looked up.
-"""
-capabilities() = (
-    direct_solver = true,
-    indirect_solver = !isnothing(Base.get_extension(@__MODULE__, :PureOSQPKrylovExt)),
-    codegen = false,
-    update_matrices = true,
-    derivatives = true,
-)
-
-"""
     constraint_violation!(out, ws) -> out
 
 Write how far each row of `l ≤ Ax ≤ u` is from being satisfied, in the caller's units.

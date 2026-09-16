@@ -196,12 +196,11 @@ function Base.show(io::IO, ws::OperatorSplittingWorkspace)
 end
 function setup_backend(
         alg::OperatorSplitting, ::Val{LS}, ::Type{T}, P::AbstractMatrix, q::AbstractVector,
-        A::AbstractMatrix, l::AbstractVector, u::AbstractVector; accelerator = nothing,
-        preconditioner = nothing, kwargs...
+        A::AbstractMatrix, l::AbstractVector, u::AbstractVector, options::Options,
+        preconditioner, accelerator
     ) where {LS, T <: Real}
     t0 = time_ns()
     nv, mv = validate(P, q, A, l, u)
-    options = Options{T}(; algorithm_defaults(alg, T)..., linsys = LS, kwargs...)
     algorithm = element_typed(alg, T, options)
     isnothing(preconditioner) || LS === :indirect || throw(
         ArgumentError(

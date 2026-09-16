@@ -446,6 +446,7 @@ end
 end
 
 @testitem "the unchecked substitutions run behind a guard that fires" begin
+    using PureQPBase
     using LinearAlgebra, SparseArrays, LDLFactorizations
     # `unit_forward!`/`unit_backward!` index `x` by a row read out of the factor, which no
     # compiler can prove is in range, so they drop the check and `check_factor` establishes
@@ -453,7 +454,7 @@ end
     # actually rejects a factor the loops would read out of bounds.
     # The guard lives with the substitutions it protects, which both factorization engines
     # share, so it sits in the SparseArrays extension rather than either engine's.
-    Ext = Base.get_extension(PureOSQP, :PureOSQPSparseArraysExt)
+    Ext = Base.get_extension(PureQPBase, :PureQPBaseSparseArraysExt)
     @test !isnothing(Ext)
 
     ok = SparseMatrixCSC(4, 4, [1, 2, 2, 2, 2], [3], [1.0])

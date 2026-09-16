@@ -106,17 +106,6 @@ function anderson(::Type, dim::Integer; kwargs...)
 end
 
 """
-    accelerator_reset!(accel) -> accel
-
-Drop the history an accelerator has built up.
-
-Called wherever the workspace refactorizes, since `ρ` or the data changing makes the
-iteration a fixed point of a different map and a window spanning both describes neither.
-With no accelerator this is `nothing`.
-"""
-accelerator_reset!(::Nothing) = nothing
-
-"""
     accelerator_declined(accel) -> Int
 
 How many accelerated steps `accel` has discarded over its life. `solve!` reports the

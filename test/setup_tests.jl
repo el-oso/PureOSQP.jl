@@ -88,16 +88,18 @@ end
     l = [1.0, 0.0, 0.0]
     u = [1.0, 0.7, 0.7]
 
-    # A setting passed in the wrong place names where it belongs, under either algorithm.
+    # A setting passed in the wrong place names where it belongs, under the algorithm in use.
     @test_throws "rho is a parameter of OperatorSplitting, not an option" solve(P, q, A, l, u; rho = 0.2)
-    @test_throws "rho is a parameter of OperatorSplitting, not an option" solve(P, q, A, l, u, InteriorPoint(); rho = 0.2)
-    @test_throws "reg_primal is a parameter of InteriorPoint, not an option" setup(P, q, A, l, u; reg_primal = 1.0e-7)
     @test_throws "InteriorPoint(reg_primal = ...)" setup(P, q, A, l, u, InteriorPoint(); reg_primal = 1.0e-7)
     @test_throws ArgumentError update_settings!(setup(P, q, A, l, u); sigma = 1.0e-5)
+    # A parameter of the other algorithm is not an option either, and is named as the
+    # unrecognized keyword it is rather than reaching Options.
+    @test_throws "rho is not an option, and not a parameter of InteriorPoint" solve(P, q, A, l, u, InteriorPoint(); rho = 0.2)
+    @test_throws "reg_primal is not an option, and not a parameter of OperatorSplitting" setup(P, q, A, l, u; reg_primal = 1.0e-7)
     # An option is not a parameter, and an unknown name is refused too.
     @test_throws MethodError InteriorPoint(rho = 0.2)
     @test_throws MethodError OperatorSplitting(max_iter = 10)
-    @test_throws MethodError setup(P, q, A, l, u; not_a_setting = 1)
+    @test_throws "not_a_setting is not an option" setup(P, q, A, l, u; not_a_setting = 1)
 
     # The defaults that differ by algorithm come from the algorithm; a value given is kept.
     admm = default_options(OperatorSplitting(), Float64)
