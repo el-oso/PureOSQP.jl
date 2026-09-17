@@ -1,0 +1,247 @@
+{
+  "blas_threads": 1,
+  "cases": [
+    {
+      "backend": "diagonal",
+      "family": "diagonal",
+      "given": "structured",
+      "iter": "8",
+      "seconds": "5.2398e-5",
+      "status": "SOLVED"
+    },
+    {
+      "backend": "bunchkaufman",
+      "family": "diagonal",
+      "given": "dense",
+      "iter": "8",
+      "seconds": "0.002806447",
+      "status": "SOLVED"
+    },
+    {
+      "backend": "ldlfactorizations",
+      "family": "diagonal",
+      "given": "sparse",
+      "iter": "8",
+      "seconds": "0.00011041800000000001",
+      "status": "SOLVED"
+    },
+    {
+      "backend": "tridiagonal",
+      "family": "tridiagonal_diag",
+      "given": "structured",
+      "iter": "8",
+      "seconds": "7.854800000000001e-5",
+      "status": "SOLVED"
+    },
+    {
+      "backend": "bunchkaufman",
+      "family": "tridiagonal_diag",
+      "given": "dense",
+      "iter": "8",
+      "seconds": "0.002648604",
+      "status": "SOLVED"
+    },
+    {
+      "backend": "ldlfactorizations",
+      "family": "tridiagonal_diag",
+      "given": "sparse",
+      "iter": "8",
+      "seconds": "0.000162215",
+      "status": "SOLVED"
+    },
+    {
+      "backend": "banded",
+      "family": "banded_tridiag",
+      "given": "structured",
+      "iter": "8",
+      "seconds": "0.000188254",
+      "status": "SOLVED"
+    },
+    {
+      "backend": "bunchkaufman",
+      "family": "banded_tridiag",
+      "given": "dense",
+      "iter": "8",
+      "seconds": "0.0026164435",
+      "status": "SOLVED"
+    },
+    {
+      "backend": "ldlfactorizations",
+      "family": "banded_tridiag",
+      "given": "sparse",
+      "iter": "8",
+      "seconds": "0.000201329",
+      "status": "SOLVED"
+    },
+    {
+      "backend": "tridiagonal",
+      "family": "tridiagonal_bidiag",
+      "given": "structured",
+      "iter": "8",
+      "seconds": "9.3175e-5",
+      "status": "SOLVED"
+    },
+    {
+      "backend": "bunchkaufman",
+      "family": "tridiagonal_bidiag",
+      "given": "dense",
+      "iter": "8",
+      "seconds": "0.0027962875000000003",
+      "status": "SOLVED"
+    },
+    {
+      "backend": "ldlfactorizations",
+      "family": "tridiagonal_bidiag",
+      "given": "sparse",
+      "iter": "8",
+      "seconds": "0.0001907195",
+      "status": "SOLVED"
+    },
+    {
+      "backend": "bunchkaufman",
+      "family": "cholesky_symmetric_banded",
+      "given": "structured",
+      "iter": "8",
+      "seconds": "0.002753101",
+      "status": "SOLVED"
+    },
+    {
+      "backend": "bunchkaufman",
+      "family": "cholesky_symmetric_banded",
+      "given": "dense",
+      "iter": "8",
+      "seconds": "0.002616428",
+      "status": "SOLVED"
+    },
+    {
+      "backend": "ldlfactorizations",
+      "family": "cholesky_symmetric_banded",
+      "given": "sparse",
+      "iter": "8",
+      "seconds": "0.00020189",
+      "status": "SOLVED"
+    },
+    {
+      "backend": "banded",
+      "family": "banded_wide_inside",
+      "given": "structured",
+      "iter": "9",
+      "seconds": "0.0012701075",
+      "status": "SOLVED"
+    },
+    {
+      "backend": "bunchkaufman",
+      "family": "banded_wide_inside",
+      "given": "dense",
+      "iter": "9",
+      "seconds": "0.0028993210000000003",
+      "status": "SOLVED"
+    },
+    {
+      "backend": "ldl_kkt",
+      "family": "banded_wide_inside",
+      "given": "sparse",
+      "iter": "9",
+      "seconds": "0.0012565570000000002",
+      "status": "SOLVED"
+    },
+    {
+      "backend": "banded",
+      "family": "cholesky_wide_outside",
+      "given": "structured",
+      "iter": "8",
+      "seconds": "0.00127669",
+      "status": "SOLVED"
+    },
+    {
+      "backend": "bunchkaufman",
+      "family": "cholesky_wide_outside",
+      "given": "dense",
+      "iter": "8",
+      "seconds": "0.002600644",
+      "status": "SOLVED"
+    },
+    {
+      "backend": "ldl_kkt",
+      "family": "cholesky_wide_outside",
+      "given": "sparse",
+      "iter": "8",
+      "seconds": "0.001243362",
+      "status": "SOLVED"
+    },
+    {
+      "backend": "bunchkaufman",
+      "family": "lowrank_rank3",
+      "given": "structured",
+      "iter": "9",
+      "seconds": "0.0029641630000000006",
+      "status": "SOLVED"
+    },
+    {
+      "backend": "bunchkaufman",
+      "family": "lowrank_rank3",
+      "given": "dense",
+      "iter": "9",
+      "seconds": "0.0033523595000000002",
+      "status": "SOLVED"
+    },
+    {
+      "backend": "ldl_kkt",
+      "family": "lowrank_rank3",
+      "given": "sparse",
+      "iter": "9",
+      "seconds": "0.000220165",
+      "status": "SOLVED"
+    },
+    {
+      "backend": "bunchkaufman",
+      "family": "lowrank_rank10",
+      "given": "structured",
+      "iter": "8",
+      "seconds": "0.0027242015",
+      "status": "SOLVED"
+    },
+    {
+      "backend": "bunchkaufman",
+      "family": "lowrank_rank10",
+      "given": "dense",
+      "iter": "8",
+      "seconds": "0.00307961",
+      "status": "SOLVED"
+    },
+    {
+      "backend": "ldl_kkt",
+      "family": "lowrank_rank10",
+      "given": "sparse",
+      "iter": "8",
+      "seconds": "0.000345211",
+      "status": "SOLVED"
+    },
+    {
+      "backend": "bunchkaufman",
+      "family": "cholesky_rank11",
+      "given": "structured",
+      "iter": "9",
+      "seconds": "0.002936451",
+      "status": "SOLVED"
+    },
+    {
+      "backend": "bunchkaufman",
+      "family": "cholesky_rank11",
+      "given": "dense",
+      "iter": "9",
+      "seconds": "0.0032944255000000003",
+      "status": "SOLVED"
+    },
+    {
+      "backend": "ldl_kkt",
+      "family": "cholesky_rank11",
+      "given": "sparse",
+      "iter": "9",
+      "seconds": "0.000397389",
+      "status": "SOLVED"
+    }
+  ],
+  "eps": 1.0e-8,
+  "julia_version": "1.13.0"
+}
