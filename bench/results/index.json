@@ -946,7 +946,7 @@
     {
       "blas_threads": 1.0,
       "bytes": 8509,
-      "julia_version": "1.12.7",
+      "julia_version": "1.13.0",
       "keys": [
         "blas_threads",
         "cases",
