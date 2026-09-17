@@ -17,7 +17,7 @@ and compiling under `juliac --trim`.
 | [**PureIPM**](PureIPM) | a Mehrotra predictor–corrector interior-point method | MIT |
 
 Either solver re-exports the base, so one `using` is enough; loading both puts both
-algorithms on the same `solve`, with the algorithm as the optional sixth argument:
+algorithms on the same `solve`, named as the sixth argument:
 
 ```julia
 using PureOSQP, PureIPM
@@ -28,8 +28,8 @@ A = [1.0 1.0; 1.0 0.0; 0.0 1.0]
 l = [1.0, 0.0, 0.0]
 u = [1.0, 0.7, 0.7]
 
-solve(P, q, A, l, u)                    # operator splitting, the default
-solve(P, q, A, l, u, InteriorPoint())   # the interior-point method
+solve(P, q, A, l, u, OperatorSplitting())   # ADMM: warm starts, loose tolerances
+solve(P, q, A, l, u, InteriorPoint())       # interior point: few iterations, tight answers
 ```
 
 Each solver is measured against the established implementation of its own method, at the same

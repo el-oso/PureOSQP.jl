@@ -26,11 +26,11 @@ A = [1.0 1.0; 1.0 0.0; 0.0 1.0]
 l = [1.0, 0.0, 0.0]
 u = [1.0, 0.7, 0.7]
 
-sol = solve(P, q, A, l, u)
+sol = solve(P, q, A, l, u, OperatorSplitting())
 sol.status   # SOLVED
 sol.x        # [0.3, 0.7]
 
-# The algorithm is the optional sixth argument; shared options are keywords.
+# The algorithm is the sixth argument; shared options are keywords.
 sol = solve(P, q, A, l, u, OperatorSplitting(rho = 0.2); eps_abs = 1e-6)
 sol = solve(P, q, A, l, u, InteriorPoint(); eps_abs = 1e-9)
 
@@ -38,9 +38,9 @@ ws = setup(P, q, A, l, u, InteriorPoint(); max_iter = 50)
 sol = solve!(ws)
 ```
 
-`OperatorSplitting()`, the default, is best for repeated solves through `update!` and for
-matrix-free operators; `InteriorPoint()` reaches `1e-8` by default in a few iterations and is
-the better choice for a single solve at a tight tolerance.
+`OperatorSplitting()` is best for repeated solves through `update!` and for matrix-free
+operators; `InteriorPoint()` reaches `1e-8` by default in a few iterations and is the better
+choice for a single solve at a tight tolerance.
 [Choosing an algorithm](https://el-oso.github.io/PureQP.jl/dev/algorithms) compares them.
 
 ## What it implements
