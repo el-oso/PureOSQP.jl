@@ -2,8 +2,9 @@
 
 What libosqp does that PureOSQP does not, derived from its public API — `osqp_api.c`,
 `osqp_api_types.h` and `osqp_api_constants.h` for 1.x, plus the 0.6.2 `osqp.c` surface —
-against this package's exports, [`OperatorSplitting`](@ref), [`Options`](@ref) and
-[`Solution`](@ref).
+against [`OperatorSplitting`](@ref), [`Options`](@ref) and [`Solution`](@ref). It is a
+comparison with the operator-splitting solver alone: libosqp is not an interior-point method,
+so nothing here scopes PureIPM.
 
 Implemented capabilities are documented where they are demonstrated: [Benchmarks](@ref) for
 what the backends cost, [Guarantees](@ref) for what is proven, [Algorithm](@ref) for how the
@@ -13,9 +14,8 @@ solver works.
 
 | item | note |
 |---|---|
-| GPU arrays | not supported yet; planned |
 | a pure-Julia factorization by default | the `LDLᵀ` backends need LDLFactorizations.jl loaded; without it the sparse path is CHOLMOD, which is C and GPL |
-| setup parity on the dense path | Control's `setup` is 0.30× libosqp's, against 1.20× on the run as a whole |
+| setup parity on the dense path | Control's `setup` is 0.30× libosqp's, against 1.20× on the run as a whole. Measured; no alternative yet wins overall |
 
 **A pure-Julia factorization by default.** A sparse problem is factored by CHOLMOD — C and
 GPL — unless LDLFactorizations.jl is loaded. The `LDLᵀ` backends are also the faster path,
@@ -33,6 +33,14 @@ doubles the loop. Equilibration is within 1.13× of libosqp's per sweep. The con
 and the pattern scan that selects the backend are fixed costs libosqp does not pay.
 
 ## Deliberate differences
+
+**GPU arrays reach the matrix-free backend and nothing else.** A `GPUArraysCore`-backed `P`
+and `A` solve through conjugate gradients, survive [`update!`](@ref) and warm starting, and
+keep their arrays on the device. Every backend that factors a matrix refuses them by name
+rather than copying to the host behind the caller's back, and polishing and the derivatives
+refuse for the same reason: `bunchkaufman!` and the dense triangular solves have no device
+counterpart. A direct GPU path would be a factorization written for the device, not a
+dispatch change.
 
 **Code generation.** `osqp_codegen` emits C source with the settings, scaled data, `ρ` and
 numeric factorization baked into fixed-size arrays, for a toolchain that is not Julia's.
@@ -85,6 +93,7 @@ and it is reached from `polish!`, from the `FullKKT` backend and from
 `polishing = false`. `INFTY` is not a blocker despite calling `prevfloat(typemax(T))`:
 ForwardDiff defines both for `Dual`.
 
-An AD integration would be a `ChainRulesCore` extension supplying `rrule` and `frule` over
-[`adjoint_derivative`](@ref) and [`forward_derivative`](@ref). That reaches Zygote; it does
-*not* reach Mooncake, which requires an explicit `Mooncake.@from_rrule`.
+The `ChainRulesCore` extension supplies `rrule` and `frule` over
+[`adjoint_derivative`](@ref) and [`forward_derivative`](@ref), which reaches Zygote. It does
+*not* reach Mooncake, which requires an explicit `Mooncake.@from_rrule`; that is the AD
+integration still missing.
