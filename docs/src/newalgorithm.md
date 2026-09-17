@@ -1,111 +1,113 @@
 # Adding an algorithm
 
-PureQPBase defines no algorithm. What it holds is everything an algorithm needs and would
-otherwise write itself: the problem representation, equilibration, every linear-system backend
-and the order they are tried in, the termination tests, the infeasibility certificates, the
-polishing and derivative kernels, and the generic `setup`, `solve` and `solve!`.
+PureQPBase has no algorithm of its own. It gives you the parts around one: the problem, the
+linear-system backends, equilibration, the termination tests, the certificates, polishing, the
+derivatives, and `setup`, `solve` and `solve!`.
 
-PureIPM is the worked example. It was added to a package that already had operator splitting,
-and the split between what it wrote and what it inherited is the argument for the base
-existing:
+PureIPM shows what that saves. We added it to a package that already had operator splitting.
+Here is what we had to write:
 
-| | lines |
-|---|---|
-| `ipm.jl` — the Mehrotra iteration itself | 835 |
-| `workspace.jl` — the state it iterates on, and the methods the contract asks for | 460 |
-| `settings.jl` — the algorithm object and its defaults | 135 |
-| `PureIPM.jl` — the module, and what it imports from the base | 88 |
+| file | what it holds | lines |
+|---|---|---|
+| `ipm.jl` | the Mehrotra method | 835 |
+| `workspace.jl` | the state it works on, and the methods the contract asks for | 460 |
+| `settings.jl` | the algorithm object and its defaults | 135 |
+| `PureIPM.jl` | the module, and what it takes from the base | 88 |
 
-It wrote its own method. It wrote no backend, no equilibration, no certificate test, no
-polishing, and no `Problem`. Adding a third algorithm is the same shape.
+We wrote the method. We wrote no backend, no equilibration, no certificate test, no polishing,
+and no problem type. Your algorithm takes the same shape.
 
-## What you write
+## You write four things
 
-[Interfaces](@ref) states each list in full. In outline, four pieces:
+[Interfaces](@ref) lists every method. Here is the outline.
 
-**An algorithm object**, a subtype of [`QPAlgorithm`](@ref PureQPBase.QPAlgorithm), holding
-the parameters only your iteration reads. PureIPM's is `InteriorPoint`, with the
-regularization and the refinement count; operator splitting's holds `rho`, `sigma` and
-`alpha`. Everything both algorithms read — tolerances, `max_iter`, `scaling`, `linsys` — is
-[`Options`](@ref PureQPBase.Options) and is already there. `algorithm_defaults` is where you
-say which of those options your method wants a different default for: the interior-point
-method asks for `eps_abs = 1e-8` and `max_iter = 100` where operator splitting takes `1e-3`
-and `4000`.
+**1. An algorithm object.** Make it a subtype of [`QPAlgorithm`](@ref PureQPBase.QPAlgorithm).
+Put in it only the parameters your method reads. PureIPM puts the regularization and the
+refinement count in `InteriorPoint`. Operator splitting puts `rho`, `sigma` and `alpha` in
+its own.
 
-**A workspace**, a subtype of [`QPWorkspace`](@ref PureQPBase.QPWorkspace), holding the
-iterates and the scratch your method needs. It carries the [`Problem`](@ref
-PureQPBase.Problem), the [`SystemWeights`](@ref PureQPBase.SystemWeights) and the backend that
-`setup_backend` chose, and those three are what the shared kernels read. Keep every field
-concretely typed: the per-iteration guarantees depend on it.
+Settings that both algorithms read are already there. `max_iter`, the tolerances, `scaling`
+and `linsys` all live in [`Options`](@ref PureQPBase.Options). Use `algorithm_defaults` to
+change a default your method needs. PureIPM asks for `eps_abs = 1e-8` and `max_iter = 100`.
+Operator splitting takes `1e-3` and `4000`.
 
-**`setup_backend`**, which validates the data, builds the options and the problem, chooses a
-backend and factorizes. PureIPM's is 90 lines and most of it is refusing what its method
-cannot do — an operator that supplies only products, `linsys = :kronecker`, `linsys =
-:lowrank` — each with a message naming the remedy rather than a `MethodError` from somewhere
-inside.
+**2. A workspace.** Make it a subtype of [`QPWorkspace`](@ref PureQPBase.QPWorkspace). Put the
+iterates and your scratch space in it. It also carries three things the shared code reads: the
+[`Problem`](@ref PureQPBase.Problem), the [`SystemWeights`](@ref PureQPBase.SystemWeights),
+and the backend. Give every field a concrete type. The speed guarantees depend on it.
 
-**A selection tag**, a subtype of [`PureQPBase.SelectionFor`](@ref), and the three selection
-methods whose answer depends on the algorithm: `select_backend`, the order your method tries
-candidates in; `dense_rung`, where a pair that can be formed comes to rest; and
-`indirect_rung`, what serves an operator that cannot. Every other selection method already
-accepts any tag. One of the three missing gives an error naming the method you have to write.
+**3. A `setup_backend` method.** It checks the data, builds the options and the problem, picks
+a backend, and factors it. PureIPM's runs to 90 lines. Most of those lines refuse work its
+method cannot do: an operator with no entries, `linsys = :kronecker`, `linsys = :lowrank`.
+Each refusal names the way out. None of them lets a `MethodError` escape from deeper down.
 
-## What you inherit
+**4. A selection tag.** Make it a subtype of [`PureQPBase.SelectionFor`](@ref). Then write the
+three methods whose answer changes with the algorithm:
 
-Everything else, and it is most of it.
+- `select_backend` — the order your method tries candidates in
+- `dense_rung` — where a pair it can build comes to rest
+- `indirect_rung` — what serves an operator it cannot build
 
-**Every backend.** Dense and sparse, banded, block, Kronecker, diagonal-plus-low-rank and
-matrix-free, with the machinery that picks one from the types of `P` and `A`. Your method
-calls [`factorize!`](@ref PureQPBase.factorize!) and [`solve_system!`](@ref
-PureQPBase.solve_system!) and does not care which one answered. Adding an algorithm gives it
-all of them at once — see [How a backend is chosen](@ref).
+Every other selection method takes any tag already. Miss one of the three and you get an error
+that names it.
 
-**The problem.** [`Problem`](@ref PureQPBase.Problem) validates the data, runs Ruiz
-equilibration, and keeps `P` and `A` by reference so every product reaches the matrix the
-caller passed. `mul_A!`, `mul_At!` and `mul_P!` apply the scaling lazily.
+## You get the rest
 
-**Termination and certificates.** [`check_termination`](@ref PureQPBase.check_termination) is
-declared in the base and extended by each algorithm, so both report the same
-[`Status`](@ref PureQPBase.Status) values with the same meanings. The infeasibility tests are
-algorithm-independent: given any direction, [`is_primal_infeasible`](@ref
-PureQPBase.is_primal_infeasible) and [`is_dual_infeasible`](@ref
-PureQPBase.is_dual_infeasible) decide, whatever produced it.
+**Every backend.** Dense, sparse, banded, block, Kronecker, diagonal plus low rank, and
+matrix-free. The code that picks one from the types of `P` and `A` comes with them. Your
+method calls [`factorize!`](@ref PureQPBase.factorize!) and
+[`solve_system!`](@ref PureQPBase.solve_system!). It never asks which backend answered. One
+algorithm gets all of them — see [How a backend is chosen](@ref).
+
+**The problem.** [`Problem`](@ref PureQPBase.Problem) checks the data and scales it with Ruiz
+equilibration. It holds `P` and `A` by reference, so each product uses the matrix the caller
+passed. `mul_A!`, `mul_At!` and `mul_P!` apply the scaling as they go.
+
+**Termination and certificates.** The base declares
+[`check_termination`](@ref PureQPBase.check_termination) and each algorithm extends it. Both
+algorithms report the same [`Status`](@ref PureQPBase.Status) values, and they mean the same
+thing. The infeasibility tests do not care which method made the direction they read:
+[`is_primal_infeasible`](@ref PureQPBase.is_primal_infeasible) and
+[`is_dual_infeasible`](@ref PureQPBase.is_dual_infeasible) work on any of them.
 
 **Polishing and derivatives.** [`polish!`](@ref PureQPBase.polish!) and
-[`adjoint_derivative`](@ref PureQPBase.adjoint_derivative) work from the active set at the
-iterate, so an algorithm that reaches a solution gets both. What you owe them is
-`derivative_ready`: throw unless your multipliers are ones the active-set test can read.
-PureIPM's refuses without polishing, because an interior-point method holds inactive rows at
-the barrier parameter rather than at zero.
+[`adjoint_derivative`](@ref PureQPBase.adjoint_derivative) read the active set at the point
+you reached. Reach a solution and you get both. You owe them one method: `derivative_ready`
+throws unless your multipliers are ones the active-set test can read. PureIPM refuses without
+polishing, because it holds inactive rows at the barrier parameter, not at zero.
 
-**The MathOptInterface wrapper.** One wrapper in the base carries the algorithm as a field, so
-your package supplies an `Optimizer()` that names yours and inherits the rest.
+**The MathOptInterface wrapper.** The base has one wrapper. It carries the algorithm as a
+field. Your package supplies an `Optimizer()` that names yours.
 
-## What the contracts buy you
+## What the contracts give you
 
-The four abstract types are declared with
-[TypeContracts.jl](https://github.com/el-oso/TypeContracts.jl), so a type that claims one and
-does not implement it is rejected when the package precompiles, naming what is missing rather
-than failing at a call site much later.
+[TypeContracts.jl](https://github.com/el-oso/TypeContracts.jl) declares the four abstract
+types. Claim one and leave a method out, and the package refuses to precompile. The error
+names what is missing. You do not find out later, at some call site.
 
-The method lists cannot say what the values *mean*, which is what
-[`PureQPBase.conforms`](@ref) is for. It asserts the guarantees
-[`Solution`](@ref PureQPBase.Solution) and [`Status`](@ref PureQPBase.Status) carry — that
-stopping early is never reported as solved, that a run with no point fills `x` and `y` with
-`NaN` rather than a plausible number, that the reported objective is the objective, that the
-timings are real. Run it against your algorithm:
+A method list says which methods exist. It cannot say what their values mean. That is what
+[`PureQPBase.conforms`](@ref) checks. It tests the promises
+[`Solution`](@ref PureQPBase.Solution) and [`Status`](@ref PureQPBase.Status) make:
+
+- a run that stops early never reports `SOLVED`
+- a run with no answer fills `x` and `y` with `NaN`, not with a number that looks usable
+- the objective it reports is the objective
+- the times it reports are real
+
+Run it on your algorithm:
 
 ```julia
 using Test, PureQPBase, MyQPAlgorithm
 PureQPBase.conforms(MyAlgorithm(); eps = 1e-8, slow_iters = 5)
 ```
 
-`eps` is a tolerance your method can reach on a small dense QP and `slow_iters` an iteration
-budget too small to converge on one; both differ by algorithm, which is why they are given
-rather than assumed.
+Give it `eps`, a tolerance your method can reach on a small dense problem. Give it
+`slow_iters`, an iteration count too small to converge on one. These differ by algorithm, so
+you pass them rather than let the check guess.
 
 ## Where to read
 
-`PureIPM/src/settings.jl` for the algorithm object and its defaults, `workspace.jl` for the
-workspace and the four methods `setup` calls, and `ipm.jl` for a method that uses the shared
-kernels throughout. `docs/design/modular-ipm.md` records why it is shaped as it is.
+- `PureIPM/src/settings.jl` — the algorithm object and its defaults
+- `PureIPM/src/workspace.jl` — the workspace, and the methods `setup` calls
+- `PureIPM/src/ipm.jl` — a method that uses the shared parts throughout
+- `docs/design/modular-ipm.md` — why we shaped it this way
