@@ -312,7 +312,7 @@ tridiagonal backend tests the pivots itself, where the banded one can rely on `i
 
 ## Block-diagonal structure
 
-A [`PureOSQP.BlockDiagonal`](@ref) `P` and `A` split the reduced matrix into `K` independent
+A [`PureQPBase.BlockDiagonal`](@ref) `P` and `A` split the reduced matrix into `K` independent
 blocks, which are factored one at a time and never assembled into one matrix. The factorization
 cost falls from `n³` to `Σnᵢ³` and the storage from `n²` to `Σnᵢ²`, so both improve as the same
 `n` is split into more blocks. Each row is one problem solved as a `BlockDiagonal`, as a
@@ -342,7 +342,7 @@ dense path at all but `K = 12`. The blocks are dense, and CG does not use the bl
 
 ## Low-rank structure
 
-A `Diagonal` `P` with a [`PureOSQP.RowCoupled`](@ref) `A` makes the reduced matrix a diagonal
+A `Diagonal` `P` with a [`PureQPBase.RowCoupled`](@ref) `A` makes the reduced matrix a diagonal
 plus a rank-`k` correction, which Woodbury solves without forming it: two `gemv`s against a
 `k×n` block and one `k×k` solve, in `O(nk)` time and storage rather than `O(n²)`. Reproduce
 with `julia --project=bench PureOSQP/bench/lowrank_backend.jl`; samples in
@@ -661,7 +661,7 @@ The operator is `P = Diagonal(d) + α v vᵀ`, written three ways:
   `is_materializable` returning `false`, `is_convex`, and `structural_rows`. It is defined in
   `PureOSQP/bench/lazy_operator.jl` and stores a vector and a scalar, never an `n×n` array.
 - **linearmap**: the same operator as a `LinearMaps.LinearMap`, which implements none of the
-  protocol and is wrapped in [`PureOSQP.ProductOperator`](@ref) to reach the same backend.
+  protocol and is wrapped in [`PureQPBase.ProductOperator`](@ref) to reach the same backend.
 - **matrix**: the same operator stored as an `n×n` `Matrix`.
 
 | n | BLAS threads | protocol setup | linearmap setup | matrix setup | matrix / protocol | protocol step | linearmap step | matrix step |
@@ -688,7 +688,7 @@ probing is used for equilibration, not for this diagonal.
 
 The wrapping itself costs nothing measurable. Whether the preconditioner is worth its setup
 depends on how many iterations the problem runs. To give a map one, define
-`PureOSQP.structural_rows` for its type, the same method that enables equilibration.
+`PureQPBase.structural_rows` for its type, the same method that enables equilibration.
 
 The solver is only allocation-free if the operator's `mul!` is: a `mul!` that allocates makes
 every iteration allocate.

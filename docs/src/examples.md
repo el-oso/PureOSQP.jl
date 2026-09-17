@@ -906,7 +906,7 @@ The certificate that does not apply is an empty vector:
 
 The MathOptInterface wrapper is a package extension, loaded when MathOptInterface is. Every
 field of [`Options`](@ref) and every parameter of that optimizer's algorithm is a raw
-optimizer attribute of the same name; `PureIPM.Optimizer` is the interior-point counterpart
+optimizer attribute of the same name; `PureOSQP.Optimizer` is the interior-point counterpart
 of the one below. This block is not run here, since the docs do not depend on JuMP:
 
 ```julia

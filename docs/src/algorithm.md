@@ -110,10 +110,10 @@ The `choose_backend` function selects a solver based on the problem's structure:
 
 | `P` | `A` | bandwidth of `R` | backend | solve |
 |---|---|---|---|---|
-| `Diagonal` | `Diagonal` | 0 | [`DiagonalReduced`](@ref PureOSQP.DiagonalReduced) | `n` divisions |
-| `SymTridiagonal` or `Tridiagonal` | `Diagonal` | 1 | [`TridiagonalReduced`](@ref PureOSQP.TridiagonalReduced) | `ldlt`, `O(n)` |
-| `Diagonal` | `Bidiagonal` | 1 | [`TridiagonalReduced`](@ref PureOSQP.TridiagonalReduced) | `ldlt`, `O(n)` |
-| `SymTridiagonal` or `Tridiagonal` | `Bidiagonal` | 1 | [`TridiagonalReduced`](@ref PureOSQP.TridiagonalReduced) | `ldlt`, `O(n)` |
+| `Diagonal` | `Diagonal` | 0 | [`DiagonalReduced`](@ref PureQPBase.DiagonalReduced) | `n` divisions |
+| `SymTridiagonal` or `Tridiagonal` | `Diagonal` | 1 | [`TridiagonalReduced`](@ref PureQPBase.TridiagonalReduced) | `ldlt`, `O(n)` |
+| `Diagonal` | `Bidiagonal` | 1 | [`TridiagonalReduced`](@ref PureQPBase.TridiagonalReduced) | `ldlt`, `O(n)` |
+| `SymTridiagonal` or `Tridiagonal` | `Bidiagonal` | 1 | [`TridiagonalReduced`](@ref PureQPBase.TridiagonalReduced) | `ldlt`, `O(n)` |
 | banded | banded | ``2 \leq b \leq n/4`` | `BandedReduced` | banded `cholesky`, `O(nb²)` |
 
 The banded backend is a package extension requiring `BandedMatrices.jl`.
@@ -341,7 +341,7 @@ preconditioner.
   [`forward_derivative`](@ref): an interior-point solution's inactive-row multipliers sit at
   `O(μ_final)`, not at the near-zero a derivative through the active set needs, and polishing
   is what cleans that up.
-- `PureIPM.Optimizer` is the MathOptInterface wrapper around it, as `PureOSQP.Optimizer` is
+- `PureOSQP.Optimizer` is the MathOptInterface wrapper around it, as `PureOSQP.Optimizer` is
   around the operator-splitting method. An optimizer runs the algorithm of the package that
   supplies it, and accepts the shared options and only that algorithm's parameters.
 - `verbose` prints under either algorithm: a header, one line per termination check, and a

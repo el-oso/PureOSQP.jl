@@ -19,7 +19,7 @@ Two terms used throughout:
   is where nearly all the time goes, and the sections below aim to keep it small or cheap.
   The formula is `R = cDPD + σI + Ãᵀdiag(ρ)Ã`; you do not need it to use any of this.
 - A **backend** is the code that solves against that matrix. There are ten or so. `setup`
-  picks one from the types of `P` and `A`; you do not. `PureOSQP.backend_name(ws.linsys)`
+  picks one from the types of `P` and `A`; you do not. `PureQPBase.backend_name(ws.linsys)`
   reports the choice.
 
 The workflow is always: pass a matrix type that describes your problem, then check which
@@ -110,28 +110,28 @@ right answer when the pattern is irregular and mostly empty.
 \begin{pmatrix} • & & • & \\ & • & & \\ • & & & • \\ & & • & • \end{pmatrix}
 ```
 
-**[`PureOSQP.BlockDiagonal`](@ref).** A run of independent blocks, stored as the blocks. `K`
+**[`PureQPBase.BlockDiagonal`](@ref).** A run of independent blocks, stored as the blocks. `K`
 systems of size `n/K` instead of one of size `n`: `n³/K²` work and `1/K` the memory.
 
 ```math
 \begin{pmatrix} • & • & & & & \\ • & • & & & & \\ & & • & • & & \\ & & • & • & & \\ & & & & • & • \\ & & & & • & • \end{pmatrix}
 ```
 
-**[`PureOSQP.RowCoupled`](@ref).** A few dense rows above rows holding one entry each — a bound
+**[`PureQPBase.RowCoupled`](@ref).** A few dense rows above rows holding one entry each — a bound
 per variable plus a budget or total. Solved by Woodbury in `O(nk)`, never forming the `n×n`.
 
 ```math
 \begin{pmatrix} • & • & • & • \\ • & • & • & • \\ • & & & \\ & • & & \\ & & • & \\ & & & • \end{pmatrix}
 ```
 
-**[`PureOSQP.KroneckerOperator`](@ref).** `A₁ ⊗ A₂`, held as its two factors. A constraint
+**[`PureQPBase.KroneckerOperator`](@ref).** `A₁ ⊗ A₂`, held as its two factors. A constraint
 acting across two dimensions at once; the `6×6` below is stored as `4 + 9` numbers.
 
 ```math
 A_1 \otimes A_2 = \begin{pmatrix} a_{11}A_2 & a_{12}A_2 \\ a_{21}A_2 & a_{22}A_2 \end{pmatrix}
 ```
 
-**[`PureOSQP.ProductOperator`](@ref), and `LinearMaps.LinearMap`.** No entries at all. The
+**[`PureQPBase.ProductOperator`](@ref), and `LinearMaps.LinearMap`.** No entries at all. The
 matrix is a *program*: a chain of steps applied to `x`, each cheap, none of them assembled.
 The running-sum constraint used later on this page is three steps —
 
@@ -177,7 +177,7 @@ rather than shapes, and carry no backend of their own.
 | `μI` with `KroneckerOperator` | diagonal in the factors' eigenbasis | `kronecker` |
 | an operator | never formed | `indirect` |
 
-`PureOSQP.backend_name(ws.linsys)` reports which one you got.
+`PureQPBase.backend_name(ws.linsys)` reports which one you got.
 
 ### What the solver requires of `P`, and what conditioning costs
 
@@ -198,7 +198,7 @@ P = \begin{pmatrix} 2 & 1 \\ 1 & 2 \end{pmatrix}
 **Positive definiteness — of `P + σI`, not of `P`.** The requirement is `P + σI ≻ 0`, which
 makes the reduced matrix factorable. Since `σ > 0`, a merely positive *semi*definite `P`
 always passes — including `P = 0`, a feasibility problem — so this rejects only genuine
-indefiniteness. [`PureOSQP.is_convex`](@ref) is the test, and a type can answer it cheaply: a
+indefiniteness. [`PureQPBase.is_convex`](@ref) is the test, and a type can answer it cheaply: a
 `Diagonal` scans its entries, a `SparseMatrixCSC` factors sparsely, an operator reports what
 it was told.
 
@@ -340,7 +340,7 @@ scattered = setup(
 PureOSQP.backend_name(scattered.linsys)
 ```
 
-Both are reported by `PureOSQP.backend_name(ws.linsys)`, which names whichever backend the
+Both are reported by `PureQPBase.backend_name(ws.linsys)`, which names whichever backend the
 workspace ended up with. The dense default is `:cholesky`, and the full quasi-definite
 factorization is `:bunchkaufman`.
 
@@ -437,7 +437,7 @@ entries with whatever the representation can answer more cheaply.
 There are two seam levels, and which one a representation wants depends on whether it can
 enumerate a column.
 
-**Per column.** [`PureOSQP.structural_rows`](@ref)`(M, j)` names the rows column `j` can hold
+**Per column.** [`PureQPBase.structural_rows`](@ref)`(M, j)` names the rows column `j` can hold
 a nonzero in; the four traversals in `PureQPBase/src/scaling.jl` — `weighted_colmax`,
 `weighted_colmax_rowmax!`, `scaled_col!` and `add_scaled_col!` — follow it, so a single
 `structural_rows` method makes equilibration and the dense formation cost the column's own
@@ -451,21 +451,21 @@ two and never sees a column index. The GPU extension is the shipped example: it 
 both with array reductions instead of indexing entries one at a time.
 
 Beyond equilibration there are three more override points, all optional:
-`PureOSQP.reduced_diagonal!` for the matrix-free preconditioner,
-[`PureOSQP.is_convex`](@ref) for the convexity test `setup` runs before choosing a backend,
-and [`PureOSQP.is_symmetric`](@ref) for the symmetry check — the last two both densify or
+`PureQPBase.reduced_diagonal!` for the matrix-free preconditioner,
+[`PureQPBase.is_convex`](@ref) for the convexity test `setup` runs before choosing a backend,
+and [`PureQPBase.is_symmetric`](@ref) for the symmetry check — the last two both densify or
 scan `n²` positions otherwise.
 
-[`PureOSQP.RowCoupled`](@ref) is the worked example in the package itself: a few dense rows
+[`PureQPBase.RowCoupled`](@ref) is the worked example in the package itself: a few dense rows
 above a block holding one entry per row. It defines `size`, `getindex` and `mul!`, and adds
 one `structural_rows` method; that is all it takes for a `Diagonal` `P` with a `RowCoupled`
 `A` to reach the low-rank backend and to equilibrate at the cost of its own entries.
 
 An operator that supplies **only** products — nothing to index at all — says so with
-[`PureOSQP.is_materializable`](@ref):
+[`PureQPBase.is_materializable`](@ref):
 
 ```julia
-PureOSQP.is_materializable(::MyOperator) = false
+PureQPBase.is_materializable(::MyOperator) = false
 ```
 
 `linsys = :auto` then skips the dense terminal and lands on the matrix-free backend, which
@@ -600,7 +600,7 @@ build the wrapper yourself with `ProductOperator{T}(map; symmetric, posdef)` if 
 override what a map claims.)
 
 That third point is also what LinearMaps buys you over writing an operator by hand: those two
-declarations travel with the map, so [`PureOSQP.is_convex`](@ref) is answered by reading a flag
+declarations travel with the map, so [`PureQPBase.is_convex`](@ref) is answered by reading a flag
 instead of factoring a matrix.
 
 **One thing to expect: a map runs without a preconditioner.** A preconditioner is a cheap
@@ -611,7 +611,7 @@ and each iteration gets **1.33–1.44× dearer**, measured on the same operator 
 ([Benchmarks](@ref "An operator that is never materialized")).
 
 Usually you just accept that. If the iteration count matters, give your map's type a
-`PureOSQP.structural_rows` method — one method, described under
+`PureQPBase.structural_rows` method — one method, described under
 [Structured operators](@ref "2. `structural_rows` — setup stops paying for the zeros"), which
 recovers the preconditioner *and* lets you drop `scaling = 0`. Setting `probe = true` is not a
 substitute; probing answers the rescaling question, not this one.
@@ -681,9 +681,9 @@ for.
 
 | if your problem is… | use | typical source |
 |---|---|---|
-| many small independent sub-problems, side by side | [`PureOSQP.BlockDiagonal`](@ref) | one QP per time step, per asset, per scenario — anything that would be separate problems if they did not share a solve |
-| mostly independent, but with a *few* rows tying everything together | [`PureOSQP.RowCoupled`](@ref) | box constraints plus a handful of budget or total-mass rows |
-| a constraint applied across two dimensions at once | [`PureOSQP.KroneckerOperator`](@ref) | a 2-D grid, an image, space × time — where the constraint is "this in one direction, that in the other" |
+| many small independent sub-problems, side by side | [`PureQPBase.BlockDiagonal`](@ref) | one QP per time step, per asset, per scenario — anything that would be separate problems if they did not share a solve |
+| mostly independent, but with a *few* rows tying everything together | [`PureQPBase.RowCoupled`](@ref) | box constraints plus a handful of budget or total-mass rows |
+| a constraint applied across two dimensions at once | [`PureQPBase.KroneckerOperator`](@ref) | a 2-D grid, an image, space × time — where the constraint is "this in one direction, that in the other" |
 | none of these | nothing to do | pass ordinary matrices; the solver is still fast |
 
 If none of the rows fit, you have lost nothing by reading — these are optimizations, not
@@ -781,7 +781,7 @@ where variable 3 never appears in a constraint with variable 40.
 The payoff is large and worth understanding, because it is why this type exists. Solving one
 `n×n` system costs about `n³`. Solving `K` systems of size `n/K` costs `K(n/K)³ = n³/K²`. At
 `K = 10` that is a hundred times less work, and a tenth of the memory. The solver gets that
-automatically once it can *see* the blocks — which is what [`PureOSQP.BlockDiagonal`](@ref) is
+automatically once it can *see* the blocks — which is what [`PureQPBase.BlockDiagonal`](@ref) is
 for. Handed the same numbers as one big dense matrix, it cannot see them, and pays the `n³`.
 
 Store it as a vector of the blocks. `P` and `A` must split at the same places, since a block
@@ -919,7 +919,7 @@ row saying "the weights sum to 1". A schedule with a limit per machine plus two 
 capacity. A design with a box on each parameter plus a budget.
 
 Written as an ordinary matrix, those few dense rows make the whole thing look dense, and the
-solver pays as if every constraint coupled everything. [`PureOSQP.RowCoupled`](@ref) separates
+solver pays as if every constraint coupled everything. [`PureQPBase.RowCoupled`](@ref) separates
 the two kinds so it can charge you only for the coupling rows you actually have.
 
 It takes three arguments, in this order:

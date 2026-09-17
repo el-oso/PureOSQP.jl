@@ -159,7 +159,7 @@ The `rho` column shows adaptive $\rho$ updates, which trigger refactorizations. 
     7        1.36012      8.14e-09      3.02e-09      6.71e-09        1.0000
 ```
 
-`InteriorPoint`'s footer also names the run time; on the matrix-free `linsys = :indirect` backend, its row gains a `cg iters` column for that iteration's conjugate-gradient count, and its footer adds the total CG iterations and the number of missed inner solves (see [`Solution.cg_iters`](@ref PureOSQP.Solution)).
+`InteriorPoint`'s footer also names the run time; on the matrix-free `linsys = :indirect` backend, its row gains a `cg iters` column for that iteration's conjugate-gradient count, and its footer adds the total CG iterations and the number of missed inner solves (see [`Solution.cg_iters`](@ref PureQPBase.Solution)).
 
 Output goes to `Core.stdout` rather than `Base.stdout` to support `--trim` compilation. Use `redirect_stdout` to capture it.
 
@@ -171,11 +171,11 @@ The [`Solution`](@ref) object carries the objective, duality gap, both residuals
 
 ## Status values
 
-There are twelve status values in [`Status`](@ref PureOSQP.Status). Key facts:
+There are twelve status values in [`Status`](@ref PureQPBase.Status). Key facts:
 1. An unconverged result is never marked `SOLVED`.
 2. If there is no meaningful primal-dual point, `x` and `y` are `NaN`.
 
-Use [`has_solution`](@ref PureOSQP.has_solution) to check.
+Use [`has_solution`](@ref PureQPBase.has_solution) to check.
 
 ## What is rejected
 

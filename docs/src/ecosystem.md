@@ -66,7 +66,7 @@ using JuMP, PureOSQP, MathOptInterface
 model = Model(PureOSQP.Optimizer)       # OperatorSplitting
 
 using PureIPM
-model = Model(PureIPM.Optimizer)        # InteriorPoint
+model = Model(PureOSQP.Optimizer)        # InteriorPoint
 ```
 
 One wrapper serves both — it lives in PureQPBase and carries the algorithm — so the two

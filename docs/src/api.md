@@ -1,34 +1,34 @@
 # API
 
 ```@docs
-PureOSQP.solve
+PureQPBase.solve
 PureQPBase.setup
-PureOSQP.solve!
-PureOSQP.update!
-PureOSQP.warm_start!
-PureOSQP.cold_start!
-PureOSQP.update_settings!
-PureOSQP.update_rho!
-PureOSQP.dimensions
-PureOSQP.capabilities
-PureOSQP.constraint_violation
+PureQPBase.solve!
+PureQPBase.update!
+PureQPBase.warm_start!
+PureQPBase.cold_start!
+PureQPBase.update_settings!
+PureQPBase.update_rho!
+PureQPBase.dimensions
+PureQPBase.capabilities
+PureQPBase.constraint_violation
 PureOSQP.constraint_violation!
 PureOSQP.Optimizer
-PureOSQP.adjoint_derivative
-PureOSQP.forward_derivative
-PureOSQP.Solution
+PureQPBase.adjoint_derivative
+PureQPBase.forward_derivative
+PureQPBase.Solution
 ```
 
 ## Algorithms and options
 
 ```@docs
-PureOSQP.QPAlgorithm
+PureQPBase.QPAlgorithm
 PureOSQP.OperatorSplitting
 PureIPM.InteriorPoint
-PureOSQP.Options
+PureQPBase.Options
 PureQPBase.LINSYS_OPTIONS
-PureOSQP.default_options
-PureOSQP.QPWorkspace
+PureQPBase.default_options
+PureQPBase.QPWorkspace
 PureOSQP.OperatorSplittingWorkspace
 PureIPM.InteriorPointWorkspace
 ```
@@ -36,7 +36,7 @@ PureIPM.InteriorPointWorkspace
 ## Status values
 
 ```@docs
-PureOSQP.Status
+PureQPBase.Status
 ```
 
 ## Settings
@@ -106,33 +106,33 @@ The `linsys` setting selects the *formulation* of the linear system:
 
 ```@docs
 PureQPBase.equilibrate!
-PureOSQP.mul_A!
-PureOSQP.mul_At!
-PureOSQP.mul_P!
-PureOSQP.refactor!
-PureOSQP.refactor_rho!
-PureOSQP.factorize!
-PureOSQP.refactor_weights!
+PureQPBase.mul_A!
+PureQPBase.mul_At!
+PureQPBase.mul_P!
+PureQPBase.refactor!
+PureQPBase.refactor_rho!
+PureQPBase.factorize!
+PureQPBase.refactor_weights!
 PureQPBase.assemble_kkt0!
-PureOSQP.solve_system!
-PureOSQP.solve_multiplier!
-PureOSQP.element_typed
+PureQPBase.solve_system!
+PureQPBase.solve_multiplier!
+PureQPBase.element_typed
 PureOSQP.admm_step!
 PureOSQP.set_rho_vec!
 PureOSQP.adapt_rho!
 PureOSQP.update_residuals!
-PureOSQP.gap_terms
-PureOSQP.eps_prim
-PureOSQP.eps_dual
-PureOSQP.eps_duality_gap
-PureOSQP.check_termination
-PureOSQP.is_primal_infeasible
-PureOSQP.is_dual_infeasible
+PureQPBase.gap_terms
+PureQPBase.eps_prim
+PureQPBase.eps_dual
+PureQPBase.eps_duality_gap
+PureQPBase.check_termination
+PureQPBase.is_primal_infeasible
+PureQPBase.is_dual_infeasible
 PureQPBase.residuals_at!
-PureOSQP.polish_kernel!
-PureOSQP.polish!
-PureOSQP.active_kkt
-PureOSQP.derivative_ready
+PureQPBase.polish_kernel!
+PureQPBase.polish!
+PureQPBase.active_kkt
+PureQPBase.derivative_ready
 PureIPM.ipm_step!
 PureIPM.ipm_residuals!
 PureIPM.weights!
@@ -141,61 +141,61 @@ PureIPM.primal_certificate!
 PureIPM.dual_certificate!
 PureIPM.stalled!
 PureIPM.iterate_bound
-PureOSQP.has_solution
-PureOSQP.status_name
-PureOSQP.PolishStatus
+PureQPBase.has_solution
+PureQPBase.status_name
+PureQPBase.PolishStatus
 ```
 
 ## Linear-system backends
 
 ```@docs
-PureOSQP.LinearSystem
-PureOSQP.Problem
-PureOSQP.SystemWeights
+PureQPBase.LinearSystem
+PureQPBase.Problem
+PureQPBase.SystemWeights
 PureQPBase.check_update
-PureOSQP.set_tolerance_level!
-PureOSQP.adopt_settings!
-PureOSQP.set_refresh_index!
-PureOSQP.use_residual_stop!
-PureOSQP.last_solve_converged
-PureOSQP.inner_iterations
-PureOSQP.update_preconditioner!
-PureOSQP.Preconditioner
+PureQPBase.set_tolerance_level!
+PureQPBase.adopt_settings!
+PureQPBase.set_refresh_index!
+PureQPBase.use_residual_stop!
+PureQPBase.last_solve_converged
+PureQPBase.inner_iterations
+PureQPBase.update_preconditioner!
+PureQPBase.Preconditioner
 PureQPBase.check_preconditioner
-PureOSQP.IdentityPreconditioner
-PureOSQP.JacobiPreconditioner
-PureOSQP.choose_backend
+PureQPBase.IdentityPreconditioner
+PureQPBase.JacobiPreconditioner
+PureQPBase.choose_backend
 PureQPBase.ReducedInverse
-PureOSQP.ReducedCholesky
-PureOSQP.DiagonalReduced
-PureOSQP.TridiagonalReduced
-PureOSQP.DiagonalLowRank
-PureOSQP.BlockReduced
-PureOSQP.KroneckerReduced
-PureOSQP.FullKKT
-PureOSQP.indirect_backend
+PureQPBase.ReducedCholesky
+PureQPBase.DiagonalReduced
+PureQPBase.TridiagonalReduced
+PureQPBase.DiagonalLowRank
+PureQPBase.BlockReduced
+PureQPBase.KroneckerReduced
+PureQPBase.FullKKT
+PureQPBase.indirect_backend
 ```
 
 ## Structured inputs
 
 ```@docs
-PureOSQP.RowCoupled
+PureQPBase.RowCoupled
 PureQPBase.coupling_rank
-PureOSQP.BlockDiagonal
-PureOSQP.KroneckerOperator
-PureOSQP.factors
-PureOSQP.is_scalar_multiple
-PureOSQP.scalar_multiple
+PureQPBase.BlockDiagonal
+PureQPBase.KroneckerOperator
+PureQPBase.factors
+PureQPBase.is_scalar_multiple
+PureQPBase.scalar_multiple
 PureQPBase.nblocks
 PureQPBase.rowrange
 PureQPBase.colrange
-PureOSQP.structural_rows
-PureOSQP.is_convex
-PureOSQP.is_symmetric
-PureOSQP.is_materializable
-PureOSQP.reduced_diagonal!
+PureQPBase.structural_rows
+PureQPBase.is_convex
+PureQPBase.is_symmetric
+PureQPBase.is_materializable
+PureQPBase.reduced_diagonal!
 PureQPBase.reduced_rhs!
-PureOSQP.ProductOperator
+PureQPBase.ProductOperator
 PureQPBase.unpreconditioned!
 PureQPBase.probe_column!
 PureQPBase.no_entries
@@ -208,36 +208,36 @@ PureIPM.caller_preconditioner
 ## The selection ladder
 
 ```@docs
-PureOSQP.SelectionFor
-PureOSQP.ADMMSelection
-PureOSQP.IPMSelection
+PureQPBase.SelectionFor
+PureQPBase.ADMMSelection
+PureQPBase.IPMSelection
 PureQPBase.refuse_selection
-PureOSQP.named_backend
+PureQPBase.named_backend
 PureQPBase.sparse_refusal
-PureOSQP.select_backend
-PureOSQP.kkt_rung
-PureOSQP.reduced_rung
-PureOSQP.block_rung
-PureOSQP.kronecker_rung
-PureOSQP.lowrank_rung
-PureOSQP.formed_rung
-PureOSQP.dense_rung
-PureOSQP.indirect_rung
+PureQPBase.select_backend
+PureQPBase.kkt_rung
+PureQPBase.reduced_rung
+PureQPBase.block_rung
+PureQPBase.kronecker_rung
+PureQPBase.lowrank_rung
+PureQPBase.formed_rung
+PureQPBase.dense_rung
+PureQPBase.indirect_rung
 ```
 
 ## Backend introspection
 
 ```@docs
-PureOSQP.backend_name
-PureOSQP.backend_info
-PureOSQP.factor_fill
-PureOSQP.BackendInfo
+PureQPBase.backend_name
+PureQPBase.backend_info
+PureQPBase.factor_fill
+PureQPBase.BackendInfo
 ```
 
 ## Measuring the backend choice
 
 ```@docs
-PureOSQP.recommend_linsys
+PureQPBase.recommend_linsys
 PureQPBase.LinsysAdvice
 PureQPBase.measure_linsys
 PureQPBase.solve_iterations

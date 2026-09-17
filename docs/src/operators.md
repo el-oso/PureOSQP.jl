@@ -17,9 +17,9 @@ Three shipped examples serve as templates:
 
 | representation | backend | what the structure buys |
 |---|---|---|
-| [`PureOSQP.BlockDiagonal`](@ref) | [`PureOSQP.BlockReduced`](@ref) | `R` decouples into `K` independent systems |
-| [`PureOSQP.RowCoupled`](@ref) | [`PureOSQP.DiagonalLowRank`](@ref) | `R` is a diagonal plus a rank-`k` correction, solved by Woodbury |
-| [`PureOSQP.KroneckerOperator`](@ref) | [`PureOSQP.KroneckerReduced`](@ref) | `R` is diagonal in the factors' eigenbasis |
+| [`PureQPBase.BlockDiagonal`](@ref) | [`PureQPBase.BlockReduced`](@ref) | `R` decouples into `K` independent systems |
+| [`PureQPBase.RowCoupled`](@ref) | [`PureQPBase.DiagonalLowRank`](@ref) | `R` is a diagonal plus a rank-`k` correction, solved by Woodbury |
+| [`PureQPBase.KroneckerOperator`](@ref) | [`PureQPBase.KroneckerReduced`](@ref) | `R` is diagonal in the factors' eigenbasis |
 
 `docs/src/examples.md` runs all three. The Kronecker backend is the cautionary case: it
 applies only when `P` is a scalar multiple of `I`, `ρ` is one number, and `scaling = 0`, so
@@ -63,27 +63,27 @@ end
 definite *before* a backend is chosen, and the generic methods for both read entries. An
 operator with only `size` and `mul!` fails there with a `CanonicalIndexError`, not at solve
 time. Two fixes — give the type a `getindex` (a cheap lookup for most structured types), or
-override [`PureOSQP.is_symmetric`](@ref) and [`PureOSQP.is_convex`](@ref) block-wise and
-declare [`PureOSQP.is_materializable`](@ref) `false`.
+override [`PureQPBase.is_symmetric`](@ref) and [`PureQPBase.is_convex`](@ref) block-wise and
+declare [`PureQPBase.is_materializable`](@ref) `false`.
 
 With that, the solver runs and the per-iteration products cost what the structure costs.
 Selection still reaches the dense terminal, so an `n×n` reduced matrix is still formed.
 
 An operator from a hierarchy that is not `AbstractMatrix` — `LinearMaps.LinearMap`,
 `SciMLOperators.AbstractSciMLOperator` — is wrapped rather than rewritten:
-[`PureOSQP.ProductOperator`](@ref) presents one as an `AbstractMatrix`. Loading either package
+[`PureQPBase.ProductOperator`](@ref) presents one as an `AbstractMatrix`. Loading either package
 lets `setup` and `solve` take its operators directly; see
 [Operators from functions](@ref) for which of the two to reach for.
 
 ### 2. `structural_rows` — setup stops paying for the zeros
 
-[`PureOSQP.structural_rows`](@ref)`(M, j)` answers which rows column `j` can hold a nonzero
+[`PureQPBase.structural_rows`](@ref)`(M, j)` answers which rows column `j` can hold a nonzero
 in. Equilibration and the dense formation both walk columns through it, and its generic
 answer is *every* row — so without a method, setup costs `O(mn)` however little the type
 stores.
 
 ```julia
-PureOSQP.structural_rows(A::Blocks, j::Integer) = rowrange_of_the_block_holding(A, j)
+PureQPBase.structural_rows(A::Blocks, j::Integer) = rowrange_of_the_block_holding(A, j)
 ```
 
 This is the highest-value method on the page. Adding it for `BandedMatrix` took a banded
@@ -92,19 +92,19 @@ row of every column of a matrix holding `O(nb)` entries.
 
 An operator with no columns to enumerate — one that only multiplies — has two other routes:
 build it with `probe = true`, which recovers column `j` as `op * eⱼ`, or pass `scaling = 0`
-and skip equilibration. Both are described under [`PureOSQP.ProductOperator`](@ref).
+and skip equilibration. Both are described under [`PureQPBase.ProductOperator`](@ref).
 
 ### 3. A `LinearSystem` — the reduced matrix is never formed
 
-Subtype [`PureOSQP.LinearSystem`](@ref) and implement `factorize!(ls, prob, wt)`,
+Subtype [`PureQPBase.LinearSystem`](@ref) and implement `factorize!(ls, prob, wt)`,
 `solve_system!(ls, prob, wt, rhs_x, rhs_z, x, z)` and `backend_info`; the contract is enforced
-at precompilation, and [`PureOSQP.refactor_weights!`](@ref) is optional. `prob` is the
-[`PureOSQP.Problem`](@ref) and `wt` the [`PureOSQP.SystemWeights`](@ref). The backend decides
+at precompilation, and [`PureQPBase.refactor_weights!`](@ref) is optional. `prob` is the
+[`PureQPBase.Problem`](@ref) and `wt` the [`PureQPBase.SystemWeights`](@ref). The backend decides
 what "solve the reduced system" means for this structure, and it is where the `O(n²)` object
 stops existing.
 
 ```julia
-mutable struct BlockSolve{T} <: PureOSQP.LinearSystem
+mutable struct BlockSolve{T} <: PureQPBase.LinearSystem
     inv::Vector{Matrix{T}}      # one inverse per block; no n×n anything
 end
 ```
@@ -125,24 +125,24 @@ Selection is multiple dispatch. A method on `choose_backend` for your pair of ty
 the ladder by being more specific, which is the whole mechanism:
 
 ```julia
-function PureOSQP.choose_backend(
-        P::Blocks, A::Blocks, prob::PureOSQP.Problem, wt::PureOSQP.SystemWeights,
-        sel::PureOSQP.SelectionFor
+function PureQPBase.choose_backend(
+        P::Blocks, A::Blocks, prob::PureQPBase.Problem, wt::PureQPBase.SystemWeights,
+        sel::PureQPBase.SelectionFor
     )
     return (BlockSolve(...), false)
 end
 ```
 
-`prob` is the [`PureOSQP.Problem`](@ref) holding `P`, `A` and the equilibration factors; `wt`
-is the [`PureOSQP.SystemWeights`](@ref) holding `ρ` and `σ`; `sel` is
-[`PureOSQP.ADMMSelection`](@ref) or [`PureOSQP.IPMSelection`](@ref), which lets a method serve
+`prob` is the [`PureQPBase.Problem`](@ref) holding `P`, `A` and the equilibration factors; `wt`
+is the [`PureQPBase.SystemWeights`](@ref) holding `ρ` and `σ`; `sel` is
+[`PureQPBase.ADMMSelection`](@ref) or [`PureQPBase.IPMSelection`](@ref), which lets a method serve
 one algorithm's ladder, the other's, or both by leaving it untyped as `SelectionFor` above.
 Define a method that matches neither `P` nor `A` specifically and it never dispatches — the
 ladder proceeds to the dense terminal and nothing reports a problem.
 
 Return `(backend, false)` when the backend arrives unfactored, `(backend, true)` when it
 already carries a factorization of the current data. A rung inside the ladder instead returns
-`nothing` to leave the pair to the next rung; see [`PureOSQP.select_backend`](@ref) for the
+`nothing` to leave the pair to the next rung; see [`PureQPBase.select_backend`](@ref) for the
 order and what each rung serves.
 
 ## What each omission costs
@@ -156,14 +156,14 @@ order and what each rung serves.
 
 The equilibration column is not the whole of `setup`. `is_symmetric` and `is_convex` run
 before a backend is chosen and their generic methods are `O(n²)` and `O(n³)` — a type that
-does not override them pays that on every `setup`. [`PureOSQP.BlockDiagonal`](@ref) overrides
+does not override them pays that on every `setup`. [`PureQPBase.BlockDiagonal`](@ref) overrides
 both block-wise and is worth reading for the shape.
 
 ## What happens on paths that need entries
 
 Polishing and the solution derivatives copy `P` and `A` into a dense factorization one entry
 at a time. An operator that cannot answer that declares
-[`PureOSQP.is_materializable`](@ref) `false`, and those paths then throw a message naming the
+[`PureQPBase.is_materializable`](@ref) `false`, and those paths then throw a message naming the
 remedy rather than a `MethodError` from inside the copy. The rungs that would form a matrix
 are skipped too, so `linsys = :auto` reaches the matrix-free backend instead of failing inside
 a factorization.
@@ -177,7 +177,7 @@ answer rather than a merely slow one. A structured direct backend is the point o
 [`InteriorPoint`](@ref) solves an operator pair only with `linsys = :indirect`, a
 `preconditioner` the caller supplies, and `scaling = 0`; `linsys = :auto` never chooses it, and
 the same three requirements hold for matrices. Without a preconditioner, with the built-in
-[`PureOSQP.JacobiPreconditioner`](@ref) or [`PureOSQP.IdentityPreconditioner`](@ref), with
+[`PureQPBase.JacobiPreconditioner`](@ref) or [`PureQPBase.IdentityPreconditioner`](@ref), with
 equilibration on, or with an operator built with `probe = true`, `setup` throws an
 `ArgumentError` naming the requirement.
 
@@ -185,7 +185,7 @@ The preconditioner approximates `P + σI + Aᵀ diag(w) A` for the `P` and `A` p
 The interior-point weights `w` change every outer iteration and reach `1/reg_dual` on equality
 and active rows, so a product-only preconditioner does not keep conjugate gradients within
 budget; the caller supplies one built from what they know about the operators. It is refreshed
-through [`PureOSQP.update_preconditioner!`](@ref), which receives `k = -1` for the starting
+through [`PureQPBase.update_preconditioner!`](@ref), which receives `k = -1` for the starting
 point and the outer iteration `k = 0, 1, 2, …` afterwards, and applied through
 `LinearAlgebra.ldiv!`. A factor of the reduced matrix built from dense copies of `P` and `A`,
 refreshed every third outer iteration:
@@ -201,7 +201,7 @@ end
 LaggedCholesky(P, A; every = 3) =
     LaggedCholesky(Matrix(P), Matrix(A), every, cholesky(Matrix(1.0I, size(P)...)), NaN)
 
-function PureOSQP.update_preconditioner!(M::LaggedCholesky, prob, wt, k::Int)
+function PureQPBase.update_preconditioner!(M::LaggedCholesky, prob, wt, k::Int)
     (k < 0 || iszero(k % M.every) || wt.sigma != M.sigma) || return M
     M.F = cholesky(Symmetric(M.P + wt.sigma * I + M.A' * Diagonal(wt.w) * M.A))
     M.sigma = wt.sigma

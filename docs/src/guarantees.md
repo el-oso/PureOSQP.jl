@@ -19,7 +19,7 @@ using PureOSQP, TypeContracts, Markdown
 Markdown.parse(replace(contract_md_string(PureOSQP.LinearSystem), r"\A# [^\n]*\n+" => ""))
 ```
 
-`PureOSQP.refactor_weights!` is not part of the contract, as its default is to rebuild the factorization.
+`PureQPBase.refactor_weights!` is not part of the contract, as its default is to rebuild the factorization.
 
 @verify ensures that backends implement the required methods and return the correct types at precompilation.
 

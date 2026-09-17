@@ -33,11 +33,11 @@ zero iteration budget.
 arguments of the contract's signature it is `Any`, although a call with concrete arguments
 returns a concrete workspace.
 
-An algorithm also needs a [`PureOSQP.SelectionFor`](@ref) tag of its own and the four
+An algorithm also needs a [`PureQPBase.SelectionFor`](@ref) tag of its own and the four
 selection methods that have no algorithm-independent answer:
-[`select_backend`](@ref PureOSQP.select_backend), the order of its ladder;
-[`dense_rung`](@ref PureOSQP.dense_rung), its terminal;
-[`indirect_rung`](@ref PureOSQP.indirect_rung), what sits below the terminal; and, if the
+[`select_backend`](@ref PureQPBase.select_backend), the order of its ladder;
+[`dense_rung`](@ref PureQPBase.dense_rung), its terminal;
+[`indirect_rung`](@ref PureQPBase.indirect_rung), what sits below the terminal; and, if the
 sparse rungs are in that ladder, the SparseArrays extension's `sparse_form`. Every other
 selection method already takes any tag: the rungs that, by default, are skipped so selection
 moves to the next one, the `choose_backend` methods for a structured pair, and the errors the
@@ -71,27 +71,27 @@ the keyword form of [`update_settings!`](@ref), [`adjoint_derivative`](@ref) and
 ## A linear-system backend
 
 A backend is a subtype of [`LinearSystem`](@ref); the workspace holds one and hands it the
-[`PureOSQP.Problem`](@ref) and the [`PureOSQP.SystemWeights`](@ref) on every call.
+[`PureQPBase.Problem`](@ref) and the [`PureQPBase.SystemWeights`](@ref) on every call.
 
 | method | returns | what it does |
 |---|---|---|
-| [`factorize!(ls, prob, wt)`](@ref PureOSQP.factorize!) | `Bool` | rebuilds the factorization; `false` when it cannot |
-| [`solve_system!(ls, prob, wt, rhs_x, rhs_z, x, z)`](@ref PureOSQP.solve_system!) | `Nothing` | solves for `x` and writes `z = Ãx` |
+| [`factorize!(ls, prob, wt)`](@ref PureQPBase.factorize!) | `Bool` | rebuilds the factorization; `false` when it cannot |
+| [`solve_system!(ls, prob, wt, rhs_x, rhs_z, x, z)`](@ref PureQPBase.solve_system!) | `Nothing` | solves for `x` and writes `z = Ãx` |
 | [`backend_info(ls)`](@ref backend_info) | [`BackendInfo`](@ref) | what the backend is and how large its factorization is |
 
 Optional, each with a default for every backend:
 
 | method | returns | default |
 |---|---|---|
-| [`refactor_weights!(ls, prob, wt)`](@ref PureOSQP.refactor_weights!) | `Bool` | calls `factorize!` |
-| [`solve_multiplier!(ls, prob, wt, rhs_x, rhs_z, x, nu)`](@ref PureOSQP.solve_multiplier!) | `Nothing` | derives `ν` from `solve_system!` |
+| [`refactor_weights!(ls, prob, wt)`](@ref PureQPBase.refactor_weights!) | `Bool` | calls `factorize!` |
+| [`solve_multiplier!(ls, prob, wt, rhs_x, rhs_z, x, nu)`](@ref PureQPBase.solve_multiplier!) | `Nothing` | derives `ν` from `solve_system!` |
 | [`check_update(ls, P, A)`](@ref PureQPBase.check_update) | `Nothing` | accepts |
-| [`set_tolerance_level!(ls, level)`](@ref PureOSQP.set_tolerance_level!) | `Nothing` | ignores it |
-| [`set_refresh_index!(ls, k)`](@ref PureOSQP.set_refresh_index!) | `Nothing` | ignores it |
-| [`adopt_settings!(ls, alg, options)`](@ref PureOSQP.adopt_settings!) | `Nothing` | ignores them |
-| [`use_residual_stop!(ls, on)`](@ref PureOSQP.use_residual_stop!) | `Nothing` | ignores it |
-| [`last_solve_converged(ls)`](@ref PureOSQP.last_solve_converged) | `Bool` | `true` |
-| [`inner_iterations(ls)`](@ref PureOSQP.inner_iterations) | `Int` | `0` |
+| [`set_tolerance_level!(ls, level)`](@ref PureQPBase.set_tolerance_level!) | `Nothing` | ignores it |
+| [`set_refresh_index!(ls, k)`](@ref PureQPBase.set_refresh_index!) | `Nothing` | ignores it |
+| [`adopt_settings!(ls, alg, options)`](@ref PureQPBase.adopt_settings!) | `Nothing` | ignores them |
+| [`use_residual_stop!(ls, on)`](@ref PureQPBase.use_residual_stop!) | `Nothing` | ignores it |
+| [`last_solve_converged(ls)`](@ref PureQPBase.last_solve_converged) | `Bool` | `true` |
+| [`inner_iterations(ls)`](@ref PureQPBase.inner_iterations) | `Int` | `0` |
 
 A backend defined in an extension is checked when the extension loads.
 
