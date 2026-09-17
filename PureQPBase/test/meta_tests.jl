@@ -5,7 +5,7 @@
     # unnoticed. Update the counts deliberately when adding or removing a test item.
     expected = Dict(
         "banded_tests.jl" => 3,
-        "base_tests.jl" => 4,
+        "base_tests.jl" => 5,
         "block_tests.jl" => 3,
         "indirect_tests.jl" => 1,
         "kronecker_tests.jl" => 4,

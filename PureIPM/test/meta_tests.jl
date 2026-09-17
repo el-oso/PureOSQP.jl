@@ -4,6 +4,7 @@
     # "passed", just with fewer items. This asserts the inventory so that cannot happen
     # unnoticed. Update the counts deliberately when adding or removing a test item.
     expected = Dict(
+        "conformance_tests.jl" => 1,
         "ipm_backends_tests.jl" => 3,
         "ipm_tests.jl" => 23,
         "meta_tests.jl" => 1,

@@ -68,3 +68,18 @@ end
     @test_throws "linsys must be one of" PureQPBase.check_linsys(:nonsense)
     @test PureQPBase.check_linsys(:kkt) === Val(:kkt)
 end
+
+@testitem "an operator extension does not claim a pair of plain matrices" begin
+    using PureQPBase, LinearMaps, SciMLOperators
+    # Each operator extension adds a `setup`/`solve` that wraps its own type and passes a
+    # matrix through. A method accepting two plain matrices would wrap neither and forward
+    # the same arguments to itself, which recurses until the stack ends. That pair belongs to
+    # whichever package defines the default algorithm, and to no extension.
+    P = [4.0 1.0; 1.0 2.0]
+    q = [1.0, 1.0]
+    A = [1.0 1.0; 1.0 0.0; 0.0 1.0]
+    l = [1.0, 0.0, 0.0]
+    u = [1.0, 0.7, 0.7]
+    @test_throws MethodError solve(P, q, A, l, u)
+    @test_throws MethodError setup(P, q, A, l, u)
+end

@@ -17,6 +17,7 @@ LinearMaps = "7a12625a-238d-50fd-b39a-03d52299707e"
 MathOptInterface = "b8f27783-ece8-5eb3-8dc8-9495eed66fee"
 SciMLOperators = "c0aeaf25-5076-4817-a8d5-81caf7dfa961"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [extensions]
 PureQPBaseBandedMatricesExt = "BandedMatrices"
@@ -28,6 +29,7 @@ PureQPBaseLinearMapsExt = "LinearMaps"
 PureQPBaseMathOptInterfaceExt = ["MathOptInterface", "SparseArrays"]
 PureQPBaseSciMLOperatorsExt = "SciMLOperators"
 PureQPBaseSparseArraysExt = "SparseArrays"
+PureQPBaseTestExt = "Test"
 
 [compat]
 BandedMatrices = "1"

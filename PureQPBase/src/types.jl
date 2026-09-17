@@ -126,7 +126,9 @@ large bound would otherwise dominate the sum."
 
 Result of a solve. `x` and `y` are in the caller's problem space. When the status is an
 infeasibility, the corresponding certificate is populated and `x`/`y` are filled with
-`NaN`; otherwise the certificates are empty.
+`NaN`; otherwise the certificates are empty. `obj_val` is infinite there rather than `NaN`,
+and its sign says which infeasibility it was: `Inf` is the infimum over an empty feasible
+set, `-Inf` an objective unbounded below.
 
 `duality_gap` is `xᵀPx + qᵀx + SC(y)`, where `SC` is the support function of `[l, u]`; it
 is zero at an exact solution and is reported unscaled. `rel_kkt_error` is the largest of

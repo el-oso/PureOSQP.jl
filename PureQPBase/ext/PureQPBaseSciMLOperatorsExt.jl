@@ -110,11 +110,15 @@ Equilibration cannot read an operator's entries, so `scaling = 0` is required un
 wrapped operator has a `PureQPBase.structural_rows` method; without it, `setup` throws and names
 both remedies.
 """
-function PureQPBase.setup(
-        P::Union{AbstractSciMLOperator, AbstractMatrix}, q::AbstractVector,
-        A::Union{AbstractSciMLOperator, AbstractMatrix},
-        l::AbstractVector, u::AbstractVector, alg::PureQPBase.QPAlgorithm...; kwargs...
-    )
+PureQPBase.setup(P::AbstractSciMLOperator, q::AbstractVector, A::AbstractMatrix, l::AbstractVector, u::AbstractVector, alg::PureQPBase.QPAlgorithm...; kwargs...) =
+    wrapped_setup(P, q, A, l, u, alg...; kwargs...)
+PureQPBase.setup(P::AbstractMatrix, q::AbstractVector, A::AbstractSciMLOperator, l::AbstractVector, u::AbstractVector, alg::PureQPBase.QPAlgorithm...; kwargs...) =
+    wrapped_setup(P, q, A, l, u, alg...; kwargs...)
+PureQPBase.setup(P::AbstractSciMLOperator, q::AbstractVector, A::AbstractSciMLOperator, l::AbstractVector, u::AbstractVector, alg::PureQPBase.QPAlgorithm...; kwargs...) =
+    wrapped_setup(P, q, A, l, u, alg...; kwargs...)
+
+"Wrap whichever arguments are operators and hand the pair on."
+function wrapped_setup(P, q, A, l, u, alg...; kwargs...)
     T = float(eltype(q))
     return PureQPBase.setup(as_operator(T, P), q, as_operator(T, A), l, u, alg...; kwargs...)
 end
@@ -127,11 +131,15 @@ Set up and solve in one call, wrapping each operator as [`setup`](@ref) does.
 `solve` takes `AbstractMatrix` arguments, so an operator reaches neither it nor the
 `warm_start!` it forwards to without this.
 """
-function PureQPBase.solve(
-        P::Union{AbstractSciMLOperator, AbstractMatrix}, q::AbstractVector,
-        A::Union{AbstractSciMLOperator, AbstractMatrix},
-        l::AbstractVector, u::AbstractVector, alg::PureQPBase.QPAlgorithm...; kwargs...
-    )
+PureQPBase.solve(P::AbstractSciMLOperator, q::AbstractVector, A::AbstractMatrix, l::AbstractVector, u::AbstractVector, alg::PureQPBase.QPAlgorithm...; kwargs...) =
+    wrapped_solve(P, q, A, l, u, alg...; kwargs...)
+PureQPBase.solve(P::AbstractMatrix, q::AbstractVector, A::AbstractSciMLOperator, l::AbstractVector, u::AbstractVector, alg::PureQPBase.QPAlgorithm...; kwargs...) =
+    wrapped_solve(P, q, A, l, u, alg...; kwargs...)
+PureQPBase.solve(P::AbstractSciMLOperator, q::AbstractVector, A::AbstractSciMLOperator, l::AbstractVector, u::AbstractVector, alg::PureQPBase.QPAlgorithm...; kwargs...) =
+    wrapped_solve(P, q, A, l, u, alg...; kwargs...)
+
+"Wrap whichever arguments are operators and hand the pair on."
+function wrapped_solve(P, q, A, l, u, alg...; kwargs...)
     T = float(eltype(q))
     return PureQPBase.solve(as_operator(T, P), q, as_operator(T, A), l, u, alg...; kwargs...)
 end

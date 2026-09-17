@@ -50,11 +50,20 @@ which is the vector the solve is carried out in.
 Equilibration cannot read an operator's entries, so `scaling = 0` is required unless the
 wrapped map has a `PureQPBase.structural_rows` method; without it, `setup` throws and names
 both remedies.
+Each of the three methods below takes at least one `LinearMap`, which is what stops this call
+from reaching itself: a pair of plain matrices leaves [`as_operator`](@ref) with nothing to
+wrap, so a method accepting that pair would forward the same arguments back until the stack
+ends. That pair belongs to whichever package defines the default algorithm.
 """
-function PureQPBase.setup(
-        P::Union{LinearMap, AbstractMatrix}, q::AbstractVector, A::Union{LinearMap, AbstractMatrix},
-        l::AbstractVector, u::AbstractVector, alg::PureQPBase.QPAlgorithm...; kwargs...
-    )
+PureQPBase.setup(P::LinearMap, q::AbstractVector, A::AbstractMatrix, l::AbstractVector, u::AbstractVector, alg::PureQPBase.QPAlgorithm...; kwargs...) =
+    wrapped_setup(P, q, A, l, u, alg...; kwargs...)
+PureQPBase.setup(P::AbstractMatrix, q::AbstractVector, A::LinearMap, l::AbstractVector, u::AbstractVector, alg::PureQPBase.QPAlgorithm...; kwargs...) =
+    wrapped_setup(P, q, A, l, u, alg...; kwargs...)
+PureQPBase.setup(P::LinearMap, q::AbstractVector, A::LinearMap, l::AbstractVector, u::AbstractVector, alg::PureQPBase.QPAlgorithm...; kwargs...) =
+    wrapped_setup(P, q, A, l, u, alg...; kwargs...)
+
+"Wrap whichever arguments are maps and hand the pair on."
+function wrapped_setup(P, q, A, l, u, alg...; kwargs...)
     T = float(eltype(q))
     return PureQPBase.setup(as_operator(T, P), q, as_operator(T, A), l, u, alg...; kwargs...)
 end
@@ -65,12 +74,18 @@ end
 Set up and solve in one call, wrapping each `LinearMap` as [`setup`](@ref) does.
 
 `solve` takes `AbstractMatrix` arguments, so a `LinearMap` reaches neither it nor the
-`warm_start!` it forwards to without this.
+`warm_start!` it forwards to without this. It is split over three signatures for the reason
+[`setup`](@ref) is.
 """
-function PureQPBase.solve(
-        P::Union{LinearMap, AbstractMatrix}, q::AbstractVector, A::Union{LinearMap, AbstractMatrix},
-        l::AbstractVector, u::AbstractVector, alg::PureQPBase.QPAlgorithm...; kwargs...
-    )
+PureQPBase.solve(P::LinearMap, q::AbstractVector, A::AbstractMatrix, l::AbstractVector, u::AbstractVector, alg::PureQPBase.QPAlgorithm...; kwargs...) =
+    wrapped_solve(P, q, A, l, u, alg...; kwargs...)
+PureQPBase.solve(P::AbstractMatrix, q::AbstractVector, A::LinearMap, l::AbstractVector, u::AbstractVector, alg::PureQPBase.QPAlgorithm...; kwargs...) =
+    wrapped_solve(P, q, A, l, u, alg...; kwargs...)
+PureQPBase.solve(P::LinearMap, q::AbstractVector, A::LinearMap, l::AbstractVector, u::AbstractVector, alg::PureQPBase.QPAlgorithm...; kwargs...) =
+    wrapped_solve(P, q, A, l, u, alg...; kwargs...)
+
+"Wrap whichever arguments are maps and hand the pair on."
+function wrapped_solve(P, q, A, l, u, alg...; kwargs...)
     T = float(eltype(q))
     return PureQPBase.solve(as_operator(T, P), q, as_operator(T, A), l, u, alg...; kwargs...)
 end

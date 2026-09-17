@@ -34,6 +34,7 @@ include("polish.jl")
 include("derivative.jl")
 include("recommend.jl")
 include("api.jl")
+include("conformance.jl")
 
 export setup, solve, solve!, update!, update_settings!, update_rho!, warm_start!, cold_start!
 export dimensions, capabilities, constraint_violation

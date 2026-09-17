@@ -8,6 +8,7 @@
         "block_tests.jl" => 1,
         "c_suite_tests.jl" => 9,
         "chainrules_tests.jl" => 4,
+        "conformance_tests.jl" => 1,
         "contract_tests.jl" => 4,
         "coverage_tests.jl" => 1,
         "corpus_tests.jl" => 4,
