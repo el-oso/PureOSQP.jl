@@ -247,9 +247,9 @@ forming the product:
 | 400 | 1e12 | 625 / 625 | 2.3 ms | 27.9 ms | **12.1×** | `SOLVED` in 625 iterations |
 | 1600 | 1e12 | 1100 / 1100 | 21.8 ms | 1566 ms | **71.8×** | `SOLVED` in 850 iterations |
 
-The Kronecker backend and the dense path reach the same objective. CG also solves both
-problems. The Kronecker backend is the fast choice because its cost follows the structure, not
-the conditioning.
+The Kronecker backend and the dense path reach the same objective, and CG solves both
+problems too. The Kronecker backend is the fast one because its cost follows the structure,
+not the conditioning.
 
 The problems below are all the same QP, written five ways.
 
@@ -290,30 +290,30 @@ end
 @assert Pd == P_before && Ad == A_before        # the caller's arrays are never written to
 ```
 
-Two different things are on display:
+Two things happen here:
 
-**A representation that only changes how entries are reached gives bit-identical answers.**
+**Change only how the entries are reached and you get identical answers, bit for bit.**
 `Symmetric`, a `SubArray` and a `SparseMatrixCSC` all feed the same numbers into the same
-arithmetic, so `==` holds exactly against the dense reference.
+arithmetic, so `==` holds against the dense reference.
 
-**A representation that changes which backend is chosen changes the arithmetic.** A
-`Diagonal` `P` with a `Bidiagonal` `A` makes the reduced matrix tridiagonal, solved by an
-`ldlt` on two bands rather than a dense inverse and a `symv` — a different factorization,
-agreeing to about `1e-16` rather than to the bit. The iteration count and the answer are the
-same; the last digits are not. See
+**Change which backend runs and you change the arithmetic.** A `Diagonal` `P` with a
+`Bidiagonal` `A` makes the reduced matrix tridiagonal. An `ldlt` on two bands solves it, in
+place of a dense inverse and a `symv`. That is a different factorization, so the answers
+agree to about `1e-16` rather than bit for bit. The iteration count and the answer match. The
+last digits do not. See
 [Which backend a structured matrix gets](@ref "Which backend a structured matrix gets").
 
-`P` has to be symmetric *as stored* — a lower triangle with the upper left at zero is
-rejected rather than mirrored, since that matrix is a different, non-symmetric problem. Wrap
-it in `Symmetric` to say which triangle is the real one.
+`P` has to be symmetric *as you store it*. The solver refuses a lower triangle with zeros
+above the diagonal rather than mirroring it, because that matrix is a different problem and
+is not symmetric. Wrap it in `Symmetric` to say which triangle is the real one.
 
 ### Which backend a sparse matrix gets
 
-Eliminating the dual variable from either algorithm's linear system gives an `n×n` reduced
-matrix, and whether that matrix is worth keeping sparse depends on its pattern rather than on
-the input's density. `linsys = :auto` reads the pattern: the densest row of `A`, the count of
-the symbolic `AᵀA ∪ P` pattern, `n` and `m`. Nothing is factored to decide, so the
-factorization `setup` pays for is the one the solve goes on to use. Where that decision sits
+Eliminate the dual variable from either algorithm's system and you get an `n×n` reduced
+matrix. Whether that matrix is worth keeping sparse depends on its pattern, not on how dense
+your input was. `linsys = :auto` reads four things from the pattern: the densest row of `A`,
+the size of the symbolic `AᵀA ∪ P` pattern, `n`, and `m`. It factors nothing to decide, so
+the factorization `setup` pays for is the one the solve uses. Where that decision sits
 among the others is drawn in [Choosing a backend](@ref); the same selection serves
 [`InteriorPoint`](@ref) at its own row weights.
 
@@ -328,9 +328,9 @@ banded = setup(
 PureOSQP.backend_name(banded.linsys)
 ```
 
-A banded `A` gives a banded reduced matrix, so it is formed and factored sparsely. A
-scattered pattern fills in, and then the sparse factor is no cheaper than the dense inverse;
-that case still forms the reduced matrix over the stored entries, but factors it densely.
+A banded `A` gives a banded reduced matrix, so the solver builds and factors it sparsely. A
+scattered pattern fills in, and then a sparse factor costs as much as the dense inverse. The
+solver still builds that reduced matrix from the stored entries, but factors it densely.
 
 ```@example storage
 using Random
@@ -343,17 +343,16 @@ scattered = setup(
 PureOSQP.backend_name(scattered.linsys)
 ```
 
-Both are reported by `PureQPBase.backend_name(ws.linsys)`, which names whichever backend the
-workspace ended up with. The dense default is `:cholesky`, and the full quasi-definite
-factorization is `:bunchkaufman`.
+`PureQPBase.backend_name(ws.linsys)` names whichever backend the workspace ended up with.
+The dense default is `:cholesky`. The full KKT factorization is `:bunchkaufman`.
 
 #### Measuring the choice on your own problem
 
-The rule above is a rule: it is fitted to a benchmark suite, so it is right about a class of
-problems and not about any particular one. [`recommend_linsys`](@ref) runs the experiment
-instead — it builds every backend the pair admits, times `setup` and a bounded number of
-iterations on each, and ranks them by what a whole solve costs: setup once, plus the
-per-iteration figure over the iterations one unbounded run actually takes.
+That rule is fitted to a benchmark suite. It is right about a class of problems, not about
+yours in particular. [`recommend_linsys`](@ref) measures instead of guessing. It builds every
+backend your pair allows, times `setup` and a few iterations on each, and ranks them by what
+a whole solve costs: setup once, plus the per-iteration cost over the iterations one full run
+takes.
 
 ```julia
 julia> advice = recommend_linsys(P, q, A, l, u, InteriorPoint())
@@ -367,14 +366,14 @@ LinsysAdvice: linsys = :sparse, over a solve of 10 iterations
 julia> ws = setup(P, q, A, l, u, InteriorPoint(); linsys = advice.linsys);
 ```
 
-It is a tool for the caller, not a stage of `setup`: nothing on the solve path calls it, and
-it costs a bounded solve per candidate plus one unbounded solve for the iteration count. Run
-it once for a problem shape you solve repeatedly, then pin the `linsys` it names.
+It is a tool for you, not a step inside `setup`. Nothing on the solve path calls it. It costs
+a short solve per candidate, plus one full solve to get the iteration count. Run it once for
+a problem shape you solve often, then pin the `linsys` it names.
 
 ### Which backend a structured matrix gets
 
-A structured `P` and `A` are not just read more cheaply — they can make the reduced matrix
-itself narrow, and then there is far less to factor. Eliminating `ν` gives
+A structured `P` and `A` do more than read cheaply. They can make the reduced matrix itself
+narrow, and then there is far less to factor. Eliminating `ν` gives
 
 ```math
 R = c D P D + \sigma I + \tilde A^\top \mathrm{diag}(\rho) \tilde A
@@ -577,8 +576,8 @@ sol = PureOSQP.solve(P, q, A, l, u; scaling = 0, linsys = :indirect)
 (sol.status, sol.iter, round(sol.obj_val; digits = 6))
 ```
 
-That call needed three things beyond the map itself. Each will bite you if you skip it, so
-here they are with what goes wrong.
+That call needed three things beyond the map itself. Skip any one of them and the solve fails.
+Here is each one, and what goes wrong without it.
 
 **1. `using Krylov`.** An operator has no entries, so none of the usual backends can factor
 anything. The only one that works is the matrix-free one, which multiplies instead of
@@ -591,39 +590,38 @@ means reading down each column of `A` to find its largest entry. A map has no co
 Passing `scaling = 0` turns that step off. If you forget, `setup` throws and says so — it does
 not silently skip the rescaling.
 
-**3. Declaring `issymmetric` and `isposdef` on `P`.** This is the one that surprises people.
-Write `LinearMap(Diagonal(fill(2.0, n)))` — obviously a positive-definite matrix — and ask it,
-and it says `isposdef == false`. LinearMaps does not inspect what you gave it; it reports only
-what you *told* it. So the solver sees an objective not claiming to be convex, and `setup`
+**3. Declaring `issymmetric` and `isposdef` on `P`.** This one catches most people. Write
+`LinearMap(Diagonal(fill(2.0, n)))` — clearly a positive definite matrix — then ask it, and it
+answers `isposdef == false`. LinearMaps does not look at what you gave it. It reports only what
+you *told* it. So the solver sees an objective that does not claim to be convex, and `setup`
 throws.
 
-That is correct, not a bug: the solver cannot factor an operator to check, so an unclaimed
-property is an unknown one. Declare them at construction, as in the example. (Or
-build the wrapper yourself with `ProductOperator{T}(map; symmetric, posdef)` if you want to
-override what a map claims.)
+The solver cannot factor an operator to find out, so a property you do not claim is a property
+it does not know. Declare both when you build the map, as in the example. You can also build the
+wrapper yourself with `ProductOperator{T}(map; symmetric, posdef)` to override what a map claims.
 
-That third point is also what LinearMaps buys you over writing an operator by hand: those two
-declarations travel with the map, so [`PureQPBase.is_convex`](@ref) is answered by reading a flag
-instead of factoring a matrix.
+That is also what LinearMaps gives you over an operator you write by hand. The two declarations
+travel with the map, so [`PureQPBase.is_convex`](@ref) reads a flag instead of factoring a
+matrix.
 
-**One thing to expect: a map runs without a preconditioner.** A preconditioner is a cheap
-approximation of the problem that makes the iteration converge faster, and the one used here is
-built from the diagonal of the reduced matrix. A map has no entries, so there is no diagonal to
-read, and the solver proceeds without one. Concretely: setup gets *cheaper* (nothing to build)
-and each iteration gets **1.33–1.44× dearer**, measured on the same operator written both ways
-([Benchmarks](@ref "An operator that is never materialized")).
+**Expect one more thing: a map runs without a preconditioner.** A preconditioner is a cheap
+approximation of the problem that makes the iteration converge faster. The one used here comes
+from the diagonal of the reduced matrix. A map has no entries, so there is no diagonal to read,
+and the solver runs without one. Setup gets *cheaper*, because there is nothing to build, and
+each iteration gets **1.33–1.44× more expensive**. We measured that on the same operator written
+both ways ([Benchmarks](@ref "An operator that is never materialized")).
 
-Usually you just accept that. If the iteration count matters, give your map's type a
-`PureQPBase.structural_rows` method — one method, described under
-[Structured operators](@ref "2. `structural_rows` — setup stops paying for the zeros"), which
-recovers the preconditioner *and* lets you drop `scaling = 0`. Setting `probe = true` is not a
-substitute; probing answers the rescaling question, not this one.
+Usually you accept that. If the iteration count matters, give your map's type a
+`PureQPBase.structural_rows` method. It is one method, described under
+[Structured operators](@ref "2. `structural_rows` — setup stops paying for the zeros"). It gets
+the preconditioner back *and* lets you drop `scaling = 0`. `probe = true` does not replace it.
+Probing answers the rescaling question, not this one.
 
 #### Building `A` by composition
 
-The reason to reach for LinearMaps rather than write an operator by hand is that maps
-*compose*, and a constraint matrix is usually several blocks stacked together. All of it works
-and mixes freely — sums, products, `kron`, and `vcat`/`hcat` — with no product ever formed:
+Use LinearMaps rather than a hand-written operator because maps *combine*. A constraint matrix
+is usually several blocks stacked together. Sums, products, `kron`, `vcat` and `hcat` all work,
+and they mix freely. No product is ever formed:
 
 | you write | you get |
 |---|---|
@@ -668,11 +666,11 @@ sol = PureOSQP.solve(P, q, A, l, u; scaling = 0, eps_abs = 1e-10, eps_rel = 1e-1
 Solved against the same problem with every block materialized, the two answers agree to
 `6.3e-11`.
 
-**Every function-based map in the composition needs its adjoint.** The solver applies `Aᵀ`
-once per iteration, so a `LinearMap` built from a forward function alone fails with
-`transpose not implemented` — not at construction, and not on the first product, but partway
-into the first iteration. Maps built from matrices supply it for themselves; maps built from
-functions do not, and `C` above is written with both directions for that reason.
+**Every function-based map you combine needs its adjoint.** The solver applies `Aᵀ` once per
+iteration. A `LinearMap` built from a forward function alone fails with
+`transpose not implemented`, and it fails partway into the first iteration — not when you build
+it, and not on the first product. A map built from a matrix supplies its own adjoint. A map
+built from functions does not, which is why `C` above gives both directions.
 
 ## Structured operators the package ships
 
@@ -689,15 +687,14 @@ for.
 | a constraint applied across two dimensions at once | [`PureQPBase.KroneckerOperator`](@ref) | a 2-D grid, an image, space × time — where the constraint is "this in one direction, that in the other" |
 | none of these | nothing to do | pass ordinary matrices; the solver is still fast |
 
-If none of the rows fit, you have lost nothing by reading — these are optimizations, not
-requirements, and the dense path gives the same answers.
+If no row fits, you lose nothing. These are speed-ups, not requirements, and the dense path
+gives the same answers.
 
-Each one is used the same way: build it, pass it to [`setup`](@ref) exactly where you would
-have passed a matrix, and check `backend_name` to confirm it was picked up. You never
-configure anything.
+You use all three the same way. Build it, pass it to [`setup`](@ref) where you would pass a
+matrix, then check `backend_name` to confirm the solver picked it up. You configure nothing.
 
-What each shape does to the reduced matrix `R = cDPD + σI + ÃᵀρÃ`, the matrix every
-backend has to solve with, is why each gets a backend of its own:
+Each one gets its own backend because of what it does to the reduced matrix
+`R = cDPD + σI + ÃᵀρÃ`, the matrix every backend must solve with:
 
 ::: details Code that draws the figure
 
@@ -768,12 +765,11 @@ nothing # hide
 fig # hide
 ```
 
-A block-diagonal pair keeps `R` block-diagonal, so it is factored one block at a time. A
-Kronecker `A` with `P = μI` makes `R` a Kronecker product of two small Gram matrices, and
-the eigenvectors of those factors diagonalize it. A row-coupled `A` makes `R` a diagonal
-plus a rank-`k` correction, which Woodbury's identity solves through the `k×n` coupling
-block alone. None of the three ever forms `R`, which is what a dense matrix carrying the
-same numbers would force.
+A block-diagonal pair keeps `R` block-diagonal, so the solver factors one block at a time. A
+Kronecker `A` with `P = μI` makes `R` a Kronecker product of two small Gram matrices, and the
+eigenvectors of those factors diagonalize it. A row-coupled `A` makes `R` a diagonal plus a
+rank-`k` correction, and Woodbury's identity solves that through the `k×n` coupling block alone.
+None of the three ever forms `R`. A dense matrix carrying the same numbers would force it.
 
 ### Block-diagonal
 
@@ -781,14 +777,14 @@ same numbers would force.
 scheduled independently, twelve months priced independently, a hundred scenarios — anything
 where variable 3 never appears in a constraint with variable 40.
 
-The payoff is large and worth understanding, because it is why this type exists. Solving one
-`n×n` system costs about `n³`. Solving `K` systems of size `n/K` costs `K(n/K)³ = n³/K²`. At
-`K = 10` that is a hundred times less work, and a tenth of the memory. The solver gets that
-automatically once it can *see* the blocks — which is what [`PureQPBase.BlockDiagonal`](@ref) is
-for. Handed the same numbers as one big dense matrix, it cannot see them, and pays the `n³`.
+The saving is large, and it is why this type exists. Solving one `n×n` system costs about `n³`.
+Solving `K` systems of size `n/K` costs `K(n/K)³ = n³/K²`. At `K = 10` that is a hundred times
+less work and a tenth of the memory. The solver takes that saving as soon as it can *see* the
+blocks, and [`PureQPBase.BlockDiagonal`](@ref) is how it sees them. Give it the same numbers as
+one big dense matrix and it sees nothing, so it pays the `n³`.
 
-Store it as a vector of the blocks. `P` and `A` must split at the same places, since a block
-of the problem is only independent if both halves agree it is.
+Store it as a vector of the blocks. `P` and `A` must split at the same places. A block of the
+problem is independent only if both halves agree it is.
 
 ```@example blocks
 using PureOSQP, LinearAlgebra
@@ -804,35 +800,34 @@ ws = setup(P, q, A, fill(-1.0, m), fill(1.0, m))
 PureOSQP.backend_name(ws.linsys)
 ```
 
-`backend_name` returned `:block`, so the blocks were found. Here is what that saved, counted in
+`backend_name` returned `:block`, so the solver found the blocks. Here is the saving, counted in
 numbers stored:
 
 ```@example blocks
 (blocks = PureOSQP.backend_info(ws.linsys).factor_nnz, dense = n * (n + 1) ÷ 2)
 ```
 
-Four blocks of two variables each store 12 numbers where the dense route stores 36. The gap
-widens fast: at 20 blocks of 12 it is 1 560 against 28 920, and the timings are in
+Four blocks of two variables each store 12 numbers. The dense route stores 36. The gap widens
+fast: at 20 blocks of 12 it is 1 560 against 28 920. Timings are in
 [Benchmarks](@ref "Block-diagonal structure").
 
-**If `backend_name` comes back `:cholesky` instead**, the blocks were not used. The usual
-reason is that `P` and `A` split at different places, so the problem does not actually
-decouple; the answer is still correct, just computed the slow way.
+**If `backend_name` comes back `:cholesky`**, the solver did not use the blocks. Usually `P` and
+`A` split at different places, so the problem does not decouple. The answer is still correct.
+The solver just took the slow route to it.
 
 ### Kronecker
 
 **Use it when a constraint acts on two dimensions at once.** The clearest case is a 2-D grid:
 you want something smoothed along rows *and* along columns. Written out, that constraint matrix
-is enormous and almost all zeros. Written as `A₁ ⊗ A₂` — "`A₁` across, `A₂` down" — it is two
-small matrices.
+is huge and almost all zeros. Written as `A₁ ⊗ A₂` — "`A₁` across, `A₂` down" — it is two small
+matrices.
 
-The saving in storage is immediate: a `6×6` constraint below is stored as `4 + 9 = 13` numbers
+The saving in storage is immediate. The `6×6` constraint below is stored as `4 + 9 = 13` numbers
 instead of 36, and that ratio grows as the square. The saving in time is larger, because the
-backend never builds the big matrix at all.
+backend never builds the big matrix.
 
-**This one has conditions, and they are strict.** It is the fussiest type in the package, so
-check them before reaching for it. All three are properties of your problem, not settings you
-can turn on:
+**The conditions are strict.** This is the fussiest type in the package, so check them before
+you use it. All three describe your problem. None of them is a setting you can turn on:
 
 | condition | in plain terms | how to check |
 |---|---|---|
@@ -840,16 +835,16 @@ can turn on:
 | `ρ` must be one number | every constraint is an inequality — no equalities | you passed no row with `l[i] == u[i]` |
 | `scaling = 0` | you turn equilibration off explicitly | pass `scaling = 0` to `setup` |
 
-The second is the one that catches people: **a single equality row disables this backend.** And
-a Kronecker *`P`* does not qualify for the first — it must be a multiple of the identity.
+The second one catches people: **one equality row turns this backend off.** And a Kronecker *`P`*
+does not satisfy the first. `P` must be a multiple of the identity.
 
 This backend is [`OperatorSplitting`](@ref) only. [`InteriorPoint`](@ref) throws for
 `linsys = :kronecker`, because its row weights are not one number
 ([Choosing an algorithm](@ref "What each algorithm throws on")).
 
-If any condition fails the solver quietly uses the dense route instead, so you get the right
-answer either way. That is why every example here checks `backend_name`: it is the only way to
-tell whether you got what you asked for.
+If a condition fails, the solver uses the dense route instead and says nothing. You get the
+right answer either way. That is why every example here checks `backend_name`. It is the only
+way to tell whether you got what you asked for.
 
 ```@example kron
 using PureOSQP, LinearAlgebra
@@ -859,14 +854,14 @@ A2 = [2.0 0.0 1.0; 0.0 1.5 0.0; 1.0 0.0 2.0]
 A = PureOSQP.KroneckerOperator(A1, A2)      # 6×6, stored as 4 + 9 entries
 
 n = size(A, 2)
-P = Diagonal(fill(2.0, n))                  # μI, as the tier requires
+P = Diagonal(fill(2.0, n))                  # μI, as the backend requires
 q = collect(range(-1.0, 1.0; length = n))
 ws = setup(P, q, A, fill(-1.0, n), fill(1.0, n); scaling = 0)
 PureOSQP.backend_name(ws.linsys)
 ```
 
-Break any one condition and the Kronecker rung is not used — the problem is solved by the
-dense terminal instead, more slowly and just as correctly:
+Break one condition and the solver drops the Kronecker backend. It solves the problem densely
+instead: slower, and just as correct.
 
 ```@example kron
 equilibrated = setup(P, q, A, fill(-1.0, n), fill(1.0, n))   # scaling left at its default
@@ -877,13 +872,14 @@ nonscalar = setup(Diagonal(1.0:n), q, A, fill(-1.0, n), fill(1.0, n); scaling = 
 
 #### Ill-conditioned Kronecker problems
 
-Giving up equilibration is the price of this tier, and an ill-conditioned problem is exactly
-where equilibration earns its keep — so that is where the trade has to be judged. Note that
+You pay for this backend by giving up equilibration, and equilibration is worth most on an
+ill-conditioned problem. So that is where you judge the trade. Note that
 `κ(A₁ ⊗ A₂) = κ(A₁)·κ(A₂)`, so each factor carries the square root of the figure below.
 
-**The backend stays sound.** Against a dense path given the same `scaling = 0`, so the
-comparison is the backends' and nothing else, it matches iteration for iteration and agrees on
-the solution up to `κ(A) ≈ 10¹⁶` (`PureOSQP/bench/results/kronecker_conditioning.json`):
+**The backend stays sound.** We ran it against a dense path given the same `scaling = 0`, so the
+comparison is between the backends and nothing else. It matches iteration for iteration and
+agrees on the solution up to `κ(A) ≈ 10¹⁶`
+(`PureOSQP/bench/results/kronecker_conditioning.json`):
 
 | κ(A) | kronecker | dense, also unscaled | solutions agree |
 |---|---|---|---|
@@ -892,12 +888,13 @@ the solution up to `κ(A) ≈ 10¹⁶` (`PureOSQP/bench/results/kronecker_condit
 | 1e12 | SOLVED, 1100 | SOLVED, 1100 | yes |
 | 1e16 | SOLVED, 2525 | SOLVED, 2525 | yes |
 
-Iterations climb steeply with conditioning — 175 to 2525 — because nothing is preconditioning
-the problem. That is the cost, and it is not hidden by the structure.
+Iterations climb steeply with conditioning, from 175 to 2525, because nothing preconditions the
+problem. That is the cost, and the structure does not hide it.
 
-**Whether it still wins depends on size**, because the tier buys `O(n₁n₂(n₁+n₂))` per iteration
-against a dense `O(n₁²n₂²)`, and that has to cover the extra iterations. Against a dense path
-allowed its equilibration — the choice a caller actually faces — at `κ(A) = 10¹²`:
+**Whether it still wins depends on size.** The backend costs `O(n₁n₂(n₁+n₂))` per iteration
+against a dense `O(n₁²n₂²)`, and that saving has to cover the extra iterations. Here it is
+against a dense path allowed its equilibration — the real choice a caller faces — at
+`κ(A) = 10¹²`:
 
 | n | kronecker (`scaling = 0`) | dense, equilibrated | speedup |
 |---|---|---|---|
@@ -905,25 +902,24 @@ allowed its equilibration — the choice a caller actually faces — at `κ(A) =
 | 168 | 350 iter, 0.61 ms | 575 iter, 3.27 ms | 5.4× |
 | 480 | 875 iter, 3.98 ms | 500 iter, 27.25 ms | 6.9× |
 
-At `n = 480` the tier takes 1.75× the iterations and still finishes 6.9× sooner. The iteration
-counts are noisy in both directions — ADMM's trajectory is sensitive to scaling — so read the
-times rather than the ratio of counts.
+At `n = 480` the backend takes 1.75× the iterations and still finishes 6.9× sooner. The
+iteration counts are noisy in both directions, because ADMM's path is sensitive to scaling. Read
+the times, not the ratio of counts.
 
-If your `P` is zero rather than `μI`, equilibration and the structure are compatible in
-principle: a Kronecker product's row and column ∞-norms are exactly the Kronecker products of
-the factors' norms, so equilibrating each factor would preserve the diagonalization. That
-route is not built.
+If your `P` is zero rather than `μI`, equilibration and the structure could work together. A
+Kronecker product's row and column ∞-norms are the Kronecker products of the factors' norms, so
+equilibrating each factor would keep the diagonalization. We have not built that route.
 
 ### Low-rank coupling
 
-**Use it when almost every constraint touches one variable, and only a handful touch many.**
-This is extremely common and easy to miss. A portfolio with a bound on each holding plus one
-row saying "the weights sum to 1". A schedule with a limit per machine plus two rows for total
+**Use it when almost every constraint touches one variable, and only a few touch many.** This
+shape is very common and easy to miss. A portfolio with a bound on each holding plus one row
+saying "the weights sum to 1". A schedule with a limit per machine plus two rows for total
 capacity. A design with a box on each parameter plus a budget.
 
-Written as an ordinary matrix, those few dense rows make the whole thing look dense, and the
-solver pays as if every constraint coupled everything. [`PureQPBase.RowCoupled`](@ref) separates
-the two kinds so it can charge you only for the coupling rows you actually have.
+Write that as an ordinary matrix and the few dense rows make the whole matrix look dense. The
+solver then pays as if every constraint coupled everything. [`PureQPBase.RowCoupled`](@ref)
+keeps the two kinds apart, so you pay only for the coupling rows you have.
 
 It takes three arguments, in this order:
 
@@ -948,17 +944,16 @@ ws = setup(P, q, A, fill(-1.0, m), fill(1.0, m))
 PureOSQP.backend_name(ws.linsys)
 ```
 
-`:lowrank` means it worked. The cost is `O(nk)` instead of `O(n²)`, so it wins by more the
-fewer coupling rows you have: at one coupling row in 2000 variables it is
+`:lowrank` means it worked. The cost is `O(nk)` instead of `O(n²)`, so the fewer coupling rows
+you have, the more it wins. At one coupling row in 2000 variables it is
 [**923× faster**](@ref "Low-rank structure") than the dense route.
 
-**One condition:** the coupling rows have to be a small fraction of the variables — the backend
-is not used once `10k > n`. Two coupling rows therefore need at least 20 variables, which is
-why `n = 24` above. Below that threshold the correction costs more than the dense solve it
-would replace, so falling back to the dense route is the right answer. `P` must also be
-`Diagonal`.
+**One condition:** the coupling rows must be a small fraction of the variables. The solver drops
+this backend once `10k > n`. Two coupling rows therefore need at least 20 variables, which is
+why `n = 24` above. Below that point the correction costs more than the dense solve it replaces,
+so the dense route is the right answer. `P` must also be `Diagonal`.
 
-Under [`InteriorPoint`](@ref), `linsys = :auto` never chooses this backend: `linsys =
-:lowrank` throws, because the Woodbury solve misses the tolerance on linear
-programs ([Backends under the interior-point method](@ref)). A `Diagonal` `P` with a
-`RowCoupled` `A` gets the full KKT factorization instead.
+Under [`InteriorPoint`](@ref), `linsys = :auto` never picks this backend, and
+`linsys = :lowrank` throws. The Woodbury solve misses the tolerance on linear programs
+([Backends under the interior-point method](@ref)). A `Diagonal` `P` with a `RowCoupled` `A`
+gets the full KKT factorization instead.
