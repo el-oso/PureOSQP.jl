@@ -23,9 +23,9 @@ The problem, the weights and the backend a solver would hold for this data, buil
 one. A named `linsys` is honored the way a caller naming it is; `:auto` descends the ladder.
 The backend comes back factorized, so a test can solve through it immediately.
 
-`rho` is uniform. An algorithm assigns it per row — a larger weight on the rows it treats as
-equalities — which changes the numbers in the reduced matrix but not which backend forms it
-or how it is factored, and those are what this package answers for.
+`rho` is one weight for every row, or a vector of them. An algorithm decides which rows get
+which — a larger weight on those it treats as equalities — and a rung that reads the weights
+reads them as they arrive, whatever assigned them.
 """
 function backend_for(
         P, q, A, l, u; rho = 0.1, sigma = 1.0e-6, scaling = 10, linsys::Symbol = :auto,
@@ -33,7 +33,7 @@ function backend_for(
     )
     n, m = PureQPBase.validate(P, q, A, l, u)
     prob = PureQPBase.validated_problem(Float64, n, m, P, q, A, l, u, scaling)
-    wt = raw_weights(fill(rho, m), sigma)
+    wt = raw_weights(rho isa Number ? fill(rho, m) : collect(rho), sigma)
     named = PureQPBase.named_backend(Val(linsys), P, A, prob, wt, selection, preconditioner)
     ls, factored = if isnothing(named)
         PureQPBase.choose_backend(P, A, prob, wt, selection)
