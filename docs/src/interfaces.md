@@ -1,19 +1,18 @@
 # Interfaces
 
-A new algorithm, a new linear-system backend or a new preconditioner plugs into the package by
-implementing a short list of methods for a subtype of an abstract type. Each list is declared
-with [TypeContracts.jl](https://github.com/el-oso/TypeContracts.jl)'s `@contract`, and every
-subtype in the package is checked against it when the package precompiles, including whether
-each method's inferred return type matches. `TypeContracts.describe(T)` prints the list for
-`T`; the tables below state the same lists.
+To add a new algorithm, a new linear-system backend or a new preconditioner, you write a short
+list of methods for a subtype of an abstract type. [TypeContracts.jl](https://github.com/el-oso/TypeContracts.jl)'s
+`@contract` declares each list. When the package precompiles, it checks every subtype against
+that list, including whether each method's inferred return type matches.
+`TypeContracts.describe(T)` prints the list for `T`. The tables below give the same lists.
 
 A required method must exist for the subtype. An optional method either has a default that
-serves every subtype or is specific to one algorithm. `TypeContracts.satisfies(S, T)` reports
-what a type `S` is missing, and `TypeContracts.check_contract(S, T)` throws naming it.
+serves every subtype, or belongs to one algorithm. `TypeContracts.satisfies(S, T)` tells you
+what a type `S` is missing, and `TypeContracts.check_contract(S, T)` throws and names it.
 
 ## An algorithm
 
-An algorithm is an object holding the parameters only that method reads, a subtype of
+An algorithm is an object that holds the parameters only that method reads. It is a subtype of
 [`QPAlgorithm`](@ref). [`setup`](@ref) calls these on it:
 
 | method | returns | what it does |
@@ -24,29 +23,29 @@ An algorithm is an object holding the parameters only that method reads, a subty
 | `element_typed(alg, T, options)` | `QPAlgorithm` | the object in the solve's element type, with every default resolved |
 
 Optional: `adopt_settings!(ls, alg, options)`, which copies the parameters a backend reads into
-it. Only the matrix-free backend reads any, so an algorithm that runs on it defines this method
-for that backend. It is optional because a direct backend reads none; the matrix-free one
-throws if it factorizes before its settings are copied in, rather than silently solving with a
-zero iteration budget.
+that backend. Only the matrix-free backend reads any, so an algorithm that runs on it writes
+this method for that backend. It is optional because a direct backend reads none. The
+matrix-free one throws if it factorizes before its settings arrive, rather than solving quietly
+with a zero iteration budget.
 
-`setup_backend` declares no return type in the contract: inferred through the abstract data
-arguments of the contract's signature it is `Any`, although a call with concrete arguments
+`setup_backend` declares no return type in the contract. Inferred through the abstract data
+arguments of the contract's signature, that type is `Any`, though a call with concrete arguments
 returns a concrete workspace.
 
-An algorithm also needs a [`PureQPBase.SelectionFor`](@ref) tag of its own and the four
-selection methods that have no algorithm-independent answer:
-[`select_backend`](@ref PureQPBase.select_backend), the order of its ladder;
-[`dense_rung`](@ref PureQPBase.dense_rung), its terminal;
-[`indirect_rung`](@ref PureQPBase.indirect_rung), what sits below the terminal; and, if the
-sparse rungs are in that ladder, the SparseArrays extension's `sparse_form`. Every other
-selection method already takes any tag: the rungs that, by default, are skipped so selection
-moves to the next one, the `choose_backend` methods for a structured pair, and the errors the
-GPU extension raises when a GPU array reaches a backend that cannot serve it. A tag with one of
-the four missing gets an error naming the method, not a `MethodError`.
+An algorithm also needs a [`PureQPBase.SelectionFor`](@ref) tag of its own, plus the four
+selection methods whose answer depends on the algorithm:
+[`select_backend`](@ref PureQPBase.select_backend), the order it tries candidates in;
+[`dense_rung`](@ref PureQPBase.dense_rung), its last candidate;
+[`indirect_rung`](@ref PureQPBase.indirect_rung), what serves an operator it cannot build; and,
+if the sparse candidates are in that order, the SparseArrays extension's `sparse_form`. Every
+other selection method already takes any tag: the candidates that are skipped by default so
+selection moves on, the `choose_backend` methods for a structured pair, and the errors the GPU
+extension raises when a GPU array reaches a backend that cannot serve it. Leave one of the four
+out and you get an error that names the method, not a `MethodError`.
 
 ## A workspace
 
-The solver state an algorithm's `setup_backend` builds is a subtype of
+The solver state that an algorithm's `setup_backend` builds is a subtype of
 [`QPWorkspace`](@ref). Code outside the algorithm calls these on it:
 
 | method | returns | what it does |
@@ -62,15 +61,15 @@ The solver state an algorithm's `setup_backend` builds is a subtype of
 Optional, because only [`OperatorSplittingWorkspace`](@ref) implements them:
 [`update_rho!`](@ref) and [`constraint_violation`](@ref).
 
-The contract checks the positional signature of a method taking keywords, which is all it can
-see. It does not check fields, and the methods written for every workspace ([`dimensions`](@ref),
-the keyword form of [`update_settings!`](@ref), [`adjoint_derivative`](@ref) and
-[`forward_derivative`](@ref)) read `prob`, `linsys`, `algorithm`, `options`, `x`, `y`, `z`,
-`status` and `polished`.
+For a method that takes keywords, the contract checks the positional signature. That is all it
+can see. It does not check fields. The methods written for every workspace —
+[`dimensions`](@ref), the keyword form of [`update_settings!`](@ref),
+[`adjoint_derivative`](@ref) and [`forward_derivative`](@ref) — read `prob`, `linsys`,
+`algorithm`, `options`, `x`, `y`, `z`, `status` and `polished`.
 
 ## A linear-system backend
 
-A backend is a subtype of [`LinearSystem`](@ref); the workspace holds one and hands it the
+A backend is a subtype of [`LinearSystem`](@ref). The workspace holds one and hands it the
 [`PureQPBase.Problem`](@ref) and the [`PureQPBase.SystemWeights`](@ref) on every call.
 
 | method | returns | what it does |
@@ -93,7 +92,7 @@ Optional, each with a default for every backend:
 | [`last_solve_converged(ls)`](@ref PureQPBase.last_solve_converged) | `Bool` | `true` |
 | [`inner_iterations(ls)`](@ref PureQPBase.inner_iterations) | `Int` | `0` |
 
-A backend defined in an extension is checked when the extension loads.
+A backend defined in an extension gets checked when the extension loads.
 
 ## A preconditioner
 
@@ -106,7 +105,7 @@ methods:
 | `LinearAlgebra.ldiv!(y, M, x)` | | writes the preconditioned vector into `y`; no default |
 
 [`IdentityPreconditioner`](@ref) and [`JacobiPreconditioner`](@ref) are subtypes of
-[`Preconditioner`](@ref). A caller's preconditioner need not be: a `Cholesky` or any other
-factorization object has `ldiv!` already, and `TypeContracts.check_contract(typeof(M),
-Preconditioner)` checks one against the same list. [`setup`](@ref) throws, naming the missing
-method, when a preconditioner has no `ldiv!` method for the backend's vectors.
+[`Preconditioner`](@ref). Yours does not have to be. A `Cholesky`, or any other factorization
+object, already has `ldiv!`, and `TypeContracts.check_contract(typeof(M), Preconditioner)`
+checks one against the same list. If a preconditioner has no `ldiv!` method for the backend's
+vectors, [`setup`](@ref) throws and names the missing method.

@@ -1,16 +1,24 @@
 # Working with other packages
 
-A solver package requires only `LinearAlgebra`, [TypeContracts.jl](https://github.com/el-oso/TypeContracts.jl) and PureQPBase.jl, which requires the first two and nothing else. **No numerical library is required.** Capabilities appear as you load relevant packages via Julia's extension mechanism.
+A solver package needs only `LinearAlgebra`,
+[TypeContracts.jl](https://github.com/el-oso/TypeContracts.jl) and PureQPBase.jl, and
+PureQPBase.jl needs the first two and nothing else. **No numerical library is required.** You
+gain capabilities as you load packages, through Julia's extension mechanism.
 
-Two mechanisms are at work:
+Two things are at work here:
 
-**Extensions** are code that loads only when you load a trigger package. Those below belong to PureQPBase, since they extend the backends rather than either algorithm; PureOSQP adds two of its own, for COSMOAccelerators and for its MathOptInterface optimizer, and PureIPM one, for its optimizer.
+**Extensions** are code that loads only when you load a trigger package. The ones below belong
+to PureQPBase, because they extend the backends rather than either algorithm. PureOSQP adds two
+of its own, for COSMOAccelerators and for its MathOptInterface optimizer, and PureIPM adds one,
+for its optimizer.
 
-**Genericity** allows the solver to handle any numeric or matrix type that behaves correctly. Precision types are handled this way, without needing extensions.
+**Generic code** lets the solver take any numeric or matrix type that behaves correctly.
+Precision types work this way, with no extension.
 
 ## Number types
 
-The element type of your arrays determines the solver's precision. All types below were tested and show identical convergence behavior.
+The element type of your arrays sets the solver's precision. We tested every type below, and
+they all converge the same way.
 
 | type | package | digits | cost vs `Float64` | note |
 |---|---|---|---|---|
@@ -27,16 +35,16 @@ using PureOSQP, DoubleFloats
 sol = solve(Double64.(P), Double64.(q), Double64.(A), Double64.(l), Double64.(u))
 ```
 
-**`Rational` does not work**, and the reason is inherent rather than a gap here: exact rational
-arithmetic grows denominators without bound, and `Rational{Int}` overflows within a few
-iterations. `Rational{BigInt}` avoids the overflow at a cost that makes it impractical.
+**`Rational` does not work**, and that is inherent, not a gap here. Exact rational arithmetic
+grows denominators without bound, so `Rational{Int}` overflows within a few iterations.
+`Rational{BigInt}` avoids the overflow, at a cost that makes it impractical.
 
-**More precision does not make an ill-conditioned problem converge faster.** This is worth
-saying plainly because it is a natural thing to reach for. The iteration count is a property of
-the problem's geometry, not of the arithmetic: at every precision above, the same problem took
-the same 250 iterations. Extra precision lowers the floor on achievable accuracy; it does not
-speed the descent toward it. If a badly conditioned problem is stopping at `max_iter`, see
-[Conditioning](@ref) — the lever there is structure, not bits.
+**More precision does not make an ill-conditioned problem converge faster.** It is worth saying
+plainly, because reaching for more precision is a natural move. The iteration count comes from
+the problem's geometry, not from the arithmetic. At every precision above, the same problem took
+the same 250 iterations. Extra precision lowers the floor on the accuracy you can reach. It does
+not get you there sooner. If a badly conditioned problem stops at `max_iter`, see
+[Conditioning](@ref). What helps there is structure, not bits.
 
 ## Matrix and operator types
 
@@ -52,14 +60,15 @@ speed the descent toward it. If a badly conditioned problem is stopping at `max_
 
 [Which type to use](@ref) helps you choose.
 
-Two key extensions:
-- **LDLFactorizations**: Provides a pure-Julia sparse `LDLᵀ`, making the package compatible with `juliac --trim`.
-- **Krylov**: Required for any operator that cannot be materialized.
+Two extensions matter most:
+- **LDLFactorizations** gives a pure-Julia sparse `LDLᵀ`, which keeps the package compatible
+  with `juliac --trim`.
+- **Krylov** is required for any operator the solver cannot materialize.
 
 ## Modelling and interfaces
 
-[MathOptInterface.jl](https://github.com/jump-dev/MathOptInterface.jl) has an extension, so
-either solver is usable from JuMP. Each package supplies the optimizer for its own algorithm:
+[MathOptInterface.jl](https://github.com/jump-dev/MathOptInterface.jl) has an extension, so you
+can use either solver from JuMP. Each package supplies the optimizer for its own algorithm:
 
 ```julia
 using JuMP, PureOSQP, MathOptInterface
@@ -69,27 +78,29 @@ using PureIPM
 model = Model(PureOSQP.Optimizer)        # InteriorPoint
 ```
 
-One wrapper serves both — it lives in PureQPBase and carries the algorithm — so the two
-behave identically apart from the method they run and the parameters they take.
+One wrapper serves both. It lives in PureQPBase and carries the algorithm, so the two behave the
+same apart from the method they run and the parameters they take.
 
-The wrapper passes `MOI.Test`, which is a far more thorough conformance suite than anything
-hand-written, under both algorithms: `PureOSQP/test/moi_tests.jl` runs it against both optimizers.
-Three attributes are excluded from it: `ConstraintBasisStatus`, `VariableBasisStatus` and
+The wrapper passes `MOI.Test` under both algorithms. That suite is far more thorough than
+anything we could write by hand, and `PureOSQP/test/moi_tests.jl` runs it against both
+optimizers. Three attributes are left out: `ConstraintBasisStatus`, `VariableBasisStatus` and
 `ObjectiveBound`. Neither algorithm produces a basis or a bound.
 
-Settings are passed by name, for example `set_attribute(model, "linsys", :kkt)`. A name is
-an [`Options`](@ref) field or a parameter of that optimizer's algorithm, and a parameter of
-the other algorithm is not accepted. A setting that takes a symbol also accepts its name as a
-string. A bad value throws when it is set. Reading a setting you have not set returns its
-default for that algorithm. `MOI.TimeLimitSec` sets `time_limit`, which limits the iterations
-of either algorithm. Setup and polishing are not counted against it.
+You pass settings by name, as in `set_attribute(model, "linsys", :kkt)`. A name is either an
+[`Options`](@ref) field or a parameter of that optimizer's algorithm. A parameter of the other
+algorithm is not accepted. A setting that takes a symbol also takes its name as a string. A bad
+value throws when you set it. Read a setting you have not set and you get its default for that
+algorithm. `MOI.TimeLimitSec` sets `time_limit`, which limits the iterations of either
+algorithm. It does not count setup or polishing.
 
 ## Differentiating a solve
 
 There are two ways to differentiate:
 
-1. **Built-in:** [`adjoint_derivative`](@ref) and [`forward_derivative`](@ref) differentiate the *solution* by implicitly differentiating the KKT conditions. This is efficient and works in one solve.
-2. **Through iterations:** Using `ForwardDiff.Dual` numbers differentiates the entire optimization loop. This is better for sensitivity analysis but is much more expensive.
+1. **Built in.** [`adjoint_derivative`](@ref) and [`forward_derivative`](@ref) differentiate the
+   *solution*, by differentiating the KKT conditions implicitly. This is cheap: one solve.
+2. **Through the iterations.** `ForwardDiff.Dual` numbers differentiate the whole optimization
+   loop. This suits sensitivity analysis, and it costs much more.
 
 
 ```julia
@@ -97,11 +108,11 @@ using PureOSQP, ForwardDiff
 ForwardDiff.derivative(t -> solve(P, q .* t, A, l, u).obj_val, 1.3)
 ```
 
-Checked against central differences on a small QP: agreement to `5e-11`.
+Checked against central differences on a small QP, the two agree to `5e-11`.
 
-**Prefer the built-in one for anything real.** Forward mode costs one solve per parameter, and
-`P` alone has `n²` of them; and it differentiates `x_N(θ)`, the iterate you stopped at, rather
-than `x*(θ)`, the solution. They converge to the same thing, but the implicit form gets there
-in one solve and does not depend on the path taken. ForwardDiff's value here is as an
-independent check on the implicit derivative — exact, with no finite-difference step to choose
-— which is what the package's own tests use it for.
+**Use the built-in one for real work.** Forward mode costs one solve per parameter, and `P`
+alone has `n²` of them. It also differentiates `x_N(θ)`, the iterate you stopped at, rather than
+`x*(θ)`, the solution. The two converge to the same thing, but the implicit form gets there in
+one solve and does not depend on the path. What ForwardDiff is worth here is an independent
+check on the implicit derivative: exact, with no finite-difference step to choose. That is what
+the package's own tests use it for.
