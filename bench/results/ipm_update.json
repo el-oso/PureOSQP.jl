@@ -1,0 +1,85 @@
+{
+  "blas_threads": 1,
+  "cases": [
+    {
+      "backend": "ldlfactorizations",
+      "class": "Random QP",
+      "fresh_iters": "240",
+      "fresh_seconds": "0.035871659",
+      "m": "500",
+      "n": "50",
+      "steps": "20",
+      "update_iters": "225",
+      "update_seconds": "0.019631739"
+    },
+    {
+      "backend": "bunchkaufman",
+      "class": "Eq QP",
+      "fresh_iters": "160",
+      "fresh_seconds": "0.128614573",
+      "m": "100",
+      "n": "200",
+      "steps": "20",
+      "update_iters": "120",
+      "update_seconds": "0.064150336"
+    },
+    {
+      "backend": "ldl_kkt",
+      "class": "Portfolio",
+      "fresh_iters": "275",
+      "fresh_seconds": "0.027423105",
+      "m": "506",
+      "n": "505",
+      "steps": "20",
+      "update_iters": "292",
+      "update_seconds": "0.020530843"
+    },
+    {
+      "backend": "ldlfactorizations",
+      "class": "Lasso",
+      "fresh_iters": "182",
+      "fresh_seconds": "0.025112623",
+      "m": "816",
+      "n": "816",
+      "steps": "20",
+      "update_iters": "210",
+      "update_seconds": "0.017370119"
+    },
+    {
+      "backend": "ldlfactorizations",
+      "class": "SVM",
+      "fresh_iters": "205",
+      "fresh_seconds": "0.032363101",
+      "m": "1600",
+      "n": "808",
+      "steps": "20",
+      "update_iters": "211",
+      "update_seconds": "0.021998908"
+    },
+    {
+      "backend": "ldlfactorizations",
+      "class": "Huber",
+      "fresh_iters": "192",
+      "fresh_seconds": "0.051487294",
+      "m": "1800",
+      "n": "1806",
+      "steps": "20",
+      "update_iters": "185",
+      "update_seconds": "0.033384224"
+    },
+    {
+      "backend": "ldl_kkt",
+      "class": "Control",
+      "fresh_iters": "239",
+      "fresh_seconds": "0.072277816",
+      "m": "540",
+      "n": "320",
+      "steps": "20",
+      "update_iters": "212",
+      "update_seconds": "0.04686707"
+    }
+  ],
+  "eps": 1.0e-8,
+  "julia_version": "1.13.0",
+  "steps": 20
+}
