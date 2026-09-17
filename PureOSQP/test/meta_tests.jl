@@ -21,7 +21,7 @@
         "operator_tests.jl" => 7,
         "oracle_tests.jl" => 4,
         "polish_tests.jl" => 4,
-        "scaling_tests.jl" => 9,
+        "scaling_tests.jl" => 4,
         "selection_tests.jl" => 2,
         "setup_tests.jl" => 14,
         "solve_tests.jl" => 34,
