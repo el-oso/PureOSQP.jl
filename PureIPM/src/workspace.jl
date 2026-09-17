@@ -264,9 +264,10 @@ function setup_backend(
     )
     LS === :lowrank && throw(
         ArgumentError(
-            "linsys = :lowrank is not available with InteriorPoint(): on linear programs " *
-                "its Woodbury solve does not reach the interior-point tolerances. Leave " *
-                "linsys = :auto, which serves the pair with linsys = :kkt, or use OperatorSplitting()."
+            "linsys = :lowrank is not available with InteriorPoint(): it solves the reduced " *
+                "matrix, and an active row's weight reaches 1/reg_dual, so forming that matrix " *
+                "loses the accuracy the method needs. Leave linsys = :auto, which serves the " *
+                "pair with the full KKT system, or use OperatorSplitting()."
         )
     )
     is_convex(T, P, algorithm.reg_primal) || throw(
@@ -338,12 +339,22 @@ dense_rung(P, A, prob, sel::IPMSelection) = nothing
 """
     lowrank_rung(P::Diagonal, A::RowCoupled, prob, wt, sel::IPMSelection) -> nothing
 
-Declines, so the pair reaches [`FullKKT`](@ref). A variable that only the coupling rows reach
-has `δ_p` alone in the diagonal core wherever `P` is zero, which puts `1/δ_p` in the core's
-inverse; on linear programs over these pairs the Woodbury solve through it ends without a
-solution (`bench/ipm_backends.jl`). `linsys = :lowrank` is refused outright for
-`InteriorPoint()` before this is ever reached (see `setup_backend`), so `require_crossover`
-is accepted only for signature parity with the generic method.
+Declines, so the pair reaches [`FullKKT`](@ref).
+
+[`DiagonalLowRank`](@ref) solves the reduced matrix `P̃ + δ_p I + Ãᵀ diag(w) Ã`, and forming
+that product is what this method declines, not the Woodbury identity that solves it. An
+active row's weight reaches `1/δ_d`, so the rank-`k` correction arrives orders of magnitude
+above the diagonal core it corrects, and the small directions are rounded away as the matrix
+is built. Measured on the low-rank families of `bench/structured_problems.jl` at their
+converged weights, against a reference in extended precision: the reduced matrix solved
+through Woodbury reaches `9e-9` and the same matrix factored densely `9e-8`, where the
+augmented factorization this decline routes to reaches `9e-16`
+(`PureIPM/bench/ipm_lowrank_terminal.jl`). The loss is the reduced form's, and a structured
+backend that also reduces cannot avoid it.
+
+`linsys = :lowrank` is refused outright for `InteriorPoint()` before this is ever reached
+(see `setup_backend`), so `require_crossover` is accepted only for signature parity with the
+generic method.
 """
 lowrank_rung(P::Diagonal, A::RowCoupled, prob, wt, sel::IPMSelection; require_crossover::Bool = true) = nothing
 

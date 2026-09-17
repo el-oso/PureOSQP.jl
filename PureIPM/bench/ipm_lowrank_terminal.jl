@@ -1,14 +1,17 @@
 # What the dense terminal costs a pair the low-rank rung declines.
 #
-# `lowrank_rung` declines for `InteriorPoint()`: on a variable that only the coupling rows
-# reach, the diagonal core holds `δ_p` alone and the Woodbury solve through its inverse ends
-# without a solution. Declining is right. Where the pair lands after that is a separate
-# question, and this measures it: a `Diagonal`/`RowCoupled` pair reaches `FullKKT`, which
-# factors an `(n+m)×(n+m)` dense matrix, while the same numbers handed over as
-# `SparseMatrixCSC` reach the sparse KKT factorization.
+# `lowrank_rung` declines for `InteriorPoint()`, so a `Diagonal`/`RowCoupled` pair reaches
+# `FullKKT` and factors an `(n+m)×(n+m)` dense matrix. The same numbers handed over as
+# `SparseMatrixCSC` reach the sparse KKT factorization instead.
 #
-# The sparse column carries the cost of building the sparse pair, so the comparison is what a
-# caller holding the structured pair would actually pay to convert and solve.
+# Both of those are the *augmented* system, which is why the comparison is about cost alone:
+# the accuracy question that makes the interior-point method avoid the reduced form does not
+# separate them. `bench/ipm_backends.jl` measures that accuracy.
+#
+# The sparse column carries the cost of building the sparse pair. `RowCoupled` is `k` dense
+# rows above one entry per remaining row, so its CSC form is assembled from those two blocks
+# directly: going through `Matrix` first would materialize `(k+m₀)·n` entries to produce
+# `k·n + m₀` nonzeros, and would measure that waste rather than the conversion.
 #
 #     julia --project=bench PureIPM/bench/ipm_lowrank_terminal.jl
 using PureOSQP, PureIPM, PureQPBase
@@ -25,6 +28,38 @@ const SIZES = (120, 240, 480)
 
 median_seconds(f) = median(s.time for s in @be(f(), seconds = BUDGET).samples)
 
+"""
+    row_coupled_csc(A::RowCoupled) -> SparseMatrixCSC
+
+`A` in compressed sparse column form, assembled from its coupling block and its one-entry
+rows. Column `j` holds the `k` coupling entries and whichever base rows select it, which is
+the order CSC wants, so the columns are written straight out without a sort.
+"""
+function row_coupled_csc(A::PureQPBase.RowCoupled{T}) where {T}
+    C, w, cols, n = A.coupling, A.weights, A.cols, A.n
+    k = size(C, 1)
+    colptr = Vector{Int}(undef, n + 1)
+    rowval = Vector{Int}(undef, k * n + length(cols))
+    nzval = Vector{T}(undef, length(rowval))
+    p = 1
+    for j in 1:n
+        colptr[j] = p
+        for i in 1:k
+            rowval[p] = i
+            nzval[p] = C[i, j]
+            p += 1
+        end
+        for t in A.ptr[j]:(A.ptr[j + 1] - 1)
+            r = A.ord[t]
+            rowval[p] = r
+            nzval[p] = w[r - k]
+            p += 1
+        end
+    end
+    colptr[n + 1] = p
+    return SparseMatrixCSC(k + length(cols), n, colptr, rowval, nzval)
+end
+
 println("\nInterior point on a low-rank pair: the dense terminal against the sparse KKT form.\n")
 @printf(
     "%-16s %5s %-14s %10s %10s %10s %8s %6s\n",
@@ -35,14 +70,15 @@ println("-"^92)
 rows = NamedTuple[]
 for n in SIZES, f in structured_families(n)
     occursin("rank", f.name) || continue
-    Ps, As = sparse(Matrix(f.P)), sparse(Matrix(f.A))
+    Ps, As = sparse(f.P), row_coupled_csc(f.A)
+    @assert As == sparse(Matrix(f.A))
     structured = solve(f.P, f.q, f.A, f.l, f.u, InteriorPoint(); OPTS...)
     sparsed = solve(Ps, f.q, As, f.l, f.u, InteriorPoint(); OPTS...)
     backend = string(PureQPBase.backend_name(setup(f.P, f.q, f.A, f.l, f.u, InteriorPoint(); OPTS...).linsys))
 
     t_dense = median_seconds(() -> solve(f.P, f.q, f.A, f.l, f.u, InteriorPoint(); OPTS...))
     t_sparse = median_seconds(() -> solve(Ps, f.q, As, f.l, f.u, InteriorPoint(); OPTS...))
-    t_convert = median_seconds(() -> (sparse(Matrix(f.P)), sparse(Matrix(f.A))))
+    t_convert = median_seconds(() -> (sparse(f.P), row_coupled_csc(f.A)))
     ratio = t_dense / (t_sparse + t_convert)
     dx = maximum(abs, structured.x .- sparsed.x; init = 0.0)
 

@@ -48,8 +48,10 @@ end
     q, l, u = randn(n), -rand(n), rand(n)
     P = Diagonal(rand(n) .+ 0.5)
     # A diagonal `P` with a `RowCoupled` `A`: the pair the low-rank backend exists for. The
-    # interior-point method takes the full KKT factorization instead, since the low-rank solve
-    # misses the tolerance on the linear programs.
+    # interior-point method takes the full KKT factorization instead. The low-rank backend
+    # solves the reduced matrix, and forming that matrix at weights reaching `1/reg_dual`
+    # loses the accuracy the method needs -- for a positive definite `P` as much as for the
+    # linear program below.
     for Pc in (P, Diagonal(zeros(n)))
         ws = setup(Pc, q, A, l, u, InteriorPoint())
         @test PureQPBase.backend_name(ws.linsys) === :bunchkaufman
