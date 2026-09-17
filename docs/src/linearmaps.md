@@ -1,20 +1,21 @@
 # Operators from functions
 
 A [`LinearMap`](https://github.com/JuliaLinearAlgebra/LinearMaps.jl) is a matrix you never
-store. Instead of entries you supply two functions — how to multiply by it, and how to
-multiply by its transpose — and the solver accepts it anywhere it accepts a matrix.
+store. You give it two functions instead of entries: one that multiplies by it, one that
+multiplies by its transpose. The solver takes it anywhere it takes a matrix.
 
-Three worked problems follow. Each one has a constraint matrix that would be large, dense, or
-simply never assembled, and each is solved without building it.
+Three worked problems follow. Each has a constraint matrix that would be large, dense, or that
+nobody ever assembles, and each one is solved without building it.
 
-All three need the same three things, covered in
+All three need the same three things, listed in
 [An operator from LinearMaps.jl](@ref): load `Krylov`, pass `scaling = 0`, and declare
-`issymmetric` and `isposdef` on `P`. Each example states the problem, draws the operator, and then solves it two ways — with the
-map and with every matrix written out — printing the difference between the two answers.
+`issymmetric` and `isposdef` on `P`. Each example states the problem, draws the operator, then
+solves it twice — once with the map, once with every matrix written out — and prints the
+difference between the two answers.
 
-All three solve with [`OperatorSplitting`](@ref), the default, which needs nothing beyond
-that. [`InteriorPoint`](@ref) solves an operator too, but only with a caller-supplied
-preconditioner in place of `scaling = 0`'s automatic one — see
+All three use [`OperatorSplitting`](@ref), the default, which needs nothing more.
+[`InteriorPoint`](@ref) solves an operator too, but it wants a preconditioner you supply
+instead of the automatic one `scaling = 0` gives up. See
 [Operators under the interior-point method](@ref).
 
 ## 1. Fitting to sensor readings
@@ -29,9 +30,9 @@ to a target that still agrees with all 48 readings to within 0.05.
 \end{array}
 ```
 
-Here `q = -2t + noise` for the target `t`, so the objective is `‖x - x₀‖²` up to a constant,
-with `x₀ = -q/2` the noisy target; `b` holds the 48 readings. The constraint matrix picks out
-the measured entries, and its transpose puts them back where they came from:
+Here `q = -2t + noise` for the target `t`. So the objective is `‖x - x₀‖²` up to a constant,
+where `x₀ = -q/2` is the noisy target, and `b` holds the 48 readings. The constraint matrix
+picks out the measured entries. Its transpose puts them back where they came from:
 
 ```math
 (Ax)_j = x_{5j-4},
@@ -39,8 +40,8 @@ the measured entries, and its transpose puts them back where they came from:
 (A^{\top}y)_i = \begin{cases} y_j & i = 5j-4 \\ 0 & \text{otherwise} \end{cases}
 ```
 
-Written down `A` is a 48×240 array with a single 1 in each row. As a program it is one
-indexing step in each direction, and the index range is all that is stored:
+Written out, `A` is a 48×240 array with a single 1 in each row. Written as code, it is one
+indexing step in each direction, and it stores only the index range:
 
 ```math
 x \in \mathbb{R}^{240}
@@ -88,16 +89,16 @@ dense = PureOSQP.solve(Diagonal(fill(2.0, n)), q, Ad, b .- 0.05, b .+ 0.05; eps_
 (dense.status, maximum(abs, sol.x .- dense.x))
 ```
 
-This is the easiest case to reach for: a measurement operator that selects, masks or reorders
-is pure bookkeeping, and storing it as a matrix buys nothing.
+This is the easiest case to start with. A measurement operator that selects, masks or reorders
+is only bookkeeping, and storing it as a matrix buys nothing.
 
 ## 2. A constraint on a 2-D grid
 
-A 14×14 image, with a limit on how fast it may change from one pixel to the next — in both
+A 14×14 image, with a limit on how fast it may change from one pixel to the next, in both
 directions at once. The image is 196 variables, so a constraint matrix would be 392×196.
 
-With `X` the image and `x = vec(X)` its columns stacked into one vector, the problem is to
-stay close to a target image `X₀` while keeping every neighbor difference within 0.25:
+Call the image `X` and let `x = vec(X)` stack its columns into one vector. The problem is to
+stay close to a target image `X₀` and keep every neighbor difference within 0.25:
 
 ```math
 \begin{array}{ll}
@@ -114,11 +115,11 @@ and −1 below it:
 (Dv)_1 = v_1, \qquad (Dv)_i = v_i - v_{i-1} \quad (i = 2, \dots, 14)
 ```
 
-To see which pixels each block ties together, take a 4×4 image in place of the 14×14 one.
-`vec` stacks the columns, so `x` is column 1, then column 2, and so on: neighbors down a
-column sit next to each other in `x`, while neighbors along a row sit four places apart.
-The top row below is the image, with each pixel's position in `x` in its corner; the strip
-underneath is `x` itself, with the pairs each block couples drawn as arcs.
+To see which pixels each block ties together, use a 4×4 image instead of the 14×14 one. `vec`
+stacks the columns, so `x` holds column 1, then column 2, and so on. Neighbors down a column sit
+next to each other in `x`. Neighbors along a row sit four places apart. The top row below is the
+image, with each pixel's position in `x` in its corner. The strip underneath is `x` itself, and
+the arcs show the pairs each block couples.
 
 ::: details Code that draws the figure
 
@@ -175,8 +176,8 @@ nothing # hide
 fig # hide
 ```
 
-Pixel ``x_{ij}`` is entry ``i + 4(j-1)`` of `x`. Written out on this ordering, the two
-Kronecker products are
+Pixel ``x_{ij}`` is entry ``i + 4(j-1)`` of `x`. On this ordering the two Kronecker products
+are
 
 ```math
 I_4 \otimes D = \begin{pmatrix} D & & & \\ & D & & \\ & & D & \\ & & & D \end{pmatrix}
@@ -184,9 +185,9 @@ I_4 \otimes D = \begin{pmatrix} D & & & \\ & D & & \\ & & D & \\ & & & D \end{pm
 D \otimes I_4 = \begin{pmatrix} I & & & \\ -I & I & & \\ & -I & I & \\ & & -I & I \end{pmatrix}
 ```
 
-Each `D` block in `I ⊗ D` acts on the four consecutive entries that make up one column, so it
-subtracts the pixel above. Each `−I, I` pair in `D ⊗ I` acts on entries four apart, so it
-subtracts the pixel to the left:
+Each `D` block in `I ⊗ D` acts on the four entries that make up one column, so it subtracts the
+pixel above. Each `−I, I` pair in `D ⊗ I` acts on entries four apart, so it subtracts the pixel
+to the left:
 
 ```math
 \big((I \otimes D)\,x\big)_{i + 4(j-1)} = x_{ij} - x_{i-1,\,j}
@@ -194,11 +195,11 @@ subtracts the pixel to the left:
 \big((D \otimes I)\,x\big)_{i + 4(j-1)} = x_{ij} - x_{i,\,j-1}
 ```
 
-with the first row and first column passed through unchanged, as `D` does. On the 14×14
-image the blocks are 14×14 and the row neighbor sits 14 places back; nothing else changes.
+The first row and first column pass through unchanged, as `D` does. On the 14×14 image the
+blocks are 14×14 and the row neighbor sits 14 places back. Nothing else changes.
 
-A 2-D operation built from a 1-D one along each axis is a **Kronecker product**: `I ⊗ D`
-applies `D` down every column of `X`, and `D ⊗ I` applies it along every row.
+A 2-D operation built from a 1-D one along each axis is a **Kronecker product**. `I ⊗ D` applies
+`D` down every column of `X`, and `D ⊗ I` applies it along every row.
 
 ```math
 X \in \mathbb{R}^{14 \times 14}
@@ -210,7 +211,7 @@ X
 XD^{\top} = \mathrm{unvec}\big((D \otimes I)\,x\big)
 ```
 
-`kron` composes maps without forming anything, so the constraint matrix is the two blocks
+`kron` combines maps without forming anything. So the constraint matrix is the two blocks
 stacked, and only the 14×14 factors exist:
 
 ```math
@@ -261,18 +262,17 @@ dense = PureOSQP.solve(
 (size(Ad), dense.status, maximum(abs, sol.x .- dense.x))
 ```
 
-Only the 14×14 factor is ever stored. The saving grows fast: the same construction on a
-256×256 image gives a constraint matrix with `2.1e10` entries, built from a 256×256 one.
+Only the 14×14 factor is ever stored. The saving grows fast. The same construction on a 256×256
+image gives a constraint matrix with `2.1e10` entries, built from a 256×256 one.
 
 ## 3. Reusing a model you already have
 
-Sometimes the operator is code somebody already wrote — a filter, a simulator, a forward
-model. You can call it, but nobody ever assembled it; assembling it would mean one call per
-column.
+Sometimes the operator is code somebody already wrote: a filter, a simulator, a forward model.
+You can call it, but nobody ever assembled it, and assembling it would take one call per column.
 
 Here it is a first-order recursion, `yₖ = 0.6·yₖ₋₁ + xₖ`, the discrete form of a system that
-carries part of its state forward. The problem is to stay close to a random target `x₀` while
-keeping the system's output within ±1.5 at every step:
+carries part of its state forward. The problem is to stay close to a random target `x₀` and keep
+the system's output within ±1.5 at every step:
 
 ```math
 \begin{array}{ll}
@@ -281,8 +281,8 @@ keeping the system's output within ±1.5 at every step:
 \end{array}
 ```
 
-Unrolling the recursion from `y₀ = 0` gives every output as a decaying sum of the inputs before
-it; that is `A` as a matrix — lower triangular, with `a = 0.6`:
+Unroll the recursion from `y₀ = 0` and every output becomes a decaying sum of the inputs before
+it. That is `A` as a matrix: lower triangular, with `a = 0.6`:
 
 ```math
 y_k = \sum_{j \le k} a^{\,k-j} x_j
@@ -291,7 +291,7 @@ A = \begin{pmatrix} 1 & & & \\ a & 1 & & \\ a^2 & a & 1 & \\ \vdots & \ddots & \
 \qquad \text{stored: } a \text{, and nothing else}
 ```
 
-Its transpose is the same recursion run backwards, so both directions are one loop:
+Its transpose is the same recursion run backwards, so each direction is one loop:
 
 ```math
 x
@@ -350,25 +350,25 @@ dense = PureOSQP.solve(
 (dense.status, maximum(abs, sol.x .- dense.x))
 ```
 
-As a matrix this is dense and lower triangular — 11 325 nonzeros here, and `n(n+1)/2` in
-general. As a map it is two loops over `n` values.
+As a matrix this is dense and lower triangular: 11 325 nonzeros here, and `n(n+1)/2` in general.
+As a map it is two loops over `n` values.
 
 ## Choosing between a map and a matrix
 
-A map wins when applying it is **asymptotically cheaper** than multiplying by its dense form.
-All three examples above qualify: `O(n)` work against an `O(n²)` matrix.
+A map wins when applying it costs **asymptotically less** than multiplying by its dense form.
+All three examples above do: `O(n)` work against an `O(n²)` matrix.
 
-It is the wrong choice when the product costs the same either way — a map has no entries to
-factor, so it is solved by conjugate gradients, which pays every iteration for a factorization
-a matrix pays for once. The measured comparison is in
-[When it is the wrong tool](@ref), and the conditioning limit — where a bare map does not
-converge at all — is in [An operator is not always solved with CG](@ref).
+A map is the wrong choice when the product costs the same either way. A map has no entries to
+factor, so the solver runs conjugate gradients, which pays every iteration for work a matrix
+pays for once. [When it is the wrong tool](@ref) has the measured comparison.
+[An operator is not always solved with CG](@ref) has the conditioning limit, where a bare map
+does not converge at all.
 
 ## Two packages supply operators
 
 The examples above use [LinearMaps.jl](https://github.com/JuliaLinearAlgebra/LinearMaps.jl).
-[SciMLOperators.jl](https://github.com/SciML/SciMLOperators.jl) is the other option, and the
-solver takes either.
+[SciMLOperators.jl](https://github.com/SciML/SciMLOperators.jl) is the other choice. The solver
+takes either.
 
 | | LinearMaps | SciMLOperators |
 |---|---|---|
@@ -383,18 +383,18 @@ solver takes either.
 | `issymmetric`, `isposdef` | declared at construction | declared at construction |
 | a transpose | required | required |
 
-**Reach for LinearMaps unless `A` is a composition.** It is simpler: two functions and no
-preparation, and it stacks blocks, which SciMLOperators cannot. The one thing it cannot do is
-apply a composition for free.
+**Use LinearMaps unless `A` is a product of operators.** It is simpler: two functions and no
+preparation. It also stacks blocks, which SciMLOperators cannot. The one thing it cannot do is
+apply a product for free.
 
-The allocation rows decide it, measured at `n = 200`. A composed LinearMap allocates scratch
-for the intermediate on every application, and stacking blocks does the same; the solver applies
-`A` and `Aᵀ` every iteration, so that cost repeats. SciMLOperators asks for the scratch once,
-through `cache_operator`, and then applies for free.
+The allocation rows decide it. We measured them at `n = 200`. A LinearMap product allocates
+scratch for the intermediate on every application, and stacking blocks does the same. The solver
+applies `A` and `Aᵀ` every iteration, so that cost repeats. SciMLOperators asks for the scratch
+once, through `cache_operator`, and then applies for free.
 
-Stacking has no SciMLOperators equivalent: `[L; D]` on two of them is a plain array holding
-them, not an operator. A constraint made of stacked blocks is either a LinearMap, as in
-example 2, or a single `FunctionOperator` whose function fills each block's rows of `w`
+SciMLOperators has nothing that matches stacking. `[L; D]` on two of them gives a plain array
+holding them, not an operator. So a constraint made of stacked blocks is either a LinearMap, as
+in example 2, or a single `FunctionOperator` whose function fills each block's rows of `w`
 itself.
 
 ### Writing one
