@@ -24,8 +24,22 @@ jobs:
         with:
           version: ${{ matrix.version }}
       - uses: julia-actions/cache@v2
-      # The suite lives with PureOSQP and exercises all three packages: its test environment
-      # takes PureQPBase and PureIPM from this checkout.
+      # Each package is tested on its own first: PureQPBase that it holds no algorithm and its
+      # backends work, PureIPM that it solves with nothing else loaded. The suite that
+      # exercises all three then runs with PureOSQP, whose test environment takes the other two
+      # from this checkout.
+      - uses: julia-actions/julia-buildpkg@v1
+        with:
+          project: PureQPBase
+      - uses: julia-actions/julia-runtest@v1
+        with:
+          project: PureQPBase
+      - uses: julia-actions/julia-buildpkg@v1
+        with:
+          project: PureIPM
+      - uses: julia-actions/julia-runtest@v1
+        with:
+          project: PureIPM
       - uses: julia-actions/julia-buildpkg@v1
         with:
           project: PureOSQP
