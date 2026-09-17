@@ -363,7 +363,7 @@ an indefinite `P` would be accepted silently.
 
 The generic method densifies, because a factorization it can rely on for an arbitrary
 `AbstractMatrix` is the dense one. That is `O(n³)` and `O(n²)` in memory whatever `P` was,
-so a representation with a cheaper test overrides this — `ext/PureOSQPSparseArraysExt.jl`
+so a representation with a cheaper test overrides this — `ext/PureQPBaseSparseArraysExt.jl`
 does, where the dense test measures 93× slower at `n = 2000`.
 """
 function is_convex(::Type{T}, P::AbstractMatrix, sigma) where {T}
@@ -429,7 +429,7 @@ function require_entries(P, A, what::String, remedy::String)
     (is_materializable(P) && is_materializable(A)) || throw(
         ArgumentError(
             "$what reads the entries of P and A one at a time, and one of them declares " *
-                "`PureOSQP.is_materializable` false: it supplies products only. $remedy"
+                "`PureQPBase.is_materializable` false: it supplies products only. $remedy"
         )
     )
     return nothing
@@ -561,7 +561,7 @@ ladder by defining the method its representation needs. The order is fixed here,
 place, rather than emerging from where each gate happens to sit.
 """
 select_backend(P, A, prob, wt, sel::SelectionFor) =
-    refuse_selection("PureOSQP.select_backend", sel)
+    refuse_selection("PureQPBase.select_backend", sel)
 
 function select_backend(P, A, prob, wt, sel::ADMMSelection)
     rung = kkt_rung(P, A, prob, wt, sel)
@@ -633,7 +633,7 @@ forms the reduced matrix with one dense product and inverts it.
 Declines when either operand answers [`is_materializable`](@ref) with `false`, since forming
 the product reads entries. The ladder then falls through to [`indirect_rung`](@ref).
 """
-dense_rung(P, A, prob, sel::SelectionFor) = refuse_selection("PureOSQP.dense_rung", sel)
+dense_rung(P, A, prob, sel::SelectionFor) = refuse_selection("PureQPBase.dense_rung", sel)
 
 """
     dense_rung(P, A, prob, sel::ADMMSelection) -> (LinearSystem, Bool) or nothing
@@ -658,7 +658,7 @@ materialize. It has no gate: reaching it means nothing above could serve. Whethe
 matrix-free solve is acceptable at all is the algorithm's decision — ADMM takes it, the
 interior-point method refuses — so there is no generic method.
 """
-indirect_rung(P, A, prob, sel::SelectionFor) = refuse_selection("PureOSQP.indirect_rung", sel)
+indirect_rung(P, A, prob, sel::SelectionFor) = refuse_selection("PureQPBase.indirect_rung", sel)
 
 """
     indirect_rung(P, A, prob, sel::ADMMSelection) -> (LinearSystem, Bool)
@@ -1187,7 +1187,7 @@ function require_host(v::AbstractVector, what::String)
             "$what runs on the host and this workspace holds $(typeof(v)): it factors a " *
                 "dense matrix with `bunchkaufman!`, which has no GPU counterpart. Move the " *
                 "problem to the host with `Array`, or leave `polishing = false` and take the " *
-                "ADMM iterate."
+                "solver's own iterate."
         )
     )
     return nothing

@@ -53,7 +53,7 @@ function polish_kernel!(
         Aty::AbstractVector{T}; delta::T, refine_iter::Int
     ) where {T}
     require_host(x, "polishing")
-    require_entries(prob.P, prob.A, "polishing", "Leave `polishing = false` and take the ADMM iterate.")
+    require_entries(prob.P, prob.A, "polishing", "Leave `polishing = false` and take the solver's own iterate.")
     n, m = prob.n, prob.m
     active = Int[]
     lower = Bool[]

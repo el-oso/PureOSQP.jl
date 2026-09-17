@@ -1,0 +1,203 @@
+@testitem "an operator with no entries declines the paths that need them" begin
+    using PureQPBase, LinearAlgebra, Krylov, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    Random.seed!(32)
+
+    # No `getindex` anywhere on this type or its adjoint, so anything that reaches for an
+    # entry fails rather than quietly working through a fallback.
+    struct ProductsOnly{T}
+        M::Matrix{T}
+    end
+    struct ProductsOnlyAdjoint{T}
+        parent::ProductsOnly{T}
+    end
+    Base.size(o::ProductsOnly) = size(o.M)
+    Base.size(o::ProductsOnlyAdjoint) = reverse(size(o.parent.M))
+    Base.adjoint(o::ProductsOnly) = ProductsOnlyAdjoint(o)
+    LinearAlgebra.mul!(y::AbstractVector, o::ProductsOnly, x::AbstractVector) = mul!(y, o.M, x)
+    LinearAlgebra.mul!(y::AbstractVector, o::ProductsOnlyAdjoint, x::AbstractVector) =
+        mul!(y, o.parent.M', x)
+
+    n, m = 40, 25
+    P = let S = randn(n, n)
+        Symmetric(S'S ./ n + 8I)
+    end
+    A = randn(m, n) ./ sqrt(n)
+    q = randn(n)
+    b = A * randn(n)
+    l, u = b .- rand(m), b .+ rand(m)
+    Pop = PureQPBase.ProductOperator{Float64}(ProductsOnly(Matrix(P)); symmetric = true, posdef = true)
+    Aop = PureQPBase.ProductOperator{Float64}(ProductsOnly(A))
+
+    @test size(Pop) == (n, n)
+    @test size(Aop) == (m, n)
+    @test !PureQPBase.is_materializable(Pop)
+    @test PureQPBase.is_symmetric(Pop)
+    @test PureQPBase.is_convex(Float64, Pop, 1.0e-6)
+
+    # Equilibration reads columns, which products cannot answer. The message names the two
+    # ways out rather than escaping as an index error from inside a column walk.
+    @test_throws "supplies products only" backend_for(Pop, q, Aop, l, u)
+    @test_throws "scaling = 0" backend_for(Pop, q, Aop, l, u)
+
+    # Every rung that would form a matrix declines, so `:auto` reaches the matrix-free one
+    # instead of failing inside a factorization.
+    _, _, ls = backend_for(Pop, q, Aop, l, u; scaling = 0, factorize = false)
+    @test PureQPBase.backend_name(ls) === :indirect
+end
+
+@testitem "probing equilibrates an operator with no entries" begin
+    using PureQPBase, LinearAlgebra, Krylov, Random
+    Random.seed!(34)
+
+    n, m = 40, 25
+    # Badly scaled on purpose: equilibration is what this test is about, so the factors must
+    # be far from one.
+    P = let S = randn(n, n)
+        Symmetric(S'S ./ n + 8I)
+    end
+    A = randn(m, n) ./ sqrt(n)
+    A[1, :] .*= 1.0e4
+    A[:, 1] .*= 1.0e3
+    q = randn(n)
+    b = A * randn(n)
+    l, u = b .- rand(m), b .+ rand(m)
+    built(P, A) = PureQPBase.validated_problem(Float64, n, m, P, q, A, l, u, 10)
+
+    probed = built(
+        PureQPBase.ProductOperator{Float64}(Matrix(P); symmetric = true, posdef = true, probe = true),
+        PureQPBase.ProductOperator{Float64}(A; probe = true),
+    )
+    walked = built(P, A)
+
+    # `A * eⱼ` copies column `j` when the wrapped operator selects stored entries, so the
+    # factors are the same numbers by the same arithmetic, not merely close.
+    @test probed.D == walked.D
+    @test probed.E == walked.E
+    @test probed.c == walked.c
+
+    # Without `probe`, the same operator refuses and names every way out.
+    bare = PureQPBase.ProductOperator{Float64}(Matrix(P); symmetric = true, posdef = true)
+    @test_throws "probe = true" built(bare, PureQPBase.ProductOperator{Float64}(A))
+end
+
+@testitem "a LinearMap is wrapped with its own traits" begin
+    using PureQPBase, LinearAlgebra, LinearMaps, Krylov, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    Random.seed!(33)
+
+    n, m = 50, 30
+    P = let S = randn(n, n)
+        Symmetric(S'S ./ n + 8I)
+    end
+    A = randn(m, n) ./ sqrt(n)
+    q = randn(n)
+    b = A * randn(n)
+    l, u = b .- rand(m), b .+ rand(m)
+    Pmap = LinearMap(Matrix(P); issymmetric = true, isposdef = true)
+    Amap = LinearMap(A)
+    # `as_operator` is the door: the extension's `setup` method sends every argument through
+    # it before the problem is built, so a test of the wrapping calls exactly that.
+    Ext = Base.get_extension(PureQPBase, :PureQPBaseLinearMapsExt)
+    wrap(M) = Ext.as_operator(Float64, M)
+    free = (scaling = 0, linsys = :indirect, factorize = false)
+
+    # `symmetric` and `posdef` come from the map's own traits rather than from the caller.
+    prob, = backend_for(wrap(Pmap), q, wrap(Amap), l, u; free...)
+    @test prob.P isa PureQPBase.ProductOperator
+    @test PureQPBase.is_symmetric(prob.P)
+    @test PureQPBase.is_convex(Float64, prob.P, 1.0e-6)
+
+    # A map and a matrix mix: only the map is wrapped.
+    mixed, = backend_for(wrap(Pmap), q, wrap(A), l, u; free...)
+    @test mixed.P isa PureQPBase.ProductOperator
+    @test mixed.A isa Matrix
+end
+
+@testitem "a SciMLOperator is wrapped, or unwrapped, by what it carries" begin
+    using PureQPBase, LinearAlgebra, SciMLOperators, Krylov, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    Random.seed!(34)
+
+    n, m = 50, 30
+    P = let S = randn(n, n)
+        Symmetric(S'S ./ n + 8I)
+    end
+    A = randn(m, n) ./ sqrt(n)
+    q = randn(n)
+    b = A * randn(n)
+    l, u = b .- rand(m), b .+ rand(m)
+    free = (scaling = 0, linsys = :indirect, factorize = false)
+    # `as_operator` is the door: the extension's `setup` method sends every argument through
+    # it before the problem is built, so a test of the wrapping calls exactly that.
+    Ext = Base.get_extension(PureQPBase, :PureQPBaseSciMLOperatorsExt)
+    wrap(M) = Ext.as_operator(Float64, M)
+
+    # The in-place signature is `op(w, v, u, p, t)`: `w` receives the result, `v` is the
+    # vector being multiplied. A four-argument function is the out-of-place form instead,
+    # and writing into its first argument overwrites the caller's vector.
+    Pd, Ad = Matrix(P), A
+    Pop = FunctionOperator(
+        (w, v, u, p, t) -> mul!(w, Pd, v), zeros(n), zeros(n);
+        op_adjoint = (w, v, u, p, t) -> mul!(w, Pd', v),
+        islinear = true, issymmetric = true, isposdef = true,
+    )
+    Aop = FunctionOperator(
+        (w, v, u, p, t) -> mul!(w, Ad, v), zeros(n), zeros(m);
+        op_adjoint = (w, v, u, p, t) -> mul!(w, Ad', v), islinear = true,
+    )
+
+    # `symmetric` and `posdef` come from the operator's own traits rather than the caller.
+    prob, = backend_for(wrap(Pop), q, wrap(Aop), l, u; free...)
+    @test prob.P isa PureQPBase.ProductOperator
+    @test PureQPBase.is_symmetric(prob.P)
+    @test PureQPBase.is_convex(Float64, prob.P, 1.0e-6)
+
+    # An operator and a matrix mix: only the operator is wrapped.
+    mixed, = backend_for(wrap(Pop), q, wrap(A), l, u; free...)
+    @test mixed.P isa PureQPBase.ProductOperator
+    @test mixed.A isa Matrix
+
+    # An operator holding entries is unwrapped, not wrapped: its entries are what the
+    # equilibration and the factoring backends need, and the matrix itself is what the
+    # problem holds.
+    Pmat = Matrix(P)
+    mat, = backend_for(wrap(MatrixOperator(Pmat)), q, A, l, u)
+    @test mat.P === Pmat
+
+    # Unwrapping keeps the type, so a diagonal operator still reaches the diagonal backend
+    # rather than a dense one.
+    d = 2.0 .+ rand(n)
+    dg, = backend_for(wrap(DiagonalOperator(d)), q, Diagonal(ones(n)), fill(-1.0, n), fill(1.0, n))
+    @test dg.P isa Diagonal
+
+    # `Aᵀ` runs every iteration, so an operator that cannot supply one is refused when the
+    # problem is built rather than failing inside the first product.
+    noadj = FunctionOperator(
+        (w, v, u, p, t) -> mul!(w, Ad, v), zeros(n), zeros(m); islinear = true
+    )
+    @test_throws "op_adjoint" backend_for(wrap(Pop), q, wrap(noadj), l, u; free...)
+
+    # A composed operator carries no scratch until `cache_operator` gives it some, so it is
+    # refused here rather than failing partway into the first iteration.
+    @test_throws "cache_operator" backend_for(
+        wrap(Pop), q, wrap(Aop * DiagonalOperator(ones(n))), l, u; free...
+    )
+end
+
+@testitem "an operator declared symmetric is checked against its products" begin
+    using PureQPBase, LinearAlgebra, Krylov, Random
+    include(joinpath(@__DIR__, "helpers.jl"))
+    Random.seed!(32)
+    n, m = 20, 10
+    S = randn(n, n)
+    A = PureQPBase.ProductOperator{Float64}(randn(m, n))
+    q, l, u = randn(n), fill(-1.0, m), fill(1.0, m)
+
+    # Entries are never read, so the declaration is the only symmetry a solver has; a false
+    # one would make CG iterate on a matrix that is not the problem's.
+    lie = PureQPBase.ProductOperator{Float64}(S'S + triu(S); symmetric = true, posdef = true)
+    @test_throws "P is declared symmetric but is not" backend_for(
+        lie, q, A, l, u; scaling = 0, linsys = :indirect, factorize = false
+    )
+end

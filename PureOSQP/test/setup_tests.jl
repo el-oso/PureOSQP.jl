@@ -25,7 +25,7 @@ end
     txt_sol = sprint(show, s)
     @test occursin("PureOSQP OperatorSplittingWorkspace", txt_ws)
     @test occursin("backend", txt_ws)
-    @test occursin("PureOSQP Solution", txt_sol)
+    @test occursin("Solution", txt_sol)
     @test occursin("iterations", txt_sol)
     @test iszero(count('\n', txt_ws))
     @test iszero(count('\n', txt_sol))

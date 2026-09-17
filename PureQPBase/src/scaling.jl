@@ -49,7 +49,7 @@ end
 # Equilibration and the dense formation both walk the caller's matrices one column at a
 # time. These four functions are the only places that do, so a matrix type that can
 # enumerate a column faster than by index needs to override just them, or just
-# `structural_rows`. `ext/PureOSQPSparseArraysExt.jl` overrides all four for
+# `structural_rows`. `ext/PureQPBaseSparseArraysExt.jl` overrides all four for
 # `SparseMatrixCSC`, where indexing `M[i, j]` is a binary search and the generic loop visits
 # every structural zero.
 #
@@ -167,7 +167,7 @@ cost normalization compares against `‖q̃‖∞`.
 One pass serves two purposes: the mean, and the column norms the next sweep needs.
 
 A representation that cannot be indexed overrides this with whole-matrix reductions — see
-`ext/PureOSQPGPUArraysCoreExt.jl`.
+`ext/PureQPBaseGPUArraysCoreExt.jl`.
 """
 function cost_norms!(pcol, ::Type{T}, P, D, c, n) where {T}
     acc = zero(T)

@@ -107,7 +107,7 @@ function no_entries()
             "this operator supplies products only and has no entries to read. Equilibration " *
                 "needs column and row norms: build it with `probe = true` to recover each " *
                 "column as a product, pass `scaling = 0` to skip equilibration, or give the " *
-                "wrapped type a `PureOSQP.structural_rows` method."
+                "wrapped type a `PureQPBase.structural_rows` method."
         )
     )
 end

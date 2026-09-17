@@ -230,7 +230,7 @@ end
     meaningful point — the objective and the residuals of it.
 """
 function Base.show(io::IO, s::Solution{T}) where {T}
-    print(io, "PureOSQP Solution{", T, "}: ", status_name(s.status), ", ", s.iter, " iterations")
+    print(io, "Solution{", T, "}: ", status_name(s.status), ", ", s.iter, " iterations")
     if has_solution(s.status)
         print(io, ", objective ", s.obj_val, ", primal residual ", s.prim_res, ", dual residual ", s.dual_res)
         s.polished && print(io, ", polished")
@@ -267,7 +267,7 @@ Whether `M` equals its transpose, which [`setup`](@ref) requires of `P`.
 
 The generic method is `issymmetric`, an entrywise scan over all `n²` positions. A
 representation whose entries are structurally zero outside a known set overrides this and
-compares only that set — `ext/PureOSQPBandedMatricesExt.jl` does, where the generic scan is
+compares only that set — `ext/PureQPBaseBandedMatricesExt.jl` does, where the generic scan is
 the largest single term in a banded `setup`. It is an override point for the same reason
 [`is_convex`](@ref) is: the cost is a property of the representation, not of the problem.
 """
