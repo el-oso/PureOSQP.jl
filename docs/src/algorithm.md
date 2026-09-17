@@ -1,22 +1,28 @@
 # Algorithm
 
-This page explains the internal working of the solver. Two algorithms are implemented:
+This page explains how the solver works inside. It has two algorithms:
 [`OperatorSplitting`](@ref), OSQP's ADMM iteration, and [`InteriorPoint`](@ref), a Mehrotra
-predictor–corrector method. Both reduce every iteration to solving one linear system of the
-same shape and draw on the same set of backends — [The linear system](@ref) and its selection
-ladder are shared infrastructure, not part of either algorithm. What differs is what varies
-inside that system from one iteration to the next, and what the outer loop does with the
-result; each algorithm's section below covers its own. Equilibration, termination, adaptive
-`ρ`, infeasibility and polishing are described once, after both, because both use them the
-same way except where a section says otherwise.
+predictor–corrector method. Both reduce every iteration to one linear system of the same shape,
+and both use the same set of backends. [The linear system](@ref) and the way a backend is picked
+belong to neither algorithm; they are shared.
+
+The algorithms differ in what changes inside that system from one iteration to the next, and in
+what the outer loop does with the answer. Each section below covers its own. Equilibration,
+termination, adaptive `ρ`, infeasibility and polishing come after both, once, because both use
+them the same way except where a section says otherwise.
 
 ## Operator splitting (ADMM)
 
-The problem involves minimizing an objective while staying within bounds. ADMM (*alternating direction method of multipliers*) solves this by maintaining two copies of the answer: one that minimizes the objective and one that satisfies the bounds. A penalty term is added to pull these two copies together. Each iteration consists of solving an unconstrained problem for `x`, clipping `z` into the box, and updating a multiplier `y`. When they agree, you have the solution.
+The problem is to minimize an objective and stay inside the bounds. ADMM (*alternating direction
+method of multipliers*) keeps two copies of the answer: one that minimizes the objective, one
+that satisfies the bounds. A penalty term pulls the two copies together. Each iteration solves
+an unconstrained problem for `x`, clips `z` into the box, and updates a multiplier `y`. When the
+two copies agree, you have the solution.
 
-The linear solve is the most expensive part. The matrix in it changes only when `ρ` changes, so the solver factors it once and reuses the factor.
+The linear solve costs the most. Its matrix changes only when `ρ` changes, so the solver factors
+it once and reuses the factor.
 
-Each iteration solves one linear system and then performs a projection:
+Each iteration solves one linear system, then projects:
 
 ```math
 \begin{aligned}
@@ -34,20 +40,22 @@ y^{k+1} &= y^k + \rho \odot \left(\alpha \tilde z^{k+1} + (1-\alpha) z^k - z^{k+
 
 ## The linear system
 
-This section and [Choosing a backend](@ref) below describe machinery both algorithms share:
-every backend named here also serves the interior-point method described further down this
-page, at the row weights that method hands it in place of ADMM's `ρ`. The reference implementation factors the `(n+m)×(n+m)` quasi-definite matrix with a sparse pivot-free LDLᵀ. An equivalent `n×n` symmetric positive definite system can be used:
+This section and [Choosing a backend](@ref) below describe parts both algorithms share. Every
+backend named here also serves the interior-point method further down this page, at the row
+weights that method hands it in place of ADMM's `ρ`. The reference implementation factors the
+`(n+m)×(n+m)` quasi-definite matrix with a sparse pivot-free LDLᵀ. An equivalent `n×n` symmetric
+positive definite system works too:
 
 ```math
 (P + \sigma I + A^\top \mathrm{diag}(\rho) A)\, \tilde x = \mathrm{rhs}_x + A^\top(\rho \odot \mathrm{rhs}_z),
 \qquad \tilde z = A \tilde x
 ```
 
-PureOSQP factors this with `cholesky!`. In dense regimes, this reduced form is faster.
+PureOSQP factors this with `cholesky!`. On dense problems the reduced form is faster.
 
-The two systems for a small sparse pair, with each entry colored by where it comes from. The
-reduced matrix is a fraction of the size, and `AᵀρA` fills it in wherever two rows of `A`
-share a column.
+Here are the two systems for a small sparse pair, with each entry colored by where it comes
+from. The reduced matrix is a fraction of the size, and `AᵀρA` fills it in wherever two rows of
+`A` share a column.
 
 ::: details Code that draws the figure
 
@@ -106,7 +114,7 @@ fig # hide
 \mathrm{bandwidth}(R) = \max\bigl(\mathrm{bandwidth}(P),\; 2\,\mathrm{bandwidth}(A)\bigr)
 ```
 
-The `choose_backend` function selects a solver based on the problem's structure:
+`choose_backend` picks a backend from the problem's structure:
 
 | `P` | `A` | bandwidth of `R` | backend | solve |
 |---|---|---|---|---|
@@ -116,11 +124,12 @@ The `choose_backend` function selects a solver based on the problem's structure:
 | `SymTridiagonal` or `Tridiagonal` | `Bidiagonal` | 1 | [`TridiagonalReduced`](@ref PureQPBase.TridiagonalReduced) | `ldlt`, `O(n)` |
 | banded | banded | ``2 \leq b \leq n/4`` | `BandedReduced` | banded `cholesky`, `O(nb²)` |
 
-The banded backend is a package extension requiring `BandedMatrices.jl`.
+The banded backend is a package extension. It needs `BandedMatrices.jl`.
 
-A `Diagonal` `P` with a general `A` does not receive special treatment, and its reduced matrix is dense.
+A `Diagonal` `P` with a general `A` gets no special treatment, and its reduced matrix is dense.
 
-Fill-in is a factor. On random sparse `A`, the reduced matrix `R` is much sparser than `A` suggests, but its Cholesky factor is not.
+Fill-in matters. On random sparse `A` the reduced matrix `R` is much sparser than `A` suggests,
+but its Cholesky factor is not.
 
 | n | m | density(A) | density(R) | density of chol(R) | fill |
 |---|---|---|---|---|---|
@@ -129,9 +138,9 @@ Fill-in is a factor. On random sparse `A`, the reduced matrix `R` is much sparse
 | 400 | 800 | 1% | 11.2% | 83.3% | 7.4× |
 | 400 | 800 | 5% | 95.4% | 100% | 1.1× |
 
-The first row, drawn. This is a fresh random pattern at the same `n`, `m` and density, so
-its percentages differ a little from the table's; the shape of the result does not. `R`
-keeps most of `A`'s sparsity, and its Cholesky factor keeps almost none of it.
+Here is the first row, drawn. It uses a fresh random pattern at the same `n`, `m` and density,
+so its percentages differ a little from the table's. The shape of the result does not. `R` keeps
+most of `A`'s sparsity. Its Cholesky factor keeps almost none of it.
 
 ::: details Code that draws the figure
 
@@ -164,7 +173,9 @@ fig # hide
 
 ## Solving with the inverse
 
-Once `R` is factored, it is inverted in place. This is faster than a Cholesky `ldiv!` because it uses a symmetric matrix-vector product (`symv`) instead of two triangular solves.
+Once `R` is factored, the solver inverts it in place. That beats a Cholesky `ldiv!`, because
+each solve is then one symmetric matrix-vector product (`symv`) instead of two triangular
+solves.
 
 | kernel | solve, n = 200 | relative error |
 |---|---|---|
@@ -172,19 +183,19 @@ Once `R` is factored, it is inverted in place. This is faster than a Cholesky `l
 | `symv` against the inverse | 1.61 µs | 6.8e-16 |
 | two `trmv` against `L⁻¹` | 3.82 µs | 5.7e-16 |
 
-At these sizes the factor is a few hundred kilobytes and stays in cache, so the sequential
-dependency — not memory bandwidth — is what bounds the triangular solve. Inverting costs
-roughly two Cholesky factorizations (`potri` on top of `potrf`), paid once per `ρ` update
-and repaid over the hundreds of iterations between updates.
+At these sizes the factor is a few hundred kilobytes and stays in cache. So what limits the
+triangular solve is its sequential dependency, not memory bandwidth. Inverting costs about two
+Cholesky factorizations (`potri` on top of `potrf`). You pay that once per `ρ` update and get it
+back over the hundreds of iterations between updates.
 
-Forming an explicit inverse is normally poor practice, and it is safe here for a specific
-reason: the reduced matrix carries the `σI` regularization, so its conditioning is bounded
-by construction rather than inherited from the data. That is what the error column above
-shows — the inverse is no less accurate than the triangular solve.
+Forming an explicit inverse is usually poor practice. It is safe here for one reason: the
+reduced matrix carries the `σI` regularization, so its conditioning has a bound by construction
+instead of inheriting one from the data. The error column above shows that. The inverse is as
+accurate as the triangular solve.
 
-The counter-pressure is conditioning: forming `AᵀρA` squares `cond(A)`. Measured relative
-error of the inner solve against an extended-precision reference, `n = 60`, `m = 200`,
-`P = 0`, on `A` built with geometrically spread singular values:
+Conditioning pushes the other way, because forming `AᵀρA` squares `cond(A)`. Here is the
+measured relative error of the inner solve against an extended-precision reference, at `n = 60`,
+`m = 200`, `P = 0`, on `A` built with geometrically spread singular values:
 
 | cond(A) | reduced, unscaled | reduced, equilibrated | full KKT |
 |---|---|---|---|
@@ -195,16 +206,15 @@ error of the inner solve against an extended-precision reference, `n = 60`, `m =
 | 1e14 | fails | 1.3e-08 | 2.0e-04 |
 | 1e16 | fails | 1.2e-08 | 3.4e-02 |
 
-Equilibration is what makes the reduced form usable: without it the Cholesky loses all
-accuracy by `cond(A) = 1e8` and fails outright past that. With it — the default — the
-reduced solve holds around `1e-8` across the whole range, and past `cond(A) = 1e10` it is
-*more* accurate than the full KKT factorization, because equilibration bounds what the
-reduced matrix inherits while the quasi-definite matrix keeps the raw conditioning.
+Equilibration is what makes the reduced form usable. Without it the Cholesky loses all accuracy
+by `cond(A) = 1e8` and fails past that. With it, which is the default, the reduced solve holds
+around `1e-8` across the whole range. Past `cond(A) = 1e10` it is *more* accurate than the full
+KKT factorization, because equilibration bounds what the reduced matrix inherits while the
+quasi-definite matrix keeps the raw conditioning.
 
-The first table's `A` family is ill-conditioned by a spread of singular values, close to
-what equilibration is designed to fix. The harder case is
-ill-conditioning no diagonal scaling can remove — `A` with unit-norm columns and nearly
-parallel rows:
+The first table's `A` family is ill-conditioned by a spread of singular values, which is close
+to what equilibration is built to fix. The harder case is ill-conditioning that no diagonal
+scaling can remove: an `A` with unit-norm columns and nearly parallel rows.
 
 | row spread | cond(A) | reduced, equilibrated | Cholesky succeeded | full KKT |
 |---|---|---|---|---|
@@ -214,28 +224,28 @@ parallel rows:
 | 1e-8 | 3.4e8 | 2.7e-08 | yes | 3.4e-10 |
 | 1e-10 | 3.4e10 | 2.7e-08 | yes | 2.4e-10 |
 
-Here the Cholesky is around a hundred times less accurate than the full KKT factorization,
-but it still succeeds and still plateaus near `1e-8`; it degrades gradually rather than
-silently collapsing. Across every case measured, with equilibration on, the Cholesky never
-failed.
+Here the Cholesky is about a hundred times less accurate than the full KKT factorization. It
+still succeeds, and it still levels off near `1e-8`. It gets worse gradually rather than
+collapsing without warning. With equilibration on, the Cholesky never failed in any case we
+measured.
 
-Both tables are reproduced by `PureOSQP/bench/kkt_backend.jl`.
+`PureOSQP/bench/kkt_backend.jl` reproduces both tables.
 
 ### Choosing a backend
 
-`linsys = :auto` (the default) descends the selection ladder and takes the first rung that
-serves the given `P` and `A`; the reduced Cholesky is its terminal rung, reached by any pair
-that can be materialized and nothing cheaper fits. If that Cholesky reports that the matrix is
-not positive definite, `setup` throws and names `linsys = :kkt`, which factors the full
+`linsys = :auto`, the default, walks the candidates in order and takes the first one that serves
+the given `P` and `A`. The reduced Cholesky is the last candidate: any pair the solver can
+materialize reaches it when nothing cheaper fits. If that Cholesky reports the matrix is not
+positive definite, `setup` throws and names `linsys = :kkt`, which factors the full
 quasi-definite system with `bunchkaufman!` and does not square the conditioning of `A`. On the
-measurements above this does not happen with equilibration on.
+measurements above, that does not happen with equilibration on.
 
-The whole selection, top to bottom. A pair whose types name a backend outright takes it
-without descending; every other pair starts at rung 1 and stops at the first rung that
-accepts it. The two sparse factorization rungs decide from the pattern alone — the densest
-row of `A`, the stored entries of the KKT matrix, and the symbolic `AᵀA ∪ P` pattern count —
-without factoring anything to find out; once a rung accepts a pair it builds and factors the
-backend it named, so that factorization is the one `setup` keeps.
+Here is the whole order, top to bottom. A pair whose types name a backend outright takes it and
+skips the rest. Every other pair starts at candidate 1 and stops at the first one that accepts
+it. The two sparse factorization candidates decide from the pattern alone — the densest row of
+`A`, the stored entries of the KKT matrix, and the symbolic `AᵀA ∪ P` pattern count — and factor
+nothing to find out. Once a candidate accepts a pair, the solver builds and factors the backend
+it named, and `setup` keeps that factorization.
 
 ::: details Code that draws the figure
 
@@ -282,7 +292,7 @@ down!(2.6, H + 0.2, H - 0.1)
 lines!(ax, [-0.25, -0.25], [H - 3 + 0.1, H - 0.1]; color = :gray50)
 text!(ax, -0.4, H - 1.5; text = "by type", align = (:center, :bottom), fontsize = 11, color = :gray50, rotation = pi / 2)
 lines!(ax, [-0.25, -0.25], [0.1, H - 3 - 0.1]; color = :gray50)
-text!(ax, -0.4, (H - 3) / 2; text = "the ladder, rungs 1–8", align = (:center, :bottom), fontsize = 11, color = :gray50, rotation = pi / 2)
+text!(ax, -0.4, (H - 3) / 2; text = "candidates 1–8, in order", align = (:center, :bottom), fontsize = 11, color = :gray50, rotation = pi / 2)
 text!(ax, 5.0, -0.5; text = "a :cholesky that finds R not positive definite throws and names linsys = :kkt",
       align = (:center, :top), fontsize = 11, color = :gray30)
 limits!(ax, -1.2, 11.2, -1.2, H + 1)
@@ -295,18 +305,17 @@ nothing # hide
 fig # hide
 ```
 
-`linsys = :kkt` forces the full quasi-definite factorization for every solve. It is
-slower — that is the whole point of the reduced form — but it is the more accurate
-factorization at moderate conditioning, and it is the closest match to what the reference
-implementation does, which makes it useful when a result is in question. The entire test
-corpus runs through both backends.
+`linsys = :kkt` forces the full quasi-definite factorization on every solve. It is slower, which
+is the whole point of the reduced form. But it is the more accurate factorization at moderate
+conditioning, and it is the closest match to what the reference implementation does. That makes
+it useful when you doubt a result. The whole test corpus runs through both backends.
 
 ## The interior-point method
 
-[`InteriorPoint`](@ref) is a Mehrotra predictor–corrector method. Instead of the ADMM
-recurrence above, each outer iteration factors a new Newton system at the current point,
-takes a predictor step to estimate how much the barrier parameter `μ` can shrink, then a
-corrector step that aims at that target `μ`:
+[`InteriorPoint`](@ref) is a Mehrotra predictor–corrector method. It does not run the ADMM
+recurrence above. Each outer iteration factors a new Newton system at the current point, takes a
+predictor step to estimate how far the barrier parameter `μ` can drop, then takes a corrector
+step aimed at that `μ`:
 
 ```math
 \begin{aligned}
@@ -318,59 +327,57 @@ corrector step that aims at that target `μ`:
 
 `w` is the current row weight — `z_l/(s_l + \delta_d z_l) + z_u/(s_u + \delta_d z_u)` on an
 inequality row, `1/\delta_d` on an equality row, `\delta_d` on a free row — and it changes
-every iteration as the slacks `s` and multipliers `z` move toward the boundary. `δ_p` and
-`δ_d` are fixed proximal regularizations, not something the iteration tunes away. Solving
-this system is exactly the `LinearSystem` contract above, so every backend that serves ADMM's
-reduced or KKT system serves this one too, at the row weights the interior-point method hands
-it.
+every iteration as the slacks `s` and multipliers `z` move toward the boundary. `δ_p` and `δ_d`
+are fixed proximal regularizations. The iteration does not tune them away. Solving this system
+is the `LinearSystem` contract above, so every backend that serves ADMM's reduced or KKT system
+serves this one too, at the row weights the interior-point method hands it.
 
-A run takes a few dozen iterations, each paying for a fresh factorization, and reaches
-`1e-8` by default rather than ADMM's `1e-3`. Choose it over ADMM when the accuracy target is
-tighter than ADMM reaches in a modest iteration count, or when ADMM's residuals fall slowly on
-a particular problem; choose ADMM when the same workspace is re-solved many times through
-[`update!`](@ref), or when the matrices are matrix-free operators with no caller-supplied
-preconditioner.
+A run takes a few dozen iterations. Each one pays for a fresh factorization, and the run reaches
+`1e-8` by default rather than ADMM's `1e-3`. Pick it over ADMM when you want more accuracy than
+ADMM reaches in a modest iteration count, or when ADMM's residuals fall slowly on your problem.
+Pick ADMM when you re-solve the same workspace many times through [`update!`](@ref), or when
+your matrices are operators and you have no preconditioner to supply.
 
 ### What it accepts, and what throws
 
 - [`update!`](@ref), [`warm_start!`](@ref), [`cold_start!`](@ref) and
-  [`update_settings!`](@ref) work as they do for ADMM; a settings change never forces a
-  refactorization, since every solve resets its regularization and factors before the first
-  iteration regardless.
-- `polishing = true` is required before [`adjoint_derivative`](@ref) or
-  [`forward_derivative`](@ref): an interior-point solution's inactive-row multipliers sit at
-  `O(μ_final)`, not at the near-zero a derivative through the active set needs, and polishing
-  is what cleans that up.
-- `PureOSQP.Optimizer` is the MathOptInterface wrapper around it, as `PureOSQP.Optimizer` is
-  around the operator-splitting method. An optimizer runs the algorithm of the package that
-  supplies it, and accepts the shared options and only that algorithm's parameters.
+  [`update_settings!`](@ref) work as they do for ADMM. A settings change never forces a
+  refactorization, because every solve resets its regularization and factors before the first
+  iteration anyway.
+- You must pass `polishing = true` before [`adjoint_derivative`](@ref) or
+  [`forward_derivative`](@ref). An interior-point solution holds its inactive-row multipliers at
+  `O(μ_final)`, not near zero, which is what a derivative through the active set needs.
+  Polishing cleans that up.
+- `PureOSQP.Optimizer` is the MathOptInterface wrapper. An optimizer runs the algorithm of the
+  package that supplies it. It takes the shared options plus that algorithm's own parameters,
+  and nothing else.
 - `verbose` prints under either algorithm: a header, one line per termination check, and a
-  footer, with `mu` and `alpha` in place of ADMM's `rho`. The interior-point method's footer
-  also names the run time, and, on the matrix-free backend, its row gains a `cg iters` column
-  and its footer a line for the total CG iterations and the missed inner solves.
-  `profile_primdual` is read only by [`OperatorSplitting`](@ref); passing it to
-  `InteriorPoint()` throws naming the algorithm that owns it, since only ADMM's loop
-  accumulates the primal-dual integral it fills.
-- `accelerator` is ADMM's fixed-point accelerator; passing it to `InteriorPoint()` throws,
-  since the interior-point method has no fixed-point iteration to accelerate. Passing a GPU
-  array to `InteriorPoint()` also throws: none of its backends have a GPU counterpart.
-- `linsys = :indirect` runs only with a caller-supplied `preconditioner` and `scaling = 0`,
-  on matrices and on operators alike — see [Operators under the interior-point method](@ref).
-  `linsys = :kronecker` and `linsys = :lowrank` throw: the Kronecker backend needs one weight
-  for every row, which the interior-point method's per-row weights break, and the low-rank
+  footer. It prints `mu` and `alpha` in place of ADMM's `rho`. The interior-point footer also
+  gives the run time. On the matrix-free backend its rows gain a `cg iters` column, and its
+  footer gains a line for the total CG iterations and the missed inner solves. Only
+  [`OperatorSplitting`](@ref) reads `profile_primdual`. Pass it to `InteriorPoint()` and it
+  throws, naming the algorithm that owns it, because only ADMM's loop builds up the primal-dual
+  integral it fills.
+- `accelerator` is ADMM's fixed-point accelerator. Pass it to `InteriorPoint()` and it throws,
+  because the interior-point method has no fixed-point iteration to accelerate. Pass a GPU array
+  to `InteriorPoint()` and it throws too: none of its backends has a GPU counterpart.
+- `linsys = :indirect` runs only with a `preconditioner` you supply and `scaling = 0`, on
+  matrices and operators alike. See [Operators under the interior-point method](@ref).
+  `linsys = :kronecker` and `linsys = :lowrank` throw. The Kronecker backend needs one weight
+  for every row, and the interior-point method's per-row weights break that. The low-rank
   backend's Woodbury solve misses the tolerance on linear programs (see the table below).
-- Any `T <: Real` is accepted; see the generic-element-type paragraph below.
+- It takes any `T <: Real`. See the note on element types below.
 
 ### Backends under the interior-point method
 
-With [`InteriorPoint`](@ref) the Newton system has the same shape, but its row weights change every
-iteration and reach `1/reg_dual` (`1e8` by default) on equality rows and on rows whose bound is
-active. The reduced form squares those weights into its conditioning, so each backend was run
-on problems of its own structure and compared with the dense full KKT factorization
-(`linsys = :kkt`) on the same problem. The table summarizes `PureIPM/bench/results/ipm_backends.json`,
-which `PureIPM/bench/ipm_backends.jl` writes. "Referee" is the largest optimality residual computed
-from the original data; iterations are outer iterations, the same for both columns unless
-shown.
+With [`InteriorPoint`](@ref) the Newton system keeps the same shape, but its row weights change
+every iteration and reach `1/reg_dual`, `1e8` by default, on equality rows and on rows whose
+bound is active. The reduced form squares those weights into its conditioning. So we ran each
+backend on problems of its own structure and compared it with the dense full KKT factorization
+(`linsys = :kkt`) on the same problem. The table sums up
+`PureIPM/bench/results/ipm_backends.json`, which `PureIPM/bench/ipm_backends.jl` writes.
+"Referee" is the largest optimality residual computed from the original data. Iterations are
+outer iterations, the same for both columns unless the table says otherwise.
 
 | backend | problems | status | referee | iterations (this backend / `:kkt`) |
 |---|---|---|---|---|
@@ -384,40 +391,42 @@ shown.
 | `:lowrank` | two diagonal-plus-low-rank pairs; QP and with equality rows | solved | ≤ 4.3e-9 | 8–9, equal |
 | `:lowrank` | the same pairs as LPs | not solved (3 of 4 at 100 iterations, 1 numerical error) | up to 1e24 | 54–100 / 8–11 |
 
-A backend stays in the interior-point selection when it solves every one of its problems with a
-referee below `1e-5` in at most twice the iterations `:kkt` takes, judged on the problems in the
-table above. Every backend passes except `:lowrank`, which fails on linear programs: a variable that only the dense rows reach keeps
-nothing but `reg_primal` in the diagonal core when `P` is zero, which puts `1e8` in the core's
-inverse, and on those problems the Woodbury solve ends without a solution. Under `InteriorPoint()`, `linsys = :auto` therefore serves a
-diagonal `P` with a `RowCoupled` `A` with `:kkt`, and `linsys = :lowrank` throws.
-`:sparse_formed` has no interior-point counterpart: the interior-point selection has no rung
-that forms and inverts the reduced matrix.
+A backend stays among the interior-point candidates when it solves every one of its problems
+with a referee below `1e-5`, in at most twice the iterations `:kkt` takes, on the problems in
+the table above. Every backend passes except `:lowrank`, which fails on linear programs. When
+`P` is zero, a variable that only the dense rows reach keeps nothing but `reg_primal` in the
+diagonal core. That puts `1e8` in the core's inverse, and on those problems the Woodbury solve
+ends without a solution. So under `InteriorPoint()`, `linsys = :auto` gives a diagonal `P` with
+a `RowCoupled` `A` to `:kkt`, and `linsys = :lowrank` throws. `:sparse_formed` has no
+interior-point counterpart, because no interior-point candidate forms and inverts the reduced
+matrix.
 
-`:kkt` copies `A` into the full matrix one entry at a time at every factorization. Measured on
-one core, that copy is 3% of an iteration on a dense QP (`n = 200`, `m = 400`), 7% on Lasso
-(`n = m = 816`, sparse `A`) and 16% on `banded_qp(200, 300)`; the `bunchkaufman!`
-factorization is the rest of the factorization and most of the iteration.
+`:kkt` copies `A` into the full matrix one entry at a time at every factorization. We measured
+that copy on one core: 3% of an iteration on a dense QP (`n = 200`, `m = 400`), 7% on Lasso
+(`n = m = 816`, sparse `A`) and 16% on `banded_qp(200, 300)`. The `bunchkaufman!` call is the
+rest of the factorization, and most of the iteration.
 
 The interior-point method is generic over the element type `T <: Real`, as ADMM is. Its four
 tolerances, its two regularizations and its short-step threshold default to `1e-8` in `Float64`
-and finer arithmetic (`BigFloat`) and to `sqrt(eps(T))` in coarser arithmetic (`Float32`:
-`3.5e-4`); the divergence bound is `1/sqrt(eps(T))` times the size of the data. A number type
-that wraps another, such as `ForwardDiff.Dual`, takes the precision of `float(T)`.
+and in finer arithmetic such as `BigFloat`, and to `sqrt(eps(T))` in coarser arithmetic — for
+`Float32` that is `3.5e-4`. The divergence bound is `1/sqrt(eps(T))` times the size of the data.
+A number type that wraps another, such as `ForwardDiff.Dual`, takes the precision of `float(T)`.
 
 On the dense test generator (`n = 200`, 18 instances, two-sided and mixed rows), `:kkt` in
-`Float32` at `eps_abs = eps_rel = 1e-4` and `reg_primal = reg_dual = sqrt(eps(Float32))`
-without equilibration solves all 18 in 4–8 iterations with no regularization increase, with
-referees from `1.1e-5` to `1.0e-4`; `Float64` at the same tolerances takes 4–6 iterations
-with referees from `2.4e-6` to `8.1e-5`.
+`Float32` at `eps_abs = eps_rel = 1e-4` and `reg_primal = reg_dual = sqrt(eps(Float32))`, with
+no equilibration, solves all 18 in 4–8 iterations and never raises its regularization. Referees
+run from `1.1e-5` to `1.0e-4`. `Float64` at the same tolerances takes 4–6 iterations, with
+referees from `2.4e-6` to `8.1e-5`.
 
-`BigFloat` runs on `:kkt` and on the dense reduced Cholesky. Dual numbers
-(`ForwardDiff.Dual`) run on the dense reduced Cholesky, which `:auto` chooses for them, but not
-on `:kkt`, since `bunchkaufman!` has no method for them; the derivative of the objective
-through a solve matches a central difference of the `Float64` objective.
+`BigFloat` runs on `:kkt` and on the dense reduced Cholesky. Dual numbers (`ForwardDiff.Dual`)
+run on the dense reduced Cholesky, which `:auto` picks for them, but not on `:kkt`, because
+`bunchkaufman!` has no method for them. The derivative of the objective through a solve matches
+a central difference of the `Float64` objective.
 
 ## Equilibration
 
-Modified Ruiz equilibration is applied to the system. It is stored as factors rather than applied to the matrices:
+The solver equilibrates the system with modified Ruiz scaling. It stores the scaling as factors
+rather than applying it to the matrices:
 
 ```math
 \tilde P = c\,D P D, \qquad \tilde A = E A D, \qquad \tilde q = c\,D q, \qquad
@@ -469,11 +478,12 @@ nothing # hide
 fig # hide
 ```
 
-Every per-iteration product runs `mul!` on the caller's original matrix with the factors applied around it, so a structured or lazy `A` keeps its fast product and nothing is copied.
+Every per-iteration product calls `mul!` on the matrix you passed, with the factors applied
+around it. So a structured or lazy `A` keeps its fast product, and nothing is copied.
 
 ## Convergence
 
-The iteration stops when primal and dual residuals satisfy the given tolerances.
+The iteration stops when the primal and dual residuals meet the tolerances you gave.
 
 ```math
 r_{\rm prim} = \|Ax - z\|_\infty,
@@ -481,9 +491,9 @@ r_{\rm prim} = \|Ax - z\|_\infty,
 r_{\rm dual} = \|Px + q + A^\top y\|_\infty
 ```
 
-Both residuals are reported in **problem space**.
+The solver reports both residuals in **problem space**.
 
-Tolerances are absolute plus relative:
+Each tolerance is an absolute part plus a relative part:
 
 ```math
 \epsilon_{\rm prim} = \epsilon_{\rm abs} + \epsilon_{\rm rel}\max\bigl(\|Ax\|_\infty,\|z\|_\infty\bigr),
@@ -491,30 +501,30 @@ Tolerances are absolute plus relative:
 \epsilon_{\rm dual} = \epsilon_{\rm abs} + \epsilon_{\rm rel}\max\bigl(\|Px\|_\infty,\|q\|_\infty,\|A^\top y\|_\infty\bigr)
 ```
 
-**The duality gap is a third test, and it can only delay convergence.** With
-`check_dualgap` — on by default, following libosqp 1.x — a point must additionally satisfy
-`|gap| < ε_gap` before it is called `SOLVED`. It is checked *after* the residuals pass, never
+**The duality gap is a third test, and it can only delay convergence.** With `check_dualgap`,
+which is on by default and follows libosqp 1.x, a point must also satisfy `|gap| < ε_gap` before
+the solver calls it `SOLVED`. The solver checks the gap *after* the residuals pass, never
 instead of them, because a point with a small gap and a large residual is not a solution.
 
-Three more things decide what the caller sees:
+Three more things decide what you see:
 
-- **Checking is periodic.** The test runs every `check_termination` iterations, 25 by default,
-  so a reported iteration count is quantized to that. It is not a search for the first
-  iteration that would have passed.
-- **Failing the tolerances triggers the infeasibility certificates**, not just another
-  iteration — a large primal residual is what prompts the primal-infeasibility test below.
-- **A relaxed pass is reported as such.** When the loop ends without converging, the whole
-  test is repeated at ten times the tolerances; passing that gives `SOLVED_INACCURATE`, which
-  is a different answer from `SOLVED` and never presented as one. A residual above `INFTY`
-  gives `NON_CONVEX`: a convex problem's residuals cannot diverge. ADMM never reports
-  `NUMERICAL_ERROR`; that status belongs to `InteriorPoint()`.
+- **The check is periodic.** It runs every `check_termination` iterations, 25 by default, so a
+  reported iteration count lands on a multiple of that. The solver does not go back and look for
+  the first iteration that would have passed.
+- **Failing the tolerances starts the infeasibility tests**, not just another iteration. A large
+  primal residual is what prompts the primal-infeasibility test below.
+- **A relaxed pass says so.** When the loop ends without converging, the solver repeats the
+  whole test at ten times the tolerances. Passing that gives `SOLVED_INACCURATE`, which is a
+  different answer from `SOLVED` and never shown as one. A residual above `INFTY` gives
+  `NON_CONVEX`, because a convex problem's residuals cannot diverge. ADMM never reports
+  `NUMERICAL_ERROR`. That status belongs to `InteriorPoint()`.
 
-`scaled_termination` tests the equilibrated residuals instead of the unscaled ones. It is off
-by default, since the natural question is about your problem rather than the solver's internal
+`scaled_termination` tests the equilibrated residuals instead of the unscaled ones. It is off by
+default, because the question you want answered is about your problem, not the solver's internal
 one.
 ## Adaptive ρ
 
-`ρ` is re-estimated based on the ratio of primal and dual residuals:
+The solver re-estimates `ρ` from the ratio of the primal and dual residuals:
 
 ```math
 \rho_{\text{new}} = \rho \sqrt{
@@ -522,27 +532,27 @@ one.
        {r_{\text{dual}} / \max(\|q\|_\infty, \|A^\top y\|_\infty, \|Px\|_\infty)}}
 ```
 
-and adopted only when it moves by more than a factor of `adaptive_rho_tolerance`, since
-adopting it forces a refactorization.
+It takes the new value only when the value moves by more than a factor of
+`adaptive_rho_tolerance`, because taking it forces a refactorization.
 
-The reference implementation triggers this on wall-clock time by default — once 0.4 × the
-setup time has elapsed. PureOSQP uses a fixed iteration interval (default 50) instead, so
-that iteration counts do not depend on how fast the machine is.
+The reference implementation triggers this on wall-clock time by default, once 0.4 × the setup
+time has passed. PureOSQP uses a fixed iteration interval instead, 50 by default, so iteration
+counts do not depend on how fast the machine is.
 
 ## Infeasibility
 
-Infeasibility is detected using the differences in iterates `δx` and `δy`. The interior-point
-method has no separate test of its own: it applies this one to its own last step and its
+The solver detects infeasibility from the differences between iterates, `δx` and `δy`. The
+interior-point method has no test of its own. It applies this one to its own last step and its
 normalized iterate.
 
 ## Polishing
 
-Both algorithms call the same `polish_kernel!` on their own `(x, y, z)`. The active set is
-guessed from the iterate: row `i` is lower-active when `z_i - l_i < -y_i` or `l_i == u_i`, and
-upper-active when `u_i - z_i < y_i`. Under `InteriorPoint`, this is why polishing has to run
-before a derivative is taken: an unpolished row's multiplier sits at the barrier parameter
-rather than near zero, which this test would misread. The
-resulting equality-constrained QP
+Both algorithms call the same `polish_kernel!` on their own `(x, y, z)`. It guesses the active
+set from the iterate: row `i` is lower-active when `z_i - l_i < -y_i` or `l_i == u_i`, and
+upper-active when `u_i - z_i < y_i`. That is why polishing must run before you take a derivative
+under `InteriorPoint`. An unpolished row holds its multiplier at the barrier parameter rather
+than near zero, and this test would read that wrongly. The equality-constrained QP that comes
+out
 
 ```math
 \begin{bmatrix} P + \delta I & A_{\text{red}}^\top \\ A_{\text{red}} & -\delta I \end{bmatrix}
@@ -550,9 +560,9 @@ resulting equality-constrained QP
 = \begin{bmatrix} -q \\ b_{\text{red}} \end{bmatrix}
 ```
 
-is factored with `bunchkaufman!` and corrected by three steps of iterative refinement
-against the unregularized operator, which removes the error introduced by `δ`. The polished
-point replaces the ADMM answer only if both residuals improve.
+is factored with `bunchkaufman!`, then corrected by three steps of iterative refinement against
+the unregularized operator, which removes the error `δ` introduces. The polished point replaces
+the ADMM answer only if both residuals improve.
 
 ## The name Cholesky
 
@@ -566,19 +576,19 @@ posthumously in 1924, when a fellow officer, Commandant Benoît, wrote it up in 
 
 **Say it `/ʃəˈlɛski/` — *shə-LES-kee*.** The first sound is the *sh* of *shoe*.
 
-The reason is that he was French, and French ⟨ch⟩ is /ʃ/. There is a second defensible reading
-from the family's origins: his paternal line descended from the **Cholewski** family, which
-left Poland during the Great Emigration, and Polish ⟨ch⟩ is /x/ — the fricative in *Bach*, in
-Greek χ, in Russian х, in Spanish *j*. That gives *kho-LES-kee*. This reading appears in the field's own literature: a 1990 NA
-Digest exchange set out three candidates and concluded
-that "all three current pronunciations seem acceptable" pending evidence of the name's origin,
-noting that a Polish origin would make *Kholesky* correct.
+He was French, and French ⟨ch⟩ is /ʃ/. A second reading is defensible, from the family's
+origins. His paternal line came from the **Cholewski** family, which left Poland during the
+Great Emigration, and Polish ⟨ch⟩ is /x/: the fricative in *Bach*, in Greek χ, in Russian х, in
+Spanish *j*. That gives *kho-LES-kee*. The field's own literature carries this reading. A 1990
+NA Digest exchange set out three candidates and concluded that "all three current pronunciations
+seem acceptable" until someone found evidence of the name's origin, noting that a Polish origin
+would make *Kholesky* correct.
 
-**What has no basis is a hard English /k/ — "koh-LES-kee", the *k* of *kiosk*.** It is neither
-the French /ʃ/ nor the Polish /x/. The two are distinct sounds: /x/ is a fricative, air still
-flowing; /k/ is a plosive, stopped and released. The /k/ reading most likely comes from the
-English habit of pronouncing ⟨ch⟩ as /k/ in words taken from Greek — *chorus*, *chaos*,
-*character* — and this name is not Greek.
+**A hard English /k/ — "koh-LES-kee", the *k* of *kiosk* — has no basis.** It is neither the
+French /ʃ/ nor the Polish /x/. Those two are different sounds: /x/ is a fricative, with the air
+still flowing, and /k/ is a plosive, stopped and released. The /k/ reading most likely comes
+from the English habit of saying ⟨ch⟩ as /k/ in words taken from Greek — *chorus*, *chaos*,
+*character*. This name is not Greek.
 
 References: the pronunciation `/ʃəˈlɛski/` is given by
 [Wikipedia's article on the decomposition](https://en.wikipedia.org/wiki/Cholesky_decomposition);
