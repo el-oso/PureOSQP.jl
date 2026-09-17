@@ -9,6 +9,17 @@ it carries.
 | `PureIPM` | MIT | published papers only |
 | `PureOSQP` | Apache-2.0 | [OSQP](https://osqp.org), and carries its license |
 
+**Depending on a package does not place yours under its license.** Using `PureQPBase` leaves
+your package under whatever license you choose, and `PureOSQP` depending on `PureQPBase` does
+not place `PureQPBase` under Apache-2.0. Only a derivative work carries its parent's terms,
+and a dependency is not a derivative.
+
+Each package directory carries the license governing it — `PureQPBase/LICENSE`,
+`PureIPM/LICENSE`, `PureOSQP/LICENSE`. The `LICENSE` at the repository root is a map to those
+three rather than a license itself, since claiming either one there would be wrong for two of
+the packages. Everything outside the three package directories — the shared benchmarks, this
+documentation, the design notes — is MIT.
+
 ## PureOSQP
 
 **This is not a clean-room implementation.** The operator-splitting method was written using
