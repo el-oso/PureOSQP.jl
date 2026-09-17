@@ -50,7 +50,7 @@ speed the descent toward it. If a badly conditioned problem is stopping at `max_
 | [Krylov.jl](https://github.com/JuliaSmoothOptimizers/Krylov.jl) | the matrix-free backend, needed for any operator | extension |
 | [LDLFactorizations.jl](https://github.com/JuliaSmoothOptimizers/LDLFactorizations.jl) | a pure-Julia sparse `LDLᵀ` instead of SuiteSparse | extension |
 
-[Which representation, and why](@ref) helps you choose.
+[Which type to use](@ref) helps you choose.
 
 Two key extensions:
 - **LDLFactorizations**: Provides a pure-Julia sparse `LDLᵀ`, making the package compatible with `juliac --trim`.

@@ -362,7 +362,7 @@ It is the wrong choice when the product costs the same either way — a map has 
 factor, so it is solved by conjugate gradients, which pays every iteration for a factorization
 a matrix pays for once. The measured comparison is in
 [When it is the wrong tool](@ref), and the conditioning limit — where a bare map does not
-converge at all — is in [Unmaterialized does not mean solved by CG](@ref).
+converge at all — is in [An operator is not always solved with CG](@ref).
 
 ## Two packages supply operators
 

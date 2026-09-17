@@ -1,48 +1,48 @@
 # Matrix types
 
-How you store `P` and `A` decides how much work the solver does — sometimes by a factor of
-hundreds — and you choose it by passing a different matrix type, not by changing a setting.
+How you store `P` and `A` changes how much work the solver does. Sometimes by a factor of
+hundreds. You control it by passing a different matrix type, not by setting an option.
 
-This page covers which representation suits which problem, what each type looks like, what
-backend it reaches, and how to bring a type of your own. For worked problems see
-[Examples](@ref); for the measurements behind the advice, [Benchmarks](@ref).
+This page says which type suits which problem, what backend each one reaches, and how to add
+a type of your own. For worked problems see [Examples](@ref). For the numbers behind the
+advice, see [Benchmarks](@ref).
 
-## Matrix representations
+## Matrix types
 
-So far `P` and `A` were ordinary dense matrices. That always works, and if your problems are
-small it is all you need — stop here and return when one gets slow. The rest of the page is
-what to do when they get slow.
+Dense matrices always work. If your problems are small, that is all you need. Stop here and
+come back when one gets slow.
 
-Two terms used throughout:
+Two words appear throughout:
 
-- The **reduced matrix** is the `n×n` matrix the solver solves against on every iteration. It
-  is where nearly all the time goes, and the sections below aim to keep it small or cheap.
-  The formula is `R = cDPD + σI + Ãᵀdiag(ρ)Ã`; you do not need it to use any of this.
-- A **backend** is the code that solves against that matrix. There are ten or so. `setup`
-  picks one from the types of `P` and `A`; you do not. `PureQPBase.backend_name(ws.linsys)`
-  reports the choice.
+- The **reduced matrix** is the `n×n` matrix the solver solves against every iteration.
+  Nearly all the time goes there, so the rest of this page is about keeping it small or
+  cheap. It is `R = cDPD + σI + Ãᵀdiag(ρ)Ã`, but you do not need the formula to use any of
+  this.
+- A **backend** is the code that solves against that matrix. There are about ten. `setup`
+  picks one from the types of `P` and `A`. You do not pick it. Ask which one you got with
+  `PureQPBase.backend_name(ws.linsys)`.
 
-The workflow is always: pass a matrix type that describes your problem, then check which
-backend you got. If it is the one you expected, the structure was used.
+The steps are always the same. Pass a matrix type that describes your problem. Then check
+which backend you got. If it is the one you expected, the solver used your structure.
 
-### Which representation, and why
+### Which type to use
 
-There are four answers, and the right one is a property of the problem, not a preference:
+There are four answers. Which one is right depends on your problem, not on taste:
 
-| your problem | use | because |
+| your problem | use | why |
 |---|---|---|
-| small enough to sit in cache | **dense** | nothing beats a contiguous array the CPU can keep close. Structure costs indirection that buys nothing at this size. |
-| large, and mostly zeros | **sparse** | you pay for the nonzeros instead of `n²`. This is the familiar case and `SparseMatrixCSC` handles it. |
-| you know more about it than "where the zeros are" | **a structured type** | block-diagonal, low-rank, Kronecker. The solver can then skip work that no sparsity pattern reveals — a `BlockDiagonal` is solved as `K` small systems, never as one big one. |
-| few zeros, but a fast way to apply it, and too big for cache | **unmaterialized** | past cache the dense product is limited by memory bandwidth, not arithmetic. An operator that computes its product from `O(n)` stored numbers moves almost nothing and can win outright. |
+| small enough to fit in cache | **dense** | nothing beats a contiguous array the CPU keeps close. Structure costs indirection and buys nothing at this size. |
+| large, and mostly zeros | **sparse** | you pay for the nonzeros, not for `n²`. `SparseMatrixCSC` covers this. |
+| you know more than where the zeros are | **a structured type** | block-diagonal, low-rank, Kronecker. The solver then skips work no sparsity pattern shows. It solves a `BlockDiagonal` as `K` small systems, never as one big one. |
+| few zeros, a fast product, and too big for cache | **unmaterialized** | past cache, a dense product waits on memory, not on arithmetic. An operator that builds its product from `O(n)` numbers moves almost nothing and can win outright. |
 
-The last row is easy to miss, so here is the concrete case. The tables below come from
-`PureOSQP/bench/representation_choice.jl`, single-threaded, statuses asserted — a run stopped at
-`max_iter` is not a faster answer to the same question.
+The last row is easy to miss, so here is a real case. The tables below come from
+`PureOSQP/bench/representation_choice.jl`. One thread, and we assert the status of every run:
+a solve that stopped at `max_iter` is not a faster answer to the same question.
 
-**When the operator is cheap but the rest of the problem is not.** Here `P` is stored as
-`O(n)` numbers, but `A` is dense, so most of the work costs `O(n²)` either way. The operator
-skips the factorization and solves a linear system with CG in every iteration:
+**The operator is cheap and the rest of the problem is not.** `P` here is `O(n)` numbers, but
+`A` is dense, so most of the work costs `O(n²)` either way. The operator skips the
+factorization and solves with conjugate gradients every iteration:
 
 | n | iterations (operator / dense) | operator | dense | speedup |
 |---|---|---|---|---|
@@ -53,9 +53,9 @@ skips the factorization and solves a linear system with CG in every iteration:
 At `n = 200` the dense matrix is faster. From `n = 500` the factorization's `O(n³)` cost
 outgrows the CG work and the operator is faster.
 
-**When applying the operator is cheaper too.** The same comparison for an operator applied in
-`O(n)` whose dense form costs `O(n²)`, with about a tenth of the entries nonzero, which is too
-many for a sparse format to be the obvious choice:
+**Applying the operator is cheaper too.** The same comparison, now for an operator you apply
+in `O(n)` whose dense form costs `O(n²)`. About a tenth of the entries are nonzero, which is
+too many for a sparse format to be the obvious answer:
 
 | n | fill | iterations (operator / dense) | operator | dense | speedup | dense `A` |
 |---|---|---|---|---|---|---|
@@ -64,76 +64,79 @@ many for a sparse format to be the obvious choice:
 | 2000 | 9.8% | 100 / 100 | 227 ms | 737 ms | **3.24×** | 30.5 MiB |
 | 4000 | 9.8% | 100 / 75 | 904 ms | 4756 ms | **5.26×** | 122 MiB |
 
-Same solver, same tolerances, both converged. The difference is not size or sparsity — it is
-whether **applying** the operator is asymptotically cheaper than the dense product. If it is,
-the operator wins, by more as the matrix leaves cache; if not, no size saves it.
+Same solver, same tolerances, both converged. Size and sparsity are not what decides this.
+What decides it is whether **applying** the operator costs less than the dense product. If it
+does, the operator wins, and it wins by more once the matrix leaves cache. If it does not, no
+size will save it.
 
-### Every type the solver takes, and the shape it means
+### Every type the solver takes
 
-The above is categories; this is the catalogue: what each type looks like, and what it buys.
-`•` marks a stored entry; blank is a structural zero.
+The list above gives the categories. This one gives the types: what each looks like, and what
+it buys. `•` is a stored entry. A blank is a zero the type knows about.
 
-**Dense `Matrix`.** Every entry stored. The baseline, and the right answer whenever the
-problem is small or has no structure to declare.
+**Dense `Matrix`.** Every entry stored. Use it when the problem is small, or when it has no
+structure to declare.
 
 ```math
 \begin{pmatrix} • & • & • & • \\ • & • & • & • \\ • & • & • & • \\ • & • & • & • \end{pmatrix}
 ```
 
-**`Diagonal`** (LinearAlgebra). One entry per row. With a `Diagonal` `A` too, the reduced
-matrix is diagonal and a solve is `n` divisions — no factorization at all.
+**`Diagonal`** (LinearAlgebra). One entry per row. Give it a `Diagonal` `A` as well and the
+reduced matrix is diagonal too. A solve is then `n` divisions, with nothing factored.
 
 ```math
 \begin{pmatrix} • & & & \\ & • & & \\ & & • & \\ & & & • \end{pmatrix}
 ```
 
-**`Bidiagonal`**, and **`SymTridiagonal`** / **`Tridiagonal`** (LinearAlgebra). Bandwidth 1.
-Smoothing, trend filtering and differencing constraints land here; the backend is an `ldlt` in
-`O(n)`.
+**`Bidiagonal`**, **`SymTridiagonal`** and **`Tridiagonal`** (LinearAlgebra). Bandwidth 1.
+Smoothing, trend filtering and differencing constraints all land here. The backend is an
+`ldlt` and costs `O(n)`.
 
 ```math
 \begin{pmatrix} • & • & & \\ • & • & • & \\ & • & • & • \\ & & • & • \end{pmatrix}
 ```
 
 **`BandedMatrix`** ([BandedMatrices.jl](https://github.com/JuliaLinearAlgebra/BandedMatrices.jl)).
-Bandwidth 2 and up, which LinearAlgebra has no symmetric type for. Factored as a banded
-Cholesky in `O(n b²)`.
+Bandwidth 2 and up. LinearAlgebra has no symmetric type for those. The backend factors it as
+a banded Cholesky and costs `O(n b²)`.
 
 ```math
 \begin{pmatrix} • & • & • & & \\ • & • & • & • & \\ • & • & • & • & • \\ & • & • & • & • \\ & & • & • & • \end{pmatrix}
 ```
 
-**`SparseMatrixCSC`** (SparseArrays). Entries wherever you put them, stored by column. The
-right answer when the pattern is irregular and mostly empty.
+**`SparseMatrixCSC`** (SparseArrays). Entries wherever you put them, stored by column. Use
+it when the pattern is irregular and mostly empty.
 
 ```math
 \begin{pmatrix} • & & • & \\ & • & & \\ • & & & • \\ & & • & • \end{pmatrix}
 ```
 
-**[`PureQPBase.BlockDiagonal`](@ref).** A run of independent blocks, stored as the blocks. `K`
-systems of size `n/K` instead of one of size `n`: `n³/K²` work and `1/K` the memory.
+**[`PureQPBase.BlockDiagonal`](@ref).** Independent blocks, stored as the blocks. You get `K`
+systems of size `n/K` instead of one of size `n`. That is `n³/K²` work and `1/K` the memory.
 
 ```math
 \begin{pmatrix} • & • & & & & \\ • & • & & & & \\ & & • & • & & \\ & & • & • & & \\ & & & & • & • \\ & & & & • & • \end{pmatrix}
 ```
 
-**[`PureQPBase.RowCoupled`](@ref).** A few dense rows above rows holding one entry each — a bound
-per variable plus a budget or total. Solved by Woodbury in `O(nk)`, never forming the `n×n`.
+**[`PureQPBase.RowCoupled`](@ref).** A few dense rows on top of rows that hold one entry each.
+A bound per variable, plus a budget or a total. The Woodbury identity solves it in `O(nk)`
+and never forms the `n×n` matrix.
 
 ```math
 \begin{pmatrix} • & • & • & • \\ • & • & • & • \\ • & & & \\ & • & & \\ & & • & \\ & & & • \end{pmatrix}
 ```
 
-**[`PureQPBase.KroneckerOperator`](@ref).** `A₁ ⊗ A₂`, held as its two factors. A constraint
-acting across two dimensions at once; the `6×6` below is stored as `4 + 9` numbers.
+**[`PureQPBase.KroneckerOperator`](@ref).** `A₁ ⊗ A₂`, held as its two factors. Use it for a
+constraint that acts across two dimensions at once. The `6×6` below costs `4 + 9` numbers to
+store.
 
 ```math
 A_1 \otimes A_2 = \begin{pmatrix} a_{11}A_2 & a_{12}A_2 \\ a_{21}A_2 & a_{22}A_2 \end{pmatrix}
 ```
 
-**[`PureQPBase.ProductOperator`](@ref), and `LinearMaps.LinearMap`.** No entries at all. The
-matrix is a *program*: a chain of steps applied to `x`, each cheap, none of them assembled.
-The running-sum constraint used later on this page is three steps —
+**[`PureQPBase.ProductOperator`](@ref) and `LinearMaps.LinearMap`.** No entries at all. The
+matrix is a *program*: a chain of cheap steps you apply to `x`. Nothing is assembled. The
+running-sum constraint further down this page takes three steps:
 
 ```math
 x \in \mathbb{R}^{n}
@@ -143,16 +146,16 @@ x \in \mathbb{R}^{n}
 Ax \in \mathbb{R}^{m}
 ```
 
-— which as a matrix would be lower-triangular and `m×n`, and as a program is `O(n)` work and
-three lines. The composition is the representation:
+As a matrix that is lower triangular and `m×n`. As a program it is `O(n)` work and three
+lines. The composition *is* the representation:
 
 ```math
 A \;=\; \underbrace{S}_{\text{keep } 1{:}m} \; \underbrace{C}_{\text{cumsum}} \; \underbrace{W}_{\mathrm{diag}(w)}
 \qquad \text{stored: } w \text{, and nothing else}
 ```
 
-LinearMaps composes these lazily, so an operator can be built from others — `B*C`, `B + C`,
-`B'`, `kron(B, C)` — and no product in that expression is ever formed:
+LinearMaps composes these lazily, so you can build an operator from others: `B*C`, `B + C`,
+`B'`, `kron(B, C)`. It forms no product in that expression:
 
 ```math
 \mathcal{A} \;=\; B\,C \;+\; D^{\top}E
@@ -160,10 +163,10 @@ LinearMaps composes these lazily, so an operator can be built from others — `B
 \mathcal{A}x \;=\; B(Cx) \;+\; D^{\top}(Ex)
 ```
 
-Everything the solver needs it gets by evaluating that program at a vector.
+The solver gets everything it needs by running that program on a vector.
 
-Views (`SubArray`) and `Symmetric` wrappers are all accepted too; they are storage decisions
-rather than shapes, and carry no backend of their own.
+Views (`SubArray`) and `Symmetric` wrappers work too. They say how you store a matrix, not
+what shape it has, so they bring no backend of their own.
 
 | type | reduced matrix | backend |
 |---|---|---|
@@ -179,15 +182,15 @@ rather than shapes, and carry no backend of their own.
 
 `PureQPBase.backend_name(ws.linsys)` reports which one you got.
 
-### What the solver requires of `P`, and what conditioning costs
+### What `P` has to be
 
-Storage is one axis; numerical properties are another. Three are checked before a solve
-begins rather than inside one.
+How you store a matrix is one question. What it has to be numerically is another. The
+solver checks three things before a solve starts, not during one.
 
-**Symmetry — required, checked, and it must be the whole matrix.** `P` is the matrix in
-`½xᵀPx`, so only its symmetric part is meaningful, and [`setup`](@ref) throws if `issymmetric`
-fails. **Pass the full matrix or a `Symmetric` wrapper, never a stored triangle** — a triangle
-is a different matrix, silently worth half the off-diagonal terms:
+**`P` must be symmetric, and you must pass all of it.** `P` is the matrix in
+`½xᵀPx`, so only its symmetric part means anything, and [`setup`](@ref) throws if `issymmetric`
+fails. **Pass the full matrix or a `Symmetric` wrapper. Never pass a stored triangle.** A
+triangle is a different matrix, and it quietly halves every off-diagonal term:
 
 ```math
 P = \begin{pmatrix} 2 & 1 \\ 1 & 2 \end{pmatrix}
@@ -195,20 +198,20 @@ P = \begin{pmatrix} 2 & 1 \\ 1 & 2 \end{pmatrix}
 \begin{pmatrix} 2 & 1 \\ 0 & 2 \end{pmatrix}
 ```
 
-**Positive definiteness — of `P + σI`, not of `P`.** The requirement is `P + σI ≻ 0`, which
-makes the reduced matrix factorable. Since `σ > 0`, a merely positive *semi*definite `P`
+**`P + σI` must be positive definite, not `P` itself.** That is what makes the reduced matrix
+factorable. Since `σ > 0`, a merely positive *semi*definite `P`
 always passes — including `P = 0`, a feasibility problem — so this rejects only genuine
 indefiniteness. [`PureQPBase.is_convex`](@ref) is the test, and a type can answer it cheaply: a
 `Diagonal` scans its entries, a `SparseMatrixCSC` factors sparsely, an operator reports what
 it was told.
 
-**Indefiniteness — rejected at setup, not tolerated.** An indefinite `P` makes the problem
-non-convex, where a local answer is not a global one. `setup` throws and names the remedy
+**An indefinite `P` is refused at setup.** It makes the problem non-convex, and then a local
+answer is not a global one. `setup` throws and names the remedy
 (raise `σ` if `P + σI` can be made definite). Without the check the reduced matrix would often
 factor anyway and return a stationary point that is not a minimum. The `NON_CONVEX` status is
 a different event: residuals diverging *during* a solve.
 
-**Ill-conditioning — the one that is not a yes or no.** Eliminating `ν` forms
+**Bad conditioning is the one with no yes-or-no answer.** Eliminating `ν` builds
 `Ãᵀdiag(ρ)Ã`, which squares `A`'s conditioning, so the reduced matrix carries `κ(A)²`. Two
 things keep that usable, and one limit remains:
 
@@ -226,7 +229,7 @@ things keep that usable, and one limit remains:
   operator at `κ = 1e12` in 900 iterations, because `κ(A₁ ⊗ A₂) = κ(A₁)·κ(A₂)` puts only the
   square root of the conditioning in each factor it actually solves with.
 
-### Unmaterialized does not mean solved by CG
+### An operator is not always solved with CG
 
 An operator with no structure the solver recognizes is solved with *conjugate gradients* (CG),
 which only multiplies by the operator and whose convergence depends on conditioning. An
@@ -531,7 +534,7 @@ than it saves at `n = 200` and less from `n = 500`:
 | 500 | 150 / 125 | 18.6 ms | 20.0 ms | 1.08× |
 | 1000 | 175 / 175 | 85.2 ms | 128.8 ms | 1.51× |
 
-In the table in [Which representation, and why](@ref), where applying the operator is also
+In the table in [Which type to use](@ref), where applying the operator is also
 cheaper than its dense product, the operator is faster at every size, by 1.23× to 5.26×. Size
 matters in both cases: the factorization's cost grows as `n³`, so the matrix-free route gains as
 problems grow, and it gains faster when applying the operator is cheap.
@@ -542,7 +545,7 @@ worsens — and this is not a small effect: on the badly conditioned sweep in
 [Benchmarks](@ref "Conditioning") the matrix-free backend fails to converge at *every* κ tested,
 including mild ones. If your problem is ill-conditioned, a bare map is the wrong shape; give
 the solver a structured type with a direct backend instead
-([Unmaterialized does not mean solved by CG](@ref)).
+([An operator is not always solved with CG](@ref)).
 
 Building one takes two functions: how to apply it, and how to apply its transpose. The
 transpose is not optional; the solver needs both directions.
