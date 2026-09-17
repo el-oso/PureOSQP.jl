@@ -5,6 +5,37 @@ what is true now; this file is where the history lives.
 
 ## Unreleased
 
+### Changed
+
+- **Three packages, one repository.** `PureQPBase` holds everything the algorithms share:
+  the problem representation, the linear-system backends and their selection, equilibration,
+  termination, the polishing and derivative kernels, the `QPAlgorithm`/`QPWorkspace`
+  contracts, and the generic `setup`, `solve` and `solve!`, which take the algorithm as their
+  sixth positional argument. `PureOSQP` supplies `OperatorSplitting` and the five-argument
+  forms that run it by default; `PureIPM` supplies `InteriorPoint`. Either solver re-exports
+  the base, so `using` one is enough; `using` both puts both algorithms on the same `solve`.
+  The six matrix-support extensions and the ChainRulesCore rules moved to `PureQPBase`, since
+  they extend backends rather than either algorithm.
+
+  Solve times are unchanged: on the seven suite classes the medians sit within this machine's
+  spread of the single-package build, at identical iteration counts.
+
+- **`setup_backend` takes the options, the preconditioner and the accelerator by position**,
+  and the backend name reaches it as a `Val` built where the caller's keyword is still a
+  literal. A keyword call carries a `NamedTuple` whose names inference loses track of once
+  several keywords survive to it, which `--trim` rejects as an unresolved call.
+
+- **An unrecognized keyword is refused by name.** It no longer reaches the `Options` keyword
+  constructor, whose `MethodError` lists every option without saying which name was wrong.
+
+### Removed
+
+- **The MathOptInterface `algorithm` raw attribute.** Each package supplies its own
+  optimizer — `PureOSQP.Optimizer` runs `OperatorSplitting`, `PureIPM.Optimizer` runs
+  `InteriorPoint` — and each accepts the shared options and only its own algorithm's
+  parameters. One wrapper implementation serves both, in `PureQPBase`, carrying the algorithm
+  as a field and reporting its package as the solver name.
+
 ### Added
 
 - **`setup` and `solve` take `InteriorPoint()`**, a Mehrotra predictor–corrector
