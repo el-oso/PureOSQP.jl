@@ -649,6 +649,22 @@
     },
     {
       "blas_threads": 1.0,
+      "bytes": 3480,
+      "julia_version": "1.13.0",
+      "keys": [
+        "blas_threads",
+        "cases",
+        "eps",
+        "julia_version",
+        "sizes"
+      ],
+      "name": "ipm_lowrank_terminal",
+      "package": "PureIPM",
+      "results": "PureIPM/bench/results/ipm_lowrank_terminal.json",
+      "script": "ipm_lowrank_terminal.jl"
+    },
+    {
+      "blas_threads": 1.0,
       "bytes": 12920,
       "julia_version": null,
       "keys": [

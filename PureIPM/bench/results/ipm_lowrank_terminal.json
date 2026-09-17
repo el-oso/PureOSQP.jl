@@ -1,0 +1,129 @@
+{
+  "blas_threads": 1,
+  "cases": [
+    {
+      "backend": "bunchkaufman",
+      "convert_seconds": "2.6700000000000002e-5",
+      "dense_seconds": "0.00292757",
+      "dx": "1.249000902703301e-16",
+      "family": "lowrank_rank3",
+      "iter": "9",
+      "n": "120",
+      "ratio": "12.02544280503434",
+      "sparse_iter": "9",
+      "sparse_seconds": "0.000216748",
+      "status": "SOLVED"
+    },
+    {
+      "backend": "bunchkaufman",
+      "convert_seconds": "2.6430000000000003e-5",
+      "dense_seconds": "0.002712756",
+      "dx": "3.231304113171518e-13",
+      "family": "lowrank_rank10",
+      "iter": "8",
+      "n": "120",
+      "ratio": "7.355150424050496",
+      "sparse_iter": "8",
+      "sparse_seconds": "0.00034239400000000004",
+      "status": "SOLVED"
+    },
+    {
+      "backend": "bunchkaufman",
+      "convert_seconds": "2.6620000000000003e-5",
+      "dense_seconds": "0.0029344830000000003",
+      "dx": "3.3306690738754696e-16",
+      "family": "cholesky_rank11",
+      "iter": "9",
+      "n": "120",
+      "ratio": "6.9353937563369",
+      "sparse_iter": "9",
+      "sparse_seconds": "0.00039649700000000005",
+      "status": "SOLVED"
+    },
+    {
+      "backend": "bunchkaufman",
+      "convert_seconds": "9.757400000000001e-5",
+      "dense_seconds": "0.014970432500000002",
+      "dx": "7.563172310653954e-12",
+      "family": "lowrank_rank3",
+      "iter": "9",
+      "n": "240",
+      "ratio": "27.437067929065226",
+      "sparse_iter": "9",
+      "sparse_seconds": "0.00044805400000000003",
+      "status": "SOLVED"
+    },
+    {
+      "backend": "bunchkaufman",
+      "convert_seconds": "9.710300000000001e-5",
+      "dense_seconds": "0.0147881245",
+      "dx": "4.440892098500626e-16",
+      "family": "lowrank_rank10",
+      "iter": "9",
+      "n": "240",
+      "ratio": "14.608281941024051",
+      "sparse_iter": "9",
+      "sparse_seconds": "0.000915208",
+      "status": "SOLVED"
+    },
+    {
+      "backend": "bunchkaufman",
+      "convert_seconds": "9.6712e-5",
+      "dense_seconds": "0.014851388",
+      "dx": "1.4356016375671743e-10",
+      "family": "cholesky_rank11",
+      "iter": "9",
+      "n": "240",
+      "ratio": "13.736975835356688",
+      "sparse_iter": "9",
+      "sparse_seconds": "0.000984413",
+      "status": "SOLVED"
+    },
+    {
+      "backend": "bunchkaufman",
+      "convert_seconds": "0.0003869035",
+      "dense_seconds": "0.0871090665",
+      "dx": "2.220446049250313e-16",
+      "family": "lowrank_rank3",
+      "iter": "9",
+      "n": "480",
+      "ratio": "69.25108218397246",
+      "sparse_iter": "9",
+      "sparse_seconds": "0.0008709695",
+      "status": "SOLVED"
+    },
+    {
+      "backend": "bunchkaufman",
+      "convert_seconds": "0.00038490400000000004",
+      "dense_seconds": "0.086343314",
+      "dx": "3.3306690738754696e-16",
+      "family": "lowrank_rank10",
+      "iter": "9",
+      "n": "480",
+      "ratio": "39.20419269887395",
+      "sparse_iter": "9",
+      "sparse_seconds": "0.001817496",
+      "status": "SOLVED"
+    },
+    {
+      "backend": "bunchkaufman",
+      "convert_seconds": "0.00038815050000000004",
+      "dense_seconds": "0.0870164145",
+      "dx": "3.885780586188048e-16",
+      "family": "cholesky_rank11",
+      "iter": "9",
+      "n": "480",
+      "ratio": "37.20027715391191",
+      "sparse_iter": "9",
+      "sparse_seconds": "0.001950983",
+      "status": "SOLVED"
+    }
+  ],
+  "eps": 1.0e-8,
+  "julia_version": "1.13.0",
+  "sizes": [
+    120,
+    240,
+    480
+  ]
+}
