@@ -31,7 +31,7 @@ StrictModeTest = "a64655d1-1e86-453c-b761-1219f9f51c2b"
 
 [sources]
 PureIPM = {path = "../PureIPM"}
-PureOSQP = {path = ".."}
+PureOSQP = {path = "../PureOSQP"}
 PureQPBase = {path = "../PureQPBase"}
 
 [compat]

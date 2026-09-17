@@ -4,7 +4,7 @@
     # The benchmark problem classes are the reference selection is asserted against: they
     # carry the block and band structure real problems have, where the other generators
     # here are uniformly random and land every sparse pattern on the same rung.
-    include(joinpath(@__DIR__, "..", "bench", "suite_problems.jl"))
+    include(joinpath(@__DIR__, "..", "..", "bench", "suite_problems.jl"))
 
     expected = Dict(
         "Random QP" => :sparse_formed,

@@ -438,7 +438,7 @@ There are two seam levels, and which one a representation wants depends on wheth
 enumerate a column.
 
 **Per column.** [`PureOSQP.structural_rows`](@ref)`(M, j)` names the rows column `j` can hold
-a nonzero in; the four traversals in `src/core/scaling.jl` — `weighted_colmax`,
+a nonzero in; the four traversals in `PureQPBase/src/scaling.jl` — `weighted_colmax`,
 `weighted_colmax_rowmax!`, `scaled_col!` and `add_scaled_col!` — follow it, so a single
 `structural_rows` method makes equilibration and the dense formation cost the column's own
 entries rather than all `m` of them. A representation whose columns are cheaper to walk than

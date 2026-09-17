@@ -15,7 +15,7 @@ Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
 
 [sources]
 PureIPM = {path = "../PureIPM"}
-PureOSQP = {path = "/home/el_oso/Documents/claude/PureOSQP.jl"}
+PureOSQP = {path = "../PureOSQP"}
 PureQPBase = {path = "../PureQPBase"}
 
 [compat]

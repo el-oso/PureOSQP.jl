@@ -11,7 +11,7 @@
 # asserted to agree bit for bit with the shipped function before anything is timed, so the
 # two differ only in which rows they visit. The end-to-end sweep cannot do that -- it goes
 # through `solve` -- so each row is labelled by the row set the shipped function actually
-# walks, and running the file against both states of `src/core/scaling.jl` leaves both in the
+# walks, and running the file against both states of `PureQPBase/src/scaling.jl` leaves both in the
 # results file.
 #
 # `Diagonal` and `Bidiagonal` are square, so `m = 2n` exists only for `RowCoupled`.

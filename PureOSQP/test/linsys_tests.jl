@@ -135,7 +135,7 @@ end
     using PureIPM
     using LinearAlgebra, SparseArrays, LDLFactorizations
     include(joinpath(@__DIR__, "helpers.jl"))
-    include(joinpath(@__DIR__, "..", "bench", "suite_problems.jl"))
+    include(joinpath(@__DIR__, "..", "..", "bench", "suite_problems.jl"))
     sparse_names = (SPARSE_FACTOR_BACKENDS..., SPARSE_KKT_BACKENDS..., :sparse_formed)
 
     # Random QP (n=50, m=500) and Control (n=320, m=540) both have a sparse A whose reduced
