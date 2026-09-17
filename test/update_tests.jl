@@ -1,4 +1,5 @@
 @testitem "update! matches a fresh setup" begin
+    using PureIPM
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     for algorithm in (OperatorSplitting(), InteriorPoint())
@@ -24,6 +25,7 @@
 end
 
 @testitem "update! refactorizes only when it must" begin
+    using PureIPM
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P = [4.0 1.0; 1.0 2.0]
@@ -51,6 +53,7 @@ end
 end
 
 @testitem "update! of P and A gives the same answer as a fresh setup" begin
+    using PureIPM
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     for algorithm in (OperatorSplitting(), InteriorPoint())
@@ -71,6 +74,7 @@ end
 end
 
 @testitem "update! of P and A on the full-KKT backend matches a fresh setup" begin
+    using PureIPM
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     # `linsys = :kkt` pins the backend whose cached scaled lower triangle `check_update`
@@ -94,6 +98,7 @@ end
 end
 
 @testitem "update! warm starts the next solve" begin
+    using PureIPM
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(12, 30; seed = 64)
@@ -111,6 +116,7 @@ end
 end
 
 @testitem "update! validates its arguments" begin
+    using PureIPM
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     for algorithm in (OperatorSplitting(), InteriorPoint())
@@ -241,6 +247,7 @@ end
 end
 
 @testitem "update! is timed and the time is charged to the next solve" begin
+    using PureIPM
     using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     for algorithm in (OperatorSplitting(), InteriorPoint())
@@ -269,6 +276,7 @@ end
 end
 
 @testitem "a refused update! leaves the workspace as it was" begin
+    using PureIPM
     for algorithm in (OperatorSplitting(), InteriorPoint())
         P = [4.0 1.0; 1.0 2.0]
         A = [1.0 1.0; 1.0 0.0; 0.0 1.0]
@@ -289,6 +297,7 @@ end
 end
 
 @testitem "update! reclassifies IPM rows without refactorizing" begin
+    using PureIPM
     using LinearAlgebra
     # `update!` never refactorizes under `:ipm` (every outer iteration does that anyway), but
     # a row that becomes an equality or stops being one must still be reclassified, or the
@@ -296,19 +305,19 @@ end
     P = [4.0 1.0; 1.0 2.0]
     A = [1.0 1.0; 1.0 0.0]
     ws = setup(P, [1.0, 1.0], A, [0.0, 0.0], [1.0, 1.0], InteriorPoint())
-    @test all(==(PureOSQP.ROW_INEQUALITY), ws.rclass)
+    @test all(==(PureIPM.ROW_INEQUALITY), ws.rclass)
     @test ws.n_sides == 4
 
     update!(ws; l = [0.5, 0.1], u = [0.5, 0.9])
-    @test ws.rclass[1] == PureOSQP.ROW_EQUALITY
-    @test ws.rclass[2] == PureOSQP.ROW_INEQUALITY
+    @test ws.rclass[1] == PureIPM.ROW_EQUALITY
+    @test ws.rclass[2] == PureIPM.ROW_INEQUALITY
     @test ws.n_sides == 2
     got = solve!(ws)
     @test got.status == SOLVED
     @test got.x[1] + got.x[2] ≈ 0.5 atol = 1.0e-6
 
     update!(ws; l = [0.0, 0.1], u = [1.0, 0.9])
-    @test all(==(PureOSQP.ROW_INEQUALITY), ws.rclass)
+    @test all(==(PureIPM.ROW_INEQUALITY), ws.rclass)
     @test ws.n_sides == 4
     @test solve!(ws).status == SOLVED
 end

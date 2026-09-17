@@ -1,4 +1,5 @@
 @testitem "interior point: the structural corpus passes the referee on both backends" begin
+    using PureIPM
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     Random.seed!(30)
@@ -62,6 +63,7 @@
 end
 
 @testitem "interior point: objective agrees with the C library" begin
+    using PureIPM
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     for (n, m, seed) in ((8, 12, 41), (12, 5, 42), (6, 40, 43), (20, 20, 44), (40, 15, 55), (100, 150, 250))
@@ -79,6 +81,7 @@ end
 end
 
 @testitem "interior point: a sparse pair is factored sparsely" begin
+    using PureIPM
     using LinearAlgebra, SparseArrays, OSQP, Random, LDLFactorizations
     include(joinpath(@__DIR__, "helpers.jl"))
     n = 400
@@ -108,6 +111,7 @@ end
 end
 
 @testitem "interior point: equality, one-sided and free rows" begin
+    using PureIPM
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     Random.seed!(81)
@@ -156,7 +160,7 @@ end
 end
 
 @testitem "interior point: outer iterations of the reference prototype" begin
-    using PureQPBase
+    using PureIPM, PureQPBase
     using LinearAlgebra, SparseArrays, Random
     # The dense generator of `bench/ipm_matrixfree_spike.jl` (`make_instance`), every row
     # two-sided, and with the row mix of `bench/ipm_rowtypes_spike.jl` (`mixed`: 20% equality,
@@ -235,7 +239,7 @@ end
             gram, F, LD, inv.(diag(LD)), F.p, zeros(n + m), zeros(n + m)
         )
         options = Options{Float64}(; PureOSQP.algorithm_defaults(InteriorPoint(), Float64)..., scaling = 0)
-        return PureOSQP.ipm_workspace(ls, prob, wt, InteriorPoint{Float64}(InteriorPoint(; kwargs...), :auto), options)
+        return PureIPM.ipm_workspace(ls, prob, wt, InteriorPoint{Float64}(InteriorPoint(; kwargs...), :auto), options)
     end
 
     # Outer iterations to `eps = 1e-8` of the prototype `ipm3` in `bench/ipm_rowtypes_spike.jl`
@@ -266,6 +270,7 @@ end
 end
 
 @testitem "interior point: unsupported inputs are refused by name" begin
+    using PureIPM
     using LinearAlgebra, SparseArrays, Random, Krylov
     Random.seed!(83)
     n, m = 6, 9
@@ -311,6 +316,7 @@ end
 end
 
 @testitem "interior point: a GPU array is refused by name" tags = [:gpu] begin
+    using PureIPM
     using LinearAlgebra, Random, JLArrays, GPUArraysCore
     JLArrays.allowscalar(false)
     Random.seed!(84)
@@ -323,6 +329,7 @@ end
 end
 
 @testitem "interior point: ADMM stays the default, and the IPM infers concretely" begin
+    using PureIPM
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(10, 15; seed = 5)
@@ -333,7 +340,7 @@ end
     W = typeof(ws)
     @test isconcretetype(W)
     @test only(Base.return_types(solve!, (W,))) === Solution{Float64}
-    @test only(Base.return_types(PureOSQP.ipm_step!, (W,))) === W
+    @test only(Base.return_types(PureIPM.ipm_step!, (W,))) === W
 
     # A re-solve starts from the previous point and a cold start forgets it.
     s1 = solve!(ws)
@@ -350,6 +357,7 @@ end
 end
 
 @testitem "warm_start! seeds an InteriorPointWorkspace's next solve" begin
+    using PureIPM
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(12, 30; seed = 96)
@@ -382,6 +390,7 @@ end
 end
 
 @testitem "interior point: Float32 on the full KKT and the reduced Cholesky" begin
+    using PureIPM
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     rng = Xoshiro(84)
@@ -427,6 +436,7 @@ end
 end
 
 @testitem "interior point: BigFloat and dual numbers" begin
+    using PureIPM
     using LinearAlgebra, SparseArrays, OSQP, Random, ForwardDiff
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(8, 12; seed = 1)
@@ -458,6 +468,7 @@ end
 end
 
 @testitem "interior point: random infeasible problems return checkable certificates" begin
+    using PureIPM
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     for seed in 1:5, sc in (0, 10)
@@ -477,6 +488,7 @@ end
 end
 
 @testitem "interior point: a rising μ runs the certificate tests without ending the run" begin
+    using PureIPM
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     # On this instance the diverging multipliers raise `μ` for more than ten iterations in a
@@ -486,13 +498,14 @@ end
     s = solve!(ws)
     @test s.status == PRIMAL_INFEASIBLE
     @test ws.alert
-    @test ws.flat_merit >= PureOSQP.STALL_MERIT
+    @test ws.flat_merit >= PureIPM.STALL_MERIT
     @test is_primal_certificate(A, l, u, s.prim_inf_cert)
     # A run without a point leaves no seed behind.
     @test !ws.seeded
 end
 
 @testitem "interior point: a diverging iterate ends the run without a point" begin
+    using PureIPM
     using LinearAlgebra, Random
     # A backend that solves the Newton system correctly and then scales the recovered `dx` by
     # `factor`, driving `x` away from the data without ever failing to factorize or leaving a
@@ -525,7 +538,7 @@ end
     wt = PureOSQP.SystemWeights(ones(m), ones(m), 1.0e-8)
     options = Options{Float64}(; PureOSQP.algorithm_defaults(InteriorPoint(), Float64)..., scaling = 0, max_iter = 60)
     ls = Blowup(FullKKT(zeros(n), n, m), 3.0)
-    ws = PureOSQP.ipm_workspace(ls, prob, wt, InteriorPoint{Float64}(InteriorPoint(), :auto), options)
+    ws = PureIPM.ipm_workspace(ls, prob, wt, InteriorPoint{Float64}(InteriorPoint(), :auto), options)
     s = solve!(ws)
     @test s.status == NUMERICAL_ERROR
     @test !has_solution(s.status)
@@ -534,12 +547,13 @@ end
     # The iterate blew up while every residual stayed finite: this is the divergence ceiling,
     # not the non-finite-residual guard.
     @test ws.diverged
-    @test norm(ws.x, Inf) > PureOSQP.DIVERGENCE_CEILING(Float64) * PureOSQP.iterate_bound(ws)
+    @test norm(ws.x, Inf) > PureIPM.DIVERGENCE_CEILING(Float64) * PureIPM.iterate_bound(ws)
     @test isfinite(norm(ws.x, Inf))
     @test !ws.seeded
 end
 
 @testitem "interior point: the C suite infeasibility cases" begin
+    using PureIPM
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     # `primal_dual_infeasibility` from `c_suite_tests.jl`, under the interior-point method.
@@ -579,6 +593,7 @@ end
 end
 
 @testitem "interior point: factorization failure bumps the regularization" begin
+    using PureIPM
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     # A backend that refuses to factorize while `sigma` is below a threshold, and once more
@@ -605,7 +620,7 @@ end
         wt = PureOSQP.SystemWeights(ones(m), ones(m), 1.0e-8)
         ls = Gate(FullKKT(zeros(n), n, m), threshold, fail_at, 0)
         options = Options{Float64}(; PureOSQP.algorithm_defaults(InteriorPoint(), Float64)..., scaling = 0)
-        return PureOSQP.ipm_workspace(ls, prob, wt, InteriorPoint{Float64}(InteriorPoint(; kwargs...), :auto), options)
+        return PureIPM.ipm_workspace(ls, prob, wt, InteriorPoint{Float64}(InteriorPoint(; kwargs...), :auto), options)
     end
 
     P, q, A, l, u = random_qp(20, 30; seed = 91)
@@ -655,6 +670,7 @@ end
 end
 
 @testitem "update_settings! on an InteriorPointWorkspace validates and never refactorizes" begin
+    using PureIPM
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(10, 24; seed = 95)
@@ -703,6 +719,7 @@ end
 end
 
 @testitem "update_settings! refreshes the matrix-free IPM backend's CG settings" begin
+    using PureIPM
     using LinearAlgebra, Random, Krylov
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(10, 20; seed = 94)
@@ -717,6 +734,7 @@ end
 end
 
 @testitem "the accelerator is refused under InteriorPoint()" begin
+    using PureIPM
     using LinearAlgebra, SparseArrays, OSQP, Random, COSMOAccelerators
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(6, 12; seed = 97)
@@ -726,6 +744,7 @@ end
 end
 
 @testitem "verbose prints a progress report, and is silent when off (InteriorPoint)" begin
+    using PureIPM
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(12, 30; seed = 21)
@@ -771,6 +790,7 @@ end
 end
 
 @testitem "verbose shows the CG column on the matrix-free IPM backend" begin
+    using PureIPM
     using LinearAlgebra, Random, Krylov
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(10, 20; seed = 94)
@@ -805,6 +825,7 @@ end
 end
 
 @testitem "interior point: time_limit and an interrupt return the point reached" begin
+    using PureIPM
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(40, 60; seed = 92)
@@ -853,6 +874,7 @@ end
 end
 
 @testitem "interior point: conjugate gradients with a caller-supplied preconditioner" begin
+    using PureIPM
     using LinearAlgebra, SparseArrays, OSQP, Random, Krylov
     include(joinpath(@__DIR__, "helpers.jl"))
 

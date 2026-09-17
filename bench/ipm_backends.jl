@@ -16,7 +16,7 @@
 # `linsys` names it.
 #
 #     julia --project=bench bench/ipm_backends.jl    # writes bench/results/ipm_backends.json
-using PureOSQP, PureQPBase, LinearAlgebra, SparseArrays, Random, JSON, Chairmarks
+using PureOSQP, PureIPM, PureQPBase, LinearAlgebra, SparseArrays, Random, JSON, Chairmarks
 using LDLFactorizations, BandedMatrices
 
 BLAS.set_num_threads(1)
@@ -131,7 +131,7 @@ function workspace(kind, P, q, A, l, u)
         )
     end
     # A backend built unfactored is factored by the solve's starting point.
-    return PureOSQP.ipm_workspace(ls, prob, wt, algorithm, options)
+    return PureIPM.ipm_workspace(ls, prob, wt, algorithm, options)
 end
 
 function measure(kind, data)
@@ -317,7 +317,7 @@ function float32_run(data)
     m, n = size(A)
     prob = PureOSQP.Problem(T, T.(P), T.(q), T.(A), T.(l), T.(u); scaling = 0)
     wt = PureOSQP.SystemWeights(ones(T, m), ones(T, m), δ)
-    ws = PureOSQP.ipm_workspace(PureOSQP.FullKKT(prob.q0, n, m), prob, wt, algorithm, options)
+    ws = PureIPM.ipm_workspace(PureOSQP.FullKKT(prob.q0, n, m), prob, wt, algorithm, options)
     s = solve!(ws)
     r = has_solution(s.status) ? maximum(kkt_residuals(data..., Float64.(s.x), Float64.(s.y))) : NaN
     d = PureOSQP.solve(data..., InteriorPoint(); linsys = :kkt, scaling = 0, eps_abs = tol, eps_rel = tol)

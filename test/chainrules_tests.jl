@@ -1,4 +1,5 @@
 @testitem "the rrule matches finite differences through a whole solve" begin
+    using PureIPM
     using ChainRulesCore, Zygote, LinearAlgebra
 
     P = [4.0 1.0; 1.0 2.0]
@@ -32,6 +33,7 @@
 end
 
 @testitem "the rrule reaches every argument, and the frule agrees with it" begin
+    using PureIPM
     using ChainRulesCore, Zygote, LinearAlgebra, Random
     Random.seed!(23)
 
@@ -107,6 +109,7 @@ end
     # `forward_derivative`, which accept an `InteriorPointWorkspace` too, so this only needs to
     # confirm nothing about the rules themselves assumes ADMM, and that the algorithm argument
     # gets no tangent.
+    using PureIPM
     using ChainRulesCore, Zygote, LinearAlgebra
 
     P = [4.0 1.0; 1.0 2.0]
@@ -145,6 +148,7 @@ end
 end
 
 @testitem "differentiating an unconverged solve is refused" begin
+    using PureIPM
     using ChainRulesCore, Zygote, LinearAlgebra
     # The rules differentiate the KKT conditions, which hold at the solution and nowhere else,
     # so a run that stopped early has nothing to differentiate. Refusing beats returning the

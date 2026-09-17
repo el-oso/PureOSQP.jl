@@ -81,6 +81,7 @@ end
 end
 
 @testitem "algorithm objects and shared options" begin
+    using PureIPM
     using LinearAlgebra, ForwardDiff
     P = [4.0 1.0; 1.0 2.0]
     q = [1.0, 1.0]
@@ -142,8 +143,8 @@ end
         ip = setup(c(P), c(q), c(A), c(l), c(u), InteriorPoint())
         @test ip.algorithm isa InteriorPoint{T, T, T, Int}
         @test ip.options isa Options{T}
-        @test ip.algorithm.reg_primal == PureOSQP.ipm_floor(T)
-        @test ip.options.eps_abs == PureOSQP.ipm_floor(T)
+        @test ip.algorithm.reg_primal == PureIPM.ipm_floor(T)
+        @test ip.options.eps_abs == PureIPM.ipm_floor(T)
         @test ip.algorithm.refine_iter == 1
     end
     @test setup(Float32.(P), Float32.(q), Float32.(A), Float32.(l), Float32.(u), InteriorPoint(reg_primal = 1.0e-6)).algorithm.reg_primal == 1.0f-6

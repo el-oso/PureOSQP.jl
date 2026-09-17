@@ -9,7 +9,7 @@
 # into the same referee.
 #
 #     julia --project=bench bench/ipm_vs_clarabel.jl    # writes bench/results/ipm_vs_clarabel.json
-using PureOSQP, Clarabel
+using PureOSQP, PureIPM, Clarabel
 using LinearAlgebra, SparseArrays, Random, JSON, Chairmarks, Printf
 
 include(joinpath(@__DIR__, "suite_problems.jl"))
@@ -64,8 +64,8 @@ function run_case(name, gen)
     P, q, A, l, u = gen()
     n, m = size(A, 2), size(A, 1)
 
-    ipm = PureOSQP.solve(P, q, A, l, u, PureOSQP.InteriorPoint(); eps_abs = IPM_TOL, eps_rel = IPM_TOL)
-    ipm_bm = @b PureOSQP.solve($P, $q, $A, $l, $u, PureOSQP.InteriorPoint(); eps_abs = IPM_TOL, eps_rel = IPM_TOL) seconds = SECONDS
+    ipm = PureOSQP.solve(P, q, A, l, u, PureIPM.InteriorPoint(); eps_abs = IPM_TOL, eps_rel = IPM_TOL)
+    ipm_bm = @b PureOSQP.solve($P, $q, $A, $l, $u, PureIPM.InteriorPoint(); eps_abs = IPM_TOL, eps_rel = IPM_TOL) seconds = SECONDS
 
     admm = PureOSQP.solve(P, q, A, l, u; eps_abs = ADMM_TOL, eps_rel = ADMM_TOL, max_iter = 20_000)
     admm_bm = @b PureOSQP.solve($P, $q, $A, $l, $u; eps_abs = ADMM_TOL, eps_rel = ADMM_TOL, max_iter = 20_000) seconds = SECONDS

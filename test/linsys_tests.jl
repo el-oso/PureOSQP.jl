@@ -132,6 +132,7 @@ end
 end
 
 @testitem "a named linsys = :sparse is an instruction, not a hint" begin
+    using PureIPM
     using LinearAlgebra, SparseArrays, LDLFactorizations
     include(joinpath(@__DIR__, "helpers.jl"))
     include(joinpath(@__DIR__, "..", "bench", "suite_problems.jl"))
@@ -447,6 +448,7 @@ end
 
 @testitem "the unchecked substitutions run behind a guard that fires" begin
     using PureQPBase
+    using PureIPM
     using LinearAlgebra, SparseArrays, LDLFactorizations
     # `unit_forward!`/`unit_backward!` index `x` by a row read out of the factor, which no
     # compiler can prove is in range, so they drop the check and `check_factor` establishes
@@ -812,6 +814,7 @@ end
 end
 
 @testitem "solve_multiplier! recovers ν directly on the sparse KKT backend as w_inv shrinks" begin
+    using PureIPM
     using LinearAlgebra, SparseArrays, LDLFactorizations, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     Random.seed!(8)

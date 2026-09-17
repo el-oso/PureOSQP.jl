@@ -135,3 +135,13 @@ function polish_kernel!(
     ok || return (POLISH_FAILED, x, y, z)
     return (POLISH_SUCCESS, xpol, ypol, zpol)
 end
+
+"""
+    polish!(ws) -> PolishStatus
+
+Guess the active set from the iterate, solve the equality-constrained QP it implies, and keep
+the result only if it improves both residuals. Each algorithm defines it for its own
+workspace, over the shared [`polish_kernel!`](@ref); declared here so both reach the same
+function.
+"""
+function polish! end

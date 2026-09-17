@@ -37,7 +37,7 @@
 # referee.
 #
 #     taskset -c 15 julia --project=bench bench/ipm_vs_others.jl   # writes bench/results/ipm_vs_others.json
-using PureOSQP, Clarabel, ECOS, MathOptInterface
+using PureOSQP, PureIPM, Clarabel, ECOS, MathOptInterface
 using LinearAlgebra, SparseArrays, Random, JSON, Chairmarks, Printf
 const MOI = MathOptInterface
 
@@ -167,8 +167,8 @@ function run_case(name, gen)
     P, q, A, l, u = gen()
     n, m = size(A, 2), size(A, 1)
 
-    ipm = PureOSQP.solve(P, q, A, l, u, PureOSQP.InteriorPoint(); eps_abs = IPM_TOL, eps_rel = IPM_TOL)
-    ipm_bm = @b PureOSQP.solve($P, $q, $A, $l, $u, PureOSQP.InteriorPoint(); eps_abs = IPM_TOL, eps_rel = IPM_TOL) seconds = SECONDS
+    ipm = PureOSQP.solve(P, q, A, l, u, PureIPM.InteriorPoint(); eps_abs = IPM_TOL, eps_rel = IPM_TOL)
+    ipm_bm = @b PureOSQP.solve($P, $q, $A, $l, $u, PureIPM.InteriorPoint(); eps_abs = IPM_TOL, eps_rel = IPM_TOL) seconds = SECONDS
 
     admm = PureOSQP.solve(P, q, A, l, u; eps_abs = ADMM_TOL, eps_rel = ADMM_TOL, max_iter = 20_000)
     admm_bm = @b PureOSQP.solve($P, $q, $A, $l, $u; eps_abs = ADMM_TOL, eps_rel = ADMM_TOL, max_iter = 20_000) seconds = SECONDS

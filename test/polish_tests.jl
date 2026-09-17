@@ -1,4 +1,5 @@
 @testitem "polishing sharpens a loose solution" begin
+    using PureIPM
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     for algorithm in (OperatorSplitting(), InteriorPoint())
@@ -13,6 +14,7 @@
 end
 
 @testitem "polishing never makes the answer worse" begin
+    using PureIPM
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     for algorithm in (OperatorSplitting(), InteriorPoint())
@@ -42,6 +44,7 @@ end
 end
 
 @testitem "no active set means polishing is skipped, not failed" begin
+    using PureIPM
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     Random.seed!(18)
@@ -61,6 +64,7 @@ end
 end
 
 @testitem "polish and the derivatives refuse a non-materializable operator" begin
+    using PureIPM
     using LinearAlgebra, Random, Krylov
 
     # Products and nothing else, as in `test/linsys_tests.jl`. Both paths below build a

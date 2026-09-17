@@ -1,6 +1,6 @@
 # Reference preconditioners for `InteriorPoint()` with `linsys = :indirect`. They are examples of
 # the `update_preconditioner!` interface, not part of the package.
-using PureOSQP, LinearAlgebra, SparseArrays, LimitedLDLFactorizations
+using PureOSQP, PureIPM, LinearAlgebra, SparseArrays, LimitedLDLFactorizations
 
 """
     LaggedCholesky(P, A; every = 3)

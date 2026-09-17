@@ -4,6 +4,7 @@
 module TrimEntry
 
 using PureOSQP
+using PureIPM
 using Krylov
 using LinearAlgebra
 using BandedMatrices
@@ -67,42 +68,42 @@ solve_indirect_preconditioned(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(
 # The interior-point method on its default (dense pair, `FullKKT`), on the KKT backend named
 # directly, unscaled, and with polishing -- the four ways of reaching `InteriorPointWorkspace`
 # that a Matrix pair takes.
-solve_ipm_default(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u, PureOSQP.InteriorPoint())
+solve_ipm_default(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(P, q, A, l, u, PureIPM.InteriorPoint())
 solve_ipm_kkt(P::M, q::V, A::M, l::V, u::V) =
-    PureOSQP.solve(P, q, A, l, u, PureOSQP.InteriorPoint(); linsys = :kkt)
+    PureOSQP.solve(P, q, A, l, u, PureIPM.InteriorPoint(); linsys = :kkt)
 solve_ipm_unscaled(P::M, q::V, A::M, l::V, u::V) =
-    PureOSQP.solve(P, q, A, l, u, PureOSQP.InteriorPoint(); scaling = 0)
+    PureOSQP.solve(P, q, A, l, u, PureIPM.InteriorPoint(); scaling = 0)
 solve_ipm_polish(P::M, q::V, A::M, l::V, u::V) =
-    PureOSQP.solve(P, q, A, l, u, PureOSQP.InteriorPoint(); polishing = true)
+    PureOSQP.solve(P, q, A, l, u, PureIPM.InteriorPoint(); polishing = true)
 
 # `verbose` on the interior-point method: the header/row/footer printing is new code the
 # trimmer must resolve, on the direct backend and, separately, on the matrix-free one, whose
 # row takes the extra branch that prints the CG column.
 solve_ipm_verbose(P::M, q::V, A::M, l::V, u::V) =
-    PureOSQP.solve(P, q, A, l, u, PureOSQP.InteriorPoint(); verbose = true)
+    PureOSQP.solve(P, q, A, l, u, PureIPM.InteriorPoint(); verbose = true)
 solve_ipm_verbose_indirect(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(
-    P, q, A, l, u, PureOSQP.InteriorPoint(); verbose = true, linsys = :indirect, scaling = 0,
+    P, q, A, l, u, PureIPM.InteriorPoint(); verbose = true, linsys = :indirect, scaling = 0,
     preconditioner = cholesky(Symmetric(P + I))
 )
 
 # Chosen by representation under the IPM exactly as under ADMM: `choose_backend` for a
 # `Diagonal` pair serves either algorithm.
-solve_ipm_diagonal(P::DM, q::V, A::DM, l::V, u::V) = PureOSQP.solve(P, q, A, l, u, PureOSQP.InteriorPoint())
+solve_ipm_diagonal(P::DM, q::V, A::DM, l::V, u::V) = PureOSQP.solve(P, q, A, l, u, PureIPM.InteriorPoint())
 
 # The sparse KKT family, named so the pair does not depend on which sparse `LDLᵀ` extension
 # is loaded.
 solve_ipm_sparse_kkt(P::SPM, q::V, A::SPM, l::V, u::V) =
-    PureOSQP.solve(P, q, A, l, u, PureOSQP.InteriorPoint(); linsys = :kkt)
+    PureOSQP.solve(P, q, A, l, u, PureIPM.InteriorPoint(); linsys = :kkt)
 
 function setup_ipm_update(P::M, q::V, A::M, l::V, u::V)
-    ws = PureOSQP.setup(P, q, A, l, u, PureOSQP.InteriorPoint())
+    ws = PureOSQP.setup(P, q, A, l, u, PureIPM.InteriorPoint())
     PureOSQP.solve!(ws)
     PureOSQP.update!(ws; q = q, l = l, u = u)
     return PureOSQP.solve!(ws)
 end
 
 function derivatives_ipm(P::M, q::V, A::M, l::V, u::V)
-    ws = PureOSQP.setup(P, q, A, l, u, PureOSQP.InteriorPoint(); polishing = true)
+    ws = PureOSQP.setup(P, q, A, l, u, PureIPM.InteriorPoint(); polishing = true)
     PureOSQP.solve!(ws)
     d = PureOSQP.adjoint_derivative(ws, q, l)
     fx, fy = PureOSQP.forward_derivative(ws; dq = q)
@@ -112,7 +113,7 @@ end
 # The interior-point method on the matrix-free backend, whose Krylov call sits inside the
 # `try` that turns a definiteness failure into a missed solve.
 solve_ipm_indirect(P::M, q::V, A::M, l::V, u::V) = PureOSQP.solve(
-    P, q, A, l, u, PureOSQP.InteriorPoint(); linsys = :indirect, scaling = 0,
+    P, q, A, l, u, PureIPM.InteriorPoint(); linsys = :indirect, scaling = 0,
     preconditioner = cholesky(Symmetric(P + I))
 )
 
@@ -154,7 +155,7 @@ solve_operator(P::PO, q::V, A::PO, l::V, u::V) =
 # has no automatic route onto an operator, so `:indirect` and a preconditioner are named
 # together, as the operator path requires.
 solve_ipm_operator(P::PO, q::V, A::PO, l::V, u::V) = PureOSQP.solve(
-    P, q, A, l, u, PureOSQP.InteriorPoint();
+    P, q, A, l, u, PureIPM.InteriorPoint();
     scaling = 0, linsys = :indirect, preconditioner = Diagonal(ones(length(q)))
 )
 

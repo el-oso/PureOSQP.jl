@@ -26,15 +26,6 @@ function admm_step!(ws::OperatorSplittingWorkspace{T}) where {T}
     return ws
 end
 
-"Name of a polishing outcome, for messages."
-function polish_status_name(s::PolishStatus)
-    s === POLISH_SUCCESS && return "success"
-    s === POLISH_FAILED && return "failed"
-    s === POLISH_LINSYS_ERROR && return "linear system error"
-    s === POLISH_NO_ACTIVE_SET_FOUND && return "no active set found"
-    return "not performed"
-end
-
 # The `verbose` output.
 #
 # Everything here writes to `Core.stdout` and formats by hand. That is not a style choice:
@@ -43,6 +34,10 @@ end
 # `println(x)` (`Base.stdout` is an abstractly typed global). `Core.stdout` is a concrete
 # singleton, so calls through it resolve statically; `redirect_stdout` still captures it,
 # since that redirects the file descriptor.
+#
+# Each algorithm keeps its own copy of these two. Shared, `print_padded`'s value argument is
+# inferred over both callers at once, and the `string` it reaches then takes an argument
+# `--trim` cannot resolve.
 const VERBOSE_RULE = "------------------------------------------------------------------"
 
 "Right-align `s` in `width` columns."

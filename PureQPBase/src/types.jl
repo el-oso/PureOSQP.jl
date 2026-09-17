@@ -99,6 +99,15 @@ function status_name(s::Status)
     return "unsolved"
 end
 
+"Name of a polishing outcome, for messages."
+function polish_status_name(s::PolishStatus)
+    s === POLISH_SUCCESS && return "success"
+    s === POLISH_FAILED && return "failed"
+    s === POLISH_LINSYS_ERROR && return "linear system error"
+    s === POLISH_NO_ACTIVE_SET_FOUND && return "no active set found"
+    return "not performed"
+end
+
 @inline INFTY(::Type{T}) where {T} = min(T(1.0e30), prevfloat(typemax(T)))
 @inline MIN_SCALING(::Type{T}) where {T} = T(1.0e-4)
 @inline MAX_SCALING(::Type{T}) where {T} = T(1.0e4)

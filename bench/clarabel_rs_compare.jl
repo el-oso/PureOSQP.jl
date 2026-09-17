@@ -55,7 +55,7 @@
 #     cross-language gap here carries that caveat, a within-Julia gap does not.
 #   - Problem files (CSC arrays plus one-sided bounds, `Ax <= b`) are written to a scratch
 #     directory excluded from both timings.
-using PureOSQP, Clarabel
+using PureOSQP, PureIPM, Clarabel
 using LinearAlgebra, SparseArrays, Random, JSON, Chairmarks, Printf, Statistics
 
 include(joinpath(@__DIR__, "suite_problems.jl"))
@@ -224,14 +224,14 @@ function run_case(name, gen, data_dir, idx)
     n, m = size(A, 2), size(A, 1)
 
     # Warm-up (compiles both call paths) and the correctness check `dx_clarabel` needs.
-    ipm = PureOSQP.solve(P, q, A, l, u, PureOSQP.InteriorPoint(); eps_abs = TOL, eps_rel = TOL)
+    ipm = PureOSQP.solve(P, q, A, l, u, PureIPM.InteriorPoint(); eps_abs = TOL, eps_rel = TOL)
     clar = run_clarabel(P, q, A, l, u)
 
     # Interleaved A-B-B-A: two `@be` passes per solver, pooled below.
-    ipm_a1 = @be PureOSQP.solve($P, $q, $A, $l, $u, PureOSQP.InteriorPoint(); eps_abs = TOL, eps_rel = TOL) seconds = SECONDS
+    ipm_a1 = @be PureOSQP.solve($P, $q, $A, $l, $u, PureIPM.InteriorPoint(); eps_abs = TOL, eps_rel = TOL) seconds = SECONDS
     clar_b1 = @be run_clarabel($P, $q, $A, $l, $u) seconds = SECONDS
     clar_b2 = @be run_clarabel($P, $q, $A, $l, $u) seconds = SECONDS
-    ipm_a2 = @be PureOSQP.solve($P, $q, $A, $l, $u, PureOSQP.InteriorPoint(); eps_abs = TOL, eps_rel = TOL) seconds = SECONDS
+    ipm_a2 = @be PureOSQP.solve($P, $q, $A, $l, $u, PureIPM.InteriorPoint(); eps_abs = TOL, eps_rel = TOL) seconds = SECONDS
 
     ipm_stats = summarize(vcat(ipm_a1.samples, ipm_a2.samples))
     clar_stats = summarize(vcat(clar_b1.samples, clar_b2.samples))

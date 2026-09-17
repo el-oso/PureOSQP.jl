@@ -33,7 +33,7 @@
 # not an assumption, and the recorded `factorize_ms` is the evidence.
 #
 #     julia --project=bench bench/ipm_selection.jl   # writes bench/results/ipm_selection.json
-using PureOSQP, PureQPBase, LinearAlgebra, SparseArrays, Random, JSON, Chairmarks, Statistics
+using PureOSQP, PureIPM, PureQPBase, LinearAlgebra, SparseArrays, Random, JSON, Chairmarks, Statistics
 using LDLFactorizations, BandedMatrices
 
 BLAS.set_num_threads(1)
@@ -86,7 +86,7 @@ function ipm_ws(kind, data)
         error("unknown backend kind $kind")
     end
     isnothing(ls) && return nothing
-    return PureOSQP.ipm_workspace(ls, prob, wt, algorithm, options)
+    return PureIPM.ipm_workspace(ls, prob, wt, algorithm, options)
 end
 
 """

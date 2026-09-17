@@ -12,8 +12,10 @@ Bemporad and Boyd, *OSQP: an operator splitting solver for quadratic programs*,
 Mathematical Programming Computation 12(4):637–672, 2020.
 
 The problem representation, the linear-system backends and the `QPAlgorithm`/`QPWorkspace`
-contracts live in PureQPBase.jl, re-exported here in full; this package adds the two
-algorithms, [`OperatorSplitting`](@ref) (ADMM, the default) and [`InteriorPoint`](@ref).
+contracts live in PureQPBase.jl, re-exported here in full; this package adds
+[`OperatorSplitting`](@ref), which the five-argument `setup` and `solve` run by default.
+PureIPM.jl supplies an interior-point method for the same problem, and the two can be loaded
+together.
 """
 module PureOSQP
 
@@ -39,13 +41,14 @@ import PureQPBase:
     reduced_rung, refactor!, refactor_rho!, refactored!, refactor_weights!, scalar_multiple,
     scale_subtract!, select_backend, set_refresh_index!, set_tolerance_level!,
     solve_multiplier!, solve_system!, structural_rows, subtract!, subtract_scaled!,
-    update_x!, update_zy!, use_residual_stop!, validate, validate_update!, validated_problem
+    update_x!, update_zy!, use_residual_stop!, validate, validate_update!, validated_problem,
+    polish_status_name, check_termination, polish!
 
 export setup, solve, solve!, update!, update_settings!, update_rho!, warm_start!, cold_start!
 export dimensions, capabilities, constraint_violation, constraint_violation!
 export Optimizer, Solution, Status, Options, default_options
-export QPAlgorithm, OperatorSplitting, InteriorPoint
-export QPWorkspace, OperatorSplittingWorkspace, InteriorPointWorkspace
+export QPAlgorithm, OperatorSplitting
+export QPWorkspace, OperatorSplittingWorkspace
 export has_solution, status_name
 export recommend_linsys, LinsysAdvice
 export backend_info, backend_name, factor_fill, BackendInfo
@@ -67,9 +70,6 @@ include("admm/admm.jl")
 include("admm/polish.jl")
 include("admm/update.jl")
 include("admm/api.jl")
-include("ipm/settings.jl")
-include("ipm/workspace.jl")
-include("ipm/ipm.jl")
 
 """
     setup(P, q, A, l, u; kwargs...) -> QPWorkspace
@@ -78,8 +78,8 @@ include("ipm/ipm.jl")
 
 The five-argument forms of [`setup`](@ref), [`solve`](@ref) and [`recommend_linsys`](@ref),
 running [`OperatorSplitting`](@ref) with its defaults. Pass an algorithm object as the sixth
-positional argument — `InteriorPoint()`, or an `OperatorSplitting(; kwargs...)` with
-non-default parameters — to choose otherwise.
+positional argument — an `OperatorSplitting(; kwargs...)` with non-default parameters, or
+another algorithm such as PureIPM.jl's `InteriorPoint()` — to choose otherwise.
 """
 # `@constprop :aggressive` so a keyword given here still reaches `setup_backend`'s `Val` as a
 # constant: the six-argument methods carry the same annotation, but propagation through a

@@ -7,6 +7,7 @@
 # and JET. StrictMode's own value-free scan agrees with it on this package's hot path, but it
 # only reports, so it cannot gate.
 using PureOSQP
+using PureIPM                  # supplies the interior-point algorithm
 using PureQPBase               # holds the backends and their extensions
 using Krylov                   # supplies the :indirect backend, a weak dependency
 using LDLFactorizations        # supplies the LDLᵀ backends, likewise
@@ -229,7 +230,7 @@ function example_ipm_workspace(backend::Symbol)
     elseif backend === :indirect
         return example_ipm_indirect_workspace(200)
     end
-    ws = PureOSQP.setup(P, q, A, l, u, PureOSQP.InteriorPoint(); linsys = backend)
+    ws = PureOSQP.setup(P, q, A, l, u, PureIPM.InteriorPoint(); linsys = backend)
     PureOSQP.solve!(ws)
     return ws
 end
@@ -245,7 +246,7 @@ function example_ipm_kkt_workspace(n, m)
     P = sparse(1.0I, n, n)
     b = A * randn(n)
     ws = PureOSQP.setup(
-        P, randn(n), A, b .- rand(m), b .+ rand(m), PureOSQP.InteriorPoint(); linsys = :sparse
+        P, randn(n), A, b .- rand(m), b .+ rand(m), PureIPM.InteriorPoint(); linsys = :sparse
     )
     PureOSQP.solve!(ws)
     return ws
@@ -255,7 +256,7 @@ function example_ipm_diagonal_workspace(n)
     Random.seed!(107)
     P, A = Diagonal(rand(n) .+ 0.5), Diagonal(rand(n) .+ 0.5)
     l, u = -rand(n), rand(n)
-    ws = PureOSQP.setup(P, randn(n), A, l, u, PureOSQP.InteriorPoint())
+    ws = PureOSQP.setup(P, randn(n), A, l, u, PureIPM.InteriorPoint())
     PureOSQP.solve!(ws)
     return ws
 end
@@ -264,7 +265,7 @@ function example_ipm_tridiagonal_workspace(n)
     Random.seed!(109)
     P = SymTridiagonal(rand(n) .+ 3, rand(n - 1) ./ 8)
     A = Diagonal(rand(n) .+ 0.5)
-    ws = PureOSQP.setup(P, randn(n), A, -rand(n), rand(n), PureOSQP.InteriorPoint())
+    ws = PureOSQP.setup(P, randn(n), A, -rand(n), rand(n), PureIPM.InteriorPoint())
     PureOSQP.solve!(ws)
     return ws
 end
@@ -273,7 +274,7 @@ function example_ipm_banded_workspace(n)
     Random.seed!(110)
     P = SymTridiagonal(rand(n) .+ 4, rand(n - 1) ./ 8)
     A = Tridiagonal(rand(n - 1) ./ 4, rand(n) .+ 1, rand(n - 1) ./ 4)
-    ws = PureOSQP.setup(P, randn(n), A, -rand(n), rand(n), PureOSQP.InteriorPoint())
+    ws = PureOSQP.setup(P, randn(n), A, -rand(n), rand(n), PureIPM.InteriorPoint())
     PureOSQP.solve!(ws)
     return ws
 end
@@ -286,7 +287,7 @@ function example_ipm_block_workspace(n, K)
     m = size(A, 1)
     b = randn(m)
     ws = PureOSQP.setup(
-        P, randn(size(A, 2)), A, b .- rand(m), b .+ rand(m), PureOSQP.InteriorPoint()
+        P, randn(size(A, 2)), A, b .- rand(m), b .+ rand(m), PureIPM.InteriorPoint()
     )
     PureOSQP.solve!(ws)
     return ws
@@ -305,7 +306,7 @@ function example_ipm_indirect_workspace(n)
     b = A * randn(n)
     l, u = b .- rand(n), b .+ rand(n)
     ws = PureOSQP.setup(
-        P, q, A, l, u, PureOSQP.InteriorPoint();
+        P, q, A, l, u, PureIPM.InteriorPoint();
         linsys = :indirect, scaling = 0, preconditioner = cholesky(Symmetric(P + I))
     )
     PureOSQP.solve!(ws)
@@ -457,14 +458,14 @@ for example_kind in (:auto, :sparse_kkt, :diagonal, :tridiagonal, :banded, :bloc
     # The sparse KKT family factors with foreign `LDLᵀ` code, exactly like ADMM's `:sparse_kkt`
     # row above; its own `solve_multiplier!` is this package's code and keeps the full claim.
     warm = example_kind === :sparse_kkt ? :warm_sparse : :warm
-    step() = @allocated PureOSQP.ipm_step!(ws)
-    residuals() = @allocated PureOSQP.ipm_residuals!(ws)
+    step() = @allocated PureIPM.ipm_step!(ws)
+    residuals() = @allocated PureIPM.ipm_residuals!(ws)
     solve_mult() = @allocated PureOSQP.solve_multiplier!(
         ws.linsys, ws.prob, ws.weights, ws.rhs_x, ws.rhs_z, ws.dx, ws.dy
     )
     checks = Any[
-        (PureOSQP.ipm_step!, (W,), tier, step),
-        (PureOSQP.ipm_residuals!, (W,), tier, residuals),
+        (PureIPM.ipm_step!, (W,), tier, step),
+        (PureIPM.ipm_residuals!, (W,), tier, residuals),
         (PureOSQP.solve_multiplier!, (LS, PB, WT, V, V, V, V), tier, solve_mult),
         (PureOSQP.check_termination, (W, Bool), :warm, nothing),
         (PureOSQP.factorize!, (LS, PB, WT), warm, nothing),

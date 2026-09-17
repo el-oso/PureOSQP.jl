@@ -5,6 +5,7 @@
     # `polishing = true`. `polish!` overwrites `ws.x`, `ws.y` and `ws.z`, and `active_kkt`
     # reads all three, so a polished workspace is a genuinely different input to the
     # derivative. `ForwardDiff` cannot get there, because `polish!` calls `bunchkaufman!`.
+    using PureIPM
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     Random.seed!(11)
@@ -53,6 +54,7 @@
 end
 
 @testitem "the forward derivative matches differencing the solution itself" begin
+    using PureIPM
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     Random.seed!(11)
@@ -88,6 +90,7 @@ end
 end
 
 @testitem "a derivative that does not exist is refused, not approximated" begin
+    using PureIPM
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     for algorithm in (OperatorSplitting(), InteriorPoint())
@@ -124,6 +127,7 @@ end
 end
 
 @testitem "dual numbers give an exact oracle for the derivative" begin
+    using PureIPM
     using LinearAlgebra, SparseArrays, OSQP, Random, ForwardDiff
     include(joinpath(@__DIR__, "helpers.jl"))
     # A far stronger check than the finite-difference one: no step-size error, and it
@@ -166,6 +170,7 @@ end
 end
 
 @testitem "an equality row's gradient goes to the bound its multiplier pushes against" begin
+    using PureIPM
     using LinearAlgebra, SparseArrays, OSQP, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     # The other derivative tests use strictly `l < u` rows, which is how an equality-row
@@ -220,6 +225,7 @@ end
 end
 
 @testitem "the derivative is refused at a point that is not a solution" begin
+    using PureIPM
     for algorithm in (OperatorSplitting(), InteriorPoint())
         P = [4.0 1.0; 1.0 2.0]
         A = [1.0 1.0; 1.0 0.0; 0.0 1.0]
@@ -235,6 +241,7 @@ end
 end
 
 @testitem "the interior-point adjoint derivative matches finite differences on a polished solution" begin
+    using PureIPM
     # Mirrors the ADMM item above, and checks all five gradients rather than only `dq`: an
     # interior-point solution needs polishing more than an ADMM one does, since its
     # inactive-row multipliers sit at `μ_final` rather than at zero, and a bug confined to
@@ -279,6 +286,7 @@ end
 end
 
 @testitem "the interior-point forward derivative matches differencing the solution itself" begin
+    using PureIPM
     using LinearAlgebra, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     Random.seed!(11)
@@ -310,6 +318,7 @@ end
 end
 
 @testitem "the interior-point derivative refuses an unpolished workspace" begin
+    using PureIPM
     # §8.10: interior-point derivatives are supported on `SOLVED` *with polishing*. Without
     # it, the inactive-row multipliers sit at `μ_final` rather than at zero, and the
     # active-set threshold cannot tell those apart from a genuinely active row.

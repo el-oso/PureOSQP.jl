@@ -22,7 +22,7 @@
 #
 # Rerun:
 #     julia --project=bench bench/ipm_cost_split.jl
-using PureOSQP, LinearAlgebra, SparseArrays, Random, BenchmarkTools, Printf, Statistics
+using PureOSQP, PureIPM, LinearAlgebra, SparseArrays, Random, BenchmarkTools, Printf, Statistics
 
 BLAS.set_num_threads(1)
 

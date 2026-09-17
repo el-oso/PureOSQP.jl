@@ -1,5 +1,5 @@
 @testitem "the QPWorkspace contract is enforced, not decorative" begin
-    using TypeContracts
+    using PureIPM, TypeContracts
     W = PureOSQP.QPWorkspace
     spec = TypeContracts.list_contract(W)
     required = [s.description for s in spec if !s.optional]
@@ -36,7 +36,7 @@
 end
 
 @testitem "the QPAlgorithm contract is enforced, not decorative" begin
-    using TypeContracts
+    using PureIPM, TypeContracts
     Alg = PureOSQP.QPAlgorithm
     spec = TypeContracts.list_contract(Alg)
     @test [nameof(s.f) for s in spec if !s.optional] ==
@@ -116,6 +116,7 @@ end
 end
 
 @testitem "the Preconditioner contract covers built-in and caller preconditioners" begin
+    using PureIPM
     using LinearAlgebra, SparseArrays, Random, Krylov, TypeContracts
     include(joinpath(@__DIR__, "helpers.jl"))
     Pre = PureOSQP.Preconditioner

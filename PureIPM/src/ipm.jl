@@ -537,8 +537,30 @@ end
 
 finite_residuals(ws::InteriorPointWorkspace) = isfinite(ws.rnorm) && isfinite(ws.prim_res) && isfinite(ws.dual_res)
 
-# The `verbose` output, in the style of ADMM's (`src/admm/admm.jl`): `VERBOSE_RULE`,
-# `print_padded` and `status_name` are defined there and reused here unchanged.
+# The `verbose` output.
+#
+# Everything here writes to `Core.stdout` and formats by hand. That is not a style choice:
+# `--trim` analyses this code whether or not `verbose` is ever set, and it rejects both
+# Printf (its format specifications carry type parameters that do not infer) and bare
+# `println(x)` (`Base.stdout` is an abstractly typed global). `Core.stdout` is a concrete
+# singleton, so calls through it resolve statically; `redirect_stdout` still captures it,
+# since that redirects the file descriptor.
+#
+# These two are an algorithm's own rather than shared. Shared, `print_padded`'s value argument
+# is inferred over every caller at once, and the `string` it reaches then takes an argument
+# `--trim` cannot resolve.
+const VERBOSE_RULE = "------------------------------------------------------------------"
+
+"Right-align `s` in `width` columns."
+function print_padded(s::String, width::Int)
+    for _ in (ncodeunits(s) + 1):width
+        print(Core.stdout, " ")
+    end
+    print(Core.stdout, s)
+    return nothing
+end
+
+print_padded(v, width::Int, digits::Int) = print_padded(string(round(v; sigdigits = digits)), width)
 
 function print_header(ws::InteriorPointWorkspace)
     println(Core.stdout, VERBOSE_RULE)

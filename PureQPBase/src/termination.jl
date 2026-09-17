@@ -232,3 +232,12 @@ function is_dual_infeasible(prob::Problem{T}, dx::AbstractVector{T}, eps::T) whe
     scaled && divide!(prob.work_m, prob.work_m, prob.E)
     return !leaves_reccone(prob.work_m, prob.l, prob.u, INFTY(T) * MIN_SCALING(T), eps * ndx)
 end
+
+"""
+    check_termination(ws, force = false) -> Status
+
+The status a solve should stop with, or `UNSOLVED` to keep going. Each algorithm defines it
+for its own workspace: the tolerances and the residuals are shared, the schedule of when to
+test them is not. Declared here so both reach the same function.
+"""
+function check_termination end
