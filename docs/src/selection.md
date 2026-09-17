@@ -131,7 +131,7 @@ type.
 ## Asking what was chosen
 
 ```julia
-ws = setup(P, q, A, l, u)
+ws = setup(P, q, A, l, u, OperatorSplitting())
 backend_name(ws.linsys)      # :cholesky, :sparse_formed, :banded, ...
 backend_info(ws.linsys)      # the form, its dimension, and what the factor stores
 factor_fill(ws)              # that store, against n²

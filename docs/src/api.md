@@ -41,7 +41,7 @@ PureOSQP.Status
 
 ## Settings
 
-[`OperatorSplitting`](@ref) documents its parameters and [`Options`](@ref) the options. This section shows how both correspond to the reference implementation's settings; with the default algorithm every setting in the right-hand column is an `Options` keyword except `profile_primdual`, `rho`, `rho_is_vec`, `sigma`, `alpha`, `cg_tol_reduction` and the four `adaptive_rho` settings, which are `OperatorSplitting` parameters.
+[`OperatorSplitting`](@ref) documents its parameters and [`Options`](@ref) the options. This section shows how both correspond to the reference implementation's settings; under `OperatorSplitting` every setting in the right-hand column is an `Options` keyword except `profile_primdual`, `rho`, `rho_is_vec`, `sigma`, `alpha`, `cg_tol_reduction` and the four `adaptive_rho` settings, which are `OperatorSplitting` parameters.
 
 The defaults in the "here" column are `OperatorSplitting`'s. [`InteriorPoint`](@ref) has no
 upstream counterpart, so it is not in this table; its own `Options` defaults — a tighter

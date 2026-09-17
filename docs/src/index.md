@@ -1,6 +1,6 @@
-# PureOSQP.jl
+# PureQP.jl
 
-A pure-Julia solver for convex quadratic programs:
+Pure-Julia solvers for convex quadratic programs:
 
 ```math
 \begin{aligned}
@@ -11,22 +11,27 @@ A pure-Julia solver for convex quadratic programs:
 
 `P` is symmetric positive semidefinite, `A` is `m×n`, and `l`, `u` may contain `∓Inf`. Rows where `l == u` are equality constraints.
 
+!!! note "PureQP.jl is the project, not a package to install"
+    There is no `PureQP` package. The name covers three that are installed separately:
+    **PureOSQP.jl** and **PureIPM.jl**, the two solvers, and **PureQPBase.jl**, which both
+    build on and both re-export. Install whichever solver you want — one `using` is enough —
+    or both, to have the two algorithms side by side.
+
 Two algorithms solve it, sharing the same matrix support and the same problem interface.
-[`OperatorSplitting`](@ref), which PureOSQP.jl supplies, is OSQP's ADMM iteration.
-[`InteriorPoint`](@ref), which PureIPM.jl supplies, is a Mehrotra predictor–corrector
-interior-point method. Both build on PureQPBase.jl, which holds the problem representation
-and the linear-system backends, and both re-export it, so one `using` is enough for either:
+[`OperatorSplitting`](@ref), which PureOSQP.jl supplies, is OSQP's ADMM iteration, and is at
+its best on repeated solves, warm starts and matrix-free operators. [`InteriorPoint`](@ref),
+which PureIPM.jl supplies, is a Mehrotra predictor–corrector method that reaches `1e-8` in a
+few iterations. [Choosing an algorithm](@ref) compares them.
 
 ```julia
-using PureOSQP
-sol = solve(P, q, A, l, u)                                    # OperatorSplitting, the default
+using PureOSQP                                                 # ] add PureOSQP
+sol = solve(P, q, A, l, u, OperatorSplitting())
 
-using PureIPM
-sol = solve(P, q, A, l, u, InteriorPoint(); eps_abs = 1e-9)    # tighter accuracy by default
+using PureIPM                                                  # ] add PureIPM
+sol = solve(P, q, A, l, u, InteriorPoint(); eps_abs = 1e-9)
 ```
 
-Loading both gives one `solve` that takes either algorithm as its sixth positional argument;
-the five-argument form runs `OperatorSplitting`. [Choosing an algorithm](@ref) compares them.
+Loading both gives one `solve` that takes either algorithm as its sixth positional argument.
 
 ## Your first solve
 
@@ -42,7 +47,7 @@ A = [1.0 1.0; 1.0 0.0; 0.0 1.0]
 l = [-Inf, 0.0, 0.0]        # lower bounds
 u = [1.0, Inf, Inf]         # upper bounds
 
-sol = solve(P, q, A, l, u)
+sol = solve(P, q, A, l, u, OperatorSplitting())
 (sol.status, round.(sol.x; digits = 4))
 ```
 
@@ -57,10 +62,9 @@ For more, see [Examples](@ref "Building a workspace once") or the implementation
 
 ## What makes this different
 
-We support any `AbstractMatrix` (dense, sparse, structured, or lazy) for any `Real` type. `P` and `A` are held by reference and never modified; every iteration calls `mul!` on your input. This means types like `Diagonal` or `SparseMatrixCSC` keep their fast product instead of being copied to a dense matrix.
-
-`P` and `A` are held by reference and never copied or modified. Every per-iteration product
-runs `mul!` on the matrix you passed, so a `Diagonal`, a `Tridiagonal`, a `SubArray` or a
+Any `AbstractMatrix` — dense, sparse, structured or lazy — over any `Real` element type. `P`
+and `A` are held by reference and never copied or modified. Every per-iteration product runs
+`mul!` on the matrix you passed, so a `Diagonal`, a `Tridiagonal`, a `SubArray` or a
 `SparseMatrixCSC` keeps its own product instead of being flattened into a dense copy.
 Equilibration reaches the entries through four overridable column traversals, and a
 `SparseArrays` weak dependency specialises them to walk only the stored entries.
@@ -80,7 +84,7 @@ A = [1.0 1.0; 1.0 0.0; 0.0 1.0]
 l = [1.0, 0.0, 0.0]
 u = [1.0, 0.7, 0.7]
 
-sol = solve(P, q, A, l, u)
+sol = solve(P, q, A, l, u, OperatorSplitting())
 
 sol.status    # SOLVED
 sol.x         # [0.3, 0.7]
@@ -91,7 +95,7 @@ For repeated solves, build the workspace once and reuse it — the factorization
 buffers are retained, and the previous iterates warm-start the next solve:
 
 ```julia
-ws = setup(P, q, A, l, u; eps_abs = 1e-8, eps_rel = 1e-8, polishing = true)
+ws = setup(P, q, A, l, u, OperatorSplitting(); eps_abs = 1e-8, eps_rel = 1e-8, polishing = true)
 sol = solve!(ws)
 sol = solve!(ws)     # warm started from the previous solution
 ```
@@ -108,7 +112,7 @@ solve!(ws)
 For loops like Model Predictive Control, keep $P$ and $A$ fixed and update $q$, $l$, and $u$. Use [`update!`](@ref) to reuse the workspace; it reuses equilibration, buffers, and iterates, refactorizing only when necessary. Under `InteriorPoint`, every outer iteration factors a new system regardless of what `update!` did — see [Choosing an algorithm](@ref "Re-solving a sequence") for what each algorithm gets from it.
 
 ```julia
-ws = setup(P, q, A, l, u)
+ws = setup(P, q, A, l, u, OperatorSplitting())
 for step in 1:horizon
     update!(ws; q = q_k, l = l_k, u = u_k)
     sol = solve!(ws)          # warm started from the previous step

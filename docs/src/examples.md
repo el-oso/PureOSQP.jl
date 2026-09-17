@@ -21,7 +21,7 @@ A = [1.0 1.0; 1.0 0.0; 0.0 1.0]
 l = [1.0, 0.0, 0.0]
 u = [1.0, 0.7, 0.7]
 
-sol = solve(P, q, A, l, u)
+sol = solve(P, q, A, l, u, OperatorSplitting())
 (sol.status, sol.x, sol.obj_val)
 ```
 
@@ -35,7 +35,7 @@ sharp = solve(P, q, A, l, u; eps_abs = 1e-9, eps_rel = 1e-9, polishing = true)
 
 ## Using InteriorPoint
 
-The same problem, solved with [`InteriorPoint`](@ref) instead of the default
+The same problem, solved with [`InteriorPoint`](@ref) instead of
 [`OperatorSplitting`](@ref). Its default tolerance is `1e-8`, tighter than `1e-3`, and it
 reaches it in far fewer iterations:
 
@@ -659,7 +659,7 @@ A = [1.0 1.0; 1.0 0.0; 0.0 1.0]
 l = [1.0, 0.0, 0.0]
 u = [1.0, 0.7, 0.7]
 
-plain = solve(P, q, A, l, u)
+plain = solve(P, q, A, l, u, OperatorSplitting())
 polished = solve(P, q, A, l, u; polishing = true)
 (plain.rel_kkt_error, plain.status_polish, polished.rel_kkt_error, polished.status_polish)
 ```
