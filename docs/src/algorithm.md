@@ -348,9 +348,10 @@ your matrices are operators and you have no preconditioner to supply.
   [`forward_derivative`](@ref). An interior-point solution holds its inactive-row multipliers at
   `O(μ_final)`, not near zero, which is what a derivative through the active set needs.
   Polishing cleans that up.
-- `PureOSQP.Optimizer` is the MathOptInterface wrapper. An optimizer runs the algorithm of the
-  package that supplies it. It takes the shared options plus that algorithm's own parameters,
-  and nothing else.
+- `PureIPM.Optimizer` is the MathOptInterface wrapper around it, as `PureOSQP.Optimizer` is
+  around the operator-splitting method. An optimizer runs the algorithm of the package that
+  supplies it. It takes the shared options plus that algorithm's own parameters, and nothing
+  else.
 - `verbose` prints under either algorithm: a header, one line per termination check, and a
   footer. It prints `mu` and `alpha` in place of ADMM's `rho`. The interior-point footer also
   gives the run time. On the matrix-free backend its rows gain a `cg iters` column, and its
