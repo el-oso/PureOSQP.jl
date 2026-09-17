@@ -87,12 +87,12 @@ end
     @test !factored
 
     # The four points with no algorithm-independent answer each name themselves.
-    @test_throws "PureOSQP.select_backend" PureOSQP.select_backend(P, A, prob, wt, sel)
-    @test_throws "PureOSQP.dense_rung" PureOSQP.dense_rung(P, A, prob, sel)
-    @test_throws "PureOSQP.indirect_rung" PureOSQP.indirect_rung(P, A, prob, sel)
+    @test_throws "PureQPBase.select_backend" PureOSQP.select_backend(P, A, prob, wt, sel)
+    @test_throws "PureQPBase.dense_rung" PureOSQP.dense_rung(P, A, prob, sel)
+    @test_throws "PureQPBase.indirect_rung" PureOSQP.indirect_rung(P, A, prob, sel)
     # `choose_backend`'s fallback is the ladder, so a pair with no method of its own reports
     # the ladder as what is missing.
-    @test_throws "PureOSQP.select_backend" PureOSQP.choose_backend(P, A, prob, wt, sel)
+    @test_throws "PureQPBase.select_backend" PureOSQP.choose_backend(P, A, prob, wt, sel)
 
     Ext = Base.get_extension(PureQPBase, :PureQPBaseSparseArraysExt)
     @test_throws "sparse_form" Ext.sparse_form(Ps, As, n, m, sel)

@@ -4,29 +4,10 @@
     # "passed", just with fewer items. This asserts the inventory so that cannot happen
     # unnoticed. Update the counts deliberately when adding or removing a test item.
     expected = Dict(
-        "banded_tests.jl" => 1,
-        "block_tests.jl" => 1,
-        "c_suite_tests.jl" => 9,
-        "chainrules_tests.jl" => 4,
-        "contract_tests.jl" => 4,
-        "coverage_tests.jl" => 1,
-        "corpus_tests.jl" => 4,
-        "derivative_tests.jl" => 10,
-        "gpu_tests.jl" => 4,
-        "indirect_tests.jl" => 10,
-        "kronecker_tests.jl" => 2,
-        "linsys_tests.jl" => 18,
+        "ipm_backends_tests.jl" => 3,
+        "ipm_tests.jl" => 23,
         "meta_tests.jl" => 1,
-        "moi_tests.jl" => 14,
-        "operator_tests.jl" => 5,
-        "oracle_tests.jl" => 4,
-        "polish_tests.jl" => 4,
-        "scaling_tests.jl" => 4,
-        "selection_tests.jl" => 2,
-        "setup_tests.jl" => 14,
-        "solve_tests.jl" => 34,
-        "trim_tests.jl" => 1,
-        "update_tests.jl" => 11,
+        "standalone_tests.jl" => 3,
     )
     dir = @__DIR__
     files = sort(filter(f -> endswith(f, "_tests.jl"), readdir(dir)))

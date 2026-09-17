@@ -76,31 +76,19 @@ end
     @test_throws "cg_tol_fraction must lie in (0, 1]" setup(P, q, A, l, u; cg_tol_fraction = 2.0)
 end
 
-@testitem "reduced_diagonal! matches the full walk for structured A" begin
+@testitem "a structured A preconditions and solves as its dense form does" begin
     using LinearAlgebra, Random, Krylov
     Random.seed!(91)
     n, k = 24, 3
-    # `A` is only read at entries it can hold, so a structured spelling and its dense form
-    # must give the same reciprocals to the last bit.
     structured = (
         Diagonal(randn(n) ./ 2),
         Bidiagonal(randn(n) ./ 2, randn(n - 1) ./ 4, :U),
         PureOSQP.RowCoupled(randn(k, n) ./ 4, ones(n - k), collect(1:(n - k))),
     )
     P = Diagonal(rand(n) .+ 0.5)
-    D, sigma, c = rand(n) .+ 0.5, 1.0e-6, 1.3
-    for A in structured
-        m = size(A, 1)
-        rho, E = rand(m) .+ 0.1, rand(m) .+ 0.5
-        args = (Float64, P, A, rho, E, D, sigma, c)
-        dense = (Float64, P, Matrix(A), rho, E, D, sigma, c)
-        @test PureOSQP.reduced_diagonal!(zeros(n), args...) ==
-            PureOSQP.reduced_diagonal!(zeros(n), dense...)
-    end
 
-    # And end to end. The preconditioner is the only thing the matrix-free backend reads from
-    # `A` besides its products, so a structured `A` must precondition identically -- that is
-    # exact and is asserted below.
+    # The preconditioner a structured `A` produces is exact against its dense form, and is
+    # asserted below.
     #
     # The run that follows is not. `mul!` against a `Bidiagonal` or a `RowCoupled` sums a row
     # in a different order than the dense `gemv` does, so the iterates differ in the last bit
