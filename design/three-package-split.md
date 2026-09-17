@@ -56,10 +56,6 @@ it widens, and the `string` becomes a call `--trim` rejects. Each package keeps 
 
 ## 4. What is not done
 
-- **Tests.** All 218 items live in `PureOSQP/test`, and the ones that exercise `InteriorPoint`
-  make that suite depend on PureIPM. Splitting them per package needs a home for the shared
-  helpers (`helpers.jl` and `bench/suite_problems.jl`) and for the items that test both
-  algorithms against each other.
 - **The MathOptInterface precompile workload.** Solving one model while an extension precompiles
   caches the bridge code specialized on the optimizer, which is most of what `MOI.Test` spends
   its time compiling. It cannot run where it is now: `PureQPBase`'s extension has no algorithm to
@@ -68,3 +64,80 @@ it widens, and the `string` becomes a call `--trim` rejects. Each package keeps 
   caller to run.
 - **Registration.** Nothing is registered. The core must be registered before the two solvers,
   and each package's entry needs the `subdir` it now lives in.
+
+## 5. A structured augmented backend, proposed
+
+Every structured backend solves the reduced matrix. The interior-point method cannot use the
+reduced matrix. Those two facts leave a gap, and nothing fills it today.
+
+### What the gap costs
+
+A `Diagonal` `P` with a `RowCoupled` `A` has a backend under operator splitting,
+`DiagonalLowRank`. Under the interior-point method the same pair reaches `FullKKT`, which
+factors a dense `(n+m)` matrix. Handing the same numbers over as `SparseMatrixCSC` reaches
+the sparse KKT factorization instead, at the same iteration count and the same answer.
+Measured in `PureIPM/bench/ipm_lowrank_terminal.jl`, with the cost of building the sparse
+pair charged to the sparse side:
+
+| n | dense terminal | convert and solve sparsely | ratio |
+|---|---|---|---|
+| 120 | 2.92 ms | 0.22 ms | 13.4× |
+| 240 | 15.0 ms | 0.45 ms | 33.3× |
+| 480 | 87.2 ms | 0.87 ms | 99.9× |
+
+So a caller who declares the structure is slower than a caller who does not, and the penalty
+grows with size.
+
+### Why the structured backends cannot serve it
+
+The reduced matrix is `P̃ + σI + Ãᵀ diag(w) Ã`. An interior-point method drives an active
+row's weight to `1/δ_d`, so the term that weight enters arrives orders of magnitude above the
+rest of the matrix. The small directions are then rounded away as the matrix is built, before
+any solve begins.
+
+Measured on the low-rank families at their converged weights, against a reference in extended
+precision: the reduced matrix solved through the Woodbury identity reaches `9e-9`, the same
+matrix factored densely reaches `9e-8`, and the augmented factorization reaches `9e-16`.
+
+Two explanations are ruled out by measurement. Conditioning is not the cause: the reduced
+matrix has `cond = 1.1e10` and the augmented one `cond = 2.1e10`. The spread of the weights
+is not the cause either: with weights spread smoothly over `1e16` and no row dominating, the
+same low-rank backend stays at `3.6e-16`. What separates the cases is one active coupling row
+whose weight reaches `1e8` against a diagonal core of `0.19`.
+
+This rules out fixing the low-rank backend. Any backend that forms the reduced matrix loses
+the same digits, however it represents or solves it.
+
+### The proposal
+
+Add backends that assemble the **augmented** matrix from a structured pair, rather than the
+reduced one:
+
+```
+[ P̃ + σI    Ãᵀ  ]
+[ Ã     -diag(w)⁻¹ ]
+```
+
+For `RowCoupled` the assembly is direct: `A` is `k` dense rows above one entry per remaining
+row, so the pattern is known without inspecting a single value. The same holds for
+`Diagonal`, `SymTridiagonal`, `BandedMatrix` and `BlockDiagonal`.
+
+This is what the sparse route already does. `sparse_form` answers `:kkt`, the pair is factored
+in augmented form, and the accuracy matches `FullKKT`. The sparse route wins because it is
+augmented, not because it is sparse. A structured augmented backend would reach the same form
+without requiring the caller to store the problem as `SparseMatrixCSC`.
+
+The rung would sit between `reduced_rung` and `block_rung` in the interior-point ladder, and
+would be absent from the operator-splitting one, whose weights stay inside `[1e-6, 1e6]` and
+which is served well by the reduced form it already uses.
+
+### What has to be measured before building it
+
+- **Whether the structured assembly beats the sparse one.** The sparse route already reaches
+  the augmented form at 0.87 ms where the dense terminal takes 87 ms. A structured backend has
+  to beat the sparse route, not the dense one, or it earns nothing over converting.
+- **Which structured types pay.** `RowCoupled` has a pattern that is trivial to state.
+  `KroneckerOperator` does not: `A₁ ⊗ A₂` is dense, so its augmented form is dense too.
+- **Where the crossover sits.** A structured augmented factor is larger than a structured
+  reduced one, `(n+m)` against `n`. For operator splitting that trade is already settled in
+  the reduced form's favor, and the interior-point answer may differ by problem size.
