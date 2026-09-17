@@ -112,7 +112,7 @@ function workspace(kind, P, q, A, l, u)
     prob = PureOSQP.Problem(T, P, q, A, l, u; scaling = options.scaling)
     wt = PureOSQP.SystemWeights(ones(m), ones(m), algorithm.reg_primal)
     if kind === :lowrank
-        ls = PureOSQP.DiagonalLowRank(prob.q0, n, PureOSQP.coupling_rank(A))
+        ls = PureOSQP.DiagonalLowRank(prob.q0, n, PureQPBase.coupling_rank(A))
     elseif kind === :cholmod
         gram = SExt.reduced_gram(T, P, A, n)
         R = SExt.refill!(gram, P, A, wt.w, prob.E, prob.D, prob.c, wt.sigma)

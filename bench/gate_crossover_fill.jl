@@ -46,7 +46,7 @@ function PureOSQP.choose_backend(
     gram = Ext.reduced_gram(T, P, A, n)
     R = Ext.refill!(gram, P, A, rho_vec, E, D, c, sigma)
     if MODE[] === :ldl
-        ls = PureOSQP.ldl_backend(gram, proto, n, Inf)
+        ls = PureQPBase.ldl_backend(gram, proto, n)
         return isnothing(ls) ? shipped() : (ls, true)
     end
     F = cholesky(Symmetric(R, :U); check = false)
