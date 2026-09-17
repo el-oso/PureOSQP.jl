@@ -34,7 +34,7 @@ checking it, or throw.
 
 Those traversals reach a weight vector, and `dest`, at `rows[k]` — an index the compiler
 cannot prove is in range, so it checks every stored entry. On equilibration that check is
-most of the per-entry work: for the OSQP suite's Eq QP, whose `P` holds 39 638 entries in a
+most of the per-entry work: for the benchmark suite's Eq QP, whose `P` holds 39 638 entries in a
 200×200 matrix, a sweep costs 144.5 µs checked and 18.7 µs unchecked.
 
 Called once from [`validate`](@ref), over `nnz(M)` entries, against ten sweeps that each
@@ -450,7 +450,7 @@ is. The full system does not: a dense row of `A` stays one sparse row of
     K = ⎡P̃ + σI    Ãᵀ  ⎤
         ⎣Ã      −diag(ρ⁻¹)⎦
 
-On the OSQP suite's Portfolio class — 0.9% dense `A`, one row touching every column — `R`
+On the benchmark suite's Portfolio class — 0.9% dense `A`, one row touching every column — `R`
 comes out 99% dense while `K`'s factor is 0.3% dense, and factoring `K` is 7.5× faster than
 factoring `R`.
 
@@ -761,8 +761,8 @@ where `P` and `A` store entries — never on what they store, nor on `ρ`, `D`, 
 — so the slots are found once and [`refill!`](@ref) is a pass over them.
 
 That matters because a refactorization happens every time `ρ` moves. Rebuilding the matrix
-through chained sparse products instead allocates four intermediate matrices: on the OSQP
-suite's Huber problem, 2.19 MB and 120 µs against 16.6 µs and nothing here.
+through chained sparse products instead allocates four intermediate matrices: on the
+benchmark suite's Huber problem, 2.19 MB and 120 µs against 16.6 µs and nothing here.
 
 `aperm` and `pperm` index into `nonzeros(A)` and `nonzeros(P)` rather than holding copies of
 them, so a refill always reads the values the workspace currently holds. The patterns are
@@ -873,7 +873,7 @@ How many entries the upper triangle of the reduced matrix stores, counted from t
 of `P` and `A` without building it.
 
 This is what the fill gate needs, and forming the matrix to ask is the expensive way round:
-on the OSQP suite this counts in 10–92 µs where forming it through sparse products took
+on the benchmark suite this counts in 10–92 µs where forming it through sparse products took
 42–247, and on Huber it is 21.7 µs against 128.2.
 
 Column `j` of `AᵀA` holds a row for every column any row of `A` shares with `j`, so one pass
@@ -915,7 +915,7 @@ function reduced_nnz(P::SparseMatrixCSC, A::SparseMatrixCSC, n::Integer, limit::
         end
         # The caller compares against a limit, so counting past it answers a question nobody
         # asked. A problem this backend refuses is exactly the one with the most to count:
-        # on the OSQP suite's Control class the count reaches the limit after a fraction of
+        # on the benchmark suite's Control class the count reaches the limit after a fraction of
         # the columns, and stopping there is the difference between 92 µs and a few.
         total > limit && return total
     end
@@ -1127,7 +1127,7 @@ Establish that every index the substitutions will use is in range, or throw.
 The substitutions index `x` by a row index read out of `L`, which no compiler can prove is
 in bounds, so they are checked once here instead of on every one of the `nnz(L)` accesses —
 [`unit_forward!`](@ref) and [`unit_backward!`](@ref) then run unchecked. That is worth 1.18×
-to 1.32× on the OSQP suite's factors, which hold two to three nonzeros per column, where the
+to 1.32× on the benchmark suite's factors, which hold two to three nonzeros per column, where the
 check is a large fraction of the work done per entry.
 
 Called once per factorization, over `nnz(L)` entries, against a factorization that costs far
@@ -1171,7 +1171,7 @@ column pointer and a row vector as they stand, but gathering them into one is a 
 over the stored entries and reuses the buffers `L` already owns. `sparse(F.LD)` answers the
 same question by copying the whole factor inside CHOLMOD, converting the copy, and
 allocating three fresh arrays from it; a refactorization happens every outer iteration, and
-on the OSQP suite's smallest Random QP going through CHOLMOD costs `factorize!` 5.46 µs
+on the benchmark suite's smallest Random QP going through CHOLMOD costs `factorize!` 5.46 µs
 against 3.43 µs here.
 
 `ll` is the form the caller's substitutions read — `true` for `L Lᵀ`, `false` for the `LD` of
@@ -1266,13 +1266,13 @@ from `nonzeros(L)[colptr[j]]` and runs the off-diagonal entries from one past it
 
 [`llt_backward!`](@ref) takes `Lᵀ` rather than `L`. Against `L` the loop has to gather —
 each column accumulates a dot product into a scalar, which is a serial dependency — where
-against `Lᵀ` it scatters, exactly as the forward solve does. On the OSQP suite's Huber
+against `Lᵀ` it scatters, exactly as the forward solve does. On the benchmark suite's Huber
 factor, 5199 nonzeros over 1806 columns, that is 5.12 µs against 3.88 µs. Column `j` of
 `Lᵀ` is row `j` of `L`, so the diagonal is its *last* entry.
 
 Written out rather than left to `ldiv!(LowerTriangular(L), x)` for the same reason as
 [`ldl_forward!`](@ref), and the reason is the factor's shape rather than the wrapper.
-Measured on the OSQP suite's own factors, resetting the vector every sample because these
+Measured on the benchmark suite's own factors, resetting the vector every sample because these
 solves are in place: at 2.2 nonzeros per column (Lasso) the pair costs 5.00 µs through
 `ldiv!` and 2.91 µs here, and at 2.9 (Huber) 11.59 µs against 9.21 µs. On a factor with 9
 nonzeros per column the ordering reverses and `ldiv!` is the faster of the two — at that
@@ -1407,7 +1407,7 @@ function PureQPBase.is_convex(::Type{T}, P::SparseMatrixCSC, sigma) where {T}
     isempty(P) && return true
     # A diagonal `P` needs no factorization: `P + σI` is diagonal, so it is positive definite
     # exactly when every entry clears `-σ`. This is not a corner case — an epigraph
-    # reformulation leaves the objective diagonal, which is what four of the OSQP suite's
+    # reformulation leaves the objective diagonal, which is what four of the benchmark suite's
     # seven classes look like.
     if is_diagonal(P)
         vals = nonzeros(P)

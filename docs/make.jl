@@ -3,9 +3,9 @@ using Documenter, DocumenterVitepress, PureOSQP, PureIPM, PureQPBase
 makedocs(;
     modules = [PureOSQP, PureIPM, PureQPBase],
     authors = "el-oso",
-    sitename = "PureOSQP.jl",
+    sitename = "PureQP.jl",
     format = DocumenterVitepress.MarkdownVitepress(
-        repo = "github.com/el-oso/PureOSQP.jl",
+        repo = "github.com/el-oso/PureQP.jl",
         devbranch = "main",
         devurl = "dev",
     ),
@@ -45,7 +45,7 @@ makedocs(;
 )
 
 DocumenterVitepress.deploydocs(;
-    repo = "github.com/el-oso/PureOSQP.jl",
+    repo = "github.com/el-oso/PureQP.jl",
     target = joinpath(@__DIR__, "build"),
     branch = "gh-pages",
     devbranch = "main",

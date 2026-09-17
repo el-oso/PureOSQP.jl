@@ -65,8 +65,7 @@ dimensions(ws::QPWorkspace) = (ws.prob.n, ws.prob.m)
 
 What this build of the solver supports, reported for the packages currently loaded rather
 than for the package alone: `indirect_solver` is true once Krylov.jl is loaded and the
-matrix-free extension exists. The names mirror libosqp's `osqp_capabilities`
-bit-flags, so a caller porting from the C API can check the same things.
+matrix-free extension exists.
 
 There is no `error_message` counterpart: this package throws exceptions carrying their own
 messages rather than returning codes to be looked up.

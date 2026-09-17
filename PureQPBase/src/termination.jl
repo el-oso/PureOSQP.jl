@@ -180,8 +180,9 @@ function is_primal_infeasible(prob::Problem{T}, dy::AbstractVector{T}, eps::T) w
     project_polar_reccone!(dy, prob.l, prob.u)
     ndy = prob.scaling > 0 ? scaled_norm_inf(prob.E, dy) : norm_inf(dy)
     ndy > DIVISION_TOL(T) || return false
-    # Strict, as libosqp 1.0 has it: the support function of the direction must be
-    # negative, not merely under a tolerance that scales with the direction's own norm.
+    # Strict: the support function of the direction must be negative, not merely under a
+    # tolerance that scales with the direction's own norm. A certificate is a proof or it is
+    # nothing, and a tolerance here admits directions that do not separate.
     support_plain(dy, prob.l, prob.u) < zero(T) || return false
     mul_At!(prob.work_n, prob, dy)
     if prob.scaling > 0
@@ -220,7 +221,7 @@ function is_dual_infeasible(prob::Problem{T}, dx::AbstractVector{T}, eps::T) whe
     ndx = scaled ? scaled_norm_inf(prob.D, dx) : norm_inf(dx)
     cost = scaled ? prob.c : one(T)
     ndx > DIVISION_TOL(T) || return false
-    # A strict sign test, as libosqp 1.0 has it. Allowing `qᵀdx` up to `+ε‖dx‖` certifies a
+    # A strict sign test. Allowing `qᵀdx` up to `+ε‖dx‖` certifies a
     # direction that does not descend, and on an ill-conditioned `A` the near-null directions
     # clear the two remaining tests, so a bounded problem is declared unbounded.
     dot(prob.q, dx) < zero(T) || return false

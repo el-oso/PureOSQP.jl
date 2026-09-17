@@ -155,7 +155,7 @@ end
 
 function Base.show(io::IO, ws::InteriorPointWorkspace)
     print(
-        io, "PureOSQP InteriorPointWorkspace: ", ws.prob.n, "×", ws.prob.m,
+        io, "PureIPM InteriorPointWorkspace: ", ws.prob.n, "×", ws.prob.m,
         ", backend ", backend_name(ws.linsys),
         ", status ", status_name(ws.status),
     )
@@ -201,7 +201,7 @@ function refuse_ipm_operators()
     throw(
         ArgumentError(
             "InteriorPoint() factors a matrix built from the entries of P and A, and one of " *
-                "them declares `PureOSQP.is_materializable` false: it supplies products only. " *
+                "them declares `PureQPBase.is_materializable` false: it supplies products only. " *
                 "Pass matrices, pass linsys = :indirect with a caller-supplied preconditioner " *
                 "and scaling = 0, or use OperatorSplitting()."
         )

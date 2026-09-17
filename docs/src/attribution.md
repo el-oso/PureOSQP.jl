@@ -1,40 +1,70 @@
 # Attribution and license
 
-PureOSQP.jl is a derivative of [OSQP](https://osqp.org) and is released under the same Apache-2.0 license.
+Three packages, two licenses. What each one derives from differs, and so does the license
+it carries.
 
-## Derivation
+| package | license | derives from |
+|---|---|---|
+| `PureQPBase` | MIT | published papers only |
+| `PureIPM` | MIT | published papers only |
+| `PureOSQP` | Apache-2.0 | [OSQP](https://osqp.org), and carries its license |
 
-This is not a clean-room implementation. The code was written using the OSQP paper and the reference C implementation for details like equilibration, $\rho$ updates, and termination thresholds. OSQP's C unit tests were also ported.
+## PureOSQP
 
-## License
+**This is not a clean-room implementation.** The operator-splitting method was written using
+the OSQP paper and the reference C implementation, for details such as the $\rho$ update
+schedule and the order of the iteration. OSQP's C unit tests were ported into the test suite.
 
-**Apache-2.0**, matching upstream. This choice ensures compliance with the Apache-2.0 license and provides patent protection.
-
-## Papers
-
-The algorithm is based on these papers:
-
-**Main algorithm:** [OSQP: an operator splitting solver for quadratic programs](https://doi.org/10.1007/s12532-020-00179-2) (Stellato et al., 2020).
-
-**Infeasibility detection:** [Infeasibility detection in the alternating direction method of multipliers for convex optimization](https://doi.org/10.1007/s10957-019-01575-y) (Banjac et al., 2019).
-
-**Equilibration:** [A scaling algorithm to equilibrate both rows and columns norms in matrices](https://ral.ac.uk/Publications/RAL-TR-2001-034.pdf) (Ruiz, 2001).
-
-If you use PureOSQP in published work, please cite the OSQP papers.
-
-## Upstream
+It is therefore a derivative work and is released under **Apache-2.0**, matching upstream.
+That is not a preference: a derivative carries its parent's terms.
 
 - Website: <https://osqp.org>
 - Source: <https://github.com/osqp/osqp> (Apache-2.0)
-- Copyright: OSQP authors.
+- Copyright: the OSQP authors.
 - C library: Bartolomeo Stellato, Goran Banjac, and Paul Goulart.
 
-**[OSQP.jl](https://github.com/osqp/OSQP.jl)** (Twan Koolen, Benoît Legat, and Bartolomeo Stellato) is the reference implementation used to validate PureOSQP.
+[OSQP.jl](https://github.com/osqp/OSQP.jl) (Twan Koolen, Benoît Legat, and Bartolomeo
+Stellato) is the independent implementation used to validate it.
 
-## Key differences from upstream
+## PureQPBase
 
-libosqp 1.0 is the reference: its settings, its defaults, and its termination and
-certificate tests. These are the differences from it.
+**MIT.** The core is not a derivative of OSQP. It was written from the published
+descriptions of the methods it implements:
+
+**Equilibration:** [A scaling algorithm to equilibrate both rows and columns norms in
+matrices](https://ral.ac.uk/Publications/RAL-TR-2001-034.pdf) (Ruiz, 2001).
+
+**Infeasibility certificates:** [Infeasibility detection in the alternating direction method
+of multipliers for convex optimization](https://doi.org/10.1007/s10957-019-01575-y) (Banjac
+et al., 2019). The certificate tests hold for any direction, whatever produced it, which is
+why both algorithms use them unchanged.
+
+The linear-system backends, the selection ladder, the problem representation and the
+polishing and derivative kernels are this package's own.
+
+## PureIPM
+
+**MIT.** Not a derivative either. The algorithm follows [On the implementation of a
+primal-dual interior point method](https://doi.org/10.1137/0802028) (Mehrotra, 1992).
+
+[Clarabel.jl](https://github.com/oxfordcontrol/Clarabel.jl) (Paul Goulart and Yuwen Chen) is
+the independent interior-point implementation used to validate it: iteration counts and
+objectives are compared against it across the benchmark suite. It is a reference for the
+answers, not a source for the code.
+
+## Citing
+
+If you use the operator-splitting method in published work, please cite the OSQP papers:
+
+**Main algorithm:** [OSQP: an operator splitting solver for quadratic
+programs](https://doi.org/10.1007/s12532-020-00179-2) (Stellato et al., 2020).
+
+For the interior-point method, cite Mehrotra (1992).
+
+## Key differences from libosqp
+
+libosqp 1.0 is the reference for `PureOSQP`: its settings, its defaults, and its termination
+and certificate tests. These are the differences from it.
 
 - The inner KKT system is reduced to an $n \times n$ positive definite system.
 - The factored matrix is inverted in place for the dense case, making solves faster.

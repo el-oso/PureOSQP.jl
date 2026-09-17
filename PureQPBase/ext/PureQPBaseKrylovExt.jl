@@ -260,9 +260,9 @@ backends in the last digits even though both converge to the same solution.
 
 CG starts from `x`, which holds the previous solve's `x̃`. Late in a solve that guess already
 meets the tolerance, CG takes no step, and the iterate stops moving; after `cg_tol_reduction`
-such solves in a row the tolerance is halved, which is what that setting counts, as in
-libosqp. The floor is relative rather than a fixed `sqrt(eps)` because a fixed floor sits
-above tight outer tolerances, and no amount of halving gets below it.
+such solves in a row the tolerance is halved, which is what that setting counts. The floor is
+relative rather than a fixed `sqrt(eps)` because a fixed floor sits above tight outer
+tolerances, and no amount of halving gets below it.
 
 The preconditioner is applied through `ldiv!`. With `residual_stop` on, CG starts from zero,
 runs with zero Krylov tolerances and stops once the two-norm of its recursive residual reaches
