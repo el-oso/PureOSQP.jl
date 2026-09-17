@@ -21,7 +21,9 @@ const SPARSE_KKT_BACKENDS = (:sparse_kkt, :ldl_kkt)
 
 The problem, the weights and the backend a solver would hold for this data, built without
 one. A named `linsys` is honored the way a caller naming it is; `:auto` descends the ladder.
-The backend comes back factorized, so a test can solve through it immediately.
+The backend comes back factorized, so a test can solve through it immediately. Pass
+`factorize = false` for a backend that cannot be: the matrix-free one reads its
+conjugate-gradient settings from an algorithm's options, and refuses to run without them.
 
 `rho` is one weight for every row, or a vector of them. An algorithm decides which rows get
 which — a larger weight on those it treats as equalities — and a rung that reads the weights
@@ -29,7 +31,7 @@ reads them as they arrive, whatever assigned them.
 """
 function backend_for(
         P, q, A, l, u; rho = 0.1, sigma = 1.0e-6, scaling = 10, linsys::Symbol = :auto,
-        selection = PureQPBase.ADMMSelection(), preconditioner = nothing
+        selection = PureQPBase.ADMMSelection(), preconditioner = nothing, factorize = true
     )
     n, m = PureQPBase.validate(P, q, A, l, u)
     prob = PureQPBase.validated_problem(Float64, n, m, P, q, A, l, u, scaling)
@@ -40,7 +42,7 @@ function backend_for(
     else
         named
     end
-    factored || PureQPBase.factorize!(ls, prob, wt)
+    (factored || !factorize) || PureQPBase.factorize!(ls, prob, wt)
     return (prob, wt, ls)
 end
 
