@@ -142,6 +142,7 @@ PureIPM.dual_certificate!
 PureIPM.stalled!
 PureIPM.iterate_bound
 PureOSQP.has_solution
+PureOSQP.status_name
 PureOSQP.PolishStatus
 ```
 
