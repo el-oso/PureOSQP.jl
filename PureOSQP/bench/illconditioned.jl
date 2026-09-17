@@ -26,7 +26,7 @@ const KAPPAS = (1.0e4, 1.0e8, 1.0e10, 1.0e12)
 # near the wall, and cutting it there would report a tolerance choice as a failure to converge.
 const OPTS = (eps_abs = 1.0e-6, eps_rel = 1.0e-6, max_iter = 20_000)
 
-include(joinpath(@__DIR__, "helpers_conditioning.jl"))
+include(joinpath(@__DIR__, "..", "..", "bench", "helpers_conditioning.jl"))
 
 """
     problems() -> Vector

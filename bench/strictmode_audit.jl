@@ -15,7 +15,7 @@ using BandedMatrices           # supplies the banded backend, likewise
 using StrictMode, StrictModeTest
 using LinearAlgebra, SparseArrays, Random
 
-include(joinpath(@__DIR__, "lazy_operator.jl"))
+include(joinpath(@__DIR__, "..", "PureOSQP", "bench", "lazy_operator.jl"))
 
 # A disabled audit prints exactly like a clean one. Never report a pass without this.
 StrictMode.assert_enabled()

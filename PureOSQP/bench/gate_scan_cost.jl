@@ -10,7 +10,7 @@
 using PureOSQP, PureQPBase, LinearAlgebra, SparseArrays
 using Chairmarks, Printf, JSON, Statistics, Random
 
-include(joinpath(@__DIR__, "suite_problems.jl"))
+include(joinpath(@__DIR__, "..", "..", "bench", "suite_problems.jl"))
 
 const EXT = Base.get_extension(PureQPBase, :PureQPBaseSparseArraysExt)
 const THREADS = (1, min(8, Sys.CPU_THREADS))

@@ -12,7 +12,7 @@
 using PureOSQP, PureIPM, Clarabel
 using LinearAlgebra, SparseArrays, Random, JSON, Chairmarks, Printf
 
-include(joinpath(@__DIR__, "suite_problems.jl"))
+include(joinpath(@__DIR__, "..", "..", "bench", "suite_problems.jl"))
 
 BLAS.set_num_threads(1)
 
@@ -32,7 +32,7 @@ const SMALL_CASES = [
     ("Control", () -> control(4)),
 ]
 
-include(joinpath(@__DIR__, "helpers_clarabel.jl"))
+include(joinpath(@__DIR__, "..", "..", "bench", "helpers_clarabel.jl"))
 
 function run_case(name, gen)
     P, q, A, l, u = gen()

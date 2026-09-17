@@ -224,7 +224,7 @@ here), and
 
 ### Measured
 
-`bench/ipm_matrixfree.jl` writes `bench/results/ipm_matrixfree.json`. It runs dense instances
+`PureIPM/bench/ipm_matrixfree.jl` writes `PureIPM/bench/results/ipm_matrixfree.json`. It runs dense instances
 with a planted solution as `LinearMap`s through `LaggedCholesky` (`every = 3`) at
 `n = m ∈ {500, 1000, 2000}`, `κ(A) ∈ {1, 1e6}`, active fractions `{0.1, 0.9}`, every row
 two-sided and with a mix of 20% equality, 20% lower-only, 20% upper-only and 10% free rows:

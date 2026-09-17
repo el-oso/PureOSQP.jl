@@ -219,7 +219,7 @@ but it still succeeds and still plateaus near `1e-8`; it degrades gradually rath
 silently collapsing. Across every case measured, with equilibration on, the Cholesky never
 failed.
 
-Both tables are reproduced by `bench/kkt_backend.jl`.
+Both tables are reproduced by `PureOSQP/bench/kkt_backend.jl`.
 
 ### Choosing a backend
 
@@ -367,8 +367,8 @@ With [`InteriorPoint`](@ref) the Newton system has the same shape, but its row w
 iteration and reach `1/reg_dual` (`1e8` by default) on equality rows and on rows whose bound is
 active. The reduced form squares those weights into its conditioning, so each backend was run
 on problems of its own structure and compared with the dense full KKT factorization
-(`linsys = :kkt`) on the same problem. The table summarizes `bench/results/ipm_backends.json`,
-which `bench/ipm_backends.jl` writes. "Referee" is the largest optimality residual computed
+(`linsys = :kkt`) on the same problem. The table summarizes `PureIPM/bench/results/ipm_backends.json`,
+which `PureIPM/bench/ipm_backends.jl` writes. "Referee" is the largest optimality residual computed
 from the original data; iterations are outer iterations, the same for both columns unless
 shown.
 

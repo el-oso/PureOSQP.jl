@@ -37,7 +37,7 @@ function pin_to_cpu!(cpu::Integer)
     return iszero(ccall(:sched_setaffinity, Cint, (Cint, Csize_t, Ptr{UInt64}), 0, sizeof(mask), mask))
 end
 
-include(joinpath(@__DIR__, "suite_problems.jl"))
+include(joinpath(@__DIR__, "..", "..", "bench", "suite_problems.jl"))
 
 pin_to_cpu!(CORE)
 const P, q, A, l, u = random_qp(6)

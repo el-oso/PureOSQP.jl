@@ -1,0 +1,951 @@
+{
+  "entries": [
+    {
+      "blas_threads": 1.0,
+      "bytes": 1037,
+      "julia_version": "1.13.0",
+      "keys": [
+        "blas_threads",
+        "cases",
+        "eps",
+        "julia_version"
+      ],
+      "name": "anderson",
+      "package": "PureOSQP",
+      "results": "PureOSQP/bench/results/anderson.json",
+      "script": "anderson.jl"
+    },
+    {
+      "blas_threads": null,
+      "bytes": 4271,
+      "julia_version": "1.12.7",
+      "keys": [
+        "cases",
+        "cpu_threads",
+        "julia_version",
+        "sizes"
+      ],
+      "name": "banded_structural_rows",
+      "package": "PureOSQP",
+      "results": "PureOSQP/bench/results/banded_structural_rows.json",
+      "script": "banded_structural_rows.jl"
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 2004,
+      "julia_version": "1.13.0",
+      "keys": [
+        "blas_threads",
+        "cases",
+        "julia_version",
+        "n"
+      ],
+      "name": "block_backend",
+      "package": "PureOSQP",
+      "results": "PureOSQP/bench/results/block_backend.json",
+      "script": "block_backend.jl"
+    },
+    {
+      "blas_threads": null,
+      "bytes": 2043,
+      "julia_version": "1.12.7",
+      "keys": [
+        "cases",
+        "julia_version"
+      ],
+      "name": "block_structure",
+      "package": "PureOSQP",
+      "results": "PureOSQP/bench/results/block_structure.json",
+      "script": "block_structure.jl"
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 11750,
+      "julia_version": "1.12.7",
+      "keys": [
+        "blas_threads",
+        "budget_seconds",
+        "cases",
+        "julia_version"
+      ],
+      "name": "gate_band_beyond",
+      "package": "PureOSQP",
+      "results": "PureOSQP/bench/results/gate_band_beyond.json",
+      "script": "gate_band_beyond.jl"
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 685239,
+      "julia_version": "1.12.7",
+      "keys": [
+        "blas_threads",
+        "budget_seconds",
+        "cases",
+        "julia_version"
+      ],
+      "name": "gate_crossover_band",
+      "package": "PureOSQP",
+      "results": "PureOSQP/bench/results/gate_crossover_band.json",
+      "script": "gate_crossover_band.jl"
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 3032966,
+      "julia_version": "1.12.7",
+      "keys": [
+        "banded",
+        "blas_threads",
+        "dense_factor_fill",
+        "julia_version",
+        "random",
+        "settings"
+      ],
+      "name": "gate_crossover_fill",
+      "package": "PureOSQP",
+      "results": "PureOSQP/bench/results/gate_crossover_fill.json",
+      "script": "gate_crossover_fill.jl"
+    },
+    {
+      "blas_threads": null,
+      "bytes": 2525938,
+      "julia_version": "1.12.7",
+      "keys": [
+        "budget_seconds",
+        "cases",
+        "cpu_threads",
+        "julia_version"
+      ],
+      "name": "gate_crossover_lowrank",
+      "package": "PureOSQP",
+      "results": "PureOSQP/bench/results/gate_crossover_lowrank.json",
+      "script": "gate_crossover_lowrank.jl"
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 1780412,
+      "julia_version": "1.12.7",
+      "keys": [
+        "blas_threads",
+        "budget_seconds",
+        "cases",
+        "julia_version"
+      ],
+      "name": "gate_fill_periteration",
+      "package": "PureOSQP",
+      "results": "PureOSQP/bench/results/gate_fill_periteration.json",
+      "script": "gate_fill_periteration.jl"
+    },
+    {
+      "blas_threads": null,
+      "bytes": 4798,
+      "julia_version": "1.12.7",
+      "keys": [
+        "budget_seconds",
+        "cases",
+        "cpu_threads",
+        "julia_version"
+      ],
+      "name": "gate_scan_cost",
+      "package": "PureOSQP",
+      "results": "PureOSQP/bench/results/gate_scan_cost.json",
+      "script": "gate_scan_cost.jl"
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 4099,
+      "julia_version": "1.13.0",
+      "keys": [
+        "blas_threads",
+        "julia_threads",
+        "julia_version",
+        "pureblas",
+        "reference",
+        "results"
+      ],
+      "name": "headtohead",
+      "package": "PureOSQP",
+      "results": "PureOSQP/bench/results/headtohead.json",
+      "script": "headtohead.jl"
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 7759,
+      "julia_version": "1.13.0",
+      "keys": [
+        "blas_threads",
+        "cases",
+        "eps",
+        "julia_version",
+        "kappas",
+        "max_iter",
+        "n"
+      ],
+      "name": "illconditioned",
+      "package": "PureOSQP",
+      "results": "PureOSQP/bench/results/illconditioned.json",
+      "script": "illconditioned.jl"
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 3780,
+      "julia_version": "1.13.0",
+      "keys": [
+        "blas_threads",
+        "by_density",
+        "by_size",
+        "julia_version"
+      ],
+      "name": "indirect_backend",
+      "package": "PureOSQP",
+      "results": "PureOSQP/bench/results/indirect_backend.json",
+      "script": "indirect_backend.jl"
+    },
+    {
+      "blas_threads": null,
+      "bytes": 6685,
+      "julia_version": "1.12.7",
+      "keys": [
+        "cases",
+        "cpu_threads",
+        "gpu_sizes",
+        "julia_version",
+        "sigma",
+        "sizes"
+      ],
+      "name": "is_convex_coverage",
+      "package": "PureOSQP",
+      "results": "PureOSQP/bench/results/is_convex_coverage.json",
+      "script": "is_convex_coverage.jl"
+    },
+    {
+      "blas_threads": null,
+      "bytes": 3448,
+      "julia_version": "1.12.7",
+      "keys": [
+        "accuracy",
+        "costs",
+        "julia_version"
+      ],
+      "name": "kkt_backend",
+      "package": "PureOSQP",
+      "results": "PureOSQP/bench/results/kkt_backend.json",
+      "script": "kkt_backend.jl"
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 2395,
+      "julia_version": "1.12.7",
+      "keys": [
+        "blas_threads",
+        "cases",
+        "julia_version"
+      ],
+      "name": "kronecker_conditioning",
+      "package": "PureOSQP",
+      "results": "PureOSQP/bench/results/kronecker_conditioning.json",
+      "script": "kronecker_conditioning.jl"
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 3014,
+      "julia_version": "1.12.7",
+      "keys": [
+        "blas_threads",
+        "cases",
+        "julia_version"
+      ],
+      "name": "lowrank_backend",
+      "package": "PureOSQP",
+      "results": "PureOSQP/bench/results/lowrank_backend.json",
+      "script": "lowrank_backend.jl"
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 956,
+      "julia_version": "1.12.7",
+      "keys": [
+        "blas_threads",
+        "cases",
+        "julia_version"
+      ],
+      "name": "lowrank_portfolio",
+      "package": "PureOSQP",
+      "results": "PureOSQP/bench/results/lowrank_portfolio.json",
+      "script": "lowrank_portfolio.jl"
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 2407,
+      "julia_version": "1.13.0",
+      "keys": [
+        "blas_threads",
+        "julia_version",
+        "sparse",
+        "structured"
+      ],
+      "name": "matrix_types",
+      "package": "PureOSQP",
+      "results": "PureOSQP/bench/results/matrix_types.json",
+      "script": "matrix_types.jl"
+    },
+    {
+      "blas_threads": null,
+      "bytes": 2980,
+      "julia_version": "1.13.0",
+      "keys": [
+        "budget_seconds",
+        "cases",
+        "cpu_threads",
+        "julia_version",
+        "sizes"
+      ],
+      "name": "operator_protocol",
+      "package": "PureOSQP",
+      "results": "PureOSQP/bench/results/operator_protocol.json",
+      "script": "operator_protocol.jl"
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 2740,
+      "julia_version": "1.13.0",
+      "keys": [
+        "blas_threads",
+        "cases",
+        "julia_version"
+      ],
+      "name": "osqp_suite",
+      "package": "PureOSQP",
+      "results": "PureOSQP/bench/results/osqp_suite.json",
+      "script": "osqp_suite.jl"
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 2433,
+      "julia_version": "1.12.7",
+      "keys": [
+        "blas_threads",
+        "cases",
+        "eps",
+        "julia_version",
+        "max_iter",
+        "sampling"
+      ],
+      "name": "primdual_integral",
+      "package": "PureOSQP",
+      "results": "PureOSQP/bench/results/primdual_integral.json",
+      "script": "primdual_integral.jl"
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 4099,
+      "julia_version": "1.12.7",
+      "keys": [
+        "blas_threads",
+        "cases",
+        "julia_version"
+      ],
+      "name": "probe_equilibration",
+      "package": "PureOSQP",
+      "results": "PureOSQP/bench/results/probe_equilibration.json",
+      "script": "probe_equilibration.jl"
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 2406,
+      "julia_version": "1.12.7",
+      "keys": [
+        "blas_threads",
+        "cpu_threads",
+        "julia_threads",
+        "julia_version",
+        "ops",
+        "pureblas_commit",
+        "pureblas_version",
+        "solve"
+      ],
+      "name": "pureblas_backend",
+      "package": "PureOSQP",
+      "results": "PureOSQP/bench/results/pureblas_backend.json",
+      "script": "pureblas_backend.jl"
+    },
+    {
+      "blas_threads": null,
+      "bytes": 23578,
+      "julia_version": "1.12.7",
+      "keys": [
+        "cases",
+        "cpu_threads",
+        "julia_version",
+        "sizes"
+      ],
+      "name": "reduced_diagonal_structural",
+      "package": "PureOSQP",
+      "results": "PureOSQP/bench/results/reduced_diagonal_structural.json",
+      "script": "reduced_diagonal_structural.jl"
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 2886,
+      "julia_version": "1.13.0",
+      "keys": [
+        "blas_threads",
+        "cases",
+        "eps",
+        "julia_version",
+        "max_iter"
+      ],
+      "name": "representation_choice",
+      "package": "PureOSQP",
+      "results": "PureOSQP/bench/results/representation_choice.json",
+      "script": "representation_choice.jl"
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 1654,
+      "julia_version": "1.12.7",
+      "keys": [
+        "blas_threads",
+        "cases",
+        "eps",
+        "julia_version",
+        "max_iter",
+        "totals"
+      ],
+      "name": "rho_schedule",
+      "package": "PureOSQP",
+      "results": "PureOSQP/bench/results/rho_schedule.json",
+      "script": "rho_schedule.jl"
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 2378,
+      "julia_version": "1.12.7",
+      "keys": [
+        "blas_threads",
+        "cases",
+        "julia_version"
+      ],
+      "name": "rho_update",
+      "package": "PureOSQP",
+      "results": "PureOSQP/bench/results/rho_update.json",
+      "script": "rho_update.jl"
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 22899,
+      "julia_version": "1.12.7",
+      "keys": [
+        "blas_threads",
+        "cases",
+        "julia_version"
+      ],
+      "name": "selection_oracle",
+      "package": "PureOSQP",
+      "results": "PureOSQP/bench/results/selection_oracle.json",
+      "script": "selection_oracle.jl"
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 1556,
+      "julia_version": "1.13.0",
+      "keys": [
+        "blas_threads",
+        "julia_version",
+        "results",
+        "tol",
+        "versions"
+      ],
+      "name": "solvers",
+      "package": "PureOSQP",
+      "results": "PureOSQP/bench/results/solvers.json",
+      "script": "solvers.jl"
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 3173,
+      "julia_version": "1.13.0",
+      "keys": [
+        "banded",
+        "blas_threads",
+        "julia_version",
+        "random"
+      ],
+      "name": "sparse_headtohead",
+      "package": "PureOSQP",
+      "results": "PureOSQP/bench/results/sparse_headtohead.json",
+      "script": "sparse_headtohead.jl"
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 3519,
+      "julia_version": "1.12.7",
+      "keys": [
+        "blas_threads",
+        "cases",
+        "julia_version"
+      ],
+      "name": "structured_backends",
+      "package": "PureOSQP",
+      "results": "PureOSQP/bench/results/structured_backends.json",
+      "script": "structured_backends.jl"
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 2381,
+      "julia_version": "1.13.0",
+      "keys": [
+        "adaptive_rho_interval",
+        "blas_threads",
+        "cases",
+        "eps",
+        "julia_version"
+      ],
+      "name": "structured_vs_osqp",
+      "package": "PureOSQP",
+      "results": "PureOSQP/bench/results/structured_vs_osqp.json",
+      "script": "structured_vs_osqp.jl"
+    },
+    {
+      "blas_threads": null,
+      "bytes": 2767,
+      "julia_version": "1.12.7",
+      "keys": [
+        "budget_seconds",
+        "cases",
+        "cpu_threads",
+        "julia_version",
+        "sizes"
+      ],
+      "name": "tridiagonal_rung",
+      "package": "PureOSQP",
+      "results": "PureOSQP/bench/results/tridiagonal_rung.json",
+      "script": "tridiagonal_rung.jl"
+    },
+    {
+      "blas_threads": null,
+      "bytes": 1613,
+      "julia_version": "1.13.0",
+      "keys": [
+        "julia_version",
+        "pureblas_commit",
+        "results",
+        "steps"
+      ],
+      "name": "update_bench",
+      "package": "PureOSQP",
+      "results": "PureOSQP/bench/results/update_bench.json",
+      "script": "update_bench.jl"
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 7283,
+      "julia_version": "1.13.0",
+      "keys": [
+        "blas_threads",
+        "clarabel_jl_version",
+        "clarabel_rs_available",
+        "clarabel_rs_direct_solve_method",
+        "clarabel_rs_features",
+        "clarabel_rs_subprocess_wall_s",
+        "cpu_scaling_governor",
+        "julia_version",
+        "results",
+        "seconds_per_benchmark",
+        "smt_sibling_core",
+        "taskset_core",
+        "taskset_pinned",
+        "tol"
+      ],
+      "name": "clarabel_rs_compare",
+      "package": "PureIPM",
+      "results": "PureIPM/bench/results/clarabel_rs_compare.json",
+      "script": "clarabel_rs_compare.jl"
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 7236,
+      "julia_version": "1.13.0",
+      "keys": [
+        "blas_threads",
+        "clarabel_jl_version",
+        "clarabel_rs_available",
+        "clarabel_rs_direct_solve_method",
+        "clarabel_rs_features",
+        "clarabel_rs_subprocess_wall_s",
+        "cpu_scaling_governor",
+        "julia_version",
+        "results",
+        "seconds_per_benchmark",
+        "smt_sibling_core",
+        "taskset_core",
+        "taskset_pinned",
+        "tol"
+      ],
+      "name": "clarabel_rs_compare_run1",
+      "package": "PureIPM",
+      "results": "PureIPM/bench/results/clarabel_rs_compare_run1.json",
+      "script": null
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 7187,
+      "julia_version": "1.13.0",
+      "keys": [
+        "blas_threads",
+        "clarabel_jl_version",
+        "clarabel_rs_available",
+        "clarabel_rs_direct_solve_method",
+        "clarabel_rs_features",
+        "clarabel_rs_subprocess_wall_s",
+        "cpu_scaling_governor",
+        "julia_version",
+        "results",
+        "seconds_per_benchmark",
+        "smt_sibling_core",
+        "taskset_core",
+        "taskset_pinned",
+        "tol"
+      ],
+      "name": "clarabel_rs_compare_run2",
+      "package": "PureIPM",
+      "results": "PureIPM/bench/results/clarabel_rs_compare_run2.json",
+      "script": null
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 19709,
+      "julia_version": null,
+      "keys": [
+        "backends",
+        "blas_threads",
+        "float32",
+        "fullkkt_fill",
+        "julia",
+        "referee",
+        "routed",
+        "rule"
+      ],
+      "name": "ipm_backends",
+      "package": "PureIPM",
+      "results": "PureIPM/bench/results/ipm_backends.json",
+      "script": "ipm_backends.jl"
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 6319,
+      "julia_version": "1.13.0",
+      "keys": [
+        "blas_threads",
+        "cases",
+        "eps",
+        "julia_version",
+        "kappas",
+        "n"
+      ],
+      "name": "ipm_illconditioned",
+      "package": "PureIPM",
+      "results": "PureIPM/bench/results/ipm_illconditioned.json",
+      "script": "ipm_illconditioned.jl"
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 12920,
+      "julia_version": null,
+      "keys": [
+        "blas_threads",
+        "cases",
+        "description",
+        "indefinite_preconditioner",
+        "infeasible",
+        "julia",
+        "sparse_incomplete_ldl",
+        "threads",
+        "verdict"
+      ],
+      "name": "ipm_matrixfree",
+      "package": "PureIPM",
+      "results": "PureIPM/bench/results/ipm_matrixfree.json",
+      "script": "ipm_matrixfree.jl"
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 19784552,
+      "julia_version": null,
+      "keys": [
+        "blas_threads",
+        "description",
+        "instances",
+        "julia",
+        "settings",
+        "threads"
+      ],
+      "name": "ipm_matrixfree_spike",
+      "package": "PureIPM",
+      "results": "PureIPM/bench/results/ipm_matrixfree_spike.json",
+      "script": "ipm_matrixfree_spike.jl"
+    },
+    {
+      "blas_threads": null,
+      "bytes": 335777,
+      "julia_version": null,
+      "keys": [
+        "columns",
+        "description",
+        "g1",
+        "g2",
+        "instances",
+        "products",
+        "settings"
+      ],
+      "name": "ipm_matrixfree_spike2",
+      "package": "PureIPM",
+      "results": "PureIPM/bench/results/ipm_matrixfree_spike2.json",
+      "script": "ipm_matrixfree_spike2.jl"
+    },
+    {
+      "blas_threads": null,
+      "bytes": 322456,
+      "julia_version": null,
+      "keys": [
+        "columns",
+        "description",
+        "g1",
+        "g2",
+        "instances",
+        "products",
+        "settings"
+      ],
+      "name": "ipm_matrixfree_spike2_nog2stop",
+      "package": "PureIPM",
+      "results": "PureIPM/bench/results/ipm_matrixfree_spike2_nog2stop.json",
+      "script": null
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 31076889,
+      "julia_version": null,
+      "keys": [
+        "blas_threads",
+        "description",
+        "instances",
+        "julia",
+        "settings",
+        "threads"
+      ],
+      "name": "ipm_matrixfree_spike2_nog2stop_raw",
+      "package": "PureIPM",
+      "results": "PureIPM/bench/results/ipm_matrixfree_spike2_nog2stop_raw.json",
+      "script": null
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 30379894,
+      "julia_version": null,
+      "keys": [
+        "blas_threads",
+        "description",
+        "instances",
+        "julia",
+        "settings",
+        "threads"
+      ],
+      "name": "ipm_matrixfree_spike2_raw",
+      "package": "PureIPM",
+      "results": "PureIPM/bench/results/ipm_matrixfree_spike2_raw.json",
+      "script": null
+    },
+    {
+      "blas_threads": null,
+      "bytes": 295258,
+      "julia_version": null,
+      "keys": [
+        "description",
+        "g1",
+        "g2",
+        "instances",
+        "products_note"
+      ],
+      "name": "ipm_matrixfree_spike_summary",
+      "package": "PureIPM",
+      "results": "PureIPM/bench/results/ipm_matrixfree_spike_summary.json",
+      "script": null
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 5665,
+      "julia_version": "1.13.0",
+      "keys": [
+        "blas_threads",
+        "cases",
+        "eps",
+        "julia_version"
+      ],
+      "name": "ipm_representation",
+      "package": "PureIPM",
+      "results": "PureIPM/bench/results/ipm_representation.json",
+      "script": "ipm_representation.jl"
+    },
+    {
+      "blas_threads": null,
+      "bytes": 50061,
+      "julia_version": null,
+      "keys": [
+        "description",
+        "errors",
+        "fail_limit",
+        "g1",
+        "g2_floor100",
+        "g2_floor_n10",
+        "groups",
+        "kkt_vs_bunchkaufman",
+        "krylov_cap",
+        "vs_oracle"
+      ],
+      "name": "ipm_rowtypes_spike",
+      "package": "PureIPM",
+      "results": "PureIPM/bench/results/ipm_rowtypes_spike.json",
+      "script": "ipm_rowtypes_spike.jl"
+    },
+    {
+      "blas_threads": null,
+      "bytes": 10807935,
+      "julia_version": null,
+      "keys": [
+        "errors",
+        "julia",
+        "krylov_cap",
+        "runs"
+      ],
+      "name": "ipm_rowtypes_spike_raw",
+      "package": "PureIPM",
+      "results": "PureIPM/bench/results/ipm_rowtypes_spike_raw.json",
+      "script": null
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 3716,
+      "julia_version": "1.13.0",
+      "keys": [
+        "admm_tol",
+        "blas_threads",
+        "cases",
+        "density",
+        "ipm_tol",
+        "julia_version",
+        "sizes"
+      ],
+      "name": "ipm_scaling",
+      "package": "PureIPM",
+      "results": "PureIPM/bench/results/ipm_scaling.json",
+      "script": "ipm_scaling.jl"
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 127006,
+      "julia_version": null,
+      "keys": [
+        "blas_threads",
+        "budget_seconds",
+        "cases",
+        "crossings",
+        "elapsed_seconds",
+        "eps",
+        "julia",
+        "predictors",
+        "skip_ms"
+      ],
+      "name": "ipm_selection",
+      "package": "PureIPM",
+      "results": "PureIPM/bench/results/ipm_selection.json",
+      "script": "ipm_selection.jl"
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 2210,
+      "julia_version": "1.13.0",
+      "keys": [
+        "blas_threads",
+        "cases",
+        "eps",
+        "julia_version"
+      ],
+      "name": "ipm_suite_split",
+      "package": "PureIPM",
+      "results": "PureIPM/bench/results/ipm_suite_split.json",
+      "script": "ipm_suite_split.jl"
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 1940,
+      "julia_version": "1.13.0",
+      "keys": [
+        "blas_threads",
+        "cases",
+        "eps",
+        "julia_version",
+        "steps"
+      ],
+      "name": "ipm_update",
+      "package": "PureIPM",
+      "results": "PureIPM/bench/results/ipm_update.json",
+      "script": "ipm_update.jl"
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 4207,
+      "julia_version": "1.13.0",
+      "keys": [
+        "admm_tol",
+        "blas_threads",
+        "clarabel_version",
+        "ipm_tol",
+        "julia_version",
+        "results"
+      ],
+      "name": "ipm_vs_clarabel",
+      "package": "PureIPM",
+      "results": "PureIPM/bench/results/ipm_vs_clarabel.json",
+      "script": "ipm_vs_clarabel.jl"
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 6441,
+      "julia_version": "1.13.0",
+      "keys": [
+        "admm_tol",
+        "blas_threads",
+        "clarabel_version",
+        "ecos_version",
+        "ipm_tol",
+        "julia_version",
+        "moi_version",
+        "note",
+        "results"
+      ],
+      "name": "ipm_vs_others",
+      "package": "PureIPM",
+      "results": "PureIPM/bench/results/ipm_vs_others.json",
+      "script": "ipm_vs_others.jl"
+    },
+    {
+      "blas_threads": 1.0,
+      "bytes": 8509,
+      "julia_version": "1.12.7",
+      "keys": [
+        "blas_threads",
+        "cases",
+        "julia_version"
+      ],
+      "name": "snapshot_s0",
+      "package": "shared",
+      "results": "bench/results/snapshot_s0.json",
+      "script": null
+    }
+  ],
+  "packages": [
+    "PureOSQP",
+    "PureIPM",
+    "shared"
+  ],
+  "unrun": []
+}

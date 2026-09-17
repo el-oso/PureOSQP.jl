@@ -27,7 +27,7 @@ const REGIMES = (
     ("adaptive ρ", PureOSQP.OperatorSplitting(), (eps_abs = 1.0e-9, eps_rel = 1.0e-9)),
 )
 
-include(joinpath(@__DIR__, "suite_problems.jl"))
+include(joinpath(@__DIR__, "..", "..", "bench", "suite_problems.jl"))
 
 times(x) = [s.time for s in x.samples]
 

@@ -17,7 +17,7 @@ using Chairmarks, Statistics
 
 BLAS.set_num_threads(1)
 
-include(joinpath(@__DIR__, "helpers_conditioning.jl"))
+include(joinpath(@__DIR__, "..", "..", "bench", "helpers_conditioning.jl"))
 
 const N = 300
 const KAPPAS = (1.0e4, 1.0e8, 1.0e10, 1.0e12)

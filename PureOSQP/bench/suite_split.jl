@@ -10,7 +10,7 @@ using Statistics
 
 BLAS.set_num_threads(1)
 
-include(joinpath(@__DIR__, "suite_problems.jl"))
+include(joinpath(@__DIR__, "..", "..", "bench", "suite_problems.jl"))
 include(joinpath(@__DIR__, "osqp_v1.jl"))
 
 # `check_dualgap` is off on both, as in `bench/osqp_suite.jl`: it is the one termination test

@@ -1,13 +1,16 @@
 # Benchmarks
 
-Every benchmark on this page writes its samples to `bench/results/`, and each section names
-the script that produced it.
+Each package's benchmarks live in its own `bench/` directory and write their samples to that
+package's `bench/results/`, so either set can be run without the other. Every section below
+names the script that produced it. The shared problem generators, the snapshot gate and the
+StrictMode audit sit in the top-level `bench/`, which also holds the index the last section
+renders.
 
 ## Against OSQP
 
 Dense random QPs, compared with libosqp 1.0, the C library OSQP itself ships. Reproduce with
-`julia --project=bench bench/headtohead.jl`, or with `--project=bench/pureblas` to add the
-PureBLAS column; samples are in `bench/results/headtohead.json`.
+`julia --project=bench PureOSQP/bench/headtohead.jl`, or with `--project=bench/pureblas` to add the
+PureBLAS column; samples are in `PureOSQP/bench/results/headtohead.json`.
 
 Both solvers run with `eps_abs = eps_rel = 1e-6`, single-threaded BLAS, ρ adapted every 50
 iterations, and the duality-gap test (`check_dualgap`) turned off. Each solver checks the gap
@@ -36,7 +39,7 @@ schedule and the residual tests match libosqp step for step. The solutions agree
 `4e-9`. PureOSQP is faster in every case, and PureBLAS changes the time but not the iteration
 count.
 
-libosqp has no Julia wrapper, so `bench/osqp_v1.jl` calls the library in `OSQP_jll` v100
+libosqp has no Julia wrapper, so `PureOSQP/bench/osqp_v1.jl` calls the library in `OSQP_jll` v100
 through `ccall`. The header that library ships describes both its single- and double-precision
 builds, and some of its type definitions are wrong for the double build. So the wrapper takes the
 integer and float sizes from the library itself. `verify_abi()` checks them each time the file is
@@ -46,8 +49,8 @@ loaded, and throws if a rebuilt library changes them.
 
 `P` and `A` stay fixed while `q`, `l` and `u` change every step, as in a receding-horizon
 control loop. Each case runs 20 solves. Reproduce with
-`julia --project=bench bench/update_bench.jl`, or with `--project=bench/pureblas` to add the
-PureBLAS column; samples are in `bench/results/update_bench.json`.
+`julia --project=bench PureOSQP/bench/update_bench.jl`, or with `--project=bench/pureblas` to add the
+PureBLAS column; samples are in `PureOSQP/bench/results/update_bench.json`.
 
 libosqp runs the same loop through its own update call, `osqp_update_data_vec`, which keeps
 the factorization. Both solvers use `eps_abs = eps_rel = 1e-6` with `check_dualgap` off, and
@@ -84,7 +87,7 @@ whose scaled gap `ũ - l̃` falls below `RHO_TOL` is treated as an equality, whi
 
 ## Linear-system backend
 
-`bench/kkt_backend.jl` reproduces the cost and accuracy comparison between the reduced
+`PureOSQP/bench/kkt_backend.jl` reproduces the cost and accuracy comparison between the reduced
 Cholesky and the full-KKT Bunch-Kaufman factorization described under
 [Algorithm](@ref "The linear system"), including the near-parallel-row family that
 equilibration cannot fix.
@@ -94,13 +97,13 @@ equilibration cannot fix.
 [PureBLAS.jl](https://github.com/el-oso/PureBLAS.jl) is a pure-Julia BLAS/LAPACK. Its
 `activate()` overlays per-symbol forwards onto libblastrampoline, so PureOSQP runs on it
 **with no code changes** — the same `mul!`, `cholesky!` and `symv` calls are rerouted in
-process. Reproduce with `bench/pureblas_backend.jl` (setup instructions in its header).
+process. Reproduce with `PureOSQP/bench/pureblas_backend.jl` (setup instructions in its header).
 
 Note `BLAS.get_config()` cannot show this: OpenBLAS stays loaded and the forwards sit on
 top of it. `PureBLAS.is_active()` is the check, and the benchmark asserts it at every
 measurement — otherwise a rerouting that silently failed would look like a clean tie.
 
-Measured against PureBLAS at commit `ea79919`, which `bench/results/pureblas_backend.json`
+Measured against PureBLAS at commit `ea79919`, which `PureOSQP/bench/results/pureblas_backend.json`
 records alongside the timings.
 
 | n | m | OpenBLAS | PureBLAS | ratio | iterations | \|Δx\| |
@@ -149,7 +152,7 @@ the picture at these sizes: at n=200, m=400 it took 25.4 ms on 1 thread, 25.8 ms
 
 The same dense QPs solved by libosqp 1.0 and by two solvers that use other algorithms: DAQP
 (active set) and Clarabel (interior point). Reproduce with
-`julia --project=bench bench/solvers.jl`; samples are in `bench/results/solvers.json`.
+`julia --project=bench PureOSQP/bench/solvers.jl`; samples are in `PureOSQP/bench/results/solvers.json`.
 
 | n | m | PureOSQP | libosqp 1.0 | DAQP | Clarabel |
 |---|---|---|---|---|---|
@@ -182,8 +185,8 @@ below the tolerance.
 
 A matrix can be passed dense, sparse, as a structured type, or as an operator that is never
 formed. These three cases measure when each is the better choice. Reproduce with
-`julia --project=bench bench/representation_choice.jl`; samples are in
-`bench/results/representation_choice.json`. Single-threaded BLAS, `eps_abs = eps_rel = 1e-6`.
+`julia --project=bench PureOSQP/bench/representation_choice.jl`; samples are in
+`PureOSQP/bench/results/representation_choice.json`. Single-threaded BLAS, `eps_abs = eps_rel = 1e-6`.
 The script checks that every run reaches `SOLVED` before it reports a time.
 
 **An operator that is cheap to apply, in a problem where that is not the main cost.** `P` is a
@@ -235,8 +238,8 @@ PureOSQP keeps the caller's `P` and `A` and applies equilibration as it goes, so
 in the iteration calls `mul!` on the matrix that was passed in. Each row below is one problem
 solved twice, once as a plain `Matrix` and once in a structured type, so both take the same
 number of iterations and the difference is the cost of the products. `n = 150`, `m = 300`.
-Reproduce with `julia --project=bench bench/matrix_types.jl`; samples are in
-`bench/results/matrix_types.json`.
+Reproduce with `julia --project=bench PureOSQP/bench/matrix_types.jl`; samples are in
+`PureOSQP/bench/results/matrix_types.json`.
 
 | problem | as `Matrix` | structured | speedup | iterations |
 |---|---|---|---|---|
@@ -269,8 +272,8 @@ matrix* is structured rather than merely the input. Eliminating `ν` gives
 
 Each row below is one problem solved twice, once in the structured types and once as a
 `Matrix`, so the iteration counts match exactly and the difference is the backend.
-Reproduce with `julia --project=bench bench/structured_backends.jl`; samples are written to
-`bench/results/structured_backends.json`.
+Reproduce with `julia --project=bench PureOSQP/bench/structured_backends.jl`; samples are written to
+`PureOSQP/bench/results/structured_backends.json`.
 
 | `P`, `A` | n | bw(`R`) | backend | setup | dense setup | setup× | total | dense total | total× |
 |---|---|---|---|---|---|---|---|---|---|
@@ -314,8 +317,8 @@ blocks, which are factored one at a time and never assembled into one matrix. Th
 cost falls from `n³` to `Σnᵢ³` and the storage from `n²` to `Σnᵢ²`, so both improve as the same
 `n` is split into more blocks. Each row is one problem solved as a `BlockDiagonal`, as a
 `Matrix`, and with the matrix-free backend, so the direct paths take the same number of
-iterations. Reproduce with `julia --project=bench bench/block_backend.jl`; samples are in
-`bench/results/block_backend.json`. Single-threaded BLAS, `n = 240`.
+iterations. Reproduce with `julia --project=bench PureOSQP/bench/block_backend.jl`; samples are in
+`PureOSQP/bench/results/block_backend.json`. Single-threaded BLAS, `n = 240`.
 
 | `K` | block size | iterations | `block` | dense | speedup | matrix-free | block vs matrix-free | factor words | dense words | memory saved |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -342,8 +345,8 @@ dense path at all but `K = 12`. The blocks are dense, and CG does not use the bl
 A `Diagonal` `P` with a [`PureOSQP.RowCoupled`](@ref) `A` makes the reduced matrix a diagonal
 plus a rank-`k` correction, which Woodbury solves without forming it: two `gemv`s against a
 `k×n` block and one `k×k` solve, in `O(nk)` time and storage rather than `O(n²)`. Reproduce
-with `julia --project=bench bench/lowrank_backend.jl`; samples in
-`bench/results/lowrank_backend.json`, single-threaded BLAS.
+with `julia --project=bench PureOSQP/bench/lowrank_backend.jl`; samples in
+`PureOSQP/bench/results/lowrank_backend.json`, single-threaded BLAS.
 
 | n | k | iters | setup | dense setup | total | dense total | total× |
 |---|---|---|---|---|---|---|---|
@@ -361,7 +364,7 @@ with `julia --project=bench bench/lowrank_backend.jl`; samples in
 The ratio grows with `n` at fixed `k` and shrinks as `k` climbs, which is what `O(nk)` against
 `O(n²)` predicts. The rung is not used once `10k > n`, below the measured crossing so the
 limit holds at any BLAS thread count — see the gate discussion in
-`bench/results/gate_crossover_lowrank.json`. Each row is a different problem, so read across
+`PureOSQP/bench/results/gate_crossover_lowrank.json`. Each row is a different problem, so read across
 a row rather than down a column.
 
 ## Sparse A
@@ -397,8 +400,8 @@ first.
 
 Both solvers get `SparseMatrixCSC` and neither makes a dense copy. `eps_abs = eps_rel = 1e-6`,
 with `check_dualgap` off on both. Reproduce with
-`julia --project=bench bench/sparse_headtohead.jl`; samples are in
-`bench/results/sparse_headtohead.json`. Both solvers take the same number of iterations in
+`julia --project=bench PureOSQP/bench/sparse_headtohead.jl`; samples are in
+`PureOSQP/bench/results/sparse_headtohead.json`. Both solvers take the same number of iterations in
 every row, and the script stops if their objectives differ by more than `1e-6`.
 
 The two problem families below favor different approaches, so both are shown.
@@ -445,8 +448,8 @@ SparseArrays extension checks it through CHOLMOD instead, which is 93× faster o
 
 The seven problem classes from OSQP's own benchmark suite, built from its problem definitions
 and compared with libosqp 1.0. Reproduce the totals with
-`julia --project=bench bench/osqp_suite.jl` and the setup and loop split with
-`julia --project=bench bench/suite_split.jl`; samples are in `bench/results/osqp_suite.json`.
+`julia --project=bench PureOSQP/bench/osqp_suite.jl` and the setup and loop split with
+`julia --project=bench PureOSQP/bench/suite_split.jl`; samples are in `PureOSQP/bench/results/osqp_suite.json`.
 
 Both solvers get `SparseMatrixCSC` and run with `eps_abs = eps_rel = 1e-5` and
 `check_dualgap` off. They stop at the same iteration in every class, so the times compare the
@@ -562,12 +565,12 @@ cannot drift into being a behaviour change.
 ## The interior-point method against Clarabel
 
 [`InteriorPoint`](@ref) and [Clarabel](https://github.com/oxfordcontrol/Clarabel.jl) 0.11.1
-are both interior-point methods; `bench/ipm_vs_clarabel.jl` runs them on the smallest instance
+are both interior-point methods; `PureIPM/bench/ipm_vs_clarabel.jl` runs them on the smallest instance
 of each OSQP suite problem class, alongside [`OperatorSplitting`](@ref) on the same instance.
 `InteriorPoint` and Clarabel both run at `eps_abs = eps_rel = 1e-8`; `OperatorSplitting` runs
 at `1e-6`, the tightest tolerance ADMM reaches in a modest iteration count on these problems.
 These are not committed benchmarks to reproduce and compare against: the figures below are
-`bench/results/ipm_vs_clarabel.json`, measured once at commit `c7d2c92` on Julia 1.13.0, pinned
+`PureIPM/bench/results/ipm_vs_clarabel.json`, measured once at commit `c7d2c92` on Julia 1.13.0, pinned
 to core 15 with BLAS at one thread, on a workstation with an unpinned clock, so the times are
 indicative rather than a claim about relative speed.
 
@@ -607,8 +610,8 @@ On sparse QPs it depends on size. The direct backend builds the reduced matrix f
 entries, but it still factors and inverts an `n×n` dense matrix, which costs `O(n³)` however
 sparse the input is. The matrix-free backend costs `O(nnz)` per CG iteration and stores only
 vectors. Keeping about five nonzeros per row of `A` and growing the problem
-(`bench/indirect_backend.jl`, `eps_abs = eps_rel = 1e-6`, single-threaded BLAS; samples in
-`bench/results/indirect_backend.json`):
+(`PureOSQP/bench/indirect_backend.jl`, `eps_abs = eps_rel = 1e-6`, single-threaded BLAS; samples in
+`PureOSQP/bench/results/indirect_backend.json`):
 
 | n | m | density | direct | matrix-free | speedup | direct memory | matrix-free memory | iterations (direct / matrix-free) |
 |---|---|---|---|---|---|---|---|---|
@@ -648,15 +651,15 @@ entries at all, only `mul!`. Nothing can be formed from it, so none of the direc
 apply and the solver uses the matrix-free backend.
 
 The comparison is against the same operator stored as a `Matrix`, which is the other option
-when the entries exist. Reproduce with `julia --project=bench bench/operator_protocol.jl`;
-samples are in `bench/results/operator_protocol.json`.
+when the entries exist. Reproduce with `julia --project=bench PureOSQP/bench/operator_protocol.jl`;
+samples are in `PureOSQP/bench/results/operator_protocol.json`.
 
 The operator is `P = Diagonal(d) + α v vᵀ`, written three ways:
 
 - **protocol**: a type that implements the
   [operator protocol](@ref "What to implement, in order"), with `size`, `mul!`,
   `is_materializable` returning `false`, `is_convex`, and `structural_rows`. It is defined in
-  `bench/lazy_operator.jl` and stores a vector and a scalar, never an `n×n` array.
+  `PureOSQP/bench/lazy_operator.jl` and stores a vector and a scalar, never an `n×n` array.
 - **linearmap**: the same operator as a `LinearMaps.LinearMap`, which implements none of the
   protocol and is wrapped in [`PureOSQP.ProductOperator`](@ref) to reach the same backend.
 - **matrix**: the same operator stored as an `n×n` `Matrix`.
@@ -693,8 +696,8 @@ every iteration allocate.
 ## Conditioning
 
 At `n = 300`, with `κ(P) = κ(A)` swept up to `1e12`. Reproduce with
-`julia --project=bench bench/illconditioned.jl`; samples are in
-`bench/results/illconditioned.json`. Single-threaded BLAS, `eps_abs = eps_rel = 1e-6`,
+`julia --project=bench PureOSQP/bench/illconditioned.jl`; samples are in
+`PureOSQP/bench/results/illconditioned.json`. Single-threaded BLAS, `eps_abs = eps_rel = 1e-6`,
 `max_iter = 20000`. Two shapes: a dense `P` and `A`, and the same size split into six
 `BlockDiagonal` blocks of 50, each with the same `κ`.
 
@@ -742,8 +745,8 @@ backend.
 
 `∫|gap| dt` over the solve, under two quadrature rules, with `profile_primdual = true`. See
 [Measuring how fast a solve converges](@ref) for what the numbers mean and which to use.
-Reproduce with `julia --project=bench bench/primdual_integral.jl`; samples in
-`bench/results/primdual_integral.json`, single-threaded BLAS, `eps_abs = eps_rel = 1e-9`.
+Reproduce with `julia --project=bench PureOSQP/bench/primdual_integral.jl`; samples in
+`PureOSQP/bench/results/primdual_integral.json`, single-threaded BLAS, `eps_abs = eps_rel = 1e-9`.
 
 | problem | iterations | trapezoid | log-mean | log/trap | overhead |
 |---|---|---|---|---|---|
@@ -778,8 +781,8 @@ asserts a value for either.
 Iterations to `eps_abs = eps_rel = 1e-6` under the three `adaptive_rho` modes, on the OSQP
 benchmark classes. `:iterations` retunes on a fixed schedule; `:kkt_error` retunes only when
 the relative KKT error has fallen by `adaptive_rho_fraction` since the last look. Reproduce
-with `julia --project=bench bench/rho_schedule.jl`; samples in
-`bench/results/rho_schedule.json`, single-threaded BLAS.
+with `julia --project=bench PureOSQP/bench/rho_schedule.jl`; samples in
+`PureOSQP/bench/results/rho_schedule.json`, single-threaded BLAS.
 
 | class | `:disabled` | `:iterations` | `:kkt_error` | refactorizations |
 |---|---|---|---|---|
@@ -806,8 +809,8 @@ problem three ways separates two effects: PureOSQP sparse against libosqp sparse
 implementations, and PureOSQP structured against PureOSQP sparse shows what passing the
 structure is worth.
 
-Reproduce with `julia --project=bench bench/structured_vs_osqp.jl`; samples are in
-`bench/results/structured_vs_osqp.json`. Single-threaded BLAS, the same settings on all three,
+Reproduce with `julia --project=bench PureOSQP/bench/structured_vs_osqp.jl`; samples are in
+`PureOSQP/bench/results/structured_vs_osqp.json`. Single-threaded BLAS, the same settings on all three,
 and libosqp timed from CSC arrays built beforehand.
 
 | structure | nnz(`A`) | iterations | libosqp 1.0 (sparse) | PureOSQP (sparse) | PureOSQP (structured) | sparse vs libosqp | structured vs sparse |
@@ -830,3 +833,39 @@ eigenvectors, 51.6× faster.
 The sparse factor of a banded matrix is already banded, so declaring the band gains nothing and
 the banded backend's extra bookkeeping costs a little. The banded backend is chosen when it beats
 the dense path, not the sparse one, which is why it is used here.
+
+## What was measured, and when
+
+Every table above is transcribed by hand from a saved run. This section is not: it is
+rendered at documentation-build time from `bench/results/index.json`, which
+`bench/consolidate.jl` writes by reading each package's cache. A benchmark that has never
+been run, or whose samples came from a different Julia than the rest, shows up here.
+
+```@eval
+using JSON, Markdown
+index = JSON.parsefile(
+    joinpath(@__DIR__, "..", "..", "bench", "results", "index.json"); allownan = true
+)
+entries = [e for e in index["entries"] if !endswith(e["name"], "_raw")]
+io = IOBuffer()
+println(io, "| package | benchmark | script | Julia | BLAS threads |")
+println(io, "|---|---|---|---|---|")
+for e in sort(entries; by = e -> (e["package"], e["name"]))
+    script = isnothing(e["script"]) ? "—" : "`" * e["script"] * "`"
+    threads = isnothing(e["blas_threads"]) ? "—" : string(Int(e["blas_threads"]))
+    println(
+        io, "| ", e["package"], " | ", e["name"], " | ", script, " | ",
+        something(e["julia_version"], "—"), " | ", threads, " |"
+    )
+end
+Markdown.parse(String(take!(io)))
+```
+
+Regenerate the index with
+
+```sh
+julia --project=bench bench/consolidate.jl
+```
+
+which also names any cache no script writes any more, and any benchmark script that has
+never been run.

@@ -12,7 +12,7 @@
 using PureOSQP, PureIPM, PureQPBase
 using LinearAlgebra, SparseArrays, Random, JSON, Chairmarks, Printf
 
-include(joinpath(@__DIR__, "helpers_clarabel.jl"))
+include(joinpath(@__DIR__, "..", "..", "bench", "helpers_clarabel.jl"))
 
 BLAS.set_num_threads(1)
 

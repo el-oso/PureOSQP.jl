@@ -14,7 +14,7 @@
 using PureOSQP, LinearAlgebra, SparseArrays, Printf, JSON
 using LDLFactorizations, BandedMatrices, Krylov
 
-include(joinpath(@__DIR__, "suite_problems.jl"))
+include(joinpath(@__DIR__, "..", "..", "bench", "suite_problems.jl"))
 
 """
     families(n) -> Vector

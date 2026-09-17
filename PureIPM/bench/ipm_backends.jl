@@ -21,8 +21,8 @@ using LDLFactorizations, BandedMatrices
 
 BLAS.set_num_threads(1)
 
-include(joinpath(@__DIR__, "suite_problems.jl"))
-include(joinpath(@__DIR__, "structured_problems.jl"))
+include(joinpath(@__DIR__, "..", "..", "bench", "suite_problems.jl"))
+include(joinpath(@__DIR__, "..", "..", "bench", "structured_problems.jl"))
 
 const RESULTS = joinpath(@__DIR__, "results", "ipm_backends.json")
 const REFEREE = 1.0e-5

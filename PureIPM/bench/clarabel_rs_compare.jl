@@ -58,7 +58,7 @@
 using PureOSQP, PureIPM, Clarabel
 using LinearAlgebra, SparseArrays, Random, JSON, Chairmarks, Printf, Statistics
 
-include(joinpath(@__DIR__, "suite_problems.jl"))
+include(joinpath(@__DIR__, "..", "..", "bench", "suite_problems.jl"))
 
 BLAS.set_num_threads(1)
 

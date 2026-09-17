@@ -10,7 +10,7 @@
 using PureOSQP, LinearAlgebra, SparseArrays, Chairmarks, LDLFactorizations
 using Printf, JSON, Statistics
 
-include(joinpath(@__DIR__, "suite_problems.jl"))
+include(joinpath(@__DIR__, "..", "..", "bench", "suite_problems.jl"))
 include(joinpath(@__DIR__, "osqp_v1.jl"))
 
 BLAS.set_num_threads(1)

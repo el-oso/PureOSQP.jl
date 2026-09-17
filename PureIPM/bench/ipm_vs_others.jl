@@ -41,7 +41,7 @@ using PureOSQP, PureIPM, Clarabel, ECOS, MathOptInterface
 using LinearAlgebra, SparseArrays, Random, JSON, Chairmarks, Printf
 const MOI = MathOptInterface
 
-include(joinpath(@__DIR__, "suite_problems.jl"))
+include(joinpath(@__DIR__, "..", "..", "bench", "suite_problems.jl"))
 
 BLAS.set_num_threads(1)
 

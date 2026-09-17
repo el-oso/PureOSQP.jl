@@ -13,7 +13,7 @@ using LinearAlgebra, SparseArrays, LDLFactorizations, Chairmarks, Printf, JSON, 
 
 BLAS.set_num_threads(1)
 
-include(joinpath(@__DIR__, "suite_problems.jl"))
+include(joinpath(@__DIR__, "..", "..", "bench", "suite_problems.jl"))
 
 const OPTS = (eps_abs = 1.0e-8, eps_rel = 1.0e-8)
 const BUDGET = 5
