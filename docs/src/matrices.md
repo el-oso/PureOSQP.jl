@@ -37,7 +37,7 @@ There are four answers, and the right one is a property of the problem, not a pr
 | few zeros, but a fast way to apply it, and too big for cache | **unmaterialized** | past cache the dense product is limited by memory bandwidth, not arithmetic. An operator that computes its product from `O(n)` stored numbers moves almost nothing and can win outright. |
 
 The last row is easy to miss, so here is the concrete case. The tables below come from
-`bench/representation_choice.jl`, single-threaded, statuses asserted — a run stopped at
+`PureOSQP/bench/representation_choice.jl`, single-threaded, statuses asserted — a run stopped at
 `max_iter` is not a faster answer to the same question.
 
 **When the operator is cheap but the rest of the problem is not.** Here `P` is stored as
@@ -438,7 +438,7 @@ There are two seam levels, and which one a representation wants depends on wheth
 enumerate a column.
 
 **Per column.** [`PureOSQP.structural_rows`](@ref)`(M, j)` names the rows column `j` can hold
-a nonzero in; the four traversals in `src/core/scaling.jl` — `weighted_colmax`,
+a nonzero in; the four traversals in `PureQPBase/src/scaling.jl` — `weighted_colmax`,
 `weighted_colmax_rowmax!`, `scaled_col!` and `add_scaled_col!` — follow it, so a single
 `structural_rows` method makes equilibration and the dense formation cost the column's own
 entries rather than all `m` of them. A representation whose columns are cheaper to walk than
@@ -478,7 +478,7 @@ level needs `scaling = 0`.
 The hot-path guarantees carry a condition here that they do not carry elsewhere. `admm_step!`
 allocates nothing and is type-stable for a caller-supplied operator only as far as that
 operator's own `mul!` is: a broadcast in it, or a `DimensionMismatch` message built from a
-type, is enough to lose both. `bench/lazy_operator.jl` is written to hold them, and
+type, is enough to lose both. `PureOSQP/bench/lazy_operator.jl` is written to hold them, and
 `bench/strictmode_audit.jl` checks it.
 
 ### An operator from LinearMaps.jl
@@ -880,7 +880,7 @@ where equilibration earns its keep — so that is where the trade has to be judg
 
 **The backend stays sound.** Against a dense path given the same `scaling = 0`, so the
 comparison is the backends' and nothing else, it matches iteration for iteration and agrees on
-the solution up to `κ(A) ≈ 10¹⁶` (`bench/results/kronecker_conditioning.json`):
+the solution up to `κ(A) ≈ 10¹⁶` (`PureOSQP/bench/results/kronecker_conditioning.json`):
 
 | κ(A) | kronecker | dense, also unscaled | solutions agree |
 |---|---|---|---|

@@ -1,10 +1,10 @@
 # Working with other packages
 
-PureOSQP has **no required dependencies**. Capabilities appear as you load relevant packages via Julia's extension mechanism.
+A solver package requires only `LinearAlgebra`, [TypeContracts.jl](https://github.com/el-oso/TypeContracts.jl) and PureQPBase.jl, which requires the first two and nothing else. **No numerical library is required.** Capabilities appear as you load relevant packages via Julia's extension mechanism.
 
 Two mechanisms are at work:
 
-**Extensions** are code that loads only when you load a trigger package. There are seven, listed below.
+**Extensions** are code that loads only when you load a trigger package. Those below belong to PureQPBase, since they extend the backends rather than either algorithm; PureOSQP adds two of its own, for COSMOAccelerators and for its MathOptInterface optimizer, and PureIPM one, for its optimizer.
 
 **Genericity** allows the solver to handle any numeric or matrix type that behaves correctly. Precision types are handled this way, without needing extensions.
 
@@ -59,27 +59,30 @@ Two key extensions:
 ## Modelling and interfaces
 
 [MathOptInterface.jl](https://github.com/jump-dev/MathOptInterface.jl) has an extension, so
-PureOSQP is usable as a JuMP solver:
+either solver is usable from JuMP. Each package supplies the optimizer for its own algorithm:
 
 ```julia
 using JuMP, PureOSQP, MathOptInterface
-model = Model(PureOSQP.Optimizer)
+model = Model(PureOSQP.Optimizer)       # OperatorSplitting
+
+using PureIPM
+model = Model(PureIPM.Optimizer)        # InteriorPoint
 ```
 
-The wrapper passes `MOI.Test`, which is a far more thorough conformance suite than anything
-hand-written, under both algorithms — `test/moi_tests.jl` runs it against the default and
-against `algorithm = "ipm"`. Three attributes are excluded from it: `ConstraintBasisStatus`,
-`VariableBasisStatus` and `ObjectiveBound`. Neither algorithm produces a basis or a bound.
+One wrapper serves both — it lives in PureQPBase and carries the algorithm — so the two
+behave identically apart from the method they run and the parameters they take.
 
-Settings are passed by name, for example `set_attribute(model, "linsys", :kkt)`. The
-attribute `"algorithm"` is `"admm"` ([`OperatorSplitting`](@ref), the default) or `"ipm"`
-([`InteriorPoint`](@ref)); every other name is an [`Options`](@ref) field or a parameter of the
-selected algorithm. A setting that takes a symbol also accepts its name as a string. A bad
-value throws when it is set, and so does switching `"algorithm"` while a parameter of the
-other one is set. Reading a setting you have not set returns its default for the selected
-algorithm. `MOI.TimeLimitSec` sets
-`time_limit`, which limits the iterations of either algorithm. Setup and polishing are not
-counted against it.
+The wrapper passes `MOI.Test`, which is a far more thorough conformance suite than anything
+hand-written, under both algorithms: `PureOSQP/test/moi_tests.jl` runs it against both optimizers.
+Three attributes are excluded from it: `ConstraintBasisStatus`, `VariableBasisStatus` and
+`ObjectiveBound`. Neither algorithm produces a basis or a bound.
+
+Settings are passed by name, for example `set_attribute(model, "linsys", :kkt)`. A name is
+an [`Options`](@ref) field or a parameter of that optimizer's algorithm, and a parameter of
+the other algorithm is not accepted. A setting that takes a symbol also accepts its name as a
+string. A bad value throws when it is set. Reading a setting you have not set returns its
+default for that algorithm. `MOI.TimeLimitSec` sets `time_limit`, which limits the iterations
+of either algorithm. Setup and polishing are not counted against it.
 
 ## Differentiating a solve
 

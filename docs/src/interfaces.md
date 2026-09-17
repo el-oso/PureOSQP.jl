@@ -85,7 +85,7 @@ Optional, each with a default for every backend:
 |---|---|---|
 | [`refactor_weights!(ls, prob, wt)`](@ref PureOSQP.refactor_weights!) | `Bool` | calls `factorize!` |
 | [`solve_multiplier!(ls, prob, wt, rhs_x, rhs_z, x, nu)`](@ref PureOSQP.solve_multiplier!) | `Nothing` | derives `ν` from `solve_system!` |
-| [`check_update(ls, P, A)`](@ref PureOSQP.check_update) | `Nothing` | accepts |
+| [`check_update(ls, P, A)`](@ref PureQPBase.check_update) | `Nothing` | accepts |
 | [`set_tolerance_level!(ls, level)`](@ref PureOSQP.set_tolerance_level!) | `Nothing` | ignores it |
 | [`set_refresh_index!(ls, k)`](@ref PureOSQP.set_refresh_index!) | `Nothing` | ignores it |
 | [`adopt_settings!(ls, alg, options)`](@ref PureOSQP.adopt_settings!) | `Nothing` | ignores them |

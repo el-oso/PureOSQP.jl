@@ -69,9 +69,9 @@ An operator provided by the user is only as efficient as its own `mul!` method.
 
 `juliac --trim` requires every function call to be resolved statically.
 
-**Every backend is checked.** `src/PureOSQP.jl` uses `@verify LinearSystem subtypes = true trim_compat = true`. This check runs during precompilation and for every subtype.
+**Every backend is checked.** `PureQPBase/src/PureQPBase.jl` uses `@verify LinearSystem subtypes = true trim_compat = true`, and each solver package does the same for the workspace and algorithm it defines. This check runs during precompilation and for every subtype.
 
-**Entry points are enumerated.** `test/trim_tests.jl` validates concrete calls for every public path:
+**Entry points are enumerated.** `PureOSQP/test/trim_tests.jl` validates concrete calls for every public path:
 - `solve` with various settings and sparse/dense operands.
 - Every structured representation (diagonal, tridiagonal, banded, low-rank, block-diagonal, Kronecker, and products).
 - `setup` $\to$ `solve!` $\to$ `update!` $\to$ `solve!`, and similar sequences with `warm_start!`.

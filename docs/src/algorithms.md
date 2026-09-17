@@ -1,10 +1,16 @@
 # Choosing an algorithm
 
-Two algorithms solve the same problem. The sixth argument of [`solve`](@ref) and
-[`setup`](@ref) picks one and holds the settings only that algorithm reads; everything both
-read is a keyword argument of [`Options`](@ref).
+Two algorithms solve the same problem, from two packages: PureOSQP.jl supplies
+[`OperatorSplitting`](@ref) and PureIPM.jl supplies [`InteriorPoint`](@ref). Both re-export
+PureQPBase.jl, which holds everything they share, so `using` either is enough to solve a
+problem, and `using` both puts both algorithms on the same [`solve`](@ref).
+
+The sixth argument of [`solve`](@ref) and [`setup`](@ref) picks the algorithm and holds the
+settings only that algorithm reads; everything both read is a keyword argument of
+[`Options`](@ref). The five-argument form runs [`OperatorSplitting`](@ref).
 
 ```julia
+using PureIPM
 ws = setup(P, q, A, l, u, InteriorPoint(); max_iter = 50)
 sol = solve!(ws)
 ws.algorithm     # InteriorPoint{Float64, Float64, Float64, Int64}: parameters in the solve's element type
@@ -21,7 +27,8 @@ wrong place throws, naming where it belongs:
 
 ```julia
 InteriorPoint(rho = 0.2)                           # MethodError: rho is not an InteriorPoint parameter
-solve(P, q, A, l, u, InteriorPoint(); rho = 0.2)   # ArgumentError: rho is a parameter of OperatorSplitting
+solve(P, q, A, l, u; rho = 0.2)                    # ArgumentError: rho is a parameter of OperatorSplitting
+solve(P, q, A, l, u, InteriorPoint(); rho = 0.2)   # ArgumentError: rho is not an option of InteriorPoint
 ```
 
 ## Accuracy and iteration count
@@ -30,10 +37,10 @@ solve(P, q, A, l, u, InteriorPoint(); rho = 0.2)   # ArgumentError: rho is a par
 factorization. [`InteriorPoint`](@ref) is a Mehrotra predictor–corrector method: a few
 iterations, each factoring a new Newton system.
 
-`bench/ipm_vs_clarabel.jl` runs both on the smallest instance of each OSQP suite problem
+`PureIPM/bench/ipm_vs_clarabel.jl` runs both on the smallest instance of each OSQP suite problem
 class, `InteriorPoint` at `eps_abs = eps_rel = 1e-8` and `OperatorSplitting` at `1e-6`, the
 tightest tolerance ADMM reaches in a modest iteration count on these problems
-(`bench/results/ipm_vs_clarabel.json`):
+(`PureIPM/bench/results/ipm_vs_clarabel.json`):
 
 | class | ADMM iterations (`1e-6`) | IPM iterations (`1e-8`) |
 |---|---|---|
@@ -47,8 +54,8 @@ tightest tolerance ADMM reaches in a modest iteration count on these problems
 
 `InteriorPoint` reaches a tighter tolerance in 2 to 10 outer iterations; `OperatorSplitting`
 takes 50 to 375 at a looser one on the same problems. The gap is not just a fixed offset: the
-benchmark suite's full-size problems, run through [`bench/osqp_suite.jl`](@ref "The OSQP
-benchmark suite") at `eps_abs = eps_rel = 1e-5` and through [`bench/rho_schedule.jl`](@ref "The
+benchmark suite's full-size problems, run through [`PureOSQP/bench/osqp_suite.jl`](@ref "The OSQP
+benchmark suite") at `eps_abs = eps_rel = 1e-5` and through [`PureOSQP/bench/rho_schedule.jl`](@ref "The
 ρ schedule") at `1e-6`, take more ADMM iterations at the tighter tolerance on every class that
 changes at all — Random QP 925 → 1225, Portfolio 450 → 600, Lasso 100 → 125, SVM 300 → 325,
 Control 325 → 450. `InteriorPoint`'s iteration count is set by Newton's method converging
@@ -78,7 +85,7 @@ what the warm start buys under ADMM: fewer iterations on top of no refactorizati
 solves a fresh Newton system at that iteration's row weights, so there is no factorization for
 `update!` to preserve — it saves the equilibration and the buffers, not a solve. `warm_start!`
 still seeds the first iterate from a point you supply, and a re-solve takes at most as many
-outer iterations as a cold one (checked in `test/ipm_tests.jl`), but there is little to save:
+outer iterations as a cold one (checked in `PureIPM/test/ipm_tests.jl`), but there is little to save:
 the count is already 2 to 10 at the default tolerance, so a warm start shortens an already
 short run rather than replacing hundreds of iterations with dozens.
 
@@ -97,11 +104,11 @@ caller-supplied operator needs, and in which `linsys` backends each algorithm ac
 The reason `InteriorPoint` needs a caller's own preconditioner on an operator is measured, not
 assumed: its row weights reach `1/reg_dual` (`1e8` by default) on equality and active rows and
 change every outer iteration, so a fixed diagonal preconditioner does not keep conjugate
-gradients within budget the way it does under ADMM's fixed `ρ`. `bench/ipm_matrixfree.jl`
+gradients within budget the way it does under ADMM's fixed `ρ`. `PureIPM/bench/ipm_matrixfree.jl`
 measures this on 24 dense planted instances with a lagged Cholesky preconditioner the caller
 supplies, refreshed every third outer iteration: all 24 solve at `eps = 1e-6` with a referee
 residual of at most `7.9e-7`, in the same outer iterations as the dense full-KKT factorization
-(`bench/results/ipm_matrixfree.json`). One sparse instance with a limited-memory incomplete
+(`PureIPM/bench/results/ipm_matrixfree.json`). One sparse instance with a limited-memory incomplete
 `LDLᵀ` preconditioner fails instead — a preconditioner has to keep the inner iteration count
 bounded as the weights spread, and not every cheap one does.
 

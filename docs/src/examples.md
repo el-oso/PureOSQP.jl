@@ -13,7 +13,7 @@ solver to use on them. [Matrix types](matrices.md) covers the other storage form
 ## Basic usage
 
 ```@example demo
-using PureOSQP
+using PureOSQP, PureIPM
 
 P = [4.0 1.0; 1.0 2.0]
 q = [1.0, 1.0]
@@ -905,9 +905,9 @@ The certificate that does not apply is an empty vector:
 ## JuMP and MathOptInterface
 
 The MathOptInterface wrapper is a package extension, loaded when MathOptInterface is. Every
-field of [`Options`](@ref), the raw attribute `"algorithm"` (`"admm"` or `"ipm"`), and every
-parameter of the algorithm it selects is a raw optimizer attribute of the same name. This block is
-not run here, since the docs do not depend on JuMP:
+field of [`Options`](@ref) and every parameter of that optimizer's algorithm is a raw
+optimizer attribute of the same name; `PureIPM.Optimizer` is the interior-point counterpart
+of the one below. This block is not run here, since the docs do not depend on JuMP:
 
 ```julia
 using JuMP, PureOSQP

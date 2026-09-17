@@ -2,7 +2,7 @@
 
 ```@docs
 PureOSQP.solve
-PureOSQP.setup
+PureQPBase.setup
 PureOSQP.solve!
 PureOSQP.update!
 PureOSQP.warm_start!
@@ -24,12 +24,13 @@ PureOSQP.Solution
 ```@docs
 PureOSQP.QPAlgorithm
 PureOSQP.OperatorSplitting
-PureOSQP.InteriorPoint
+PureIPM.InteriorPoint
 PureOSQP.Options
+PureQPBase.LINSYS_OPTIONS
 PureOSQP.default_options
 PureOSQP.QPWorkspace
 PureOSQP.OperatorSplittingWorkspace
-PureOSQP.InteriorPointWorkspace
+PureIPM.InteriorPointWorkspace
 ```
 
 ## Status values
@@ -104,7 +105,7 @@ The `linsys` setting selects the *formulation* of the linear system:
 ## Internals
 
 ```@docs
-PureOSQP.equilibrate!
+PureQPBase.equilibrate!
 PureOSQP.mul_A!
 PureOSQP.mul_At!
 PureOSQP.mul_P!
@@ -112,7 +113,7 @@ PureOSQP.refactor!
 PureOSQP.refactor_rho!
 PureOSQP.factorize!
 PureOSQP.refactor_weights!
-PureOSQP.assemble_kkt0!
+PureQPBase.assemble_kkt0!
 PureOSQP.solve_system!
 PureOSQP.solve_multiplier!
 PureOSQP.element_typed
@@ -127,18 +128,19 @@ PureOSQP.eps_duality_gap
 PureOSQP.check_termination
 PureOSQP.is_primal_infeasible
 PureOSQP.is_dual_infeasible
-PureOSQP.residuals_at!
+PureQPBase.residuals_at!
 PureOSQP.polish_kernel!
 PureOSQP.polish!
 PureOSQP.active_kkt
-PureOSQP.ipm_step!
-PureOSQP.ipm_residuals!
-PureOSQP.weights!
-PureOSQP.factorize_newton!
-PureOSQP.primal_certificate!
-PureOSQP.dual_certificate!
-PureOSQP.stalled!
-PureOSQP.iterate_bound
+PureOSQP.derivative_ready
+PureIPM.ipm_step!
+PureIPM.ipm_residuals!
+PureIPM.weights!
+PureIPM.factorize_newton!
+PureIPM.primal_certificate!
+PureIPM.dual_certificate!
+PureIPM.stalled!
+PureIPM.iterate_bound
 PureOSQP.has_solution
 PureOSQP.PolishStatus
 ```
@@ -149,7 +151,7 @@ PureOSQP.PolishStatus
 PureOSQP.LinearSystem
 PureOSQP.Problem
 PureOSQP.SystemWeights
-PureOSQP.check_update
+PureQPBase.check_update
 PureOSQP.set_tolerance_level!
 PureOSQP.adopt_settings!
 PureOSQP.set_refresh_index!
@@ -158,11 +160,11 @@ PureOSQP.last_solve_converged
 PureOSQP.inner_iterations
 PureOSQP.update_preconditioner!
 PureOSQP.Preconditioner
-PureOSQP.check_preconditioner
+PureQPBase.check_preconditioner
 PureOSQP.IdentityPreconditioner
 PureOSQP.JacobiPreconditioner
 PureOSQP.choose_backend
-PureOSQP.ReducedInverse
+PureQPBase.ReducedInverse
 PureOSQP.ReducedCholesky
 PureOSQP.DiagonalReduced
 PureOSQP.TridiagonalReduced
@@ -177,26 +179,29 @@ PureOSQP.indirect_backend
 
 ```@docs
 PureOSQP.RowCoupled
-PureOSQP.coupling_rank
+PureQPBase.coupling_rank
 PureOSQP.BlockDiagonal
 PureOSQP.KroneckerOperator
 PureOSQP.factors
 PureOSQP.is_scalar_multiple
 PureOSQP.scalar_multiple
-PureOSQP.nblocks
-PureOSQP.rowrange
-PureOSQP.colrange
+PureQPBase.nblocks
+PureQPBase.rowrange
+PureQPBase.colrange
 PureOSQP.structural_rows
 PureOSQP.is_convex
 PureOSQP.is_symmetric
 PureOSQP.is_materializable
 PureOSQP.reduced_diagonal!
-PureOSQP.reduced_rhs!
+PureQPBase.reduced_rhs!
 PureOSQP.ProductOperator
-PureOSQP.unpreconditioned!
-PureOSQP.probe_column!
-PureOSQP.no_entries
-PureOSQP.check_symmetric_products
+PureQPBase.unpreconditioned!
+PureQPBase.probe_column!
+PureQPBase.no_entries
+PureQPBase.check_symmetric_products
+PureQPBase.CoupledRows
+PureQPBase.divide!
+PureIPM.caller_preconditioner
 ```
 
 ## The selection ladder
@@ -205,9 +210,9 @@ PureOSQP.check_symmetric_products
 PureOSQP.SelectionFor
 PureOSQP.ADMMSelection
 PureOSQP.IPMSelection
-PureOSQP.refuse_selection
+PureQPBase.refuse_selection
 PureOSQP.named_backend
-PureOSQP.sparse_refusal
+PureQPBase.sparse_refusal
 PureOSQP.select_backend
 PureOSQP.kkt_rung
 PureOSQP.reduced_rung
@@ -232,7 +237,7 @@ PureOSQP.BackendInfo
 
 ```@docs
 PureOSQP.recommend_linsys
-PureOSQP.LinsysAdvice
-PureOSQP.measure_linsys
-PureOSQP.solve_iterations
+PureQPBase.LinsysAdvice
+PureQPBase.measure_linsys
+PureQPBase.solve_iterations
 ```

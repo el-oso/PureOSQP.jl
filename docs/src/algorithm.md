@@ -219,7 +219,7 @@ but it still succeeds and still plateaus near `1e-8`; it degrades gradually rath
 silently collapsing. Across every case measured, with equilibration on, the Cholesky never
 failed.
 
-Both tables are reproduced by `bench/kkt_backend.jl`.
+Both tables are reproduced by `PureOSQP/bench/kkt_backend.jl`.
 
 ### Choosing a backend
 
@@ -341,9 +341,9 @@ preconditioner.
   [`forward_derivative`](@ref): an interior-point solution's inactive-row multipliers sit at
   `O(μ_final)`, not at the near-zero a derivative through the active set needs, and polishing
   is what cleans that up.
-- The MathOptInterface extension accepts `InteriorPoint()` through the `"algorithm"` raw
-  attribute; switching algorithms on a live optimizer throws if a raw setting already on it is
-  not one the new algorithm accepts, naming the setting.
+- `PureIPM.Optimizer` is the MathOptInterface wrapper around it, as `PureOSQP.Optimizer` is
+  around the operator-splitting method. An optimizer runs the algorithm of the package that
+  supplies it, and accepts the shared options and only that algorithm's parameters.
 - `verbose` prints under either algorithm: a header, one line per termination check, and a
   footer, with `mu` and `alpha` in place of ADMM's `rho`. The interior-point method's footer
   also names the run time, and, on the matrix-free backend, its row gains a `cg iters` column
@@ -367,8 +367,8 @@ With [`InteriorPoint`](@ref) the Newton system has the same shape, but its row w
 iteration and reach `1/reg_dual` (`1e8` by default) on equality rows and on rows whose bound is
 active. The reduced form squares those weights into its conditioning, so each backend was run
 on problems of its own structure and compared with the dense full KKT factorization
-(`linsys = :kkt`) on the same problem. The table summarizes `bench/results/ipm_backends.json`,
-which `bench/ipm_backends.jl` writes. "Referee" is the largest optimality residual computed
+(`linsys = :kkt`) on the same problem. The table summarizes `PureIPM/bench/results/ipm_backends.json`,
+which `PureIPM/bench/ipm_backends.jl` writes. "Referee" is the largest optimality residual computed
 from the original data; iterations are outer iterations, the same for both columns unless
 shown.
 

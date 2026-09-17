@@ -111,7 +111,7 @@ end
 
 `factorize!` builds whatever the structure implies — for blocks, one small factorization
 each; for a low-rank correction, a `k×k` capacitance. `solve_system!` calls
-[`PureOSQP.reduced_rhs!`](@ref) first, writes `x`, then `mul_A!` into `z`.
+[`PureQPBase.reduced_rhs!`](@ref) first, writes `x`, then `mul_A!` into `z`.
 
 Two things the shipped backends do well. Invert each block and use `symv` instead of keeping
 a factor and calling `ldiv!`: both cost `2nᵢ²` flops, but a triangular solve computes its
@@ -224,7 +224,7 @@ here), and
 
 ### Measured
 
-`bench/ipm_matrixfree.jl` writes `bench/results/ipm_matrixfree.json`. It runs dense instances
+`PureIPM/bench/ipm_matrixfree.jl` writes `PureIPM/bench/results/ipm_matrixfree.json`. It runs dense instances
 with a planted solution as `LinearMap`s through `LaggedCholesky` (`every = 3`) at
 `n = m ∈ {500, 1000, 2000}`, `κ(A) ∈ {1, 1e6}`, active fractions `{0.1, 0.9}`, every row
 two-sided and with a mix of 20% equality, 20% lower-only, 20% upper-only and 10% free rows:

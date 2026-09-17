@@ -76,7 +76,7 @@ exceptions carrying their own messages.
 Anything that prints or times has to respect the `--trim` guarantee, which analyses code
 whether or not the branch reaching it is ever taken. Printf, bare `println` and `lpad` all
 fail there; `verbose` is the worked example, writing through `Core.stdout` by hand — see
-`print_padded` in `src/admm/admm.jl`. A *concretely typed* stream is what matters: Krylov's
+`print_padded` in `PureOSQP/src/admm/admm.jl`. A *concretely typed* stream is what matters: Krylov's
 `@printf` to `Core.CoreSTDOUT` passes where `Base.stdout` would not.
 
 `bunchkaufman!` is LAPACK-only for BLAS floats, with no generic fallback in `LinearAlgebra`,
