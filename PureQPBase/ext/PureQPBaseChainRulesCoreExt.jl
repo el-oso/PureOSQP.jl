@@ -9,8 +9,8 @@ explicit `Mooncake.@from_rrule`, and Enzyme its own `EnzymeRules` shim.
 [`PureQPBase.adjoint_derivative`](@ref) or [`PureQPBase.forward_derivative`](@ref), which
 differentiate the KKT conditions at the active set — one linear solve, reusing a
 factorization the solve already produced, and independent of how many iterations were taken.
-Differentiating the ADMM loop instead would tape every iteration, cost memory in proportion,
-and return the derivative of the iterate rather than of the solution.
+Differentiating the solver's loop instead would tape every iteration, cost memory in
+proportion, and return the derivative of the iterate rather than of the solution.
 
 Two consequences follow, and both are refusals rather than approximations. The rules require
 a converged solve, because the KKT conditions they differentiate hold at the solution and
@@ -30,7 +30,7 @@ Solve, and refuse to hand back a workspace whose solution cannot be differentiat
 the optional algorithm argument of [`PureQPBase.solve`](@ref).
 
 `polishing = true` unless the caller said otherwise: the derivative is taken at the active set,
-and polishing is what identifies it exactly. Without it the active set is whatever the ADMM
+and polishing is what identifies it exactly. Without it the active set is whatever the final
 iterate happened to be near, and the gradient is of a nearby problem.
 """
 function differentiable_workspace(P, q, A, l, u, alg...; kwargs...)

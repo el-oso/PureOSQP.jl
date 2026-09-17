@@ -140,7 +140,7 @@ end
     Core.eval(bench, :(using PureOSQP, LinearAlgebra, SparseArrays))
     Base.include(
         ex -> Meta.isexpr(ex, :using) ? nothing : ex, bench,
-        joinpath(@__DIR__, "..", "..", "bench", "ipm_preconditioners.jl"),
+        joinpath(@__DIR__, "..", "..", "PureIPM", "bench", "ipm_preconditioners.jl"),
     )
     @test TypeContracts.check_contract(bench.LaggedCholesky, Pre).passed
     @test TypeContracts.check_contract(bench.IncompleteLDL, Pre).passed

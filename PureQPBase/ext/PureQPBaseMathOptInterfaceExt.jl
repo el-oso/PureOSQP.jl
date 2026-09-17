@@ -101,7 +101,7 @@ MOI.supports(::Optimizer, ::MOI.Silent) = true
 MOI.set(o::Optimizer, ::MOI.Silent, v::Bool) = (o.silent = v; nothing)
 MOI.get(o::Optimizer, ::MOI.Silent) = o.silent
 
-# Sets `time_limit`, which bounds the ADMM iterations only: setup, polishing and the copy
+# Sets `time_limit`, which bounds the solver's iterations only: setup, polishing and the copy
 # from the model are not counted against it.
 MOI.supports(::Optimizer, ::MOI.TimeLimitSec) = true
 MOI.set(o::Optimizer, ::MOI.TimeLimitSec, v::Real) = (o.settings[:time_limit] = Float64(v); nothing)

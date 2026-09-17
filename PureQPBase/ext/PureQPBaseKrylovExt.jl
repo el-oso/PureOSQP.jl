@@ -252,7 +252,7 @@ end
 
 Solve the reduced system by preconditioned CG.
 
-The tolerance follows the ADMM residuals rather than being fixed: an early iterate does not
+The tolerance follows the solver's residuals rather than being fixed: an early iterate does not
 deserve an exact inner solve, and a late one does. It is `cg_tol_fraction` of the residual
 level last set by `set_tolerance_level!`, floored at `eps(T)` relative to the right-hand side
 so it cannot chase zero. This makes the solve *inexact*, so iterates differ from the direct
@@ -294,9 +294,9 @@ function PureQPBase.solve_system!(ls::IndirectCG{T}, prob, wt, rhs_x, rhs_z, x, 
             fill!(ls.kws.x, zero(T))
         end
     else
-        # The previous step's `x̃` is the best available guess: consecutive ADMM subproblems
-        # differ by one relaxation step, so starting from zero discards most of the work and
-        # the inner budget is spent recovering it.
+        # The previous step's `x̃` is the best available guess: consecutive subproblems differ
+        # by one step of the outer iteration, so starting from zero discards most of the work
+        # and the inner budget is spent recovering it.
         Krylov.warm_start!(ls.kws, x)
         cg!(
             ls.kws, op, ls.rhs;

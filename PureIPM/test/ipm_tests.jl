@@ -642,6 +642,7 @@ end
 
     # No threshold the bumps can reach: the run ends without a point.
     for (threshold, bumps) in ((Inf, 5), (5.0e-8, 0))
+        local ws, s
         ws = gated(P, q, A, l, u; threshold, max_reg_bumps = bumps)
         @test ws.algorithm.max_reg_bumps == bumps
         s = solve!(ws)

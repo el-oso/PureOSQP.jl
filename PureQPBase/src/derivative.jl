@@ -12,9 +12,10 @@ with `Ā = A[𝒜, :]`, `ν = y[𝒜]` and `b` the active bound of each row. Dif
 
     dz = -M \\ (∂G/∂θ) dθ,     M = [ P  Ā' ; Ā  0 ]
 
-so one solve with `M` gives the derivative, whatever the ADMM loop did to arrive there.
+so one solve with `M` gives the derivative, whatever the solver did to arrive there.
 `M` carries no `σ`, no `ρ` and no `δ`: it is the exact equality-QP KKT matrix in problem
-space, not the ADMM subproblem, and not the regularized system `polish!` factors.
+space, not the subproblem either algorithm iterates on, and not the regularized system
+`polish!` factors.
 """
 
 """

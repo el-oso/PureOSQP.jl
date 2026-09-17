@@ -67,8 +67,8 @@ active set, so it can decline for reasons that are not failures.
 | `POLISH_NO_ACTIVE_SET_FOUND` | 2 | no constraint was active, so there was nothing to polish |
 
 Only `POLISH_SUCCESS` changes the answer. `Solution.polished` is the narrower question of
-whether that happened; the other four all leave the ADMM point in place, and only the first
-two describe something going wrong.
+whether that happened; the other four all leave the solver's own point in place, and only the
+first two describe something going wrong.
 """
 @enum PolishStatus begin
     POLISH_LINSYS_ERROR = -2
@@ -131,7 +131,7 @@ infeasibility, the corresponding certificate is populated and `x`/`y` are filled
 `duality_gap` is `xᵀPx + qᵀx + SC(y)`, where `SC` is the support function of `[l, u]`; it
 is zero at an exact solution and is reported unscaled. `rel_kkt_error` is the largest of
 the two residuals and the gap, so one number bounds how far the point is from optimal.
-`rho_updates` counts adaptive-`ρ` changes only, unlike `OperatorSplittingWorkspace.refactor_count`, which
+`rho_updates` counts adaptive-`ρ` changes only, unlike the workspace's `refactor_count`, which
 also counts refactorizations forced by new data.
 
 `accel_declined` counts the accelerated steps this solve discarded because they did worse than
