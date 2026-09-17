@@ -564,7 +564,7 @@ print_padded(v, width::Int, digits::Int) = print_padded(string(round(v; sigdigit
 
 function print_header(ws::InteriorPointWorkspace)
     println(Core.stdout, VERBOSE_RULE)
-    println(Core.stdout, "            PureOSQP - interior-point QP solver")
+    println(Core.stdout, "            PureIPM - interior-point QP solver")
     print(Core.stdout, "     n = ")
     print(Core.stdout, ws.prob.n)
     print(Core.stdout, ", m = ")
