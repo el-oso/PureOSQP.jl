@@ -32,33 +32,7 @@ const SMALL_CASES = [
     ("Control", () -> control(4)),
 ]
 
-"Clarabel takes one-sided cones: the two-sided rows are stacked as `Ax ≤ u, -Ax ≤ -l`."
-function clarabel_form(P, A, l, u)
-    finite_l = isfinite.(l)
-    finite_u = isfinite.(u)
-    rows = Vector{SparseMatrixCSC{Float64, Int}}()
-    bnd = Float64[]
-    if any(finite_u)
-        push!(rows, A[finite_u, :])
-        append!(bnd, u[finite_u])
-    end
-    if any(finite_l)
-        push!(rows, -A[finite_l, :])
-        append!(bnd, -l[finite_l])
-    end
-    return (sparse(triu(P)), vcat(rows...), bnd)
-end
-
-function run_clarabel(P, q, A, l, u)
-    Pc, Ac, bc = clarabel_form(P, A, l, u)
-    settings = Clarabel.Settings(
-        verbose = false, tol_gap_abs = IPM_TOL, tol_gap_rel = IPM_TOL,
-        tol_feas = IPM_TOL,
-    )
-    solver = Clarabel.Solver()
-    Clarabel.setup!(solver, Pc, q, Ac, bc, [Clarabel.NonnegativeConeT(length(bc))], settings)
-    return Clarabel.solve!(solver)
-end
+include(joinpath(@__DIR__, "helpers_clarabel.jl"))
 
 function run_case(name, gen)
     P, q, A, l, u = gen()
@@ -70,8 +44,8 @@ function run_case(name, gen)
     admm = PureOSQP.solve(P, q, A, l, u; eps_abs = ADMM_TOL, eps_rel = ADMM_TOL, max_iter = 20_000)
     admm_bm = @b PureOSQP.solve($P, $q, $A, $l, $u; eps_abs = ADMM_TOL, eps_rel = ADMM_TOL, max_iter = 20_000) seconds = SECONDS
 
-    clar = run_clarabel(P, q, A, l, u)
-    clar_bm = @b run_clarabel($P, $q, $A, $l, $u) seconds = SECONDS
+    clar = run_clarabel(P, q, A, l, u; tol = IPM_TOL)
+    clar_bm = @b run_clarabel($P, $q, $A, $l, $u; tol = IPM_TOL) seconds = SECONDS
 
     dx_clarabel = maximum(abs, ipm.x .- clar.x; init = 0.0) / max(1.0, maximum(abs, ipm.x; init = 0.0))
     dx_admm = maximum(abs, ipm.x .- admm.x; init = 0.0) / max(1.0, maximum(abs, ipm.x; init = 0.0))
