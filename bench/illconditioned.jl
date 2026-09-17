@@ -26,20 +26,7 @@ const KAPPAS = (1.0e4, 1.0e8, 1.0e10, 1.0e12)
 # near the wall, and cutting it there would report a tolerance choice as a failure to converge.
 const OPTS = (eps_abs = 1.0e-6, eps_rel = 1.0e-6, max_iter = 20_000)
 
-"A symmetric positive definite matrix of side `k` with condition number `kappa`."
-function spd(rng, k, kappa)
-    Q = qr(randn(rng, k, k)).Q
-    d = exp10.(range(0, log10(kappa); length = k))
-    return Matrix(Symmetric(Matrix(Q * Diagonal(d) * Q')))
-end
-
-"A `k×k` matrix with condition number `kappa`."
-function illconditioned(rng, k, kappa)
-    U = qr(randn(rng, k, k)).Q
-    V = qr(randn(rng, k, k)).Q
-    s = exp10.(range(0, -log10(kappa); length = k))
-    return Matrix(U * Diagonal(s) * V')
-end
+include(joinpath(@__DIR__, "helpers_conditioning.jl"))
 
 """
     problems() -> Vector
