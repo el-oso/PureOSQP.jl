@@ -2,14 +2,11 @@
 
 [![Docs](https://img.shields.io/badge/docs-dev-blue.svg)](https://el-oso.github.io/PureQP.jl/dev/)
 
-A Mehrotra predictor–corrector interior-point method for convex quadratic programs,
-`minimize ½ xᵀPx + qᵀx subject to l ≤ Ax ≤ u`. It is one of the two solvers in
-[PureQP.jl](https://github.com/el-oso/PureQP.jl) and takes its problem representation,
+A pure-Julia Mehrotra predictor–corrector interior-point method for convex quadratic programs,
+`minimize ½ xᵀPx + qᵀx subject to l ≤ Ax ≤ u`. It takes its problem representation,
 linear-system backends and equilibration from
 [PureQPBase.jl](https://github.com/el-oso/PureQP.jl/tree/main/PureQPBase), which it
-re-exports — so `using PureIPM` is enough, and loading
-[PureOSQP.jl](https://github.com/el-oso/PureQP.jl/tree/main/PureOSQP) alongside puts both
-algorithms on the same `solve`.
+re-exports, so `using PureIPM` is enough.
 
 ```julia
 using PureIPM
@@ -25,13 +22,15 @@ sol.status   # SOLVED
 sol.iter     # single digits
 ```
 
-**Where it fits beside operator splitting.** It reaches `1e-8` in eight to twelve iterations
-where ADMM takes hundreds to thousands, so it wins whenever the answer is wanted to more than
-a few digits, or the problem is badly conditioned. ADMM wins on warm starts and on very large
-loosely-solved problems, since each interior-point iteration factors a matrix. Measured
-against [Clarabel.jl](https://github.com/oxfordcontrol/Clarabel.jl) on random QPs at the same
-tolerance, iteration counts match to within one and the gap widens with size: 2.3× at `n = 50`
-to 4.3× at `n = 400` dense, 1.5× to 2.3× sparse. Full tables in
+**What it is good for.** It reaches `1e-8` in eight to twelve iterations, so it wins whenever
+the answer is wanted to more than a few digits, or the problem is badly conditioned. Each
+iteration factors a matrix, so a first-order method is the better choice for a warm-started
+loop or a very large problem solved loosely.
+[Choosing an algorithm](https://el-oso.github.io/PureQP.jl/dev/algorithms) compares them.
+
+Measured against [Clarabel.jl](https://github.com/oxfordcontrol/Clarabel.jl) on random QPs at
+the same tolerance, iteration counts match to within one and the gap widens with size: 2.3× at
+`n = 50` to 4.3× at `n = 400` dense, 1.4× to 2.3× sparse. Full tables in
 [Benchmarks](https://el-oso.github.io/PureQP.jl/dev/benchmarks).
 
 **What it implements.** Primal and dual regularization with an increase on a failed

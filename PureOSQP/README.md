@@ -4,11 +4,10 @@
 [![Build Status](https://github.com/el-oso/PureQP.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/el-oso/PureQP.jl/actions/workflows/CI.yml?query=branch%3Amain)
 [![Coverage](https://coveralls.io/repos/github/el-oso/PureQP.jl/badge.svg?branch=main)](https://coveralls.io/github/el-oso/PureQP.jl?branch=main)
 
-A pure-Julia solver for convex quadratic programs. This repository holds three packages:
-**PureOSQP.jl**, operator splitting — [OSQP](https://osqp.org)'s ADMM iteration;
-**PureIPM.jl**, a Mehrotra predictor–corrector interior-point method; and **PureQPBase.jl**,
-the problem representation and the linear-system backends both build on. Either solver
-re-exports the base, so one `using` is enough, and the two can be loaded together:
+A pure-Julia operator-splitting solver for convex quadratic programs — [OSQP](https://osqp.org)'s
+ADMM iteration. It takes its problem representation, linear-system backends and equilibration
+from [PureQPBase.jl](https://github.com/el-oso/PureQP.jl/tree/main/PureQPBase), which it
+re-exports, so `using PureOSQP` is enough:
 
 ```
 minimize    ½ xᵀPx + qᵀx
@@ -18,7 +17,7 @@ subject to  l ≤ Ax ≤ u
 It handles every matrix representation — dense, sparse, structured, lazy, anything that satisfies `AbstractMatrix` — over any `Real` element type. `P` and `A` are kept by reference and never mutated, so each product calls `mul!` on the matrix you passed. The numerics are just `LinearAlgebra`; a solver package requires only that, PureQPBase.jl, and [TypeContracts.jl](https://github.com/el-oso/TypeContracts.jl), which declares the linear-system backend. No numerical library is required. The hot path is allocation-free and type-stable, and every entry point compiles under `juliac --trim` — [Guarantees](https://el-oso.github.io/PureQP.jl/dev/guarantees).
 
 ```julia
-using PureOSQP, PureIPM
+using PureOSQP
 
 P = [4.0 1.0; 1.0 2.0]
 q = [1.0, 1.0]
@@ -32,16 +31,17 @@ sol.x        # [0.3, 0.7]
 
 # The algorithm is the sixth argument; shared options are keywords.
 sol = solve(P, q, A, l, u, OperatorSplitting(rho = 0.2); eps_abs = 1e-6)
-sol = solve(P, q, A, l, u, InteriorPoint(); eps_abs = 1e-9)
 
-ws = setup(P, q, A, l, u, InteriorPoint(); max_iter = 50)
+# Keep the workspace to re-solve through `update!` without refactorizing.
+ws = setup(P, q, A, l, u, OperatorSplitting(); max_iter = 50)
 sol = solve!(ws)
 ```
 
-`OperatorSplitting()` is best for repeated solves through `update!` and for matrix-free
-operators; `InteriorPoint()` reaches `1e-8` by default in a few iterations and is the better
-choice for a single solve at a tight tolerance.
-[Choosing an algorithm](https://el-oso.github.io/PureQP.jl/dev/algorithms) compares them.
+Operator splitting is at its best on repeated solves through `update!`, on warm starts, and on
+matrix-free operators, where each iteration is a product rather than a factorization. It
+reaches a few digits quickly and the last digits slowly, so a single solve at a tight tolerance
+is better served by an interior-point method.
+[Choosing an algorithm](https://el-oso.github.io/PureQP.jl/dev/algorithms) compares the two.
 
 ## What it implements
 
@@ -95,8 +95,6 @@ Validated against libosqp 0.6.2 and 1.x (the latter by `ccall`): the first 25 it
 
 **PureOSQP** is a Julia implementation of the OSQP algorithm, written against the OSQP paper and the Apache-2.0 reference (read for the details the paper leaves out). A **derivative work**, not clean-room. The original OSQP C library is by Bartolomeo Stellato, Goran Banjac and Paul Goulart ([osqp/osqp](https://github.com/osqp/osqp), Apache-2.0), and the algorithm is theirs.
 
-**PureQPBase** and **PureIPM** are not derivatives of it. They were written from published papers — Ruiz 2001 for the equilibration, Banjac et al. 2019 for the infeasibility certificates, Mehrotra 1992 for the interior-point method. [Clarabel.jl](https://github.com/oxfordcontrol/Clarabel.jl) validates the interior-point answers but is not a source for its code.
-
 Full credit and citations in [Attribution](https://el-oso.github.io/PureQP.jl/dev/attribution).
 
 ## Development
@@ -105,4 +103,4 @@ PureOSQP is developed with the assistance of Claude Code. Generated code is revi
 
 ## License
 
-**Apache-2.0**, matching upstream. This package is a derivative work of [OSQP](https://github.com/osqp/osqp) and carries its license. The other two packages in [PureQP.jl](https://github.com/el-oso/PureQP.jl) are MIT; see [Attribution](https://el-oso.github.io/PureQP.jl/dev/attribution).
+**Apache-2.0**, matching upstream. This package is a derivative work of [OSQP](https://github.com/osqp/osqp) and carries its license. See [Attribution](https://el-oso.github.io/PureQP.jl/dev/attribution).
