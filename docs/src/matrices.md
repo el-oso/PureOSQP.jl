@@ -234,9 +234,9 @@ things keep that usable, and one limit remains:
 An operator with no structure the solver recognizes is solved with *conjugate gradients* (CG),
 which only multiplies by the operator and whose convergence depends on conditioning. An
 operator with its own **direct** backend is solved by factoring instead, and conditioning then
-affects it only through the structure. This is [`OperatorSplitting`](@ref)'s `linsys = :auto`
-ladder; under [`InteriorPoint`](@ref) an operator needs `linsys = :indirect` named explicitly
-with a caller-supplied preconditioner ([Choosing an algorithm](@ref "What each algorithm throws on")).
+affects it only through the structure. That is what [`OperatorSplitting`](@ref)'s
+`linsys = :auto` does. Under [`InteriorPoint`](@ref) an operator needs `linsys = :indirect`
+named explicitly, with a preconditioner you supply ([Choosing an algorithm](@ref "What each algorithm throws on")).
 
 The Kronecker type is an example. `κ(A₁ ⊗ A₂) = κ(A₁)·κ(A₂)`, so an operator with `κ = 1e12` is
 built from two factors with `κ = 1e6` each, and the backend eigendecomposes the factors without
@@ -380,9 +380,9 @@ R = c D P D + \sigma I + \tilde A^\top \mathrm{diag}(\rho) \tilde A
 ```
 
 Diagonal scaling preserves a bandwidth and `ÃᵀρÃ` doubles `A`'s, so
-`bandwidth(R) = max(bandwidth(P), 2 bandwidth(A))`. `linsys = :auto` dispatches on the pair
-of types, with no setting and no density gate involved; these pairs are the top of the
-ladder in [Choosing a backend](@ref).
+`bandwidth(R) = max(bandwidth(P), 2 bandwidth(A))`. `linsys = :auto` dispatches on the pair of
+types. No setting and no density gate comes into it. These pairs are the first candidates in
+[Choosing a backend](@ref).
 
 ```@example structured
 using PureOSQP, LinearAlgebra

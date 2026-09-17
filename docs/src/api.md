@@ -206,7 +206,7 @@ PureQPBase.divide!
 PureIPM.caller_preconditioner
 ```
 
-## The selection ladder
+## Backend selection
 
 ```@docs
 PureQPBase.SelectionFor

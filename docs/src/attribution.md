@@ -50,8 +50,8 @@ of multipliers for convex optimization](https://doi.org/10.1007/s10957-019-01575
 et al., 2019). The certificate tests hold for any direction, whatever produced it, which is
 why both algorithms use them unchanged.
 
-The linear-system backends, the selection ladder, the problem representation and the
-polishing and derivative kernels are this package's own.
+The linear-system backends, the backend selection, the problem representation and the polishing
+and derivative kernels are this package's own.
 
 ## PureIPM
 

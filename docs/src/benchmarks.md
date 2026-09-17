@@ -362,8 +362,8 @@ with `julia --project=bench PureOSQP/bench/lowrank_backend.jl`; samples in
 | 2000 | 16 | 175 | 1.11 ms | 392 ms | 3.71 ms | 691 ms | **186×** |
 
 The ratio grows with `n` at fixed `k` and shrinks as `k` climbs, which is what `O(nk)` against
-`O(n²)` predicts. The rung is not used once `10k > n`, below the measured crossing so the
-limit holds at any BLAS thread count — see the gate discussion in
+`O(n²)` predicts. The solver drops this backend once `10k > n`, which sits below the measured
+crossing, so the limit holds at any BLAS thread count — see the gate discussion in
 `PureOSQP/bench/results/gate_crossover_lowrank.json`. Each row is a different problem, so read across
 a row rather than down a column.
 
