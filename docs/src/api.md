@@ -31,6 +31,7 @@ PureQPBase.default_options
 PureQPBase.QPWorkspace
 PureOSQP.OperatorSplittingWorkspace
 PureIPM.InteriorPointWorkspace
+PureQPBase.conforms
 ```
 
 ## Status values

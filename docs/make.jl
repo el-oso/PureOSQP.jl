@@ -65,6 +65,7 @@ makedocs(;
             "Algorithm" => "algorithm.md",
             "Backend selection" => "selection.md",
             "Interfaces" => "interfaces.md",
+            "Adding an algorithm" => "newalgorithm.md",
             "Benchmarks" => "benchmarks.md",
             "Guarantees" => "guarantees.md",
         ],
