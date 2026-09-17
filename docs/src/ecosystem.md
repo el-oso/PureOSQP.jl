@@ -1,10 +1,10 @@
 # Working with other packages
 
-PureOSQP has **no required dependencies**. Capabilities appear as you load relevant packages via Julia's extension mechanism.
+A solver package requires only `LinearAlgebra`, [TypeContracts.jl](https://github.com/el-oso/TypeContracts.jl) and PureQPBase.jl, which requires the first two and nothing else. **No numerical library is required.** Capabilities appear as you load relevant packages via Julia's extension mechanism.
 
 Two mechanisms are at work:
 
-**Extensions** are code that loads only when you load a trigger package. There are seven, listed below.
+**Extensions** are code that loads only when you load a trigger package. Those below belong to PureQPBase, since they extend the backends rather than either algorithm; PureOSQP adds two of its own, for COSMOAccelerators and for its MathOptInterface optimizer, and PureIPM one, for its optimizer.
 
 **Genericity** allows the solver to handle any numeric or matrix type that behaves correctly. Precision types are handled this way, without needing extensions.
 

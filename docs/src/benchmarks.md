@@ -544,7 +544,7 @@ entry by entry, and the generic loop visits every structural zero and reaches ea
 `M[i, j]`, which on CSC is a binary search. Equilibration was **10.7× slower on a sparse
 matrix than on a dense one** — the opposite of what the storage should give.
 
-The four column traversals are now overridable, and `ext/PureOSQPSparseArraysExt.jl`
+The four column traversals are now overridable, and `PureQPBase/ext/PureQPBaseSparseArraysExt.jl`
 specialises them for `SparseMatrixCSC`. `SparseArrays` is a weak dependency, so the core
 still has none beyond `LinearAlgebra` and TypeContracts, and the extension can only load
 when the caller already has sparse matrices to pass.

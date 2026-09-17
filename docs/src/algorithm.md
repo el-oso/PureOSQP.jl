@@ -341,9 +341,9 @@ preconditioner.
   [`forward_derivative`](@ref): an interior-point solution's inactive-row multipliers sit at
   `O(μ_final)`, not at the near-zero a derivative through the active set needs, and polishing
   is what cleans that up.
-- The MathOptInterface extension accepts `InteriorPoint()` through the `"algorithm"` raw
-  attribute; switching algorithms on a live optimizer throws if a raw setting already on it is
-  not one the new algorithm accepts, naming the setting.
+- `PureIPM.Optimizer` is the MathOptInterface wrapper around it, as `PureOSQP.Optimizer` is
+  around the operator-splitting method. An optimizer runs the algorithm of the package that
+  supplies it, and accepts the shared options and only that algorithm's parameters.
 - `verbose` prints under either algorithm: a header, one line per termination check, and a
   footer, with `mu` and `alpha` in place of ADMM's `rho`. The interior-point method's footer
   also names the run time, and, on the matrix-free backend, its row gains a `cg iters` column
