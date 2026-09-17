@@ -32,16 +32,24 @@ solve(P, q, A, l, u)                    # operator splitting, the default
 solve(P, q, A, l, u, InteriorPoint())   # the interior-point method
 ```
 
-**The licenses differ because the provenance does.** PureOSQP is a derivative work of
-[OSQP](https://github.com/osqp/osqp) — written against its paper and reference C
-implementation, with its C unit tests ported — so it carries its parent's Apache-2.0 terms.
-PureQPBase and PureIPM are not derivatives of it, and are MIT: they were written from
-published papers, Ruiz 2001 for the equilibration, Banjac et al. 2019 for the infeasibility
-certificates, Mehrotra 1992 for the interior-point method. Depending on PureQPBase places
-your package under neither license. Each package directory carries the license governing it,
-[`LICENSE`](LICENSE) at the root is the map, and
-[Attribution](https://el-oso.github.io/PureQP.jl/dev/attribution) has the full credit and
-citations.
+Each solver is measured against the established implementation of its own method, at the same
+tolerance and with the iteration counts checked to make sure the comparison is of solvers
+rather than of stopping rules:
+
+| | against | problems | faster by | iterations |
+|---|---|---|---|---|
+| **PureOSQP** | libosqp 1.0 (C) | OSQP's suite, 7 classes | 1.08× – 1.92× | identical |
+| **PureIPM** | [Clarabel.jl](https://github.com/oxfordcontrol/Clarabel.jl) | random QPs, `n` = 50 … 400 | 1.4× – 4.3× | within one |
+
+The interior-point margin grows with size — 2.3× to 4.3× dense from `n` = 50 to 400, 1.4× to
+2.3× sparse. Passing a structured `A` rather than its sparsity pattern is worth another 1.7×
+to 52× on top. Full tables, and the ill-conditioned and matrix-free families, in
+[Benchmarks](https://el-oso.github.io/PureQP.jl/dev/benchmarks).
+
+The three packages are under two licenses, because PureOSQP is a derivative of OSQP and the
+other two are not:
+[Attribution](https://el-oso.github.io/PureQP.jl/dev/attribution) has the reasoning, the
+credit and the citations.
 
 These packages are developed with the assistance of Claude Code. Generated code is reviewed
 before it lands, and the design decisions, the measurements behind them, and the released
