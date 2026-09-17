@@ -111,7 +111,7 @@ end
 
 `factorize!` builds whatever the structure implies — for blocks, one small factorization
 each; for a low-rank correction, a `k×k` capacitance. `solve_system!` calls
-[`PureOSQP.reduced_rhs!`](@ref) first, writes `x`, then `mul_A!` into `z`.
+[`PureQPBase.reduced_rhs!`](@ref) first, writes `x`, then `mul_A!` into `z`.
 
 Two things the shipped backends do well. Invert each block and use `symv` instead of keeping
 a factor and calling `ldiv!`: both cost `2nᵢ²` flops, but a triangular solve computes its

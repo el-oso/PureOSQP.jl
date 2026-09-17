@@ -15,9 +15,9 @@ abstract type QPAlgorithm end
 """
     QPWorkspace{T}
 
-Solver state built by [`setup`](@ref): an [`OperatorSplittingWorkspace`](@ref) or an
-[`InteriorPointWorkspace`](@ref). Both hold `algorithm`, the element-typed algorithm
-parameters, and `options`, the [`Options`](@ref) in force.
+Solver state built by [`setup`](@ref), of the type the algorithm passed to it defines. Every
+workspace holds `algorithm`, the element-typed algorithm parameters, and `options`, the
+[`Options`](@ref) in force.
 
 A subtype implements the methods `TypeContracts.describe(QPWorkspace)` lists, checked at
 precompilation, and holds the fields the methods written for every workspace read: `prob`,
@@ -198,10 +198,11 @@ algorithm whose unnamed parameters take their defaults. Either is validated exac
 [`setup`](@ref), so an out-of-range value throws and leaves the workspace untouched, and a
 keyword that is an algorithm parameter throws, naming the algorithm object it belongs in.
 
-On an [`OperatorSplittingWorkspace`](@ref), `rho`, `sigma` and `rho_is_vec` are built into the
-factorization, so changing any of them refactorizes; everything else is free. On an
-[`InteriorPointWorkspace`](@ref) nothing refactorizes: a solve resets the regularization from
-the algorithm parameters before its first iteration and refactorizes every iteration after.
+What a change costs depends on the algorithm. Where a parameter is built into the
+factorization — the operator-splitting method's `rho`, `sigma` and `rho_is_vec` — changing it
+refactorizes and everything else is free. Where the system is rebuilt every iteration anyway,
+as the interior-point method rebuilds it, nothing refactorizes: a solve resets the
+regularization from the algorithm parameters before its first iteration.
 The settings a backend reads while solving — the `cg_*` settings of the matrix-free backend —
 reach it at once.
 

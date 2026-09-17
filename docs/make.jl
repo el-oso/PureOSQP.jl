@@ -1,7 +1,7 @@
-using Documenter, DocumenterVitepress, PureOSQP
+using Documenter, DocumenterVitepress, PureOSQP, PureQPBase
 
 makedocs(;
-    modules = [PureOSQP],
+    modules = [PureOSQP, PureQPBase],
     authors = "el-oso",
     sitename = "PureOSQP.jl",
     format = DocumenterVitepress.MarkdownVitepress(

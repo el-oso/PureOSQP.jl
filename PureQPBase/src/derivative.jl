@@ -118,12 +118,10 @@ derivative_ready(ws::QPWorkspace) = nothing
     active_kkt(ws) -> (F, M, act, lower, x, y)
 
 Check that `ws` holds a converged, host-resident solution, unscale it into problem space,
-and delegate to the `active_kkt(prob, x, y, z)` method above. One method serves both
-[`OperatorSplittingWorkspace`](@ref) and [`InteriorPointWorkspace`](@ref): each holds its
-iterate the same way, scaled by the same `D`, `E`, `c`. An `InteriorPointWorkspace` must also
-be polished: its inactive-row
-multipliers sit at the barrier parameter rather than at zero, which the active-set test
-below cannot otherwise tell apart from a genuinely active row.
+and delegate to the `active_kkt(prob, x, y, z)` method above. One method serves every
+algorithm's workspace, since each holds its iterate the same way, scaled by the same `D`,
+`E`, `c`. An algorithm whose iterate the active-set test cannot read says so through
+[`derivative_ready`](@ref).
 """
 function active_kkt(ws::QPWorkspace{T}) where {T}
     # The derivative is of the solution map at a solution. An unconverged point is not one,

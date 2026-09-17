@@ -314,6 +314,10 @@ which the compiler can already prove.
 """
 check_storage(M, rows::Integer, cols::Integer) = nothing
 
+# `@constprop :aggressive` because this frame forwards the keywords that the method it calls
+# turns into the `Val` naming the backend: constant propagation needs every frame in the
+# chain to carry it, and a frame that only forwards is still a frame. The annotation goes on
+# the method below; a comment between a docstring and its definition detaches the docstring.
 """
     setup(P, q, A, l, u, alg; kwargs...) -> QPWorkspace
 
@@ -346,10 +350,7 @@ A `Symmetric` wrapper is accepted over any parent, but it costs something over a
 wrapped one descends past them, and equilibration walks the wrapper entrywise rather than by
 stored column. Pass the full `SparseMatrixCSC` to reach those backends.
 """
-# `@constprop :aggressive` because this frame forwards the keywords that the method below
-# turns into the `Val` naming the backend: constant propagation needs every frame in the
-# chain to carry it, and a frame that only forwards is still a frame.
-@inline Base.@constprop :aggressive function setup(
+Base.@constprop :aggressive function setup(
         P::AbstractMatrix, q::AbstractVector, A::AbstractMatrix,
         l::AbstractVector, u::AbstractVector, alg::QPAlgorithm; kwargs...
     )

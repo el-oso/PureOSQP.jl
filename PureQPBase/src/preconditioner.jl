@@ -8,7 +8,7 @@ documented reads of `wt`; `prob` is passed for dispatch and is not part of the d
 interface.
 
 `k` is the refresh index the algorithm sets before calling: under ADMM, the number of
-refactorizations so far; under [`InteriorPoint`](@ref), `-1` for the starting-point solve and the
+refactorizations so far; under the interior-point method, `-1` for the starting-point solve and the
 outer iteration `0, 1, 2, …` afterwards, where a regularization retry calls again with the
 same `k` and a larger `wt.sigma`.
 

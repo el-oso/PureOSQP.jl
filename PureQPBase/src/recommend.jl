@@ -1,3 +1,9 @@
+"One backend's row of a [`LinsysAdvice`](@ref)."
+const LinsysMeasurement = @NamedTuple{
+    linsys::Symbol, backend::Symbol, total_ms::Float64, setup_ms::Float64, solve_ms::Float64,
+    iterate_ms::Float64, factor_fill::Float64, status::Status, iter::Int,
+}
+
 """
     LinsysAdvice
 
@@ -18,11 +24,6 @@ build and less to solve against wins over thousands of ADMM iterations and loses
 interior-point ones. `iterate_ms` is reported beside it as the per-iteration half of that
 sum.
 """
-const LinsysMeasurement = @NamedTuple{
-    linsys::Symbol, backend::Symbol, total_ms::Float64, setup_ms::Float64, solve_ms::Float64,
-    iterate_ms::Float64, factor_fill::Float64, status::Status, iter::Int,
-}
-
 struct LinsysAdvice
     linsys::Symbol
     solve_iters::Int

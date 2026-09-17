@@ -124,7 +124,7 @@ Refresh the factorization after only the contents of `wt.w` and `wt.w_inv` chang
 last [`factorize!`](@ref), returning whether it succeeded.
 
 Separate from `factorize!` because the two events are not the same: `ρ` changes on its own
-every time [`adapt_rho!`](@ref) fires, while `P`, `A`, `D`, `E`, `c` and `σ` change only
+every time the algorithm retunes it, while `P`, `A`, `D`, `E`, `c` and `σ` change only
 through [`setup`](@ref), [`update!`](@ref) and [`update_settings!`](@ref). A backend whose
 factorization is partly independent of the weights can keep that part.
 
@@ -401,7 +401,7 @@ is_convex(::Type{T}, P::Tridiagonal, sigma) where {T} =
 Whether `M`'s entries can be read one at a time. True unless the representation says
 otherwise.
 
-Forming the reduced matrix, [`polish!`](@ref) and the derivatives all read entries; an
+Forming the reduced matrix, polishing and the derivatives all read entries; an
 operator that supplies only `mul!` declares `false` here and is refused by those paths by
 name rather than by a `MethodError` from inside a factorization. Declining is a statement
 by the operator's author about what it can answer, not a measured threshold.
@@ -416,7 +416,7 @@ is_materializable(M) = true
 
 Throw unless both operators can be read entry by entry, naming what needs it.
 
-[`polish!`](@ref) and the derivatives copy `P` and `A` into a dense matrix one entry at a
+Polishing and the derivatives copy `P` and `A` into a dense matrix one entry at a
 time and factor it, which an operator supplying only products cannot serve. Without this
 the caller gets a `MethodError` from inside the copy, which says nothing about what to do.
 
