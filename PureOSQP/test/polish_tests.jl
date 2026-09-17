@@ -1,6 +1,6 @@
 @testitem "polishing sharpens a loose solution" begin
     using PureIPM
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     for algorithm in (OperatorSplitting(), InteriorPoint())
         P, q, A, l, u = random_qp(12, 30; seed = 16)
@@ -15,7 +15,7 @@ end
 
 @testitem "polishing never makes the answer worse" begin
     using PureIPM
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     for algorithm in (OperatorSplitting(), InteriorPoint())
         checked = Ref(0)
@@ -45,7 +45,7 @@ end
 
 @testitem "no active set means polishing is skipped, not failed" begin
     using PureIPM
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     Random.seed!(18)
     n = 8

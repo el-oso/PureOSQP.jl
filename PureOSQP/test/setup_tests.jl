@@ -49,7 +49,7 @@ end
 end
 
 @testitem "referee scores the known solution of the reference QP" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P = [4.0 1.0; 1.0 2.0]
     q = [1.0, 1.0]
@@ -152,7 +152,7 @@ end
 end
 
 @testitem "a run without a solution returns NaN, not a plausible point" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P = [2.0 5.0; 5.0 1.0]
     q = [3.0, 4.0]
@@ -168,7 +168,7 @@ end
 end
 
 @testitem "an infeasible solve cold starts the workspace for the next one" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     A = reshape([1.0, 1.0], 2, 1)
     ws = setup(zeros(1, 1), [0.0], A, [1.0, -Inf], [Inf, 0.0])
@@ -182,7 +182,7 @@ end
 end
 
 @testitem "Float16 still classifies infinite bounds correctly" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     # INFTY(T) must stay finite for narrow float types, or the free-row test can never
     # be true and a free row silently gets the inequality rho.
@@ -205,7 +205,7 @@ end
 end
 
 @testitem "a non-BLAS eltype solves on both backends" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     # Float16 is not a BLAS float, so it exercises LinearAlgebra's generic factorizations
     # rather than LAPACK. Both linear-system backends must still work.

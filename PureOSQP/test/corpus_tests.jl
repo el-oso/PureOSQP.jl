@@ -1,5 +1,5 @@
 @testitem "structural corpus: every instance passes the referee, on both backends" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     Random.seed!(30)
     n = 8
@@ -55,8 +55,9 @@
 end
 
 @testitem "structural corpus: objective agrees with the C library" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
+    include(joinpath(@__DIR__, "osqp_oracle.jl"))
     for (n, m, seed) in ((8, 12, 41), (12, 5, 42), (6, 40, 43), (20, 20, 44))
         P, q, A, l, u = random_qp(n, m; seed)
         c = osqp_ref(
@@ -73,8 +74,9 @@ end
 end
 
 @testitem "the C library's own solution passes the referee" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
+    include(joinpath(@__DIR__, "osqp_oracle.jl"))
     # An oracle is untrusted until it has judged a known-good answer. This is the check
     # that caught the referee measuring complementarity as a sign predicate: the C
     # library failed it on 23 of 30 problems, which is a fact about the referee.
@@ -93,7 +95,7 @@ end
 end
 
 @testitem "Float32 solves the reference QP" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P = Float32[4 1; 1 2]
     q = Float32[1, 1]

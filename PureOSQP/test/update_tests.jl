@@ -1,6 +1,6 @@
 @testitem "update! matches a fresh setup" begin
     using PureIPM
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     for algorithm in (OperatorSplitting(), InteriorPoint())
         P, q, A, l, u = random_qp(10, 24; seed = 60)
@@ -26,7 +26,7 @@ end
 
 @testitem "update! refactorizes only when it must" begin
     using PureIPM
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P = [4.0 1.0; 1.0 2.0]
     A = [1.0 1.0; 1.0 0.0]
@@ -54,7 +54,7 @@ end
 
 @testitem "update! of P and A gives the same answer as a fresh setup" begin
     using PureIPM
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     for algorithm in (OperatorSplitting(), InteriorPoint())
         P, q, A, l, u = random_qp(8, 20; seed = 62)
@@ -75,7 +75,7 @@ end
 
 @testitem "update! of P and A on the full-KKT backend matches a fresh setup" begin
     using PureIPM
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     # `linsys = :kkt` pins the backend whose cached scaled lower triangle `check_update`
     # must invalidate whenever `update!` replaces `P` or `A`.
@@ -99,7 +99,7 @@ end
 
 @testitem "update! warm starts the next solve" begin
     using PureIPM
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(12, 30; seed = 64)
     opts = (eps_abs = 1.0e-8, eps_rel = 1.0e-8, max_iter = 100_000)
@@ -117,7 +117,7 @@ end
 
 @testitem "update! validates its arguments" begin
     using PureIPM
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     for algorithm in (OperatorSplitting(), InteriorPoint())
         P = [4.0 1.0; 1.0 2.0]

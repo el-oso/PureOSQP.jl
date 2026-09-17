@@ -1,5 +1,5 @@
 @testitem "solves the reference QP" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P = [4.0 1.0; 1.0 2.0]
     q = [1.0, 1.0]
@@ -13,7 +13,7 @@
 end
 
 @testitem "the referee accepts every solved random instance" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     solved = Ref(0)
     for trial in 1:30
@@ -33,7 +33,7 @@ end
 end
 
 @testitem "equilibration is what makes a badly scaled problem tractable" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(10, 25; seed = 12, colscale = 4)
     off = PureOSQP.solve(
@@ -51,7 +51,7 @@ end
 end
 
 @testitem "hitting max_iter is never reported as solved" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(30, 60; seed = 13)
     s = PureOSQP.solve(P, q, A, l, u; max_iter = 2, eps_abs = 1.0e-14, eps_rel = 1.0e-14)
@@ -59,7 +59,7 @@ end
 end
 
 @testitem "adaptive rho reduces the iteration count from a bad rho" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(25, 60; seed = 14)
     fixed = PureOSQP.solve(
@@ -75,7 +75,7 @@ end
 end
 
 @testitem "rho vector classifies equalities, inequalities and free rows" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     A = [1.0 0.0; 0.0 1.0; 1.0 1.0]
     l = [1.0, -Inf, 0.0]
@@ -89,7 +89,7 @@ end
 end
 
 @testitem "warm starting from the solution cuts the iteration count" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(12, 30; seed = 15)
     cold = PureOSQP.solve(P, q, A, l, u; eps_abs = 1.0e-8, eps_rel = 1.0e-8, max_iter = 100_000)
@@ -102,7 +102,7 @@ end
 end
 
 @testitem "warm_start! refuses non-finite seeds" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(4, 6; seed = 75)
     ws = setup(P, q, A, l, u)
@@ -119,7 +119,7 @@ end
 end
 
 @testitem "verbose prints a progress report, and is silent when off" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(12, 30; seed = 21)
 
@@ -164,7 +164,7 @@ end
 end
 
 @testitem "cold_start! discards the warm start without touching the problem" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(12, 30; seed = 33)
     opts = (eps_abs = 1.0e-8, eps_rel = 1.0e-8, max_iter = 100_000)
@@ -201,7 +201,7 @@ end
 end
 
 @testitem "time_limit stops the loop and reports it" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     # Tight tolerances on a problem whose unconstrained run takes about 265 ms, so a 10 ms
     # budget binds by a factor of 26 rather than racing convergence. A smaller problem here
@@ -236,7 +236,7 @@ end
 end
 
 @testitem "the reported duality gap and objectives are consistent and real" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(20, 45; seed = 55)
     opts = (eps_abs = 1.0e-10, eps_rel = 1.0e-10, max_iter = 100_000)
@@ -264,7 +264,7 @@ end
 end
 
 @testitem "polish reports which outcome it had, not just success" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(12, 30; seed = 15)
 
@@ -293,7 +293,7 @@ end
 end
 
 @testitem "rho_updates counts adaptations, separately from refactorizations" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(25, 60; seed = 14)
     opts = (eps_abs = 1.0e-8, eps_rel = 1.0e-8, max_iter = 100_000)
@@ -315,7 +315,7 @@ end
 end
 
 @testitem "timings are reported and add up" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(30, 70; seed = 66)
     s = PureOSQP.solve(P, q, A, l, u; eps_abs = 1.0e-9, eps_rel = 1.0e-9, polishing = true)
@@ -338,7 +338,7 @@ end
 end
 
 @testitem "the duality-gap test is a real extra condition" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     opts = (eps_abs = 1.0e-6, eps_rel = 1.0e-6, max_iter = 100_000)
 
@@ -384,7 +384,7 @@ end
 end
 
 @testitem "scaled_termination and rho_is_vec change what they claim to" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(12, 30; seed = 77, colscale = 3)
     opts = (eps_abs = 1.0e-8, eps_rel = 1.0e-8, max_iter = 100_000)
@@ -412,7 +412,7 @@ end
 end
 
 @testitem "an interrupt returns the point reached, other exceptions propagate" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     # A matrix that throws once it has been read a set number of times. That is how a
     # Ctrl-C in the middle of the ADMM loop reaches `solve!`, without needing a signal --
@@ -452,7 +452,7 @@ end
 end
 
 @testitem "adaptive_rho takes a mode, and a Bool still means what it names" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(20, 60; seed = 7)
     opts = (eps_abs = 1.0e-8, eps_rel = 1.0e-8, max_iter = 100_000)
@@ -483,7 +483,7 @@ end
 end
 
 @testitem "update_settings! refactorizes only for what the factorization contains" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(15, 40; seed = 91)
     ws = setup(P, q, A, l, u; eps_abs = 1.0e-6, eps_rel = 1.0e-6)
@@ -539,7 +539,7 @@ end
 end
 
 @testitem "update_rho! is the solver's own rho change, exposed" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     A = [1.0 0.0; 0.0 1.0; 1.0 1.0]
     l = [1.0, -Inf, 0.0]
@@ -563,7 +563,7 @@ end
 
 @testitem "the introspection surface reports what this build does" begin
     using PureQPBase
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(6, 14; seed = 5)
     ws = setup(P, q, A, l, u)

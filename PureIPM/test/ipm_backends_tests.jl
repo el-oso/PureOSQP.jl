@@ -1,6 +1,6 @@
 @testitem "interior point: each structured backend matches the full KKT factorization" begin
     using PureIPM, PureQPBase
-    using LinearAlgebra, SparseArrays, OSQP, Random, BandedMatrices, LDLFactorizations
+    using LinearAlgebra, SparseArrays, Random, BandedMatrices, LDLFactorizations
     include(joinpath(@__DIR__, "helpers.jl"))
     Random.seed!(101)
     n = 60
@@ -40,7 +40,7 @@ end
 
 @testitem "interior point: a low-rank pair is served by the full KKT factorization" begin
     using PureIPM, PureQPBase
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     Random.seed!(102)
     n = 60
@@ -66,7 +66,7 @@ end
 
 @testitem "interior point: dual numbers run on the reduced Cholesky" begin
     using PureIPM, PureQPBase
-    using LinearAlgebra, SparseArrays, OSQP, Random, ForwardDiff
+    using LinearAlgebra, SparseArrays, Random, ForwardDiff
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(8, 12; seed = 1)
     D = ForwardDiff.Dual{Nothing, Float64, 1}

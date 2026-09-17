@@ -1,5 +1,5 @@
 @testitem "P and A are never mutated" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     Random.seed!(3)
     A = randn(5, 3)
@@ -11,7 +11,7 @@
 end
 
 @testitem "storage type never changes the solution" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     Random.seed!(40)
     n, m = 60, 120
@@ -32,7 +32,7 @@ end
 end
 
 @testitem "a band type never changes the solution" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     Random.seed!(41)
     n, m = 50, 100
@@ -64,7 +64,7 @@ end
 end
 
 @testitem "two spellings of one problem solve alike" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     # The two forms reach different backends, so this is where a structured backend that
     # disagreed with the formed one in its last digits would show up.

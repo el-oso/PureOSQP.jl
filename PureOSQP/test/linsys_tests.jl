@@ -1,5 +1,5 @@
 @testitem "an ill-conditioned A is refused at setup, and solved with linsys = :kkt" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     Random.seed!(6)
     n, m = 40, 120
@@ -16,7 +16,7 @@
 end
 
 @testitem "both backends reach the same solution" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(15, 40; seed = 7)
     opts = (eps_abs = 1.0e-9, eps_rel = 1.0e-9, max_iter = 100_000)

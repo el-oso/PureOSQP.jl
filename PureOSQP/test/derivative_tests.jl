@@ -6,7 +6,7 @@
     # reads all three, so a polished workspace is a genuinely different input to the
     # derivative. `ForwardDiff` cannot get there, because `polish!` calls `bunchkaufman!`.
     using PureIPM
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     Random.seed!(11)
     n, m = 4, 6
@@ -55,7 +55,7 @@ end
 
 @testitem "the forward derivative matches differencing the solution itself" begin
     using PureIPM
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     Random.seed!(11)
     n, m = 4, 6
@@ -91,7 +91,7 @@ end
 
 @testitem "a derivative that does not exist is refused, not approximated" begin
     using PureIPM
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     for algorithm in (OperatorSplitting(), InteriorPoint())
         Random.seed!(11)
@@ -128,7 +128,7 @@ end
 
 @testitem "dual numbers give an exact oracle for the derivative" begin
     using PureIPM
-    using LinearAlgebra, SparseArrays, OSQP, Random, ForwardDiff
+    using LinearAlgebra, SparseArrays, Random, ForwardDiff
     include(joinpath(@__DIR__, "helpers.jl"))
     # A far stronger check than the finite-difference one: no step-size error, and it
     # compares the *whole* Jacobian rather than one directional projection, so a bug
@@ -171,7 +171,7 @@ end
 
 @testitem "an equality row's gradient goes to the bound its multiplier pushes against" begin
     using PureIPM
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     # The other derivative tests use strictly `l < u` rows, which is how an equality-row
     # bug survived them. An equality is always active, but which of `l`/`u` the derivative

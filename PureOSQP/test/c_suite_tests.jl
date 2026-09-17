@@ -4,7 +4,7 @@
 # upstream test sets; TOL is upstream's TESTS_TOL.
 
 @testitem "C suite: basic_qp solve" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P = [4.0 1.0; 1.0 2.0]
     q = [1.0, 1.0]
@@ -24,7 +24,7 @@
 end
 
 @testitem "C suite: basic_qp check_termination" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P = [4.0 1.0; 1.0 2.0]
     q = [1.0, 1.0]
@@ -45,7 +45,7 @@ end
 end
 
 @testitem "C suite: basic_qp update_rho" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P = [4.0 1.0; 1.0 2.0]
     q = [1.0, 1.0]
@@ -64,7 +64,7 @@ end
 end
 
 @testitem "C suite: basic_qp warm start" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P = [4.0 1.0; 1.0 2.0]
     q = [1.0, 1.0]
@@ -83,7 +83,7 @@ end
 end
 
 @testitem "C suite: basic_qp2" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P = [11.0 0.0; 0.0 0.0]
     q = [3.0, 4.0]
@@ -100,7 +100,7 @@ end
 end
 
 @testitem "C suite: primal_dual_infeasibility, all four variants" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P = [1.0 0.0; 0.0 0.0]
     q = [1.0, -1.0]
@@ -125,7 +125,7 @@ end
 end
 
 @testitem "C suite: unconstrained" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P = Matrix(Diagonal([0.617022, 0.92032449, 0.20011437, 0.50233257, 0.34675589]))
     q = [-1.10593508, -1.65451545, -2.3634686, 1.13534535, -1.01701414]
@@ -141,7 +141,7 @@ end
 end
 
 @testitem "C suite: non_cvx" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P = [2.0 5.0; 5.0 1.0]          # eigenvalues 6.52 and -3.52
     q = [3.0, 4.0]
@@ -160,7 +160,7 @@ end
 end
 
 @testitem "C suite: an indefinite P is always refused at setup" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     # Upstream's QDLDL checks the KKT inertia and errors at setup. The reduced Cholesky
     # here cannot see that on its own, because rho*AᵀA can make the reduced matrix

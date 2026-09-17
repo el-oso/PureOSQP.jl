@@ -1,4 +1,6 @@
-using LinearAlgebra, SparseArrays, OSQP
+# The reference C implementation is not loaded here: `osqp_oracle.jl` holds it, and only the
+# items that compare against it include that file.
+using LinearAlgebra, SparseArrays
 
 """
 Backends that form the reduced matrix sparsely *and* factor it sparsely.
@@ -57,23 +59,6 @@ function kkt_residuals(P, q, A, l, u, x, y)
     r_gap = gap / max(one(gap), abs(quad), abs(lin), abs(sup))
     r_sign = ny > 0 ? sign_viol / ny : zero(sign_viol)
     return (r_prim, r_dual, max(r_gap, r_sign))
-end
-
-"""
-    osqp_ref(P, q, A, l, u; kwargs...)
-
-Run the reference C implementation on the same problem. `adaptive_rho_interval` is always
-pinned: libosqp 0.6.2 otherwise adapts on wall-clock time, which makes iteration counts
-machine-dependent.
-"""
-function osqp_ref(P, q, A, l, u; kwargs...)
-    model = OSQP.Model()
-    OSQP.setup!(
-        model; P = sparse(Symmetric(Matrix(P))), q = collect(q),
-        A = sparse(Matrix(A)), l = collect(l), u = collect(u), verbose = false,
-        adaptive_rho_interval = 50, check_termination = 25, kwargs...
-    )
-    return OSQP.solve!(model)
 end
 
 """

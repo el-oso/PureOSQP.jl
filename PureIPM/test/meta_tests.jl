@@ -7,6 +7,7 @@
         "ipm_backends_tests.jl" => 3,
         "ipm_tests.jl" => 23,
         "meta_tests.jl" => 1,
+        "moi_tests.jl" => 2,
         "standalone_tests.jl" => 3,
     )
     dir = @__DIR__

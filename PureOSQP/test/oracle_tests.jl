@@ -1,6 +1,7 @@
 @testitem "iterates match the C library at machine precision" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
+    include(joinpath(@__DIR__, "osqp_oracle.jl"))
     Random.seed!(8)
     n, m = 6, 10
     P = (X = randn(n, n); Matrix(X'X))
@@ -25,8 +26,9 @@
 end
 
 @testitem "objective and iteration count agree with the C library" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
+    include(joinpath(@__DIR__, "osqp_oracle.jl"))
     for (n, m) in ((10, 20), (25, 50), (40, 15), (30, 200))
         P, q, A, l, u = random_qp(n, m; seed = n + m)
         c = osqp_ref(P, q, A, l, u; eps_abs = 1.0e-6, eps_rel = 1.0e-6, max_iter = 20_000)
@@ -45,8 +47,9 @@ end
 end
 
 @testitem "status agrees with the C library on infeasible instances" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
+    include(joinpath(@__DIR__, "osqp_oracle.jl"))
     cases = Any[
         (zeros(1, 1), [0.0], reshape([1.0, 1.0], 2, 1), [1.0, -Inf], [Inf, 0.0], PRIMAL_INFEASIBLE),
         (zeros(1, 1), [-1.0], reshape([1.0], 1, 1), [0.0], [Inf], DUAL_INFEASIBLE),
@@ -60,7 +63,7 @@ end
 end
 
 @testitem "infeasibility certificates satisfy their defining inequalities" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     A = reshape([1.0, 1.0], 2, 1)
     l, u = [1.0, -Inf], [Inf, 0.0]

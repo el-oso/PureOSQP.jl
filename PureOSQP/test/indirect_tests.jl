@@ -1,5 +1,5 @@
 @testitem "the matrix-free backend reaches the same solution as the direct one" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random, Krylov
+    using LinearAlgebra, SparseArrays, Random, Krylov
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(30, 60; seed = 3)
     opts = (eps_abs = 1.0e-8, eps_rel = 1.0e-8, max_iter = 100_000)
@@ -19,7 +19,7 @@
 end
 
 @testitem "the matrix-free solve allocates nothing per iteration" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random, Krylov
+    using LinearAlgebra, SparseArrays, Random, Krylov
     include(joinpath(@__DIR__, "helpers.jl"))
     # The reason for a preallocated Krylov workspace, and the reason `ReducedOperator`
     # carries its element type: Krylov compares `eltype(A)` against the vectors' and drops
@@ -38,7 +38,7 @@ end
 end
 
 @testitem "the matrix-free backend reads the CG settings setup and update_settings! give it" begin
-    using LinearAlgebra, SparseArrays, OSQP, Random, Krylov
+    using LinearAlgebra, SparseArrays, Random, Krylov
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(20, 40; seed = 9)
     ws = setup(P, q, A, l, u; linsys = :indirect, cg_max_iter = 7, cg_tol_fraction = 0.3)

@@ -1,6 +1,6 @@
 @testitem "interior point: the structural corpus passes the referee on both backends" begin
     using PureIPM, PureQPBase
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     Random.seed!(30)
     n = 8
@@ -59,8 +59,9 @@ end
 
 @testitem "interior point: objective agrees with the C library" begin
     using PureIPM, PureQPBase
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
+    include(joinpath(@__DIR__, "osqp_oracle.jl"))
     for (n, m, seed) in ((8, 12, 41), (12, 5, 42), (6, 40, 43), (20, 20, 44), (40, 15, 55), (100, 150, 250))
         P, q, A, l, u = random_qp(n, m; seed)
         c = osqp_ref(
@@ -77,7 +78,7 @@ end
 
 @testitem "interior point: a sparse pair is factored sparsely" begin
     using PureIPM, PureQPBase
-    using LinearAlgebra, SparseArrays, OSQP, Random, LDLFactorizations
+    using LinearAlgebra, SparseArrays, Random, LDLFactorizations
     include(joinpath(@__DIR__, "helpers.jl"))
     n = 400
     P, q, A0, _, _ = banded_qp(n, n ÷ 2; band = 2)
@@ -107,7 +108,7 @@ end
 
 @testitem "interior point: equality, one-sided and free rows" begin
     using PureIPM, PureQPBase
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     Random.seed!(81)
     n, m = 40, 60
@@ -325,7 +326,7 @@ end
 
 @testitem "interior point: the workspace and its step infer concretely" begin
     using PureIPM, PureQPBase
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(10, 15; seed = 5)
 
@@ -351,7 +352,7 @@ end
 
 @testitem "warm_start! seeds an InteriorPointWorkspace's next solve" begin
     using PureIPM, PureQPBase
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(12, 30; seed = 96)
     opts = (eps_abs = 1.0e-8, eps_rel = 1.0e-8)
@@ -384,7 +385,7 @@ end
 
 @testitem "interior point: Float32 on the full KKT and the reduced Cholesky" begin
     using PureIPM, PureQPBase
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     rng = Xoshiro(84)
     n, m = 10, 15
@@ -430,7 +431,7 @@ end
 
 @testitem "interior point: BigFloat and dual numbers" begin
     using PureIPM, PureQPBase
-    using LinearAlgebra, SparseArrays, OSQP, Random, ForwardDiff
+    using LinearAlgebra, SparseArrays, Random, ForwardDiff
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(8, 12; seed = 1)
 
@@ -462,7 +463,7 @@ end
 
 @testitem "interior point: random infeasible problems return checkable certificates" begin
     using PureIPM, PureQPBase
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     for seed in 1:5, sc in (0, 10)
         P, q, A, l, u = primal_infeasible_qp(20, 40, seed)
@@ -482,7 +483,7 @@ end
 
 @testitem "interior point: a rising μ runs the certificate tests without ending the run" begin
     using PureIPM, PureQPBase
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     # On this instance the diverging multipliers raise `μ` for more than ten iterations in a
     # row before the certificate passes.
@@ -547,7 +548,7 @@ end
 
 @testitem "interior point: the C suite infeasibility cases" begin
     using PureIPM, PureQPBase
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     # `primal_dual_infeasibility` from `c_suite_tests.jl`, under the interior-point method.
     P = [1.0 0.0; 0.0 0.0]
@@ -587,7 +588,7 @@ end
 
 @testitem "interior point: factorization failure bumps the regularization" begin
     using PureIPM, PureQPBase
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     # A backend that refuses to factorize while `sigma` is below a threshold, and once more
     # at a chosen call, and otherwise defers to the full KKT factorization.
@@ -665,7 +666,7 @@ end
 
 @testitem "update_settings! on an InteriorPointWorkspace validates and never refactorizes" begin
     using PureIPM, PureQPBase
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(10, 24; seed = 95)
     ws = setup(P, q, A, l, u, InteriorPoint(); eps_abs = 1.0e-6, eps_rel = 1.0e-6)
@@ -732,7 +733,7 @@ end
 
 @testitem "the accelerator is refused under InteriorPoint()" begin
     using PureIPM, PureQPBase
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(6, 12; seed = 97)
     # Anything other than `nothing` is refused, and what is refused is never inspected, so the
@@ -744,7 +745,7 @@ end
 
 @testitem "verbose prints a progress report, and is silent when off (InteriorPoint)" begin
     using PureIPM, PureQPBase
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(12, 30; seed = 21)
 
@@ -825,7 +826,7 @@ end
 
 @testitem "interior point: time_limit and an interrupt return the point reached" begin
     using PureIPM, PureQPBase
-    using LinearAlgebra, SparseArrays, OSQP, Random
+    using LinearAlgebra, SparseArrays, Random
     include(joinpath(@__DIR__, "helpers.jl"))
     P, q, A, l, u = random_qp(40, 60; seed = 92)
     unlimited = PureQPBase.solve(P, q, A, l, u, InteriorPoint())
@@ -874,7 +875,7 @@ end
 
 @testitem "interior point: conjugate gradients with a caller-supplied preconditioner" begin
     using PureIPM, PureQPBase
-    using LinearAlgebra, SparseArrays, OSQP, Random, Krylov
+    using LinearAlgebra, SparseArrays, Random, Krylov
     include(joinpath(@__DIR__, "helpers.jl"))
 
     # The Cholesky factor of `P + σI + Aᵀ diag(w) A`, rebuilt at the starting point, every
