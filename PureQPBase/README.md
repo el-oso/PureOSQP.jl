@@ -2,57 +2,58 @@
 
 [![Docs](https://img.shields.io/badge/docs-dev-blue.svg)](https://el-oso.github.io/PureQP.jl/dev/)
 
-The algorithm-independent core of [PureQP.jl](https://github.com/el-oso/PureQP.jl): the
-problem representation, every linear-system backend and the ladder that picks one,
-equilibration, the termination, polishing and derivative kernels, and the contracts a solver
-implements.
+The shared core of [PureQP.jl](https://github.com/el-oso/PureQP.jl). It holds the problem
+type, every linear-system backend, the code that picks one, equilibration, the termination
+tests, the polishing and derivative kernels, and the contracts a solver implements.
 
-**It defines no algorithm and solves nothing on its own.** `setup` and `solve` take one as
-their sixth positional argument, and this package supplies no instance to pass:
+**It has no algorithm, so it solves nothing on its own.** `setup` and `solve` take an
+algorithm as their sixth argument, and this package has none to give you.
 [PureOSQP.jl](https://github.com/el-oso/PureQP.jl/tree/main/PureOSQP) supplies
-`OperatorSplitting`, [PureIPM.jl](https://github.com/el-oso/PureQP.jl/tree/main/PureIPM)
-supplies `InteriorPoint`. Install this package directly only to write a third.
+`OperatorSplitting`.
+[PureIPM.jl](https://github.com/el-oso/PureQP.jl/tree/main/PureIPM) supplies `InteriorPoint`.
+Install either one and you get this package with it:
 
 ```julia
-using PureQPBase, PureOSQP     # or PureIPM; either re-exports this package
+using PureOSQP     # or PureIPM; both re-export this package
 ```
+
+Install this package on its own only if you want to write a third algorithm.
 
 ## What it holds
 
-**The problem.** `Problem` keeps `P` and `A` by reference and never mutates them.
-Equilibration is stored as factors and applied lazily, so every product calls `mul!` on the
-matrix you passed, whatever its type.
+**The problem.** `Problem` holds `P` and `A` by reference and never changes them. It keeps the
+equilibration as factors and applies them as it goes, so every product calls `mul!` on the
+matrix you passed, whatever type that is.
 
-**The backends.** A reduced Cholesky, a full quasi-definite KKT factorization, and — through
-package extensions — sparse factorizations (CHOLMOD and LDLFactorizations), banded, block,
-Kronecker, diagonal-plus-low-rank, and a matrix-free conjugate-gradient solve over
+**The backends.** A reduced Cholesky and a full KKT factorization. Package extensions add
+more: sparse factorizations through CHOLMOD and LDLFactorizations, banded, block, Kronecker,
+diagonal plus low rank, and a matrix-free solve with conjugate gradients over
 [Krylov.jl](https://github.com/JuliaSmoothOptimizers/Krylov.jl).
 
-**The selection ladder.** Which backend serves a problem is decided once, from the declared
-types of `P` and `A` and from the sparsity pattern, never from the values — so a problem's
-backend does not change when its numbers do, and `setup` can factor once with the values the
-solve will use. Each algorithm descends its own ladder over shared rungs;
-[Backend selection](https://el-oso.github.io/PureQP.jl/dev/selection) is the map.
+**The choice between them.** The package picks a backend once, in `setup`. It reads the types
+of `P` and `A` and the sparsity pattern. It never reads the values, so the backend does not
+change when your numbers do, and `setup` factors once with the values the solve uses. Each
+algorithm tries the candidates in its own order — see
+[How a backend is chosen](https://el-oso.github.io/PureQP.jl/dev/selection).
 
-**The contracts.** `LinearSystem`, `Preconditioner`, `QPAlgorithm` and `QPWorkspace` are
-declared with [TypeContracts.jl](https://github.com/el-oso/TypeContracts.jl), so a type that
-claims one and does not implement it is rejected rather than failing at a call site.
+**The contracts.** `LinearSystem`, `Preconditioner`, `QPAlgorithm` and `QPWorkspace` use
+[TypeContracts.jl](https://github.com/el-oso/TypeContracts.jl). Claim one and leave a method
+out, and the package refuses to precompile and names what is missing.
 
-`PureQPBase.conforms(alg; eps, slow_iters)` goes further, and is what a third algorithm
-should run: a contract says which methods exist, not what their values mean, and this asserts
-the guarantees `Solution` and `Status` carry — that stopping early is never reported as
-solved, that a run with no point fills `x` and `y` with `NaN`, that the objective is the
-objective, that the timings add up. It lives in a `Test` extension, so it costs a caller
-nothing.
+`PureQPBase.conforms(alg; eps, slow_iters)` goes further, and a third algorithm should run it.
+A contract says which methods exist. It cannot say what their values mean. `conforms` tests
+that: a run that stops early never reports `SOLVED`, a run with no answer fills `x` and `y`
+with `NaN`, the objective it reports is the objective, and the times it reports are real. It
+lives in a `Test` extension, so it costs a caller nothing.
 
 ## Dependencies
 
-`LinearAlgebra` and `TypeContracts`. Everything else — SparseArrays, BandedMatrices,
-LDLFactorizations, Krylov, LinearMaps, SciMLOperators, GPUArraysCore, ChainRulesCore,
-MathOptInterface — is a package extension, loaded only if you load it.
+`LinearAlgebra` and `TypeContracts`, and nothing else. SparseArrays, BandedMatrices,
+LDLFactorizations, Krylov, LinearMaps, SciMLOperators, GPUArraysCore, ChainRulesCore and
+MathOptInterface are all package extensions. Each loads only if you load it.
 
 ## License
 
-**MIT.** This package is not a derivative of OSQP. The equilibration follows Ruiz 2001 and
-the infeasibility certificates follow Banjac et al. 2019, both written from the papers. See
+**MIT.** This package is not derived from OSQP. The equilibration follows Ruiz 2001 and the
+infeasibility certificates follow Banjac et al. 2019. We wrote both from the papers. See
 [Attribution](https://el-oso.github.io/PureQP.jl/dev/attribution).
