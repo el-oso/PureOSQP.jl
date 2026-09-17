@@ -1,6 +1,6 @@
 # Three packages in one repository
 
-What the split is, what belongs where, and the constraints that shaped it. `design/modular-ipm.md`
+What the split is, what belongs where, and the constraints that shaped it. `modular-ipm.md`
 sketched this layout as step 3; this records what was built.
 
 ## 1. The packages

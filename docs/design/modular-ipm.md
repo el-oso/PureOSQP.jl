@@ -2,7 +2,7 @@
 
 **Every path in this document is from the single-package layout it was written against.**
 `src/`, `test/` and `bench/` are now split across `PureQPBase`, `PureOSQP` and `PureIPM`;
-`design/three-package-split.md` records where each part landed.
+`three-package-split.md` records where each part landed.
 
 Design for steps 1 and 2 of the agreed strategy (internal boundary, then a Mehrotra IPM in the
 same package), with the step-3 package layout sketched. Every file:line below was read; claims

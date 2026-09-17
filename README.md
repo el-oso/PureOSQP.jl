@@ -10,7 +10,7 @@ README. They handle every matrix representation — dense, sparse, structured, l
 satisfying `AbstractMatrix` — over any `Real` element type, allocation-free on the hot path
 and compiling under `juliac --trim`.
 
-| package | what it is | license |
+| package | what it is | [license](https://el-oso.github.io/PureQP.jl/dev/attribution) |
 |---|---|---|
 | [**PureQPBase**](PureQPBase) | the problem, the linear-system backends and their selection, equilibration, the contracts. No algorithm. | MIT |
 | [**PureOSQP**](PureOSQP) | operator splitting — [OSQP](https://osqp.org)'s ADMM iteration | Apache-2.0 |
@@ -45,11 +45,6 @@ The interior-point margin grows with size — 2.3× to 4.3× dense from `n` = 50
 2.3× sparse. Passing a structured `A` rather than its sparsity pattern is worth another 1.7×
 to 52× on top. Full tables, and the ill-conditioned and matrix-free families, in
 [Benchmarks](https://el-oso.github.io/PureQP.jl/dev/benchmarks).
-
-The three packages are under two licenses, because PureOSQP is a derivative of OSQP and the
-other two are not:
-[Attribution](https://el-oso.github.io/PureQP.jl/dev/attribution) has the reasoning, the
-credit and the citations.
 
 These packages are developed with the assistance of Claude Code. Generated code is reviewed
 before it lands, and the design decisions, the measurements behind them, and the released

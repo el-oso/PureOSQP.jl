@@ -1,4 +1,4 @@
-# A fixed-settings snapshot of ADMM's behavior, checked against `design/modular-ipm.md`: a
+# A fixed-settings snapshot of ADMM's behavior, checked against `docs/design/modular-ipm.md`: a
 # change to the linear-system code must leave every case's iterates identical.
 #
 # For every OSQP benchmark suite class (`suite_problems.jl`) and every structured family

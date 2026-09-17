@@ -3,7 +3,7 @@
 #
 # Reuses spike 2's instances (`ipm_matrixfree_spike2.jl`: dense `make_instance`, sparse family)
 # and generalizes its Mehrotra prototype to the row classes of the design document
-# (design/modular-ipm.md): equality rows (`w_inv = δ`, `rhs_z = −r_e`), lower-only and
+# (docs/design/modular-ipm.md): equality rows (`w_inv = δ`, `rhs_z = −r_e`), lower-only and
 # upper-only rows (absent side masked, placeholders `s = 1`, `z = 0`), free rows
 # (`w_inv = 1/δ`, `rhs_z = 0`, `Δy` zeroed), with spike 2's per-side recovery and σ floor.
 #
