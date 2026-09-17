@@ -1,6 +1,44 @@
 using Documenter, DocumenterVitepress, PureOSQP, PureIPM, PureQPBase
 
+"""
+    Mermaid()
+
+Render ```` ```mermaid ```` blocks as diagrams.
+
+Vitepress highlights that language but draws nothing without a renderer, so a diagram written
+without this ships as a syntax-coloured code block and no build step complains. This adds the
+renderer through DocumenterVitepress's plugin hooks rather than by committing a
+`.vitepress/config.mts`: that file is generated on every build and carries the navigation
+derived from `pages` below, so owning a copy would freeze the navigation and have to track
+the template's changes by hand.
+"""
+struct Mermaid <: Documenter.Plugin end
+
+DocumenterVitepress.vitepress_dependencies(::Mermaid) = Dict(
+    "mermaid" => "^11.4.1",
+    "vitepress-plugin-mermaid" => "^2.0.17",
+)
+
+# Keyed off the import and the export rather than surrounding whitespace, so a change to the
+# template leaves this working or fails loudly rather than silently matching nothing.
+function DocumenterVitepress.vitepress_config_transform(::Mermaid, config::String)
+    occursin("withMermaid", config) && return config
+    marker = "export default defineConfig({"
+    occursin(marker, config) ||
+        error("Mermaid: the Vitepress config no longer has the `$marker` this keys off")
+    # Naming the config and re-exporting it wraps the call without having to balance the
+    # parentheses of a block this does not otherwise read.
+    out = replace(
+        config,
+        "import { defineConfig } from 'vitepress'" =>
+            "import { defineConfig } from 'vitepress'\nimport { withMermaid } from 'vitepress-plugin-mermaid'",
+    )
+    out = replace(out, marker => "const documenterConfig = defineConfig({")
+    return out * "\nexport default withMermaid(documenterConfig)\n"
+end
+
 makedocs(;
+    plugins = [Mermaid()],
     modules = [PureOSQP, PureIPM, PureQPBase],
     authors = "el-oso",
     sitename = "PureQP.jl",

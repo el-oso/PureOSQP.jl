@@ -1,8 +1,67 @@
 # How a backend is chosen
 
-Every solve factors a linear system, and which one it factors is decided once, in `setup`.
-The choice depends on three things: what the caller asked for, what types `P` and `A` are,
-and which algorithm is running. This page is the map.
+## What a backend is
+
+Both algorithms spend nearly all their time in one place: solving a linear system, over and
+over, against a matrix built from `P`, `A` and a set of weights the algorithm updates as it
+goes. Operator splitting does this once per iteration for hundreds or thousands of
+iterations; the interior-point method does it a handful of times per iteration for ten or so.
+Everything else — the vector updates, the projections, the residual tests — is `O(n + m)` and
+costs almost nothing beside it.
+
+A **backend** is one way of solving that system. It owns the decision of *which* matrix to
+form, *how* to factor it, and *how* to apply the factorization to a right-hand side. A
+[`LinearSystem`](@ref PureQPBase.LinearSystem) is that object: [`factorize!`](@ref
+PureQPBase.factorize!) prepares it from the current data and weights, and
+[`solve_system!`](@ref PureQPBase.solve_system!) answers one right-hand side with it.
+
+## Why there is a choice to make
+
+Because no single way is best for every problem, and the differences are large rather than
+marginal.
+
+A dense `P` and `A` are best served by forming an `n×n` matrix and inverting it once, so each
+iteration is a single `symv`. A sparse pair is better factored sparsely, keeping the zeros.
+A tridiagonal `P` with a diagonal `A` gives a tridiagonal system, solved in `O(n)` without
+forming anything. `A₁ ⊗ A₂` has no zeros at all, so a sparse factorization has nothing to
+skip — but handed over as its two factors it is solved through their eigenvectors, which is
+[52× faster](@ref "Structured backends") on the benchmark here. An operator that supplies
+only products cannot be factored at all and needs conjugate gradients.
+
+Picking wrongly is not a rounding error. The same problem, solved through the wrong backend,
+runs anywhere from a little slower to two orders of magnitude slower, and some pairs cannot
+be served by some backends at all.
+
+So the choice is made once, in `setup`, from what the caller asked for, what types `P` and
+`A` are, and which algorithm is running. The backend then becomes part of the workspace's
+type, so the per-iteration solve dispatches statically with no branch. The rest of this page
+is how that decision is reached.
+
+## You can make it yourself
+
+The automatic choice is a default, not a policy. `linsys` names a backend outright, and
+[`recommend_linsys`](@ref PureQPBase.recommend_linsys) measures instead of guessing:
+
+```julia
+setup(P, q, A, l, u, alg; linsys = :kkt)     # this backend, or an error saying why not
+recommend_linsys(P, q, A, l, u)              # build each candidate, time a solve, rank them
+```
+
+`linsys` takes `:auto`, `:dense`, `:kkt`, `:sparse`, `:indirect`, and the named kinds
+`:diagonal`, `:tridiagonal`, `:block`, `:kronecker` and `:lowrank`. It is an instruction
+rather than a hint: name one the pair cannot support and the call fails, naming the condition
+it failed, rather than quietly using something else.
+
+It is decided for you by default because the decision needs things a caller would otherwise
+have to work out. Whether the reduced matrix fills in, and how many nonzeros the densest row
+of `A` holds, are read from the sparsity pattern. The answer also depends on the algorithm
+and not only on the matrices: the same `Diagonal` and `RowCoupled` pair is served by the
+low-rank backend under operator splitting and declined under the interior-point method. And
+the cost of choosing badly is large — up to two orders of magnitude — so a default that is
+usually right beats a decision the caller is usually guessing at.
+
+The automatic order is fitted to a benchmark suite, so it can misjudge a problem. That is
+what `linsys` and `recommend_linsys` are for.
 
 ## The two systems
 
@@ -41,10 +100,10 @@ setup(P, q, A, l, u, algorithm; linsys)
 └── linsys = :auto ───────────► choose_backend(P, A, prob, wt, selection)
                                 ├── a method for this (P, A) ► that backend
                                 │   pair exists                (Kronecker, banded, block, …)
-                                └── none exists ─────────────► select_backend: descend the
-                                                               ladder for this algorithm,
-                                                               taking the first rung that
-                                                               serves the pair
+                                └── none exists ─────────────► select_backend: work down the
+                                                               list of candidates for this
+                                                               algorithm, taking the first
+                                                               that serves the pair
                         ▼
                     factorize!
                         ├── succeeds ───► this is the workspace's backend, and its type
@@ -58,39 +117,55 @@ is refused with the condition it failed, not silently replaced. The one exceptio
 step — a factorization that fails is rebuilt on the full KKT system, which is the only
 selection decision made after `setup` has already chosen.
 
-## The ladders
+## The order each algorithm tries
 
-The ladder is the fallback for a pair with no `choose_backend` method of its own. Each rung
-is a function that serves the pair or declines, and the order is fixed in one place. The two
-algorithms share the rungs and differ in which they descend.
+A pair with no `choose_backend` method of its own falls back to a fixed list of candidates.
+Each candidate is a function that either builds a backend for the pair or declines, and
+`select_backend` takes the first that does not decline. Both algorithms draw on the same
+candidates and differ in which ones they consider, and in where they stop.
 
-```text
-   rung            what it builds              OperatorSplitting   InteriorPoint
-   ────────────────────────────────────────────────────────────────────────────────
-   kkt_rung        sparse, augmented                   1                 1
-   reduced_rung    sparse, reduced                     2                 2
-   kronecker_rung  two eigenbases and a diagonal       3                 ·
-   block_rung      one factor per block                4                 3
-   lowrank_rung    diagonal plus rank k                5             declines
-   formed_rung     the reduced inverse, reused         6                 ·
-   dense_rung      the terminal                        7                 4
-                                              ReducedCholesky        FullKKT
-   indirect_rung   conjugate gradients                 8                 5
+```mermaid
+flowchart TB
+    subgraph OS["OperatorSplitting"]
+        direction TB
+        o1["sparse, augmented"] --> o2["sparse, reduced"]
+        o2 --> o3["Kronecker:<br/>two eigenbases and a diagonal"]
+        o3 --> o4["one factor per block"]
+        o4 --> o5["diagonal plus rank k"]
+        o5 --> o6["the reduced inverse, reused"]
+        o6 --> o7["ReducedCholesky<br/>dense, reduced"]
+        o7 --> o8["conjugate gradients"]
+    end
+    subgraph IP["InteriorPoint"]
+        direction TB
+        i1["sparse, augmented"] --> i2["sparse, reduced"]
+        i2 --> i4["one factor per block"]
+        i4 --> i7["FullKKT<br/>dense, augmented"]
+        i7 --> i8["conjugate gradients"]
+        x3["Kronecker — skipped<br/>needs one weight per row"]
+        x5["diagonal plus rank k — declines<br/>the reduced form loses accuracy"]
+        x6["reused inverse — skipped<br/>too few solves to repay it"]
+    end
+    classDef absent fill:#fff,stroke:#bbb,stroke-dasharray:4 3,color:#888
+    class x3,x5,x6 absent
 ```
 
-A `·` is a rung the interior-point ladder does not descend at all. Three entries differ, and
-each for a reason that comes from the weights.
+Each entry is reached only if the one before it declines. The dense entry is where any pair
+that can be formed at all comes to rest; conjugate gradients sits after it, for an operator
+that supplies products and no entries.
 
-**The Kronecker rung is absent under the interior-point method.** Diagonalizing `A₁ ⊗ A₂`
-needs one weight for every row, and the interior-point weights differ from row to row from
-the first iteration.
+Three differences, and each comes from the weights.
 
-**`formed_rung` is absent.** It inverts the reduced matrix once and applies the inverse
-thereafter, which pays over the hundreds of solves an ADMM run takes. An interior-point run
-takes a handful of solves per factorization, so the inverse would be rebuilt almost as often
-as it is used.
+**Kronecker is skipped under the interior-point method.** Diagonalizing `A₁ ⊗ A₂` needs one
+weight for every row, and the interior-point weights differ from row to row from the first
+iteration.
 
-**`lowrank_rung` declines.** This is the reduced form's cost, arriving. An active row's weight
+**The reused inverse is skipped.** It inverts the reduced matrix once and applies that inverse
+thereafter, which pays over the hundreds of solves an operator-splitting run takes. An
+interior-point run takes a handful of solves per factorization, so the inverse would be
+rebuilt almost as often as it is used.
+
+**Diagonal-plus-low-rank declines.** This is the reduced form's cost, arriving. An active row's weight
 reaches `1/δ_d`, so the rank-`k` correction sits orders of magnitude above the diagonal core
 it corrects and the small directions are rounded away as the matrix is formed. Measured
 against a reference in extended precision, the reduced matrix reaches about `1e-8` where the
@@ -98,12 +173,12 @@ augmented factorization reaches `1e-15`; solving the reduced matrix through the 
 identity rather than densely does not change that, because the loss happens when the matrix is
 built (`PureIPM/bench/ipm_lowrank_terminal.jl`).
 
-That is also why the terminal differs: `ReducedCholesky` for operator splitting,
+That is also why the last dense candidate differs: `ReducedCholesky` for operator splitting,
 [`FullKKT`](@ref) for the interior-point method. The first reduces and the second does not.
 
-## What the sparse rungs ask
+## What the sparse candidates ask
 
-The two sparse rungs do not decide for themselves. Both put one question to the sparsity
+The two sparse candidates do not decide for themselves. Both put one question to the sparsity
 pattern — `sparse_form(P, A, n, m, selection)` — and act on its single answer:
 
 ```text
@@ -111,8 +186,8 @@ pattern — `sparse_form(P, A, n, m, selection)` — and act on its single answe
                                             │               sparsely
                                             ├── :reduced ─► factor the reduced system
                                             │               sparsely
-                                            └── :none ────► decline, and the ladder
-                                                            continues below
+                                            └── :none ────► decline, and the next
+                                                            candidate is tried
 ```
 
 The rule reads the pattern and nothing else — how many nonzeros the densest row of `A` holds,
@@ -125,7 +200,7 @@ sends both algorithms to the augmented form. That is the shape of a budget const
 is why the OSQP suite's Portfolio class factors the `(n+m)` system.
 
 `sparse_form` answers for `SparseMatrixCSC` pairs. A structured type that is not stored as CSC
-never reaches it, and descends past both sparse rungs to the rungs that dispatch on its own
+never reaches it, and passes both sparse candidates to the ones that dispatch on its own
 type.
 
 ## Asking what was chosen
@@ -139,5 +214,5 @@ factor_fill(ws)              # that store, against n²
 
 [`recommend_linsys`](@ref) goes further and measures: it builds every backend the pair admits,
 runs a bounded number of iterations on each, and ranks them by the cost of a whole solve. The
-ladder is fitted to a benchmark suite, and `recommend_linsys` is how a problem it misjudges
+order is fitted to a benchmark suite, and `recommend_linsys` is how a problem it misjudges
 gets a second opinion.
