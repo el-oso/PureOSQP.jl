@@ -85,7 +85,7 @@ what the warm start buys under ADMM: fewer iterations on top of no refactorizati
 solves a fresh Newton system at that iteration's row weights, so there is no factorization for
 `update!` to preserve — it saves the equilibration and the buffers, not a solve. `warm_start!`
 still seeds the first iterate from a point you supply, and a re-solve takes at most as many
-outer iterations as a cold one (checked in `test/ipm_tests.jl`), but there is little to save:
+outer iterations as a cold one (checked in `PureIPM/test/ipm_tests.jl`), but there is little to save:
 the count is already 2 to 10 at the default tolerance, so a warm start shortens an already
 short run rather than replacing hundreds of iterations with dozens.
 

@@ -80,7 +80,7 @@ const BandedLike = Union{
 # The types PureQPBase itself has no backend for. The two methods below split so that neither
 # overlaps the other, nor the `(Diagonal, Diagonal)`,
 # `(SymTridiagonal|Tridiagonal, Diagonal)` and
-# `(Diagonal|SymTridiagonal|Tridiagonal, Bidiagonal)` methods in `src/core/linsys.jl`, whose
+# `(Diagonal|SymTridiagonal|Tridiagonal, Bidiagonal)` methods in `PureQPBase/src/linsys.jl`, whose
 # reduced matrices are narrow enough for the LinearAlgebra backends. A `Tridiagonal` `A`
 # squares past those, which is why it is a `WideBand`; a `Tridiagonal` `P` does not, so the
 # second method's `P` position stops at the types BandedMatrices itself supplies.
@@ -117,7 +117,7 @@ function banded_backend(
     #
     # `b <= n/4` also implies the band is the smaller representation — `(2b+1)n` against the
     # dense backend's `mn + n^2` — and implies `b < n - 1`, so neither needs testing separately.
-    # See `bench/gate_band_beyond.jl`.
+    # See `PureOSQP/bench/gate_band_beyond.jl`.
     (b < 2 || 4b > n) && return PureQPBase.dense_rung(P, A, prob, sel)
     R = BandedMatrix{T}(undef, (n, n), (b, b))
     fill!(R.data, zero(T))

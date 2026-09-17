@@ -4,7 +4,7 @@
 Backend routing and whole-matrix traversals for GPU arrays.
 
 The per-iteration work is already storage-generic: every elementwise update and reduction
-has a schedule that does not index (see `src/core/elementwise.jl`), and the matrix-vector
+has a schedule that does not index (see `PureQPBase/src/elementwise.jl`), and the matrix-vector
 products go through `mul!` on the caller's own matrices. What is left is choosing a backend
 that can run, and reading `P` and `A` during setup without indexing them.
 
@@ -130,7 +130,7 @@ onehot(M::AbstractGPUMatrix) = (1:size(M, 1)) .== permutedims(1:size(M, 2))
 # structure is opaque; a device matrix carries no algebraic form to exploit. The copy and the
 # host factorization are `O(n²)` and `O(n³)`, but they run once at setup against a matrix-free
 # solve whose own setup builds the preconditioner from whole-matrix reductions, and measure
-# under 0.1% of `setup` at `n = 100` and `n = 200` (`bench/results/is_convex_coverage.json`).
+# under 0.1% of `setup` at `n = 100` and `n = 200` (`PureOSQP/bench/results/is_convex_coverage.json`).
 
 # Equilibration measures every column of `P` and `A` once per sweep, and the matrix-free
 # backend needs the reduced matrix's diagonal. The generic paths ask column by column, which

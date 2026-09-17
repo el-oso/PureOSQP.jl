@@ -90,4 +90,4 @@ open(joinpath(@__DIR__, "results", "block_structure.json"), "w") do io
         ), 2
     )
 end
-println("\nsaved bench/results/block_structure.json")
+println("\nsaved PureOSQP/bench/results/block_structure.json")

@@ -104,4 +104,4 @@ open(joinpath(@__DIR__, "results", "structured_backends.json"), "w") do io
         ), 2
     )
 end
-println("\nsaved bench/results/structured_backends.json")
+println("\nsaved PureOSQP/bench/results/structured_backends.json")

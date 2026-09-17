@@ -11,7 +11,7 @@
 #       Pkg.develop([PackageSpec(path="/path/to/PureBLAS.jl"), PackageSpec(path=".")]); \
 #       Pkg.add(["BenchmarkTools", "JSON"])'
 #
-# then run:  julia --project=bench/pureblas bench/pureblas_backend.jl
+# then run:  julia --project=bench/pureblas PureOSQP/bench/pureblas_backend.jl
 # The script exits cleanly when PureBLAS is unavailable.
 using PureOSQP, LinearAlgebra, BenchmarkTools, Random, Printf, JSON
 
@@ -157,4 +157,4 @@ open(joinpath(@__DIR__, "results", "pureblas_backend.json"), "w") do io
         ), 2
     )
 end
-println("\nsaved bench/results/pureblas_backend.json")
+println("\nsaved PureOSQP/bench/results/pureblas_backend.json")

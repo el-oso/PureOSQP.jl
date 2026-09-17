@@ -6,7 +6,7 @@
 #
 # Both of those are the *augmented* system, which is why the comparison is about cost alone:
 # the accuracy question that makes the interior-point method avoid the reduced form does not
-# separate them. `bench/ipm_backends.jl` measures that accuracy.
+# separate them. `PureIPM/bench/ipm_backends.jl` measures that accuracy.
 #
 # The sparse column carries the cost of building the sparse pair. `RowCoupled` is `k` dense
 # rows above one entry per remaining row, so its CSC form is assembled from those two blocks

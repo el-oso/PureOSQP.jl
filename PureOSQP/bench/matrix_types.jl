@@ -136,4 +136,4 @@ open(joinpath(@__DIR__, "results", "matrix_types.json"), "w") do io
         ), 2
     )
 end
-println("\nsaved bench/results/matrix_types.json")
+println("\nsaved PureOSQP/bench/results/matrix_types.json")

@@ -114,4 +114,4 @@ open(joinpath(@__DIR__, "results", "solvers.json"), "w") do io
         ), 2
     )
 end
-println("\nsaved bench/results/solvers.json")
+println("\nsaved PureOSQP/bench/results/solvers.json")

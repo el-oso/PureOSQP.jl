@@ -109,4 +109,4 @@ open(joinpath(@__DIR__, "results", "ipm_update.json"), "w") do io
         ), 2
     )
 end
-println("\nsaved bench/results/ipm_update.json")
+println("\nsaved PureIPM/bench/results/ipm_update.json")

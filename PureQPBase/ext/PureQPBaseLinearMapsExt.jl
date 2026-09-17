@@ -3,7 +3,7 @@ Accepts a `LinearMaps.LinearMap` wherever [`PureQPBase.setup`](@ref) takes a mat
 
 A `LinearMap` is not an `AbstractMatrix`, so it reaches the solver through
 [`PureQPBase.ProductOperator`](@ref). Wrapping is all this extension does; the protocol the
-wrapper implements lives in `src/core/operator.jl` and needs no dependency.
+wrapper implements lives in `PureQPBase/src/operator.jl` and needs no dependency.
 
 What loading LinearMaps buys over wrapping by hand is the two declarations the wrapper cannot
 compute: LinearMaps tracks `issymmetric` and `isposdef` on its maps, so a map built from a

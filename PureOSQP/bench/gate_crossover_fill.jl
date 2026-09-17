@@ -239,6 +239,6 @@ open(joinpath(@__DIR__, "results", "gate_crossover_fill.json"), "w") do io
         ), 2
     )
 end
-println("\nsaved bench/results/gate_crossover_fill.json")
+println("\nsaved PureOSQP/bench/results/gate_crossover_fill.json")
 
 end

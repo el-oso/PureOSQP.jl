@@ -24,7 +24,7 @@
 # so they are the same numbers under either algorithm.
 #
 # The problems are the OSQP suite's seven classes (`suite_problems.jl`), the structured pairs
-# of `test/selection_tests.jl` (`structured_problems.jl`), and three synthetic sparse families
+# of `PureQPBase/test/selection_tests.jl` (`structured_problems.jl`), and three synthetic sparse families
 # swept over `n`, `m/n` and the density or bandwidth of `A`, chosen so the KKT factor's fill
 # crosses 0.001 to 0.35 of `(n+m)^2`.
 #
@@ -32,7 +32,7 @@
 # the fastest one keeps that factorization time and is not solved: the skip is a measurement,
 # not an assumption, and the recorded `factorize_ms` is the evidence.
 #
-#     julia --project=bench bench/ipm_selection.jl   # writes bench/results/ipm_selection.json
+#     julia --project=bench PureIPM/bench/ipm_selection.jl   # writes PureIPM/bench/results/ipm_selection.json
 using PureOSQP, PureIPM, PureQPBase, LinearAlgebra, SparseArrays, Random, JSON, Chairmarks, Statistics
 using LDLFactorizations, BandedMatrices
 

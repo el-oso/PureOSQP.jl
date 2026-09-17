@@ -1,11 +1,11 @@
 # How the interior-point method scales in `n`, dense and sparse, against Clarabel and against
 # the operator-splitting method.
 #
-# `bench/ipm_vs_clarabel.jl` compares the three on the suite classes at one size each, which
+# `PureIPM/bench/ipm_vs_clarabel.jl` compares the three on the suite classes at one size each, which
 # says who wins a given problem but not how the gap moves with size. This sweeps `n` on random
 # QPs of both representations, holding `m = 2n`.
 #
-# Tolerances follow `bench/ipm_vs_clarabel.jl`: both interior-point methods at `1e-8`, their
+# Tolerances follow `PureIPM/bench/ipm_vs_clarabel.jl`: both interior-point methods at `1e-8`, their
 # own order of accuracy, and the operator-splitting method at `1e-6`, the tightest it reaches
 # in a modest iteration count here. Its column is a wall clock at a looser tolerance, not a
 # like-for-like comparison, and `max |Δx|` says how far apart the answers are.
@@ -103,4 +103,4 @@ open(joinpath(@__DIR__, "results", "ipm_scaling.json"), "w") do io
         ), 2
     )
 end
-println("\nsaved bench/results/ipm_scaling.json")
+println("\nsaved PureIPM/bench/results/ipm_scaling.json")

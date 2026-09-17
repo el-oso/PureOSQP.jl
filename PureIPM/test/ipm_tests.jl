@@ -157,8 +157,8 @@ end
 @testitem "interior point: outer iterations of the reference prototype" begin
     using PureIPM, PureQPBase
     using LinearAlgebra, SparseArrays, Random
-    # The dense generator of `bench/ipm_matrixfree_spike.jl` (`make_instance`), every row
-    # two-sided, and with the row mix of `bench/ipm_rowtypes_spike.jl` (`mixed`: 20% equality,
+    # The dense generator of `PureIPM/bench/ipm_matrixfree_spike.jl` (`make_instance`), every row
+    # two-sided, and with the row mix of `PureIPM/bench/ipm_rowtypes_spike.jl` (`mixed`: 20% equality,
     # 20% lower-only, 20% upper-only, 10% free). Seeds are explicit so the instances do not
     # depend on hashing.
     function spike_problem(n, κ, frac, seed; mixed = false)
@@ -237,7 +237,7 @@ end
         return PureIPM.ipm_workspace(ls, prob, wt, InteriorPoint{Float64}(InteriorPoint(; kwargs...), :auto), options)
     end
 
-    # Outer iterations to `eps = 1e-8` of the prototype `ipm3` in `bench/ipm_rowtypes_spike.jl`
+    # Outer iterations to `eps = 1e-8` of the prototype `ipm3` in `PureIPM/bench/ipm_rowtypes_spike.jl`
     # on these instances at `δ = 1e-8`: `:exact` (Bunch–Kaufman, no refinement) and
     # `:exact_cholmod_ref1` (CHOLMOD `ldlt`, one refinement step) agree on every one.
     # Keyed by (κ, active fraction), then (two-sided, mixed).

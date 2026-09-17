@@ -129,4 +129,4 @@ open(joinpath(@__DIR__, "results", "headtohead.json"), "w") do io
         ), 2
     )
 end
-println("\nsaved bench/results/headtohead.json")
+println("\nsaved PureOSQP/bench/results/headtohead.json")

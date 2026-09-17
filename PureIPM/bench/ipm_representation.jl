@@ -7,7 +7,7 @@
 # the row says so rather than being read as a speed difference.
 #
 # The operator column is absent for pairs the method refuses without a caller-supplied
-# preconditioner, which is `bench/ipm_matrixfree.jl`'s subject.
+# preconditioner, which is `PureIPM/bench/ipm_matrixfree.jl`'s subject.
 using PureOSQP, PureIPM, PureQPBase
 using LinearAlgebra, SparseArrays, BandedMatrices, LDLFactorizations
 using Chairmarks, Random, Printf, JSON, Statistics
@@ -69,4 +69,4 @@ open(joinpath(@__DIR__, "results", "ipm_representation.json"), "w") do io
         ), 2
     )
 end
-println("saved bench/results/ipm_representation.json")
+println("saved PureIPM/bench/results/ipm_representation.json")

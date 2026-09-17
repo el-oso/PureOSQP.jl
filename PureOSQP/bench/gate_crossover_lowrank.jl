@@ -149,4 +149,4 @@ for nthreads in THREADS
         )
     end
 end
-println("\nsaved bench/results/gate_crossover_lowrank.json")
+println("\nsaved PureOSQP/bench/results/gate_crossover_lowrank.json")

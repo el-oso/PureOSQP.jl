@@ -67,7 +67,7 @@ end
     using PureIPM
     using LinearAlgebra, Random, Krylov
 
-    # Products and nothing else, as in `test/linsys_tests.jl`. Both paths below build a
+    # Products and nothing else, as in `PureOSQP/test/linsys_tests.jl`. Both paths below build a
     # dense matrix out of `P` and `A` entry by entry, which this operator cannot serve.
     struct ProductsOnly{T} <: AbstractMatrix{T}
         m::Matrix{T}

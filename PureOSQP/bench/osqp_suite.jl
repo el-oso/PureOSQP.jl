@@ -1,4 +1,4 @@
-# The OSQP benchmark suite's problem classes, against libosqp 1.0 through `bench/osqp_v1.jl`.
+# The OSQP benchmark suite's problem classes, against libosqp 1.0 through `PureOSQP/bench/osqp_v1.jl`.
 #
 # Every other sparse benchmark here generates uniformly random sparsity, which is the worst
 # case for a sparse factorization: a random graph has no separator, so the Cholesky factor
@@ -120,4 +120,4 @@ open(joinpath(@__DIR__, "results", "osqp_suite.json"), "w") do io
         ), 2
     )
 end
-println("\nsaved bench/results/osqp_suite.json")
+println("\nsaved PureOSQP/bench/results/osqp_suite.json")

@@ -160,7 +160,7 @@ Fraction of the `n×n` matrix ADMM would otherwise invert that the reduced patte
 still be worth factoring, given that ADMM factors once and solves against that factorization
 for the rest of the run.
 
-Measured in `bench/results/ipm_selection.json`: a pattern at 0.06 loses to the dense inverse
+Measured in `PureIPM/bench/results/ipm_selection.json`: a pattern at 0.06 loses to the dense inverse
 by 4.7× and one at 0.083 by 3.0×, because the factor of a scattered pattern fills in far past
 the pattern itself. Every pattern below this limit either wins or ties.
 """
@@ -204,7 +204,7 @@ stored entries of the KKT matrix, and [`reduced_nnz`](@ref)'s count of the symbo
 `AᵀA ∪ P ∪ I` pattern. Nothing is factored, so the backend the ladder then builds is the
 only factorization `setup` pays for.
 
-The thresholds come from `bench/results/ipm_selection.json`, which records every backend each
+The thresholds come from `PureIPM/bench/results/ipm_selection.json`, which records every backend each
 of 71 problems admits, timed under both algorithms, alongside the backend this rule picked.
 Under `InteriorPoint` the pick is within 1.3× of the fastest measured backend on 69 of the 71,
 worst case 1.52×; under `OperatorSplitting` it is within 1.03× on all 71. Those figures are

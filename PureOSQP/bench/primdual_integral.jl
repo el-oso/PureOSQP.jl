@@ -17,7 +17,7 @@
 # land at a prescribed time. Their accuracy also assumes a smooth integrand, where this one
 # has kinks wherever `ρ` retunes.
 #
-# Run:  julia --project=bench bench/primdual_integral.jl
+# Run:  julia --project=bench PureOSQP/bench/primdual_integral.jl
 using PureOSQP, LinearAlgebra, Random, Printf, JSON, Statistics
 
 BLAS.set_num_threads(1)

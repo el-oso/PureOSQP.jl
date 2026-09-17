@@ -97,4 +97,4 @@ open(joinpath(@__DIR__, "results", "illconditioned.json"), "w") do io
         ), 2
     )
 end
-println("saved bench/results/illconditioned.json")
+println("saved PureOSQP/bench/results/illconditioned.json")

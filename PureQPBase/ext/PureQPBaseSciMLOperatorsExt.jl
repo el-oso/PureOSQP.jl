@@ -4,7 +4,7 @@ matrix.
 
 An `AbstractSciMLOperator` is not an `AbstractMatrix`, so it reaches the solver through
 [`PureQPBase.ProductOperator`](@ref), as a `LinearMaps.LinearMap` does. Wrapping is all this
-extension does; the protocol the wrapper implements lives in `src/core/operator.jl` and needs no
+extension does; the protocol the wrapper implements lives in `PureQPBase/src/operator.jl` and needs no
 dependency.
 
 An operator built with `*` — and with `kron` or `inv` — needs scratch for its intermediates

@@ -13,7 +13,7 @@
     #
     # Guards the guard. `check_trim_compat` scans the declared method bodies and does not
     # follow calls out of them, so it is a filter and not a proof -- a backend reaching a
-    # `ccall` still passes, which is why `test/trim_tests.jl` validates whole entry points
+    # `ccall` still passes, which is why `PureOSQP/test/trim_tests.jl` validates whole entry points
     # with the trimmer itself. This pins the depth the sweep does have: a backend whose own
     # body holds something the trimmer cannot resolve must be reported.
     #
@@ -56,6 +56,6 @@
     end
     # Every backend, with no exceptions. A new one whose declared methods are not trim
     # compatible lands here rather than quietly shrinking the guarantee to whatever
-    # `test/trim_tests.jl` happens to list.
+    # `PureOSQP/test/trim_tests.jl` happens to list.
     @test failed == String[]
 end

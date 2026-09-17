@@ -17,7 +17,7 @@
 # alongside, since a schedule that reached the same place with fewer refactorizations would
 # still be worth having.
 #
-# Run:  julia --project=bench bench/rho_schedule.jl
+# Run:  julia --project=bench PureOSQP/bench/rho_schedule.jl
 using PureOSQP, LinearAlgebra, SparseArrays, Printf, JSON, Random
 using LDLFactorizations, Krylov
 

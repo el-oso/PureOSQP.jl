@@ -18,7 +18,7 @@
 # The Kronecker row is the one to read first: its `A` has no zeros at all, so a sparse
 # factorization has nothing to work with, while the operator is two small factors.
 #
-# Run:  julia --project=bench bench/structured_vs_osqp.jl
+# Run:  julia --project=bench PureOSQP/bench/structured_vs_osqp.jl
 using PureOSQP, LinearAlgebra, SparseArrays, Random, Printf, JSON, Statistics
 using BandedMatrices, LDLFactorizations, Krylov, Chairmarks
 

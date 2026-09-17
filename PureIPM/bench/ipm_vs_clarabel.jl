@@ -8,7 +8,7 @@
 # iteration count and wall clock are reported side by side with the IPM's rather than folded
 # into the same referee.
 #
-#     julia --project=bench bench/ipm_vs_clarabel.jl    # writes bench/results/ipm_vs_clarabel.json
+#     julia --project=bench PureIPM/bench/ipm_vs_clarabel.jl    # writes PureIPM/bench/results/ipm_vs_clarabel.json
 using PureOSQP, PureIPM, Clarabel
 using LinearAlgebra, SparseArrays, Random, JSON, Chairmarks, Printf
 
@@ -91,4 +91,4 @@ open(RESULTS, "w") do io
         ), 2
     )
 end
-println("\nsaved bench/results/ipm_vs_clarabel.json")
+println("\nsaved PureIPM/bench/results/ipm_vs_clarabel.json")

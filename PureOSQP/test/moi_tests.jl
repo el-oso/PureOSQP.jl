@@ -48,7 +48,7 @@ end
     const MOI = MathOptInterface
 
     # A narrower subset than the ADMM run above: the interior-point method is measured
-    # end to end against the structural corpus and the c-suite (`test/ipm_tests.jl`), and
+    # end to end against the structural corpus and the c-suite (`PureIPM/test/ipm_tests.jl`), and
     # this only checks that the MOI wrapper itself dispatches to it and reports its numbers,
     # not a second full pass of MOI.Test.
     model = MOI.Utilities.CachingOptimizer(

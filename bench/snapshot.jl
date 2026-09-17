@@ -2,7 +2,7 @@
 # change to the linear-system code must leave every case's iterates identical.
 #
 # For every OSQP benchmark suite class (`suite_problems.jl`) and every structured family
-# `test/selection_tests.jl` asserts backend selection against, plus a sample of the ladder's
+# `PureQPBase/test/selection_tests.jl` asserts backend selection against, plus a sample of the ladder's
 # explicitly named backends, the block and Kronecker backends, the two matrix-free operator
 # routes, an Anderson-accelerated solve, an `update!`-and-resolve cycle and the KKT-error
 # adaptive-ρ schedule, it solves at fixed settings and records `(backend_name, iter,
@@ -18,7 +18,7 @@
 # every mismatch against the saved copy, exiting nonzero if there is one.
 #
 # Every extension is loaded for the whole run, so a suite class's `:auto` choice is made with
-# every backend available at once — `test/selection_tests.jl`'s own reference does the same,
+# every backend available at once — `PureQPBase/test/selection_tests.jl`'s own reference does the same,
 # which is why `Lasso`, `SVM` and `Huber` land on `:ldlfactorizations` and `Portfolio` on
 # `:ldl_kkt` below rather than on a `SparseArrays`-only backend.
 using PureOSQP, LinearAlgebra, SparseArrays, Random, JSON
@@ -63,7 +63,7 @@ function linearmap_problem(n)
 end
 
 """
-A `KroneckerOperator` `A` against a scalar multiple of the identity `P`, `test/kronecker_tests.jl`'s
+A `KroneckerOperator` `A` against a scalar multiple of the identity `P`, `PureQPBase/test/kronecker_tests.jl`'s
 reference case for the Kronecker backend. `kronecker_rung` requires uniform `ρ` and identity
 scaling, hence `scaling = 0`.
 """
@@ -79,7 +79,7 @@ function kronecker_problem()
     return (P, q, K, b .- rand(n), b .+ rand(n))
 end
 
-"A dense QP, the same shape `test/solve_tests.jl` builds its Anderson-accelerated cases from."
+"A dense QP, the same shape `PureOSQP/test/solve_tests.jl` builds its Anderson-accelerated cases from."
 function anderson_problem()
     Random.seed!(9303)
     n, m = 60, 120
@@ -142,7 +142,7 @@ mkcase(
 
 cases = NamedTuple[]
 
-# Every suite class at `:auto`, the reference `test/selection_tests.jl` checks selection
+# Every suite class at `:auto`, the reference `PureQPBase/test/selection_tests.jl` checks selection
 # against. `Lasso`, `SVM` and `Huber` land on the `LDLFactorizations` extension's
 # `:ldlfactorizations`, `Portfolio` on its `:ldl_kkt` — both asserted, since neither has its
 # own dedicated construction here.

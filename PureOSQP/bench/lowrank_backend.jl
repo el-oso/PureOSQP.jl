@@ -85,4 +85,4 @@ open(joinpath(@__DIR__, "results", "lowrank_backend.json"), "w") do io
         ), 2
     )
 end
-println("\nsaved bench/results/lowrank_backend.json")
+println("\nsaved PureOSQP/bench/results/lowrank_backend.json")

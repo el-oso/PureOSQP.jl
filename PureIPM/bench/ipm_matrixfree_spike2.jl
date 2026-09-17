@@ -50,11 +50,11 @@
 # records carry `krylov_cap` and `early_stop`, since records from other settings may be kept.
 #
 # Run from the repository root:
-#     julia +1.12 -t 6 --project=bench bench/ipm_matrixfree_spike2.jl [family[:n[:κ]] ...]
+#     julia +1.12 -t 6 --project=bench PureIPM/bench/ipm_matrixfree_spike2.jl [family[:n[:κ]] ...]
 # e.g. `dense:1000:1e6 kron sparse:500`. With no argument every family runs. The instances run
 # are replaced in
-#     bench/results/ipm_matrixfree_spike2_raw.json  (raw samples)
-# and the compact summary bench/results/ipm_matrixfree_spike2.json is rewritten from it.
+#     PureIPM/bench/results/ipm_matrixfree_spike2_raw.json  (raw samples)
+# and the compact summary PureIPM/bench/results/ipm_matrixfree_spike2.json is rewritten from it.
 
 include(joinpath(@__DIR__, "ipm_matrixfree_spike.jl"))
 using LimitedLDLFactorizations
@@ -634,7 +634,7 @@ const SUMMARY_COLUMNS = (
 
 function write_summary2(raw, path)
     out = Dict(
-        "description" => "Compact summary of bench/results/ipm_matrixfree_spike2_raw.json (matrix-free IPM spike 2)",
+        "description" => "Compact summary of PureIPM/bench/results/ipm_matrixfree_spike2_raw.json (matrix-free IPM spike 2)",
         "settings" => raw["settings"],
         "g1" => "eps = $(first(EPS_LIST)) reached with referee <= 1e-5",
         "g2" => "median inner iterations per solve, last 3 outer iterations / first 3, pass <= 10 (NaN if fewer than 6 outer iterations)",

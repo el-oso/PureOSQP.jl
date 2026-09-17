@@ -83,7 +83,7 @@ function lowrank_rung(P::Diagonal, A::RowCoupled, prob, wt, sel::SelectionFor; r
     # against `n×n`, so on flops alone the correction wins until `k` reaches `n/2`. It does
     # not: `symv` is multithreaded and both `gemv`s here are narrow, so the measured crossing
     # is `k/n ≈ 0.225` at eight BLAS threads and `≈ 0.445` at one
-    # (`bench/results/gate_crossover_lowrank.json`). `src/` and `ext/` pin no threads, so the
+    # (`PureOSQP/bench/results/gate_crossover_lowrank.json`). `src/` and `ext/` pin no threads, so the
     # limit has to hold at the threaded crossing, and it sits below it: at `k = n/10` the
     # solve is 1.78–2.27× ahead and setup 3.0–6.8× at every size measured.
     require_crossover && 10k > n && return nothing

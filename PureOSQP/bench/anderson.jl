@@ -8,7 +8,7 @@
 # `safeguard_tol` times the plain step's is discarded. `safeguard_tol = Inf` keeps every
 # proposal, which is what the third column measures.
 #
-# Run:  julia --project=bench bench/anderson.jl
+# Run:  julia --project=bench PureOSQP/bench/anderson.jl
 using PureOSQP, COSMOAccelerators, LinearAlgebra, SparseArrays, Random, Printf, JSON
 using Chairmarks, Statistics
 

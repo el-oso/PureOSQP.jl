@@ -1,6 +1,6 @@
 # The banded factorization against the dense one past the bandwidth the rung accepts.
 #
-# `bench/gate_crossover_band.jl` measures the selection a caller gets, so it stops where the
+# `PureOSQP/bench/gate_crossover_band.jl` measures the selection a caller gets, so it stops where the
 # rung stops: at `5b = 4n`. This measures the two backends themselves, across the whole range
 # including the part the rung declines, which is what says whether that limit sits in the
 # right place.
@@ -111,4 +111,4 @@ open(joinpath(@__DIR__, "results", "gate_band_beyond.json"), "w") do io
         ), 2
     )
 end
-println("\nsaved bench/results/gate_band_beyond.json")
+println("\nsaved PureOSQP/bench/results/gate_band_beyond.json")

@@ -148,7 +148,7 @@ interpolated between the iterations that sampled it: the first joins samples wit
 line, the second with an exponential, which is what a geometrically decaying gap does. The
 logarithmic mean never exceeds the arithmetic one, so the second is the lower of the two and
 the pair brackets the integral; measured, they differ by 1.3× to 4.2×
-(`bench/primdual_integral.jl`).
+(`PureOSQP/bench/primdual_integral.jl`).
 
 **Both integrate against wall-clock time and neither is reproducible.** They cannot be
 compared across machines, or between runs on a machine whose clock is not pinned, and no
@@ -267,7 +267,7 @@ Whether `M` equals its transpose, which [`setup`](@ref) requires of `P`.
 
 The generic method is `issymmetric`, an entrywise scan over all `n²` positions. A
 representation whose entries are structurally zero outside a known set overrides this and
-compares only that set — `ext/PureQPBaseBandedMatricesExt.jl` does, where the generic scan is
+compares only that set — `PureQPBase/ext/PureQPBaseBandedMatricesExt.jl` does, where the generic scan is
 the largest single term in a banded `setup`. It is an override point for the same reason
 [`is_convex`](@ref) is: the cost is a property of the representation, not of the problem.
 """

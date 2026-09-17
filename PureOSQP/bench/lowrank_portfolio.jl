@@ -133,4 +133,4 @@ open(joinpath(@__DIR__, "results", "lowrank_portfolio.json"), "w") do io
         ), 2
     )
 end
-println("\nsaved bench/results/lowrank_portfolio.json")
+println("\nsaved PureOSQP/bench/results/lowrank_portfolio.json")

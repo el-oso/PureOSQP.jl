@@ -1,4 +1,4 @@
-# The structured `(P, A)` pairs `test/selection_tests.jl` checks backend selection against,
+# The structured `(P, A)` pairs `PureQPBase/test/selection_tests.jl` checks backend selection against,
 # and the block-diagonal reference case, shared by `snapshot.jl` and `ipm_backends.jl`.
 # Needs `PureOSQP`, `LinearAlgebra`, `BandedMatrices` and `Random` loaded.
 
@@ -15,7 +15,7 @@ end
 """
     structured_families(n) -> Vector{NamedTuple}
 
-The structured `(P, A)` pairs `test/selection_tests.jl` checks backend selection against, each
+The structured `(P, A)` pairs `PureQPBase/test/selection_tests.jl` checks backend selection against, each
 under its own seed so adding or reordering a family never changes another one's numbers.
 """
 function structured_families(n)
@@ -92,7 +92,7 @@ function structured_families(n)
 end
 
 """
-`BlockDiagonal` `P` and `A` with matching block partitions, `test/block_tests.jl`'s reference
+`BlockDiagonal` `P` and `A` with matching block partitions, `PureQPBase/test/block_tests.jl`'s reference
 case for the block backend.
 """
 function block_problem()

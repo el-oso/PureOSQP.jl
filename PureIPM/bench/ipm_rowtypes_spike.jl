@@ -39,9 +39,9 @@
 # corrector, the previous corrector's Δx for the next predictor).
 #
 # Run from the repository root:
-#     julia +1.12 -t 6 --project=bench bench/ipm_rowtypes_spike.jl
-# Writes bench/results/ipm_rowtypes_spike_raw.json (per-run records) and
-# bench/results/ipm_rowtypes_spike.json (aggregated summary).
+#     julia +1.12 -t 6 --project=bench PureIPM/bench/ipm_rowtypes_spike.jl
+# Writes PureIPM/bench/results/ipm_rowtypes_spike_raw.json (per-run records) and
+# PureIPM/bench/results/ipm_rowtypes_spike.json (aggregated summary).
 
 include(joinpath(@__DIR__, "ipm_matrixfree_spike2.jl"))
 using LDLFactorizations
@@ -549,7 +549,7 @@ function main3(; raw_path = joinpath(@__DIR__, "results", "ipm_rowtypes_spike_ra
     mkpath(dirname(raw_path))
     open(io -> JSON.json(io, Dict("julia" => string(VERSION), "krylov_cap" => KRYLOV_CAP, "runs" => good, "errors" => errors); allownan = true), raw_path, "w")
     summary = Dict(
-        "description" => "Spike 3 (bench/ipm_rowtypes_spike.jl): row classes, realizable CG stopping, CG start, quasi-definite LDLt; aggregated per (experiment, family, mix, method, delta, stop, start)",
+        "description" => "Spike 3 (PureIPM/bench/ipm_rowtypes_spike.jl): row classes, realizable CG stopping, CG start, quasi-definite LDLt; aggregated per (experiment, family, mix, method, delta, stop, start)",
         "g1" => "eps = 1e-6 reached with referee <= 1e-5", "g2_floor100" => "t <= max(10f, 100)", "g2_floor_n10" => "t <= max(10f, min(100, n/10))",
         "krylov_cap" => KRYLOV_CAP, "fail_limit" => CG_FAIL_LIMIT, "errors" => length(errors),
         "groups" => aggregate(good), "vs_oracle" => oracle_deltas(good), "kkt_vs_bunchkaufman" => kkt_deltas(good),

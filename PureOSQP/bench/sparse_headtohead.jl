@@ -133,4 +133,4 @@ open(joinpath(@__DIR__, "results", "sparse_headtohead.json"), "w") do io
         ), 2
     )
 end
-println("\nsaved bench/results/sparse_headtohead.json")
+println("\nsaved PureOSQP/bench/results/sparse_headtohead.json")

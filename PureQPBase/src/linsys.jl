@@ -363,7 +363,7 @@ an indefinite `P` would be accepted silently.
 
 The generic method densifies, because a factorization it can rely on for an arbitrary
 `AbstractMatrix` is the dense one. That is `O(n³)` and `O(n²)` in memory whatever `P` was,
-so a representation with a cheaper test overrides this — `ext/PureQPBaseSparseArraysExt.jl`
+so a representation with a cheaper test overrides this — `PureQPBase/ext/PureQPBaseSparseArraysExt.jl`
 does, where the dense test measures 93× slower at `n = 2000`.
 """
 function is_convex(::Type{T}, P::AbstractMatrix, sigma) where {T}

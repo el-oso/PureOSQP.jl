@@ -96,4 +96,4 @@ open(joinpath(@__DIR__, "results", "probe_equilibration.json"), "w") do io
         ), 2
     )
 end
-println("\nsaved bench/results/probe_equilibration.json")
+println("\nsaved PureOSQP/bench/results/probe_equilibration.json")

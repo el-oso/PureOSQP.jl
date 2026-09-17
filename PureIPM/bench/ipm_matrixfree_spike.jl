@@ -27,9 +27,9 @@
 # run. The P and A seen by CG and the Woodbury construction are `LinearMap`s over the dense
 # matrices; exact Jacobi reads the dense matrices directly.
 #
-# Run from the repository root:  julia +1.12 -t 7 --project=bench bench/ipm_matrixfree_spike.jl
-# Output: bench/results/ipm_matrixfree_spike.json (raw samples) and
-#         bench/results/ipm_matrixfree_spike_summary.json (compact summary, `write_summary`)
+# Run from the repository root:  julia +1.12 -t 7 --project=bench PureIPM/bench/ipm_matrixfree_spike.jl
+# Output: PureIPM/bench/results/ipm_matrixfree_spike.json (raw samples) and
+#         PureIPM/bench/results/ipm_matrixfree_spike_summary.json (compact summary, `write_summary`)
 
 using LinearAlgebra, Krylov, LinearMaps, Clarabel, JSON, Random, Statistics, SparseArrays, Printf
 
@@ -117,7 +117,7 @@ objective(inst, x) = 0.5 * dot(x, inst.P * x) + dot(inst.q, x)
 """
     kkt_residuals(P, q, A, l, u, x, y) -> (r_prim, r_dual, r_opt)
 
-The package's test referee (`test/helpers.jl`), restricted to finite bounds: absolute primal
+The package's test referee (`PureIPM/test/helpers.jl`), restricted to finite bounds: absolute primal
 and dual residuals and the relative duality gap `|xᵀPx + qᵀx + uᵀmax(y,0) + lᵀmin(y,0)|`.
 """
 function kkt_residuals(P, q, A, l, u, x, y)
@@ -703,7 +703,7 @@ function write_summary(doc, path)
         )
     end
     out = Dict(
-        "description" => "Compact summary of bench/results/ipm_matrixfree_spike.json (first matrix-free IPM spike)",
+        "description" => "Compact summary of PureIPM/bench/results/ipm_matrixfree_spike.json (first matrix-free IPM spike)",
         "products_note" => "derived, not counted: 3 per CG iteration + preconditioner build per outer iteration (Woodbury k + 3*probes; exact-diagonal k; Jacobi 0)",
         "g1" => "eps = $(first(EPS_LIST)) reached with referee <= 1e-5",
         "g2" => "median inner iterations per solve, last 3 outer iterations / first 3, pass <= 10 (NaN if fewer than 6 outer iterations)",

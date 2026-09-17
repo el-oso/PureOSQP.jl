@@ -105,4 +105,4 @@ open(joinpath(@__DIR__, "results", "rho_update.json"), "w") do io
         ), 2
     )
 end
-println("\nsaved bench/results/rho_update.json")
+println("\nsaved PureOSQP/bench/results/rho_update.json")

@@ -36,7 +36,7 @@
 # separately at `eps_abs = eps_rel = 1e-6`, reported alongside rather than folded into the same
 # referee.
 #
-#     taskset -c 15 julia --project=bench bench/ipm_vs_others.jl   # writes bench/results/ipm_vs_others.json
+#     taskset -c 15 julia --project=bench PureIPM/bench/ipm_vs_others.jl   # writes PureIPM/bench/results/ipm_vs_others.json
 using PureOSQP, PureIPM, Clarabel, ECOS, MathOptInterface
 using LinearAlgebra, SparseArrays, Random, JSON, Chairmarks, Printf
 const MOI = MathOptInterface
@@ -266,4 +266,4 @@ open(RESULTS, "w") do io
         ), 2
     )
 end
-println("\nsaved bench/results/ipm_vs_others.json")
+println("\nsaved PureIPM/bench/results/ipm_vs_others.json")

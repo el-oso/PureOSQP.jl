@@ -73,7 +73,7 @@ One wrapper serves both — it lives in PureQPBase and carries the algorithm —
 behave identically apart from the method they run and the parameters they take.
 
 The wrapper passes `MOI.Test`, which is a far more thorough conformance suite than anything
-hand-written, under both algorithms: `test/moi_tests.jl` runs it against both optimizers.
+hand-written, under both algorithms: `PureOSQP/test/moi_tests.jl` runs it against both optimizers.
 Three attributes are excluded from it: `ConstraintBasisStatus`, `VariableBasisStatus` and
 `ObjectiveBound`. Neither algorithm produces a basis or a bound.
 

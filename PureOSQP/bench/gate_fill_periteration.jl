@@ -2,7 +2,7 @@
 #
 # The fill limit is stated in `nnz(L)/n²` and set below the point where the *per-iteration*
 # solve stops paying, so that the accepted region wins on the factorization and on the solve
-# both. `bench/gate_crossover_fill.jl` measures whole runs instead, where one factorization is
+# both. `PureOSQP/bench/gate_crossover_fill.jl` measures whole runs instead, where one factorization is
 # amortized over many iterations, and puts the crossing much further out. Neither answers what
 # the per-iteration loss actually is between the two crossings, which is the number the limit
 # should be priced on.
@@ -113,4 +113,4 @@ for n in SIZES
         )
     end
 end
-println("\nsaved bench/results/gate_fill_periteration.json")
+println("\nsaved PureOSQP/bench/results/gate_fill_periteration.json")

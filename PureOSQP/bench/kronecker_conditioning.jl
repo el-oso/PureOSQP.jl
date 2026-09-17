@@ -106,4 +106,4 @@ open(joinpath(@__DIR__, "results", "kronecker_conditioning.json"), "w") do io
         ), 2
     )
 end
-println("\nsaved bench/results/kronecker_conditioning.json")
+println("\nsaved PureOSQP/bench/results/kronecker_conditioning.json")

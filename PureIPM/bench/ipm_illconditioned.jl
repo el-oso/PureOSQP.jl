@@ -1,5 +1,5 @@
 # How the interior-point method behaves as conditioning worsens, at the size and sweep
-# `bench/illconditioned.jl` puts the operator-splitting method through: `n = 300`, with
+# `PureOSQP/bench/illconditioned.jl` puts the operator-splitting method through: `n = 300`, with
 # `κ(P) = κ(A)` swept to `1e12`.
 #
 # Two quantities matter here that have no operator-splitting counterpart. `reg_bumps` counts
@@ -10,7 +10,7 @@
 # system it factored, the referee's are not.
 #
 # `:indirect` is absent: the interior-point method runs conjugate gradients only with a
-# caller-supplied preconditioner, which is `bench/ipm_matrixfree.jl`'s subject.
+# caller-supplied preconditioner, which is `PureIPM/bench/ipm_matrixfree.jl`'s subject.
 using PureOSQP, PureIPM, PureQPBase
 using LDLFactorizations, LinearAlgebra, Printf, JSON, Random, SparseArrays
 using Chairmarks, Statistics
@@ -110,4 +110,4 @@ open(joinpath(@__DIR__, "results", "ipm_illconditioned.json"), "w") do io
         ), 2
     )
 end
-println("saved bench/results/ipm_illconditioned.json")
+println("saved PureIPM/bench/results/ipm_illconditioned.json")

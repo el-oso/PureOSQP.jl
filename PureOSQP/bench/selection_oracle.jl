@@ -128,4 +128,4 @@ open(joinpath(@__DIR__, "results", "selection_oracle.json"), "w") do io
         ), 2
     )
 end
-println("\nsaved bench/results/selection_oracle.json")
+println("\nsaved PureOSQP/bench/results/selection_oracle.json")

@@ -1,6 +1,6 @@
 # What one pass through the ADMM loop costs, by part.
 #
-# `bench/suite_split.jl` gives a per-iteration cost for each solver. This says where ours
+# `PureOSQP/bench/suite_split.jl` gives a per-iteration cost for each solver. This says where ours
 # goes: the ADMM step itself, the residual updates that run only on a check, and the
 # refactorizations `adapt_rho!` triggers — which are charged to the loop, not to setup, and
 # on a short run are a large share of it.

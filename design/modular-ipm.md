@@ -1,5 +1,9 @@
 # PureOSQP.jl: shared matrix support for more than one QP algorithm
 
+**Every path in this document is from the single-package layout it was written against.**
+`src/`, `test/` and `bench/` are now split across `PureQPBase`, `PureOSQP` and `PureIPM`;
+`design/three-package-split.md` records where each part landed.
+
 Design for steps 1 and 2 of the agreed strategy (internal boundary, then a Mehrotra IPM in the
 same package), with the step-3 package layout sketched. Every file:line below was read; claims
 that could not be checked by reading are marked **unverified**; claims that rest on the

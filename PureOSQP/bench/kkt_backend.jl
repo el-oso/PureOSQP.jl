@@ -124,7 +124,7 @@ open(joinpath(@__DIR__, "results", "kkt_backend.json"), "w") do io
         ), 2
     )
 end
-println("\nsaved bench/results/kkt_backend.json")
+println("\nsaved PureOSQP/bench/results/kkt_backend.json")
 
 """
 Ill-conditioning that equilibration cannot remove: `A` has unit-norm columns and rows that

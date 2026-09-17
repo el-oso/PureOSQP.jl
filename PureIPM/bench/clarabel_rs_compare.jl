@@ -1,7 +1,7 @@
 # Curiosity comparison, not a gate: how does Clarabel.rs (the Rust implementation, built
 # with its `faer-sparse` feature so it factors through faer rather than its bundled QDLDL)
 # compare with PureOSQP's interior-point method and with Clarabel.jl, on the same seven
-# OSQP-suite classes bench/ipm_vs_clarabel.jl already uses, at the same small sizes and
+# OSQP-suite classes PureIPM/bench/ipm_vs_clarabel.jl already uses, at the same small sizes and
 # the same 1e-8 tolerance?
 #
 # Clarabel.rs is not a PureOSQP.jl dependency: this script shells out to a prebuilt binary
@@ -9,7 +9,7 @@
 # unavailable, so nothing here can break a normal `Pkg.test()` or CI run.
 #
 # Rerun:
-#     julia --project=bench bench/clarabel_rs_compare.jl [run_label]
+#     julia --project=bench PureIPM/bench/clarabel_rs_compare.jl [run_label]
 # `run_label`, if given, is appended to the results filename (`clarabel_rs_compare_<label>.json`)
 # so that two independent invocations can be diffed against each other instead of one
 # overwriting the other — the run-to-run spread that decides whether a measured gap between
@@ -106,7 +106,7 @@ if governor != "powersave"
 end
 flush(stdout)
 
-"The smallest size of each suite class that still exercises its structure (matches bench/ipm_vs_clarabel.jl)."
+"The smallest size of each suite class that still exercises its structure (matches PureIPM/bench/ipm_vs_clarabel.jl)."
 const SMALL_CASES = [
     ("Random QP", () -> random_qp(6)),
     ("Eq QP", () -> eq_qp(20)),

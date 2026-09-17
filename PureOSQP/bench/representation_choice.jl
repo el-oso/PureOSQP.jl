@@ -22,7 +22,7 @@
 # Every row asserts its status, because a backend that ran out of iterations is not a faster
 # answer to the same question.
 #
-# Run:  julia --project=bench bench/representation_choice.jl
+# Run:  julia --project=bench PureOSQP/bench/representation_choice.jl
 using PureOSQP, LinearAlgebra, LinearMaps, Krylov
 using Printf, JSON, Random, Statistics
 

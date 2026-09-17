@@ -1,6 +1,6 @@
 # Setup against iteration, for both solvers, on the OSQP suite.
 #
-# `bench/osqp_suite.jl` times the whole call. That is the number that matters, but it cannot
+# `PureOSQP/bench/osqp_suite.jl` times the whole call. That is the number that matters, but it cannot
 # say whether a class is behind because the factorization costs more or because each ADMM
 # iteration does. The two solvers take the same number of iterations on these problems, so
 # splitting the total at the end of setup gives a per-iteration cost that is directly
@@ -13,7 +13,7 @@ BLAS.set_num_threads(1)
 include(joinpath(@__DIR__, "..", "..", "bench", "suite_problems.jl"))
 include(joinpath(@__DIR__, "osqp_v1.jl"))
 
-# `check_dualgap` is off on both, as in `bench/osqp_suite.jl`: it is the one termination test
+# `check_dualgap` is off on both, as in `PureOSQP/bench/osqp_suite.jl`: it is the one termination test
 # the two compute at different points, and leaving it on makes the iteration counts
 # incomparable, which is what splitting the total at the end of setup relies on.
 const OPTS = (eps_abs = 1.0e-5, eps_rel = 1.0e-5, max_iter = 20_000, check_dualgap = false)

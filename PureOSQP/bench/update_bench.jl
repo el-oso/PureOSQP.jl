@@ -166,4 +166,4 @@ open(joinpath(@__DIR__, "results", "update_bench.json"), "w") do io
         ), 2
     )
 end
-println("saved bench/results/update_bench.json")
+println("saved PureOSQP/bench/results/update_bench.json")

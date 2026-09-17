@@ -1,6 +1,6 @@
 # Setup against iteration for the interior-point method, on the OSQP suite.
 #
-# `bench/ipm_vs_clarabel.jl` times the whole call. That is the number that matters, but it
+# `PureIPM/bench/ipm_vs_clarabel.jl` times the whole call. That is the number that matters, but it
 # cannot say whether a class is slow because the first factorization costs more or because each
 # Newton iteration does. The two are priced differently here than under operator splitting: that
 # method factors once and iterates cheaply, this one refactors every iteration, so what setup
@@ -66,4 +66,4 @@ open(joinpath(@__DIR__, "results", "ipm_suite_split.json"), "w") do io
         ), 2
     )
 end
-println("\nsaved bench/results/ipm_suite_split.json")
+println("\nsaved PureIPM/bench/results/ipm_suite_split.json")

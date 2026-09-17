@@ -1,6 +1,6 @@
 @inline norm_inf(v::AbstractVector{T}) where {T} = maximum(abs, v; init = zero(T))
 
-"`max|s[i] v[i]|`. See `src/core/elementwise.jl` on why there are two schedules."
+"`max|s[i] v[i]|`. See `PureQPBase/src/elementwise.jl` on why there are two schedules."
 @inline function scaled_norm_inf(s::Array{T}, v::Array{T}) where {T}
     r = zero(T)
     for i in eachindex(s, v)

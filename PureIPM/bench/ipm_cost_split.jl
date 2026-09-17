@@ -1,7 +1,7 @@
 # Where the interior-point method's time goes on one problem, part by part.
 #
 # The Random QP class at its smallest size (n = 6, m = 60, 9 outer iterations) is the one
-# class of bench/clarabel_rs_compare.jl's seven where Clarabel.rs is faster, so this splits
+# class of PureIPM/bench/clarabel_rs_compare.jl's seven where Clarabel.rs is faster, so this splits
 # that case into the pieces `setup` and `solve!` are made of and prints microseconds, share
 # and allocations for each.
 #
@@ -15,13 +15,13 @@
 #      0.026 µs per reading, roughly 3 µs over a whole solve, so the instrumented total runs
 #      a little above the plain one; the plain total is printed alongside for comparison.
 #      Runs in which the garbage collector ran are dropped and the minimum is taken over the
-#      rest, matching how bench/clarabel_rs_compare.jl reports its own minima.
+#      rest, matching how PureIPM/bench/clarabel_rs_compare.jl reports its own minima.
 #
 # The Rust side of the same split is bench/clarabel_rs/src/bin/split.rs, which reads
 # Clarabel's own `Solver::timers`.
 #
 # Rerun:
-#     julia --project=bench bench/ipm_cost_split.jl
+#     julia --project=bench PureIPM/bench/ipm_cost_split.jl
 using PureOSQP, PureIPM, LinearAlgebra, SparseArrays, Random, BenchmarkTools, Printf, Statistics
 
 BLAS.set_num_threads(1)

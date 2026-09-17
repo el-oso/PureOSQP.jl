@@ -8,14 +8,14 @@
 # (`1e-5`) or takes more than twice the full KKT factorization's iterations on any of its
 # problems; `:auto` under the interior-point method then serves those pairs with `:kkt`.
 #
-# The structured families are `test/selection_tests.jl`'s at `n = 100` (`structured_problems.jl`),
+# The structured families are `PureQPBase/test/selection_tests.jl`'s at `n = 100` (`structured_problems.jl`),
 # each as given (`qp`), with `P` zeroed (`lp`), with every fourth row an equality at zero
 # (`eq`), and both (`lp_eq`); `x = 0` is feasible for all of them. The sparse engines are built
 # directly, since which one `:auto` reaches depends on whether LDLFactorizations is loaded.
 # `SparseFormedInverse` is not listed: the interior-point ladder has no formed rung and no
 # `linsys` names it.
 #
-#     julia --project=bench bench/ipm_backends.jl    # writes bench/results/ipm_backends.json
+#     julia --project=bench PureIPM/bench/ipm_backends.jl    # writes PureIPM/bench/results/ipm_backends.json
 using PureOSQP, PureIPM, PureQPBase, LinearAlgebra, SparseArrays, Random, JSON, Chairmarks
 using LDLFactorizations, BandedMatrices
 
@@ -28,7 +28,7 @@ const RESULTS = joinpath(@__DIR__, "results", "ipm_backends.json")
 const REFEREE = 1.0e-5
 const SExt = Base.get_extension(PureQPBase, :PureQPBaseSparseArraysExt)
 
-"The referee of `test/helpers.jl`: primal, dual and gap residuals from the original data."
+"The referee of `PureIPM/test/helpers.jl`: primal, dual and gap residuals from the original data."
 function kkt_residuals(P, q, A, l, u, x, y)
     Ax = A * x
     z = clamp.(Ax, l, u)
@@ -55,7 +55,7 @@ function kkt_residuals(P, q, A, l, u, x, y)
     return (r_prim, r_dual, max(r_gap, r_sign))
 end
 
-"A `banded_qp` of `test/helpers.jl`: constraint rows over contiguous runs of variables."
+"A `banded_qp` of `PureIPM/test/helpers.jl`: constraint rows over contiguous runs of variables."
 function banded_qp(n, m; band = 3, seed = 0)
     Random.seed!(n + m + band + seed)
     rows, cols, vals = Int[], Int[], Float64[]
@@ -236,8 +236,8 @@ fills = [
 ]
 
 """
-The dense generator of `bench/ipm_matrixfree_spike.jl`, two-sided or with the row mix of
-`bench/ipm_rowtypes_spike.jl`, as `test/ipm_tests.jl` reproduces it.
+The dense generator of `PureIPM/bench/ipm_matrixfree_spike.jl`, two-sided or with the row mix of
+`PureIPM/bench/ipm_rowtypes_spike.jl`, as `PureIPM/test/ipm_tests.jl` reproduces it.
 """
 function spike_problem(n, κ, frac, seed; mixed = false)
     rng = Xoshiro(seed)

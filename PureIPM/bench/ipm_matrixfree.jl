@@ -18,7 +18,7 @@
 # positive definite, which must end `NUMERICAL_ERROR`; and one sparse instance through
 # `IncompleteLDL`, which does not enter the verdict.
 #
-#     julia -t 4 --project=bench bench/ipm_matrixfree.jl
+#     julia -t 4 --project=bench PureIPM/bench/ipm_matrixfree.jl
 using PureOSQP, PureIPM, PureQPBase, LinearAlgebra, SparseArrays, Random, Statistics, Krylov, LinearMaps, JSON, Printf
 BLAS.set_num_threads(1)
 include(joinpath(@__DIR__, "ipm_preconditioners.jl"))
@@ -63,7 +63,7 @@ function kkt_residuals(P, q, A, l, u, x, y)
     return max(r_prim, r_dual, r_gap, sign_viol / max(maximum(abs, y), eps()))
 end
 
-"Planted instance: the generator of `test/ipm_tests.jl` (`spike_problem`), `m = n`."
+"Planted instance: the generator of `PureIPM/test/ipm_tests.jl` (`spike_problem`), `m = n`."
 function instance(n, κ, frac, seed; mixed = false)
     rng = Xoshiro(seed)
     m = n
@@ -265,7 +265,7 @@ function main(; sizes = (500, 1000, 2000), path = joinpath(@__DIR__, "results", 
     )
     println("verdict: ", verdict)
     out = Dict(
-        "description" => "bench/ipm_matrixfree.jl: :ipm + :indirect + LaggedCholesky(every = 3) over LinearMaps of dense planted instances; eps = 1e-6, scaling = 0, cg_max_iter = 500",
+        "description" => "PureIPM/bench/ipm_matrixfree.jl: :ipm + :indirect + LaggedCholesky(every = 3) over LinearMaps of dense planted instances; eps = 1e-6, scaling = 0, cg_max_iter = 500",
         "julia" => string(VERSION), "threads" => Threads.nthreads(), "blas_threads" => BLAS.get_num_threads(),
         "cases" => rows, "sparse_incomplete_ldl" => sparse_lldl, "infeasible" => infeasible, "indefinite_preconditioner" => indefinite,
         "verdict" => verdict,
