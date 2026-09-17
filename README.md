@@ -4,9 +4,11 @@
 [![Build Status](https://github.com/el-oso/PureOSQP.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/el-oso/PureOSQP.jl/actions/workflows/CI.yml?query=branch%3Amain)
 [![Coverage](https://coveralls.io/repos/github/el-oso/PureOSQP.jl/badge.svg?branch=main)](https://coveralls.io/github/el-oso/PureOSQP.jl?branch=main)
 
-A pure-Julia solver for convex quadratic programs, with two algorithms: operator splitting —
-[OSQP](https://osqp.org)'s ADMM iteration, the default — and a Mehrotra predictor–corrector
-interior-point method. Both share the same matrix support and problem interface:
+A pure-Julia solver for convex quadratic programs. This repository holds three packages:
+**PureOSQP.jl**, operator splitting — [OSQP](https://osqp.org)'s ADMM iteration;
+**PureIPM.jl**, a Mehrotra predictor–corrector interior-point method; and **PureQPBase.jl**,
+the problem representation and the linear-system backends both build on. Either solver
+re-exports the base, so one `using` is enough, and the two can be loaded together:
 
 ```
 minimize    ½ xᵀPx + qᵀx
@@ -16,7 +18,7 @@ subject to  l ≤ Ax ≤ u
 It handles every matrix representation — dense, sparse, structured, lazy, anything that satisfies `AbstractMatrix` — over any `Real` element type. `P` and `A` are kept by reference and never mutated, so each product calls `mul!` on the matrix you passed. The numerics are just `LinearAlgebra`; the only other dependency is [TypeContracts.jl](https://github.com/el-oso/TypeContracts.jl), which declares the linear-system backend. The hot path is allocation-free and type-stable, and every entry point compiles under `juliac --trim` — [Guarantees](https://el-oso.github.io/PureOSQP.jl/dev/guarantees).
 
 ```julia
-using PureOSQP
+using PureOSQP, PureIPM
 
 P = [4.0 1.0; 1.0 2.0]
 q = [1.0, 1.0]

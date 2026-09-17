@@ -12,16 +12,21 @@ A pure-Julia solver for convex quadratic programs:
 `P` is symmetric positive semidefinite, `A` is `m×n`, and `l`, `u` may contain `∓Inf`. Rows where `l == u` are equality constraints.
 
 Two algorithms solve it, sharing the same matrix support and the same problem interface.
-[`OperatorSplitting`](@ref), the default, is OSQP's ADMM iteration. [`InteriorPoint`](@ref) is
-a Mehrotra predictor–corrector interior-point method. Pass five arrays for the default, or the
-algorithm as a sixth positional argument for the other:
+[`OperatorSplitting`](@ref), which PureOSQP.jl supplies, is OSQP's ADMM iteration.
+[`InteriorPoint`](@ref), which PureIPM.jl supplies, is a Mehrotra predictor–corrector
+interior-point method. Both build on PureQPBase.jl, which holds the problem representation
+and the linear-system backends, and both re-export it, so one `using` is enough for either:
 
 ```julia
+using PureOSQP
 sol = solve(P, q, A, l, u)                                    # OperatorSplitting, the default
+
+using PureIPM
 sol = solve(P, q, A, l, u, InteriorPoint(); eps_abs = 1e-9)    # tighter accuracy by default
 ```
 
-[Choosing an algorithm](@ref) compares them.
+Loading both gives one `solve` that takes either algorithm as its sixth positional argument;
+the five-argument form runs `OperatorSplitting`. [Choosing an algorithm](@ref) compares them.
 
 ## Your first solve
 

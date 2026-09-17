@@ -1,10 +1,16 @@
 # Choosing an algorithm
 
-Two algorithms solve the same problem. The sixth argument of [`solve`](@ref) and
-[`setup`](@ref) picks one and holds the settings only that algorithm reads; everything both
-read is a keyword argument of [`Options`](@ref).
+Two algorithms solve the same problem, from two packages: PureOSQP.jl supplies
+[`OperatorSplitting`](@ref) and PureIPM.jl supplies [`InteriorPoint`](@ref). Both re-export
+PureQPBase.jl, which holds everything they share, so `using` either is enough to solve a
+problem, and `using` both puts both algorithms on the same [`solve`](@ref).
+
+The sixth argument of [`solve`](@ref) and [`setup`](@ref) picks the algorithm and holds the
+settings only that algorithm reads; everything both read is a keyword argument of
+[`Options`](@ref). The five-argument form runs [`OperatorSplitting`](@ref).
 
 ```julia
+using PureIPM
 ws = setup(P, q, A, l, u, InteriorPoint(); max_iter = 50)
 sol = solve!(ws)
 ws.algorithm     # InteriorPoint{Float64, Float64, Float64, Int64}: parameters in the solve's element type
@@ -21,7 +27,8 @@ wrong place throws, naming where it belongs:
 
 ```julia
 InteriorPoint(rho = 0.2)                           # MethodError: rho is not an InteriorPoint parameter
-solve(P, q, A, l, u, InteriorPoint(); rho = 0.2)   # ArgumentError: rho is a parameter of OperatorSplitting
+solve(P, q, A, l, u; rho = 0.2)                    # ArgumentError: rho is a parameter of OperatorSplitting
+solve(P, q, A, l, u, InteriorPoint(); rho = 0.2)   # ArgumentError: rho is not an option of InteriorPoint
 ```
 
 ## Accuracy and iteration count
