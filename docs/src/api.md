@@ -24,13 +24,13 @@ PureOSQP.Solution
 ```@docs
 PureOSQP.QPAlgorithm
 PureOSQP.OperatorSplitting
-PureOSQP.InteriorPoint
+PureIPM.InteriorPoint
 PureOSQP.Options
 PureQPBase.LINSYS_OPTIONS
 PureOSQP.default_options
 PureOSQP.QPWorkspace
 PureOSQP.OperatorSplittingWorkspace
-PureOSQP.InteriorPointWorkspace
+PureIPM.InteriorPointWorkspace
 ```
 
 ## Status values
@@ -133,14 +133,14 @@ PureOSQP.polish_kernel!
 PureOSQP.polish!
 PureOSQP.active_kkt
 PureOSQP.derivative_ready
-PureOSQP.ipm_step!
-PureOSQP.ipm_residuals!
-PureOSQP.weights!
-PureOSQP.factorize_newton!
-PureOSQP.primal_certificate!
-PureOSQP.dual_certificate!
-PureOSQP.stalled!
-PureOSQP.iterate_bound
+PureIPM.ipm_step!
+PureIPM.ipm_residuals!
+PureIPM.weights!
+PureIPM.factorize_newton!
+PureIPM.primal_certificate!
+PureIPM.dual_certificate!
+PureIPM.stalled!
+PureIPM.iterate_bound
 PureOSQP.has_solution
 PureOSQP.PolishStatus
 ```
@@ -199,6 +199,9 @@ PureQPBase.unpreconditioned!
 PureQPBase.probe_column!
 PureQPBase.no_entries
 PureQPBase.check_symmetric_products
+PureQPBase.CoupledRows
+PureQPBase.divide!
+PureIPM.caller_preconditioner
 ```
 
 ## The selection ladder

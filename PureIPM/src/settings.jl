@@ -19,7 +19,8 @@ The Mehrotra predictor–corrector interior-point method, passed as the algorith
   iterations, or that conjugate gradients abandons because the operator or the
   preconditioner is not positive definite, is a missed solve.
 
-Its [`Options`](@ref) defaults differ from [`OperatorSplitting`](@ref)'s: `max_iter = 100`,
+Its [`Options`](@ref) defaults are its own, and tighter than an operator-splitting method
+would ask for: `max_iter = 100`,
 `eps_abs`, `eps_rel`, `eps_prim_inf` and `eps_dual_inf` at `ipm_floor(T)`,
 `check_termination = 1`, `cg_max_iter = 500` and `cg_tol_fraction = 0.1`, where each
 conjugate-gradient solve stops once the two-norm of its recursively updated residual is

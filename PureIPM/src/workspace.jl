@@ -392,9 +392,8 @@ end
 """
     update!(ws::InteriorPointWorkspace; q, l, u, P, A) -> ws
 
-Replace problem data in an existing interior-point workspace, as [`update!`](@ref) does for
-[`OperatorSplittingWorkspace`](@ref): the same validation and adoption, checked against
-convexity at `reg_primal`. A row whose bounds move into or out of equality or freeness is
+Replace problem data in an existing interior-point workspace: the validation and adoption
+[`update!`](@ref) does for any workspace, checked against convexity at `reg_primal`. A row whose bounds move into or out of equality or freeness is
 reclassified; `s_l`, `s_u`, `z_l` and `z_u` are left as they are, since `starting_point!`
 rebuilds them from `x`, `y` and the current classes at the next solve.
 

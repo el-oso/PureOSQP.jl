@@ -108,12 +108,10 @@ recommend_linsys(
 """
     Optimizer(; kwargs...)
 
-MathOptInterface optimizer, available once MathOptInterface is loaded. Keyword arguments
-are `algorithm` (`"admm"`, the default, selecting [`OperatorSplitting`](@ref), or `"ipm"`,
-selecting [`InteriorPoint`](@ref)), the fields of [`Options`](@ref), and the parameters of the
-selected algorithm; `MOI.RawOptimizerAttribute("algorithm")` sets it after construction too.
-Every other raw attribute is checked by name against [`Options`](@ref) or the selected
-algorithm's parameters when it is set.
+MathOptInterface optimizer for [`OperatorSplitting`](@ref), available once MathOptInterface
+is loaded. Keyword arguments are the fields of [`Options`](@ref) and the parameters of
+[`OperatorSplitting`](@ref); each raw attribute is checked by name against those when it is
+set. PureIPM.jl's `Optimizer` is the interior-point counterpart.
 
 The wrapper lives in a package extension, so it costs nothing to a caller who does not use
 it; this name is the only part of it this package owns.

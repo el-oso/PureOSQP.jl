@@ -13,7 +13,7 @@ solver to use on them. [Matrix types](matrices.md) covers the other storage form
 ## Basic usage
 
 ```@example demo
-using PureOSQP
+using PureOSQP, PureIPM
 
 P = [4.0 1.0; 1.0 2.0]
 q = [1.0, 1.0]

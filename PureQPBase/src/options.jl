@@ -2,9 +2,9 @@
     QPAlgorithm
 
 The method a solve runs, passed as the sixth positional argument of [`setup`](@ref) and
-[`solve`](@ref) — [`PureOSQP.OperatorSplitting`](@ref) or [`PureOSQP.InteriorPoint`](@ref),
-neither of which this package defines. An algorithm object holds the parameters only that
-method reads; everything both methods read is an [`Options`](@ref) field, passed as a
+[`solve`](@ref). This package defines none: PureOSQP.jl supplies `OperatorSplitting` and
+PureIPM.jl supplies `InteriorPoint`. An algorithm object holds the parameters only that
+method reads; everything every method reads is an [`Options`](@ref) field, passed as a
 keyword argument.
 
 A subtype implements the methods `TypeContracts.describe(QPAlgorithm)` lists, checked at
