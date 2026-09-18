@@ -47,10 +47,9 @@ setup(P, q, A, l, u, alg; linsys = :kkt)     # this backend, or an error saying 
 recommend_linsys(P, q, A, l, u)              # build each candidate, time a solve, rank them
 ```
 
-`linsys` takes `:auto`, `:dense`, `:kkt`, `:sparse`, `:indirect`, and the named kinds
-`:diagonal`, `:tridiagonal`, `:block`, `:kronecker` and `:lowrank`. It is an instruction
-rather than a hint: name one the pair cannot support and the call fails, naming the condition
-it failed, rather than quietly using something else.
+`linsys` takes ten values, listed under [What each `linsys` value means](@ref). It is an
+instruction rather than a hint: name one the pair cannot support and the call fails, naming the
+condition it failed, rather than quietly using something else.
 
 It is decided for you by default because the decision needs things a caller would otherwise
 have to work out. Whether the reduced matrix fills in, and how many nonzeros the densest row
@@ -87,6 +86,41 @@ exploits, because structure in `P` and `A` survives into it. It has one cost: fo
 `Ãᵀ diag(w) Ã` mixes the weights into the matrix. That is harmless while the weights stay in
 a narrow band, and it is not harmless when they do not — which is the difference between the
 two algorithms below.
+
+## What each `linsys` value means
+
+The ten values split into two groups, and they answer different questions.
+
+**Four name a solver.** They say which of the two systems above gets built, and what solves it.
+They say nothing about your matrices:
+
+| value | system it builds | what solves it |
+|---|---|---|
+| `:dense` | reduced, `n×n` | a dense Cholesky, inverted in place, so each solve is one `symv` |
+| `:kkt` | augmented, `(n+m)×(n+m)` | a dense `bunchkaufman!` |
+| `:sparse` | augmented or reduced, whichever fits the pattern | a sparse `LDLᵀ` or Cholesky |
+| `:indirect` | neither — nothing is ever built | preconditioned conjugate gradients, through products alone |
+
+What each one asks of you:
+
+| value | requires | pick it when |
+|---|---|---|
+| `:dense` | `P` and `A` you can materialize | the pattern rule misjudged your problem and you want the dense reduced path anyway |
+| `:kkt` | `P` and `A` you can materialize | the reduced form's conditioning is in doubt; it never squares `cond(A)` |
+| `:sparse` | `SparseMatrixCSC` `P` and `A`, and `using SparseArrays` | you want a sparse factorization on a pair `:auto` sends elsewhere |
+| `:indirect` | `using Krylov`. Under [`InteriorPoint`](@ref), also a `preconditioner` of your own and `scaling = 0` | the matrix cannot be formed at all, or forming an `n×n` inverse is the dominant cost |
+
+`:kkt` and `:dense` always build. They test nothing about the pair beyond being able to
+materialize it, which is what makes them the reliable escape hatches. `:sparse` tries the
+augmented form first, then the reduced one, then the formed-and-inverted one, and refuses only
+if none of the three factors.
+
+**Five name a matrix structure**, not a solver: `:diagonal`, `:tridiagonal`, `:block`,
+`:kronecker` and `:lowrank`. Each one asserts that your `P` and `A` have a particular shape, and
+the solver follows from that shape — all five build the reduced system and exploit the structure
+in it. Name one your pair does not have and the call fails, naming the shape it wanted.
+[Matrix types](@ref "Structured operators the package ships") covers what each shape is and when
+it pays.
 
 ## The decision
 
