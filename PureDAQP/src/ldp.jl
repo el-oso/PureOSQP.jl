@@ -108,7 +108,7 @@ function activate!(ws::LDPWorkspace{T}, r::Integer, side::Int8) where {T}
     if ispacked(ws)
         mul!(g, transpose(view(ws.Ma, :, 1:k)), m_r)
     else
-        for j in 1:k
+        @inbounds for j in 1:k
             g[j] = dot(row(ws, ws.active[j]), m_r)
         end
     end
@@ -184,7 +184,12 @@ end
 
 "Index of the first zero pivot in the working set's factorization, or 0."
 @inline function first_singular_pivot(F::GramLDL{T}, zero_tol::T) where {T}
-    for i in 1:F.k
+    # `@inbounds` throughout the steps below: they index `1:F.k`, and the factorization's
+    # buffers are allocated to the largest working set the problem admits, so `F.k` never
+    # reaches their end. `eachindex` does not stand in for it here -- measured on the
+    # multiplier step, it is slower than the bare loop, because the views carry their checks
+    # into the loop body and block the vectorization the annotation buys.
+    @inbounds for i in 1:F.k
         F.D[i] <= zero_tol && return i
     end
     return 0
@@ -224,11 +229,11 @@ the point dual feasible. An equality row is held whatever the sign.
 function working_set_multipliers!(ws::LDPWorkspace{T}) where {T}
     k = ws.F.k
     mus = view(ws.mu_star, 1:k)
-    for i in 1:k
+    @inbounds for i in 1:k
         mus[i] = target(ws, ws.active[i])
     end
     solve_gram!(ws.F, mus)
-    for i in 1:k
+    @inbounds for i in 1:k
         r = ws.active[i]
         !ws.iseq[r] && musign(ws, r) * mus[i] < 0 && return false
     end
@@ -244,8 +249,9 @@ reaches zero. `false` when nothing blocks the step.
 function step_toward_multipliers!(ws::LDPWorkspace{T}, zero_tol::T) where {T}
     k = ws.F.k
     p = view(ws.p, 1:k)
-    for i in 1:k
-        p[i] = ws.mu_star[i] - ws.mu[i]
+    mus, mu = ws.mu_star, ws.mu
+    @inbounds @simd for i in 1:k
+        p[i] = mus[i] - mu[i]
     end
     return step_and_drop!(ws, p, zero_tol)
 end
@@ -261,7 +267,7 @@ function primal_point!(ws::LDPWorkspace{T}) where {T}
     # An explicit loop rather than `copyto!`: between two views of a vector that checks
     # whether they alias and copies the source if it cannot tell, which is an allocation
     # site the hot-path guarantee sees whether or not the branch can be reached.
-    @simd for i in 1:k
+    @inbounds @simd for i in 1:k
         mu[i] = mus[i]
     end
     if ispacked(ws)
@@ -269,8 +275,8 @@ function primal_point!(ws::LDPWorkspace{T}) where {T}
     else
         uu = ws.u
         fill!(uu, zero(T))
-        for i in 1:k
-            mui = ws.mu[i]
+        @inbounds for i in 1:k
+            mui = mu[i]
             col = row(ws, ws.active[i])
             @simd for j in eachindex(uu, col)
                 uu[j] += mui * col[j]
