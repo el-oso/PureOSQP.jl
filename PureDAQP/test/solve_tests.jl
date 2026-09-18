@@ -1,0 +1,117 @@
+@testitem "the documented example gives the documented answer" begin
+    using PureDAQP
+    P = [4.0 1.0; 1.0 2.0]
+    q = [1.0, 1.0]
+    A = [1.0 1.0; 1.0 0.0; 0.0 1.0]
+    l = [1.0, 0.0, 0.0]
+    u = [1.0, 0.7, 0.7]
+    sol = solve(P, q, A, l, u, ActiveSet())
+    @test sol.status == SOLVED
+    @test sol.x ≈ [0.3, 0.7] atol = 1.0e-9
+    @test sol.obj_val ≈ 1.88 atol = 1.0e-9
+    # An active-set method stops at a vertex of its working set, so the point is exact
+    # rather than within a tolerance.
+    @test iszero(sol.prim_res)
+    @test sol.dual_res < 1.0e-12
+    # Row 2 is inactive, and its multiplier is exactly zero rather than merely small.
+    @test iszero(sol.y[2])
+end
+
+@testitem "matches libdaqp on random strictly convex problems" begin
+    using PureDAQP, LinearAlgebra, Random
+    import DAQP
+
+    rng = MersenneTwister(91)
+    for _ in 1:150
+        n, m = rand(rng, 2:10), rand(rng, 2:14)
+        Q = qr(randn(rng, n, n)).Q
+        H = Matrix(Symmetric(Q * Diagonal(exp10.(range(0, 2; length = n))) * Q'))
+        f = randn(rng, n)
+        A = randn(rng, m, n)
+        bu = 0.5 .* abs.(A * randn(rng, n)) .+ 0.05
+        sol = solve(H, f, A, -bu, bu, ActiveSet())
+        @test sol.status == SOLVED
+        xr = DAQP.quadprog(H, f, A, bu, -bu)[1]
+        @test norm(sol.x - xr, Inf) / (1 + norm(xr, Inf)) < 1.0e-9
+        @test sol.prim_res < 1.0e-10
+        @test sol.dual_res < 1.0e-9
+    end
+end
+
+@testitem "proximal-point iterations accept a singular P" begin
+    using PureDAQP, LinearAlgebra, Random
+
+    rng = MersenneTwister(92)
+    for _ in 1:30
+        n, m = rand(rng, 4:9), rand(rng, 6:16)
+        Q = qr(randn(rng, n, n)).Q
+        # Two zero eigenvalues: `P` is positive semidefinite but not invertible, which the
+        # reduction cannot factor without regularization.
+        lam = vcat(ones(n - 2), zeros(2))
+        P = Matrix(Symmetric(Q * Diagonal(lam) * Q'))
+        q = randn(rng, n)
+        A = randn(rng, m, n)
+        bu = 0.8 .* abs.(A * randn(rng, n)) .+ 0.1
+        sol = solve(P, q, A, -bu, bu, ActiveSet(; eps_prox = 1.0e-4, eta_prox = 1.0e-10))
+        @test sol.status == SOLVED
+        @test sol.prim_res < 1.0e-8
+    end
+end
+
+@testitem "an exactly singular P is refused without eps_prox" begin
+    using PureDAQP, LinearAlgebra
+
+    # Built to be singular exactly rather than by construction and rounding: a random
+    # rank-deficient `P` often comes back from `Q Λ Qᵀ` with eigenvalues near ±1e-16, and
+    # Cholesky then succeeds or fails depending on which side of zero they land.
+    P = [1.0 0.0; 0.0 0.0]
+    q = [1.0, -1.0]
+    A = [1.0 0.0; 0.0 1.0]
+    l = [-1.0, -1.0]
+    u = [1.0, 1.0]
+    @test_throws ArgumentError solve(P, q, A, l, u, ActiveSet())
+    sol = solve(P, q, A, l, u, ActiveSet(; eps_prox = 1.0e-4, eta_prox = 1.0e-12))
+    @test sol.status == SOLVED
+    # Minimizing ½x₁² + x₁ − x₂ over the box puts x₁ at −1 and x₂ at its upper bound.
+    @test sol.x ≈ [-1.0, 1.0] atol = 1.0e-6
+end
+
+@testitem "a linear program is the extreme case of a singular P" begin
+    using PureDAQP, LinearAlgebra, Random
+
+    rng = MersenneTwister(44)
+    for _ in 1:15
+        n, m = rand(rng, 3:7), rand(rng, 8:18)
+        P = zeros(n, n)
+        q = randn(rng, n)
+        A = randn(rng, m, n)
+        # The origin is strictly feasible, so the program is bounded.
+        bu = abs.(randn(rng, m)) .+ 0.5
+        bl = -abs.(randn(rng, m)) .- 0.5
+        sol = solve(P, q, A, bl, bu, ActiveSet(; eps_prox = 1.0e-4, eta_prox = 1.0e-10, max_prox = 400))
+        @test sol.status == SOLVED
+        @test sol.prim_res < 1.0e-7
+    end
+end
+
+@testitem "equality rows stay in the working set" begin
+    using PureDAQP, LinearAlgebra, Random
+
+    rng = MersenneTwister(13)
+    for _ in 1:40
+        n = rand(rng, 3:8)
+        P = Matrix(1.0I, n, n)
+        q = randn(rng, n)
+        A = randn(rng, n + 2, n)
+        b = A * randn(rng, n)
+        l = copy(b)
+        u = copy(b)
+        # The first two rows are equalities; the rest are a loose box that cannot bind.
+        l[3:end] .-= 10.0
+        u[3:end] .+= 10.0
+        sol = solve(P, q, A, l, u, ActiveSet())
+        @test sol.status == SOLVED
+        @test abs(dot(A[1, :], sol.x) - b[1]) < 1.0e-9
+        @test abs(dot(A[2, :], sol.x) - b[2]) < 1.0e-9
+    end
+end
