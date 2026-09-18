@@ -23,7 +23,7 @@ documentation, the design notes — is MIT.
 ## PureOSQP
 
 **This is not a clean-room implementation.** The operator-splitting method was written using
-the OSQP paper and the reference C implementation, for details such as the $\rho$ update
+the OSQP paper and the reference C implementation, for details such as the `ρ` update
 schedule and the order of the iteration. OSQP's C unit tests were ported into the test suite.
 
 It is therefore a derivative work and is released under **Apache-2.0**, matching upstream.
@@ -77,12 +77,12 @@ For the interior-point method, cite Mehrotra (1992).
 libosqp 1.0 is the reference for `PureOSQP`: its settings, its defaults, and its termination
 and certificate tests. These are the differences from it.
 
-- The inner KKT system is reduced to an $n \times n$ positive definite system.
+- The inner KKT system is reduced to an `n×n` positive definite system.
 - The factored matrix is inverted in place for the dense case, making solves faster.
 - Equilibration is stored as factors and applied lazily, so `P` and `A` are never copied.
 - A backend is chosen from the declared types of `P` and `A`, so a structured matrix is
   solved through its structure rather than through its sparsity pattern.
-- $\rho$ has no wall-clock adaptation mode. Deciding when to refactorize by reading a clock
+- `ρ` has no wall-clock adaptation mode. Deciding when to refactorize by reading a clock
   makes the iteration count a property of the machine; the other three modes are all here.
 - Solution derivatives can be computed via implicit differentiation, and the element type is
   `Real` rather than a float, so dual numbers run the solver.

@@ -86,7 +86,7 @@ and `cg_tol_fraction` — are in [`default_options`](@ref) and in
 
 Of the thirty-one settings: twenty-two match upstream, three have no counterpart, five are renamed or defaulted differently, and one is a trap.
 
-**Same name, different meaning — the one to watch.** `adaptive_rho_fraction` means different things in upstream and here. Upstream it is a fraction of *setup time*. Here it is a fraction of the *previous KKT error*. Under `adaptive_rho = :kkt_error`, $\rho$ is retuned only when the relative KKT error falls to `adaptive_rho_fraction` of its previous value. Porting tuned values without reading this will cause quiet errors.
+**Same name, different meaning — the one to watch.** `adaptive_rho_fraction` means different things in upstream and here. Upstream it is a fraction of *setup time*. Here it is a fraction of the *previous KKT error*. Under `adaptive_rho = :kkt_error`, `ρ` is retuned only when the relative KKT error falls to `adaptive_rho_fraction` of its previous value. Porting tuned values without reading this will cause quiet errors.
 
 **Upstream only.** `device` and `allocate_solution` are for GPU and embedded systems. `cg_precond` always uses the diagonal preconditioner.
 

@@ -84,12 +84,12 @@ public path:
 - `solve` with various settings and sparse or dense operands.
 - Every structured representation: diagonal, tridiagonal, banded, low-rank, block-diagonal,
   Kronecker, and products.
-- `setup` $\to$ `solve!` $\to$ `update!` $\to$ `solve!`, and similar sequences with `warm_start!`.
+- `setup` → `solve!` → `update!` → `solve!`, and similar sequences with `warm_start!`.
 - `update_settings!`, `update_rho!`, and `cold_start!`.
 - The derivatives.
 - `InteriorPoint()` on `FullKKT` (its default and its named KKT backend), the sparse KKT
   family, a diagonal pair, `:indirect` with a caller preconditioner on both a matrix pair and
-  a `ProductOperator` pair, and a `setup` $\to$ `solve!` $\to$ `update!` $\to$ `solve!`
+  a `ProductOperator` pair, and a `setup` → `solve!` → `update!` → `solve!`
   sequence and the derivatives, each under `InteriorPoint()`.
 
 For a sparse problem you must name the backend — `:kkt`, `:dense` or `:indirect` — to stay

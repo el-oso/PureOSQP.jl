@@ -54,8 +54,8 @@ sol = solve(P, q, A, l, u, OperatorSplitting())
 `sol.status` is `SOLVED`, and `sol.x` is the answer. The interface is minimal: there is no model object or configuration.
 
 Three things to know:
-* **The $P$ matrix:** It represents the $\frac{1}{2}x^\top P x$ term, so a plain $x_1^2 + x_2^2$ objective needs $2$s on the diagonal.
-* **Constraints:** Every constraint is a row of $l \leq Ax \leq u$. Use $l = u$ for equalities, and $\pm\infty$ for one-sided constraints.
+* **The `P` matrix:** it carries the `½ xᵀPx` term, so a plain `x₁² + x₂²` objective needs `2`s on the diagonal.
+* **Constraints:** every constraint is a row of `l ≤ Ax ≤ u`. Use `l == u` for an equality, and `±Inf` for a one-sided constraint.
 * **Setup:** `solve` handles everything at once. For many similar problems, use [`setup`](@ref) to build a workspace once and reuse it.
 
 For more, see [Examples](@ref "Building a workspace once") or the implementation details below.
@@ -69,7 +69,9 @@ and `A` are held by reference and never copied or modified. Every per-iteration 
 Equilibration reaches the entries through four overridable column traversals, and a
 `SparseArrays` weak dependency specialises them to walk only the stored entries.
 
-One matrix in the solver is always dense: the $n \times n$ reduced system formed by eliminating $\nu$. This is a property of the reduction, not a limit on your input. If you have a dense row in $A$, the solver uses a sparse factorization of the full KKT system to avoid squaring the matrix.
+One matrix in the solver is always dense: the `n×n` reduced system you get by eliminating `ν`.
+That comes from the reduction, not from a limit on your input. If `A` has a dense row, the
+solver factors the full KKT system sparsely instead, so it never squares the matrix.
 
 The code uses `LinearAlgebra` and `TypeContracts.jl` for the linear-system backend interface.
 
@@ -109,7 +111,11 @@ solve!(ws)
 
 ## Re-solving with new data
 
-For loops like Model Predictive Control, keep $P$ and $A$ fixed and update $q$, $l$, and $u$. Use [`update!`](@ref) to reuse the workspace; it reuses equilibration, buffers, and iterates, refactorizing only when necessary. Under `InteriorPoint`, every outer iteration factors a new system regardless of what `update!` did — see [Choosing an algorithm](@ref "Re-solving a sequence") for what each algorithm gets from it.
+In a loop like Model Predictive Control, keep `P` and `A` fixed and update `q`, `l` and `u`.
+[`update!`](@ref) reuses the workspace: the equilibration, the buffers and the iterates, and it
+refactorizes only when it must. Under `InteriorPoint` every outer iteration factors a new system
+whatever `update!` did — see [Choosing an algorithm](@ref "Re-solving a sequence") for what each
+algorithm gets from it.
 
 ```julia
 ws = setup(P, q, A, l, u, OperatorSplitting())
@@ -119,27 +125,41 @@ for step in 1:horizon
 end
 ```
 
-Updating $q$ never requires a refactorization. Changing $l$ or $u$ only does if it moves a row between equality, inequality, or free classes. Changing $P$ or $A$ always does.
+Updating `q` never refactorizes. Changing `l` or `u` refactorizes only when it moves a row
+between the equality, inequality and free classes. Changing `P` or `A` always refactorizes.
 
-`ws.refactor_count` tracks total factorizations. This includes those from adaptive $\rho$, so the count grows even when using `update!` if $\rho$ changes.
+`ws.refactor_count` counts every factorization, adaptive `ρ` included. So the count grows under
+`update!` too whenever `ρ` changes.
 
-Equilibration is done once in `setup`. If your data changes magnitude significantly, build a new workspace.
+`setup` equilibrates once. If your data changes magnitude by a lot, build a new workspace.
 
 ## Accuracy
 
-Default tolerances are `eps_abs = eps_rel = 1e-3` under `OperatorSplitting` and `1e-8` under `InteriorPoint`. To improve accuracy:
-* Lower `eps_abs`/`eps_rel` (more iterations).
-* Set `polishing = true` to solve the resulting equality-constrained QP exactly. This brings KKT residuals to machine precision at the cost of one extra factorization.
+The default tolerances are `eps_abs = eps_rel = 1e-3` under `OperatorSplitting` and `1e-8` under
+`InteriorPoint`. Two ways to get more accuracy:
+* Lower `eps_abs` and `eps_rel`. You pay in iterations.
+* Set `polishing = true`, which solves the equality-constrained QP at the active set exactly.
+  That takes the KKT residuals to machine precision, and it costs one extra factorization.
 
-Polishing only runs if it improves both residuals, so it cannot make the solution worse.
+The solver keeps the polished point only when it improves both residuals, so polishing cannot
+make the answer worse.
 
 ## Which backend you get
 
-`linsys = :auto` picks the first compatible backend. For two dense matrices, this is an $n \times n$ Cholesky of the reduced system. Structured matrices (diagonal, banded, etc.) are caught earlier. Matrix-free operators use the matrix-free backend. If a dense Cholesky fails because the matrix isn't positive definite, it falls back to a Bunch-Kaufman factorization of the full $(n+m) \times (n+m)$ system. Use ``linsys = :kkt`` for a full factorization, which is more accurate for ill-conditioned problems.
+`linsys = :auto` takes the first backend that fits. For two dense matrices that is an `n×n`
+Cholesky of the reduced system. A structured matrix — diagonal, banded and the rest — is caught
+earlier. A matrix-free operator goes to the matrix-free backend.
+
+If that Cholesky finds the reduced matrix is not positive definite, `setup` throws and names
+`linsys = :kkt`. It does not switch backend underneath you, because the backend is fixed at
+`setup` so every solve dispatches statically. Pass `linsys = :kkt` yourself to factor the full
+`(n+m)×(n+m)` system with Bunch-Kaufman, which does not square the conditioning of `A` and is
+the more accurate choice on an ill-conditioned problem.
 
 ## Watching a solve
 
-`verbose = true` prints progress under either algorithm: a header, one line per termination check, and a footer with status, iterations, and residuals.
+`verbose = true` prints progress under either algorithm: a header, one line per termination
+check, and a footer with the status, the iterations and the residuals.
 
 ```
  iter      objective      prim res      dual res           rho
@@ -149,7 +169,9 @@ Polishing only runs if it improves both residuals, so it cannot make the solutio
   125        1.46211      0.000374      0.000174         0.549
 ```
 
-The `rho` column shows adaptive $\rho$ updates, which trigger refactorizations. This is `OperatorSplitting`'s row; `InteriorPoint` prints the barrier parameter `mu` and the step length `alpha` in its place:
+The `rho` column shows adaptive `ρ` updates, and each one triggers a refactorization. That is
+`OperatorSplitting`'s row. `InteriorPoint` prints the barrier parameter `mu` and the step length
+`alpha` in its place:
 
 ```
  iter      objective      prim res      dual res            mu         alpha
@@ -159,34 +181,40 @@ The `rho` column shows adaptive $\rho$ updates, which trigger refactorizations. 
     7        1.36012      8.14e-09      3.02e-09      6.71e-09        1.0000
 ```
 
-`InteriorPoint`'s footer also names the run time; on the matrix-free `linsys = :indirect` backend, its row gains a `cg iters` column for that iteration's conjugate-gradient count, and its footer adds the total CG iterations and the number of missed inner solves (see [`Solution.cg_iters`](@ref PureQPBase.Solution)).
+`InteriorPoint`'s footer also gives the run time. On the matrix-free `linsys = :indirect`
+backend its rows gain a `cg iters` column for that iteration's conjugate-gradient count, and its
+footer gains the total CG iterations and the number of missed inner solves (see
+[`Solution.cg_iters`](@ref PureQPBase.Solution)).
 
-Output goes to `Core.stdout` rather than `Base.stdout` to support `--trim` compilation. Use `redirect_stdout` to capture it.
+Output goes to `Core.stdout` rather than `Base.stdout`, so that `--trim` compilation works. Use
+`redirect_stdout` to capture it.
 
 ## What a solve reports
 
-The [`Solution`](@ref) object carries the objective, duality gap, both residuals, `rel_kkt_error`, iteration and $\rho$ counts, the polishing result, and four timings.
+The [`Solution`](@ref) object carries the objective, the duality gap, both residuals,
+`rel_kkt_error`, the iteration and `ρ` counts, the polishing result, and four timings.
 
-`rho_updates` counts only adaptive $\rho$ changes; `ws.refactor_count` counts all refactorizations (including data changes).
+`rho_updates` counts only adaptive `ρ` changes. `ws.refactor_count` counts every
+refactorization, data changes included.
 
 ## Status values
 
-There are twelve status values in [`Status`](@ref PureQPBase.Status). Key facts:
-1. An unconverged result is never marked `SOLVED`.
-2. If there is no meaningful primal-dual point, `x` and `y` are `NaN`.
+[`Status`](@ref PureQPBase.Status) has twelve values. Two things to know:
+1. A run that did not converge is never marked `SOLVED`.
+2. When there is no meaningful primal-dual point, `x` and `y` are `NaN`.
 
 Use [`has_solution`](@ref PureQPBase.has_solution) to check.
 
 ## What is rejected
 
-`setup` fails if:
-* $P$ is not symmetric or is indefinite.
-* `q` contains `NaN` or `Inf`.
-* `l` or `u` contains `NaN`.
-* $l > u$ elementwise.
-* $l = +\infty$ or $u = -\infty$.
-* Mismatched dimensions.
-* Invalid settings (e.g., $\sigma \le 0$, $\alpha \notin (0, 2)$, or `max_iter` $\le 0$).
+`setup` throws when:
+* `P` is not symmetric, or is indefinite.
+* `q` holds a `NaN` or an `Inf`.
+* `l` or `u` holds a `NaN`.
+* `l[i] > u[i]` in any row.
+* `l[i] == +Inf`, or `u[i] == -Inf`.
+* The dimensions do not match.
+* A setting is out of range: `sigma <= 0`, `alpha` outside `(0, 2)`, or `max_iter <= 0`.
 
 ## Citation
 
