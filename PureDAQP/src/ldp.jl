@@ -182,6 +182,141 @@ function step_and_drop!(ws::LDPWorkspace{T}, p::AbstractVector{T}, zero_tol::T) 
     return true
 end
 
+"Index of the first zero pivot in the working set's factorization, or 0."
+@inline function first_singular_pivot(F::GramLDL{T}, zero_tol::T) where {T}
+    for i in 1:F.k
+        F.D[i] <= zero_tol && return i
+    end
+    return 0
+end
+
+"""
+    singular_step!(ws, singular, zero_tol) -> Bool
+
+Walk the null direction of a singular working set and drop the first row that blocks.
+`false` when nothing blocks, which is what makes the problem infeasible.
+"""
+function singular_step!(ws::LDPWorkspace{T}, singular::Int, zero_tol::T) where {T}
+    p = view(ws.p, 1:ws.F.k)
+    singular_direction!(p, ws.F, singular)
+    # `singular_direction!` puts `+1` at the dependent row. Signed multipliers make the two
+    # sides asymmetric, so that `+1` is a blocking candidate for a row held at its upper
+    # bound — and blocking on it would drop the row that just entered, which pricing would
+    # then choose again, forever. Orienting the direction so the dependent row moves the
+    # feasible way restores the invariant the one-sided form gets for free, and leaves the
+    # dependency to be resolved by one of the rows it depends on.
+    if musign(ws, ws.active[singular]) < 0
+        for i in eachindex(p)
+            p[i] = -p[i]
+        end
+    end
+    return step_and_drop!(ws, p, zero_tol)
+end
+
+"""
+    working_set_multipliers!(ws) -> Bool
+
+Solve `Mₐ Mₐᵀ μ* = tₐ` for the bounds the working set is held at, into `ws.mu_star`.
+
+`true` when every inequality multiplier has the sign its side requires, which is what makes
+the point dual feasible. An equality row is held whatever the sign.
+"""
+function working_set_multipliers!(ws::LDPWorkspace{T}) where {T}
+    k = ws.F.k
+    mus = view(ws.mu_star, 1:k)
+    for i in 1:k
+        mus[i] = target(ws, ws.active[i])
+    end
+    solve_gram!(ws.F, mus)
+    for i in 1:k
+        r = ws.active[i]
+        !ws.iseq[r] && musign(ws, r) * mus[i] < 0 && return false
+    end
+    return true
+end
+
+"""
+    step_toward_multipliers!(ws, zero_tol) -> Bool
+
+Step from `ws.mu` toward the multipliers just solved for, dropping the first row whose own
+reaches zero. `false` when nothing blocks the step.
+"""
+function step_toward_multipliers!(ws::LDPWorkspace{T}, zero_tol::T) where {T}
+    k = ws.F.k
+    p = view(ws.p, 1:k)
+    for i in 1:k
+        p[i] = ws.mu_star[i] - ws.mu[i]
+    end
+    return step_and_drop!(ws, p, zero_tol)
+end
+
+"""
+    primal_point!(ws) -> ws
+
+Adopt the multipliers just solved for and form the primal point `u = Mₐᵀ μ` from them.
+"""
+function primal_point!(ws::LDPWorkspace{T}) where {T}
+    k = ws.F.k
+    mu, mus = ws.mu, ws.mu_star
+    # An explicit loop rather than `copyto!`: between two views of a vector that checks
+    # whether they alias and copies the source if it cannot tell, which is an allocation
+    # site the hot-path guarantee sees whether or not the branch can be reached.
+    @simd for i in 1:k
+        mu[i] = mus[i]
+    end
+    if ispacked(ws)
+        mul!(ws.u, view(ws.Ma, :, 1:k), view(ws.mu, 1:k))
+    else
+        uu = ws.u
+        fill!(uu, zero(T))
+        for i in 1:k
+            mui = ws.mu[i]
+            col = row(ws, ws.active[i])
+            @simd for j in eachindex(uu, col)
+                uu[j] += mui * col[j]
+            end
+        end
+    end
+    return ws
+end
+
+"""
+    entering_row(ws, primal_tol, bland) -> (row, side)
+
+The inactive row that violates its bound by the most, and the side it violates, or
+`(0, SIDE_UPPER)` when none does, which is what ends the run.
+
+Dantzig's rule takes the worst violation, which is the fast choice but can cycle: a row that
+keeps swapping sides re-enters forever. `bland` switches to the lowest violated index,
+Bland's rule, which terminates finitely at the cost of taking more steps.
+"""
+function entering_row(ws::LDPWorkspace{T}, primal_tol::T, bland::Bool) where {T}
+    m = size(ws.Mt, 2)
+    worst = primal_tol
+    entering = 0
+    entering_side = SIDE_UPPER
+    # Not `@simd`: this is an argmax search, and the `slot` test skips the working set.
+    @inbounds for r in 1:m
+        iszero(ws.slot[r]) || continue
+        rr = ws.price[r]
+        over = rr - ws.hi[r]
+        under = ws.lo[r] - rr
+        if over > worst
+            worst = bland ? primal_tol : over
+            entering = r
+            entering_side = SIDE_UPPER
+            bland && break
+        end
+        if under > worst
+            worst = bland ? primal_tol : under
+            entering = r
+            entering_side = SIDE_LOWER
+            bland && break
+        end
+    end
+    return entering, entering_side
+end
+
 """
     solve_ldp!(ws, alg, max_iter) -> (status, iterations)
 
@@ -200,82 +335,20 @@ a signature `test_signatures` can state.
 """
 function solve_ldp!(ws::LDPWorkspace{T}, alg::ActiveSet{T}, max_iter::Int) where {T}
     zero_tol, primal_tol = alg.zero_tol, alg.primal_tol
-    m = size(ws.Mt, 2)
-    bland_after = 4 * (m + 1)
+    bland_after = 4 * (size(ws.Mt, 2) + 1)
     for iter in 1:max_iter
-        k = ws.F.k
-        singular = 0
-        for i in 1:k
-            if ws.F.D[i] <= zero_tol
-                singular = i
-                break
-            end
-        end
-
+        # Every step reads `ws.F.k` for itself: dropping and adding a row both change it, so
+        # the working set's size does not survive an iteration.
+        singular = first_singular_pivot(ws.F, zero_tol)
         if !iszero(singular)
-            p = view(ws.p, 1:k)
-            singular_direction!(p, ws.F, singular)
-            # `singular_direction!` puts `+1` at the dependent row. Signed multipliers make
-            # the two sides asymmetric, so that `+1` is a blocking candidate for a row held
-            # at its upper bound — and blocking on it would drop the row that just entered,
-            # which pricing would then choose again, forever. Orienting the direction so the
-            # dependent row moves the feasible way restores the invariant the one-sided form
-            # gets for free, and leaves the dependency to be resolved by one of the rows it
-            # depends on.
-            if musign(ws, ws.active[singular]) < 0
-                for i in eachindex(p)
-                    p[i] = -p[i]
-                end
-            end
-            step_and_drop!(ws, p, zero_tol) || return (LDP_INFEASIBLE, iter)
+            singular_step!(ws, singular, zero_tol) || return (LDP_INFEASIBLE, iter)
             continue
         end
-
-        mus = view(ws.mu_star, 1:k)
-        for i in 1:k
-            mus[i] = target(ws, ws.active[i])
-        end
-        solve_gram!(ws.F, mus)
-
-        dual_feasible = true
-        for i in 1:k
-            r = ws.active[i]
-            if !ws.iseq[r] && musign(ws, r) * mus[i] < 0
-                dual_feasible = false
-                break
-            end
-        end
-
-        if !dual_feasible
-            p = view(ws.p, 1:k)
-            for i in 1:k
-                p[i] = mus[i] - ws.mu[i]
-            end
-            step_and_drop!(ws, p, zero_tol) || return (LDP_CYCLED, iter)
+        if !working_set_multipliers!(ws)
+            step_toward_multipliers!(ws, zero_tol) || return (LDP_CYCLED, iter)
             continue
         end
-
-        # An explicit loop rather than `copyto!`: between two views of a vector that checks
-        # whether they alias and copies the source if it cannot tell, which is an allocation
-        # site the hot-path guarantee sees whether or not the branch can be reached.
-        mu = ws.mu
-        @simd for i in 1:k
-            mu[i] = mus[i]
-        end
-        # `u = Mₐᵀ μ`, one product against the packed working set.
-        if ispacked(ws)
-            mul!(ws.u, view(ws.Ma, :, 1:k), view(ws.mu, 1:k))
-        else
-            uu = ws.u
-            fill!(uu, zero(T))
-            for i in 1:k
-                mui = ws.mu[i]
-                col = row(ws, ws.active[i])
-                @simd for j in eachindex(uu, col)
-                    uu[j] += mui * col[j]
-                end
-            end
-        end
+        primal_point!(ws)
 
         # Price every row with one matrix-vector product rather than a dot product per
         # inactive row. The working set is priced too and its values ignored, which is `k`
@@ -284,34 +357,7 @@ function solve_ldp!(ws::LDPWorkspace{T}, alg::ActiveSet{T}, max_iter::Int) where
         # arithmetic does. One call for all of them is what makes the small sizes competitive.
         mul!(ws.price, transpose(ws.Mt), ws.u)
 
-        # Dantzig's rule takes the worst violation, which is the fast choice but can cycle:
-        # a row that keeps swapping sides re-enters forever. Past `bland_after` iterations
-        # the run switches to the lowest violated index, Bland's rule, which terminates
-        # finitely at the cost of taking more steps.
-        bland = iter > bland_after
-        worst = primal_tol
-        entering = 0
-        entering_side = SIDE_UPPER
-        # Not `@simd`: this is an argmax search, and the `slot` test skips the working set.
-        @inbounds for r in 1:m
-            iszero(ws.slot[r]) || continue
-            rr = ws.price[r]
-            over = rr - ws.hi[r]
-            under = ws.lo[r] - rr
-            if over > worst
-                worst = bland ? primal_tol : over
-                entering = r
-                entering_side = SIDE_UPPER
-                bland && break
-            end
-            if under > worst
-                worst = bland ? primal_tol : under
-                entering = r
-                entering_side = SIDE_LOWER
-                bland && break
-            end
-        end
-
+        entering, entering_side = entering_row(ws, primal_tol, iter > bland_after)
         iszero(entering) && return (LDP_OPTIMAL, iter)
         activate!(ws, entering, entering_side)
     end

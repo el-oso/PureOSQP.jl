@@ -574,6 +574,12 @@ let
         (PureDAQP.solve_gram!, (FT, PV), :hot, nothing),
         (PureDAQP.singular_direction!, (PV, FT, Int), :hot, nothing),
         (PureDAQP.set_targets!, (typeof(red), Vector{T}), :hot, nothing),
+        (PureDAQP.first_singular_pivot, (FT, T), :hot, nothing),
+        (PureDAQP.singular_step!, (LW, Int, T), :hot, nothing),
+        (PureDAQP.working_set_multipliers!, (LW,), :hot, nothing),
+        (PureDAQP.step_toward_multipliers!, (LW, T), :hot, nothing),
+        (PureDAQP.primal_point!, (LW,), :hot, nothing),
+        (PureDAQP.entering_row, (LW, T, Bool), :hot, nothing),
         (PureDAQP.solve_ldp!, (LW, AT, Int), :hot, nothing),
     ]
 
