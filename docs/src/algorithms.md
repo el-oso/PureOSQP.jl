@@ -90,6 +90,17 @@ iterations as a cold one (`PureIPM/test/ipm_tests.jl` checks that). But there is
 The count is already 2 to 10 at the default tolerance, so a warm start shortens a run that was
 already short. It does not replace hundreds of iterations with dozens.
 
+**`ActiveSet` keeps the working set, and hands back the same `Solution` every time.** Updating
+`q`, `l` or `u` keeps the Cholesky factor of `P` and the transformed constraint matrix, so only
+the right-hand side is rebuilt; updating `P` or `A` rebuilds the reduction. The re-solve starts
+from the previous answer's active rows, which is the whole of what a warm start means here.
+
+!!! warning
+    The `Solution` an `ActiveSet` solve returns is the workspace's own object, and its `x` and
+    `y` are the workspace's own arrays. That is what makes a solve allocate nothing, and it
+    means a result held across the next `solve!` is overwritten in place. Copy what you need
+    before re-solving. The other two algorithms return a fresh `Solution` each time.
+
 ## What each algorithm throws on
 
 Neither algorithm limits the matrix types in [Matrix types](matrices.md) or
@@ -116,32 +127,42 @@ count bounded as the weights spread, and not every cheap one does.
 
 ## Polishing, derivatives and infeasibility
 
-**Polishing runs the same way under both.** `polishing = true` guesses the active set from the
-iterate, solves the equality-constrained QP that comes out of it with `bunchkaufman!` and three
-steps of iterative refinement, and replaces the answer only if both residuals improve. The
-`polishing`, `polish_refine_iter` and `delta` options work with either algorithm.
+**Polishing runs the same way under `OperatorSplitting` and `InteriorPoint`.** `polishing =
+true` guesses the active set from the iterate, solves the equality-constrained QP that comes out
+of it with `bunchkaufman!` and three steps of iterative refinement, and replaces the answer only
+if both residuals improve. The `polishing`, `polish_refine_iter` and `delta` options work with
+either of those two. `ActiveSet` refuses `polishing = true`: it already ends on an exact
+solution of the equality-constrained QP over its working set, which is what polishing computes.
 
-**Derivatives need polishing under `InteriorPoint`, not under `OperatorSplitting`.**
+**Derivatives need polishing under `InteriorPoint` only.**
 [`adjoint_derivative`](@ref) and [`forward_derivative`](@ref) read the active set by asking
 which multipliers sit far from zero. ADMM projects its multipliers onto the feasible box
 directly, so an inactive row's multiplier is already at or near zero and there is nothing extra
-to check. An interior-point solution holds an inactive row's multiplier at the barrier parameter
-`μ_final` instead, and the active-set test cannot tell that apart from a truly active row. So
-taking a derivative from an unpolished `InteriorPointWorkspace` throws and asks for
+to check. `ActiveSet` puts every inactive row's multiplier at exactly zero, which is the same
+test's best case. An interior-point solution holds an inactive row's multiplier at the barrier
+parameter `μ_final` instead, and the active-set test cannot tell that apart from a truly active
+row. So taking a derivative from an unpolished `InteriorPointWorkspace` throws and asks for
 `polishing = true` first. Polishing brings that multiplier down before you take the derivative.
 
-**Both use the same infeasibility test.** `InteriorPoint` has no primal- and dual-infeasibility
-check of its own. It reuses ADMM's certificate test on its own last step and its normalized
-iterate. Both report `PRIMAL_INFEASIBLE` and `DUAL_INFEASIBLE`, and their `*_INACCURATE`
-versions, with a certificate in `Solution.prim_inf_cert` or `Solution.dual_inf_cert`.
+**`OperatorSplitting` and `InteriorPoint` use the same infeasibility test.** `InteriorPoint` has
+no primal- and dual-infeasibility check of its own. It reuses ADMM's certificate test on its own
+last step and its normalized iterate. Both report `PRIMAL_INFEASIBLE` and `DUAL_INFEASIBLE`, and
+their `*_INACCURATE` versions, with a certificate in `Solution.prim_inf_cert` or
+`Solution.dual_inf_cert`. `ActiveSet` finds primal infeasibility differently: a dual step along
+the null direction of a singular working-set Gram matrix with no row to block it is an unbounded
+dual ray, and the dual of a convex QP is unbounded exactly when the primal is infeasible. It
+reports `PRIMAL_INFEASIBLE` without populating either certificate field, and has no
+dual-infeasibility test and no `*_INACCURATE` status.
 
 **What `Solution` carries differs in which fields read zero.** The struct is shared, so every
-field exists under both algorithms. But `rho_estimate`, `rho_updates`, `accel_declined`,
-`primdual_int` and `primdual_int_log` are always zero under `InteriorPoint`, because there is no
-`ρ`, no accelerator and no primal-dual integral to report. `cg_iters` is nonzero for either
-algorithm only under `linsys = :indirect`. Only `InteriorPoint` returns `NUMERICAL_ERROR`, for a
-stalled Newton system, a non-finite residual, or conjugate gradients missing too many solves in
-a row. ADMM never reports it.
+field exists under every algorithm. But `rho_estimate`, `rho_updates`, `accel_declined`,
+`primdual_int` and `primdual_int_log` are zero under `InteriorPoint` and under `ActiveSet`,
+because there is no `ρ`, no accelerator and no primal-dual integral to report. `cg_iters` is
+nonzero only under `linsys = :indirect`, which neither of those two accepts. `InteriorPoint`
+returns `NUMERICAL_ERROR` for a stalled Newton system, a non-finite residual, or conjugate
+gradients missing too many solves in a row; `ActiveSet` returns it when a dual step toward the
+working set's multipliers finds no row to block it through a nonsingular Gram matrix, which the
+method's own argument rules out and so signals a numerical breakdown. ADMM never reports it.
 
 ## Summary
 

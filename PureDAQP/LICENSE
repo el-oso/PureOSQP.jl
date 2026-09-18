@@ -1,6 +1,13 @@
 MIT License
 
 Copyright (c) 2026 el-oso
+Copyright (c) 2022 Daniel Arnstrom
+
+This package follows Arnstrom, Bemporad and Axehill, "A Dual Active-Set Solver
+for Embedded Quadratic Programming Using Recursive LDL^T Updates", IEEE
+Transactions on Automatic Control 67(8):4362-4369, 2022. The authors' reference
+C implementation (https://github.com/darnstrom/daqp) was read alongside the
+paper; it is MIT-licensed, and its copyright notice is retained above.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

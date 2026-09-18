@@ -18,6 +18,7 @@
     # What the workspace refuses at setup it still refuses here.
     @test_throws ArgumentError update_settings!(ws; linsys = :kkt)
     @test_throws ArgumentError update_settings!(ws; scaling = 10)
+    @test_throws ArgumentError update_settings!(ws; polishing = true)
 end
 
 @testitem "the solution differentiates without polishing" begin
@@ -224,6 +225,9 @@ end
     @test_throws ArgumentError solve(P, q, A, l, u, ActiveSet(); scaling = 10)
     # Parameters belonging to another algorithm.
     @test_throws ArgumentError solve(P, q, A, l, u, ActiveSet(); rho = 0.1)
+    # The method already ends on the exact solution of the equality QP polishing would solve.
+    @test_throws ArgumentError solve(P, q, A, l, u, ActiveSet(); polishing = true)
+    @test solve(P, q, A, l, u, ActiveSet(); polishing = false).status == SOLVED
     # An indefinite P is not a convex problem at all.
     @test_throws ArgumentError solve([1.0 0.0; 0.0 -1.0], q, A, l, u, ActiveSet())
 end

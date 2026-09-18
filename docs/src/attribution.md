@@ -1,12 +1,13 @@
 # Attribution and license
 
-Three packages, two licenses. What each one derives from differs, and so does the license
+Four packages, two licenses. What each one derives from differs, and so does the license
 it carries.
 
 | package | license | derives from |
 |---|---|---|
 | `PureQPBase` | MIT | published papers only |
 | `PureIPM` | MIT | published papers only |
+| `PureDAQP` | MIT | a paper and [DAQP](https://github.com/darnstrom/daqp), which is MIT |
 | `PureOSQP` | Apache-2.0 | [OSQP](https://osqp.org), and carries its license |
 
 **Depending on a package does not place yours under its license.** Using `PureQPBase` leaves
@@ -15,10 +16,10 @@ not place `PureQPBase` under Apache-2.0. Only a derivative work carries its pare
 and a dependency is not a derivative.
 
 Each package directory carries the license governing it — `PureQPBase/LICENSE`,
-`PureIPM/LICENSE`, `PureOSQP/LICENSE`. The `LICENSE` at the repository root is a map to those
-three rather than a license itself, since claiming either one there would be wrong for two of
-the packages. Everything outside the three package directories — the shared benchmarks, this
-documentation, the design notes — is MIT.
+`PureIPM/LICENSE`, `PureDAQP/LICENSE`, `PureOSQP/LICENSE`. The `LICENSE` at the repository root
+is a map to those four rather than a license itself, since claiming either one there would be
+wrong for three of the packages. Everything outside the four package directories — the shared
+benchmarks, this documentation, the design notes — is MIT.
 
 ## PureOSQP
 
@@ -53,6 +54,22 @@ why both algorithms use them unchanged.
 The linear-system backends, the backend selection, the problem representation and the polishing
 and derivative kernels are this package's own.
 
+## PureDAQP
+
+**MIT.** The method is Algorithm 1 of [A dual active-set solver for embedded quadratic
+programming using recursive LDLᵀ updates](https://doi.org/10.1109/TAC.2022.3176430) (Arnström,
+Bemporad and Axehill, 2022), with that paper's Algorithm 2 as the proximal-point outer loop.
+
+**This is not a clean-room implementation.** The authors' reference C implementation was read
+alongside the paper, for details the paper leaves to the implementer: the pivoting rule, the
+anti-cycling switch, and the way the `LDLᵀ` buffers are laid out.
+
+- Source: <https://github.com/darnstrom/daqp> (MIT)
+- Copyright: Daniel Arnström.
+
+[DAQP.jl](https://github.com/darnstrom/DAQP.jl) is the wrapper around that C solver, and is
+what the benchmarks and the oracle tests compare against.
+
 ## PureIPM
 
 **MIT.** Not a derivative either. The algorithm follows [On the implementation of a
@@ -70,7 +87,8 @@ If you use the operator-splitting method in published work, please cite the OSQP
 **Main algorithm:** [OSQP: an operator splitting solver for quadratic
 programs](https://doi.org/10.1007/s12532-020-00179-2) (Stellato et al., 2020).
 
-For the interior-point method, cite Mehrotra (1992).
+For the interior-point method, cite Mehrotra (1992). For the active-set method, cite Arnström,
+Bemporad and Axehill (2022).
 
 ## Key differences from libosqp
 

@@ -36,38 +36,13 @@ There are four answers. Which one is right depends on your problem, not on taste
 | you know more than where the zeros are | **a structured type** | block-diagonal, low-rank, Kronecker. The solver then skips work no sparsity pattern shows. It solves a `BlockDiagonal` as `K` small systems, never as one big one. |
 | few zeros, a fast product, and too big for cache | **unmaterialized** | past cache, a dense product waits on memory, not on arithmetic. An operator that builds its product from `O(n)` numbers moves almost nothing and can win outright. |
 
-The last row is easy to miss, so here is a real case. The tables below come from
-`PureOSQP/bench/representation_choice.jl`. One thread, and we assert the status of every run:
-a solve that stopped at `max_iter` is not a faster answer to the same question.
-
-**The operator is cheap and the rest of the problem is not.** `P` here is `O(n)` numbers, but
-`A` is dense, so most of the work costs `O(n²)` either way. The operator skips the
-factorization and solves with conjugate gradients every iteration:
-
-| n | iterations (operator / dense) | operator | dense | speedup |
-|---|---|---|---|---|
-| 200 | 225 / 125 | 3.4 ms | 2.2 ms | 0.65× |
-| 500 | 150 / 125 | 18.6 ms | 20.0 ms | 1.08× |
-| 1000 | 175 / 175 | 85.2 ms | 128.8 ms | 1.51× |
-
-At `n = 200` the dense matrix is faster. From `n = 500` the factorization's `O(n³)` cost
-outgrows the CG work and the operator is faster.
-
-**Applying the operator is cheaper too.** The same comparison, now for an operator you apply
-in `O(n)` whose dense form costs `O(n²)`. About a tenth of the entries are nonzero, which is
-too many for a sparse format to be the obvious answer:
-
-| n | fill | iterations (operator / dense) | operator | dense | speedup | dense `A` |
-|---|---|---|---|---|---|---|
-| 500 | 9.9% | 200 / 75 | 12.2 ms | 15.1 ms | **1.23×** | 1.9 MiB |
-| 1000 | 9.8% | 100 / 100 | 21.9 ms | 109 ms | **5.01×** | 7.6 MiB |
-| 2000 | 9.8% | 100 / 100 | 227 ms | 737 ms | **3.24×** | 30.5 MiB |
-| 4000 | 9.8% | 100 / 75 | 904 ms | 4756 ms | **5.26×** | 122 MiB |
-
-Same solver, same tolerances, both converged. Size and sparsity are not what decides this.
-What decides it is whether **applying** the operator costs less than the dense product. If it
-does, the operator wins, and it wins by more once the matrix leaves cache. If it does not, no
-size will save it.
+The last row is easy to miss. What decides it is not size and not sparsity, but whether
+**applying** the operator costs less than the dense product. If it does, the operator wins, and
+it wins by more once the matrix leaves cache — up to 5.3× on a moving-average operator at
+`n = 4000`, where the dense `A` alone is 122 MiB. If it does not, no size will save it: an
+operator that is cheap while the rest of the problem is not runs 0.65× of dense at `n = 200`,
+and only overtakes it at `n = 500`. The measurements are under
+[Choosing a representation](@ref).
 
 ### Every type the solver takes
 

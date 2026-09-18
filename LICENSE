@@ -1,11 +1,12 @@
-This repository holds three packages, under two licenses. Each package directory
+This repository holds four packages, under two licenses. Each package directory
 carries the license that applies to it, and that file governs its contents.
 
   PureQPBase/   MIT           See PureQPBase/LICENSE
   PureIPM/      MIT           See PureIPM/LICENSE
+  PureDAQP/     MIT           See PureDAQP/LICENSE
   PureOSQP/     Apache-2.0    See PureOSQP/LICENSE
 
-Everything outside those three directories -- the shared benchmarks, the
+Everything outside those four directories -- the shared benchmarks, the
 documentation, the design notes -- is MIT, on the terms in PureQPBase/LICENSE.
 
 Why they differ:
@@ -18,9 +19,15 @@ anything else.
 PureQPBase and PureIPM are not derivatives of it. They were written from
 published papers -- Ruiz 2001 for the equilibration, Banjac et al. 2019 for the
 infeasibility certificates, Mehrotra 1992 for the interior-point method -- and
-are released under the MIT license. Depending on PureQPBase does not place a
-package under the MIT license, and PureOSQP depending on it does not place
-PureQPBase under Apache-2.0.
+are released under the MIT license.
+
+PureDAQP follows Arnstrom, Bemporad and Axehill 2022, and its authors' reference
+C implementation (https://github.com/darnstrom/daqp) was read alongside the
+paper. That implementation is MIT and copyright (c) 2022 Daniel Arnstrom; the
+notice is retained in PureDAQP/LICENSE.
+
+Depending on PureQPBase does not place a package under the MIT license, and
+PureOSQP depending on it does not place PureQPBase under Apache-2.0.
 
 See docs/src/attribution.md for what each package derives from, and the papers
 to cite.

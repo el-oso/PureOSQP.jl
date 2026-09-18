@@ -240,12 +240,15 @@ positive definite, `setup` throws and names `linsys = :kkt`, which factors the f
 quasi-definite system with `bunchkaufman!` and does not square the conditioning of `A`. On the
 measurements above, that does not happen with equilibration on.
 
-Here is the whole order, top to bottom. A pair whose types name a backend outright takes it and
-skips the rest. Every other pair starts at candidate 1 and stops at the first one that accepts
-it. The two sparse factorization candidates decide from the pattern alone — the densest row of
-`A`, the stored entries of the KKT matrix, and the symbolic `AᵀA ∪ P` pattern count — and factor
-nothing to find out. Once a candidate accepts a pair, the solver builds and factors the backend
-it named, and `setup` keeps that factorization.
+Here is the whole order with the condition each candidate asks, top to bottom. A pair whose
+types name a backend outright takes it and skips the rest. Every other pair starts at candidate
+1 and stops at the first one that accepts it. The two sparse factorization candidates decide
+from the pattern alone — the densest row of `A`, the stored entries of the KKT matrix, and the
+symbolic `AᵀA ∪ P` pattern count — and factor nothing to find out. Once a candidate accepts a
+pair, the solver builds and factors the backend it named, and `setup` keeps that factorization.
+
+[How a backend is chosen](@ref) has the same order per algorithm, with why the interior-point
+method skips three of these candidates.
 
 ::: details Code that draws the figure
 
@@ -548,7 +551,9 @@ normalized iterate.
 
 ## Polishing
 
-Both algorithms call the same `polish_kernel!` on their own `(x, y, z)`. It guesses the active
+Both of these algorithms call the same `polish_kernel!` on their own `(x, y, z)`; `ActiveSet`,
+documented in [Choosing an algorithm](@ref), refuses `polishing = true` because it has nothing
+left to polish. It guesses the active
 set from the iterate: row `i` is lower-active when `z_i - l_i < -y_i` or `l_i == u_i`, and
 upper-active when `u_i - z_i < y_i`. That is why polishing must run before you take a derivative
 under `InteriorPoint`. An unpolished row holds its multiplier at the barrier parameter rather

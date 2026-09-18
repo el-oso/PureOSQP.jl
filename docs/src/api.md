@@ -103,7 +103,7 @@ The `linsys` setting selects the *formulation* of the linear system:
 | | selects | values |
 |---|---|---|
 | upstream algebra | which library does the arithmetic | `builtin`, `mkl`, `cuda` |
-| `linsys` here | which system is formed and how it is factored | `:auto`, `:dense`, `:kkt`, `:indirect` |
+| `linsys` here | which system is formed and how it is factored | ten values, listed under [What each `linsys` value means](@ref) |
 
 ## Internals
 

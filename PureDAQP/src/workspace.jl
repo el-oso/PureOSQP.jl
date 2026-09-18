@@ -89,6 +89,13 @@ function refuse_activeset(LS::Symbol, options::Options)
                 "rescale the rows the working set is priced against."
         )
     )
+    options.polishing && throw(
+        ArgumentError(
+            "polishing = true has no effect with ActiveSet(): the method already ends on an " *
+                "exact solution of the equality-constrained QP over its working set, which is " *
+                "what polishing computes. Pass polishing = false."
+        )
+    )
     return nothing
 end
 

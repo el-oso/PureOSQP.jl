@@ -157,30 +157,27 @@ are in `PureOSQP/bench/results/solvers.json`.
 
 | n | m | PureOSQP | libosqp 1.0 | PureDAQP | DAQP | PureIPM | Clarabel |
 |---|---|---|---|---|---|---|---|
-| 10 | 20 | 0.090 ms | 0.163 ms | 0.007 ms | **0.003 ms** | 0.066 ms | 0.126 ms |
-| 25 | 50 | 0.163 ms | 0.535 ms | 0.052 ms | **0.036 ms** | 0.308 ms | 0.643 ms |
-| 50 | 100 | 0.488 ms | 2.15 ms | **0.197 ms** | 0.209 ms | 1.18 ms | 2.90 ms |
-| 100 | 200 | 4.86 ms | 35.3 ms | **1.21 ms** | 1.88 ms | 5.17 ms | 17.3 ms |
-| 200 | 400 | 8.49 ms | 76.8 ms | **7.62 ms** | 16.2 ms | 29.8 ms | 112 ms |
-| 100 | 50 | 0.300 ms | 1.03 ms | **0.162 ms** | 0.361 ms | 1.10 ms | 6.08 ms |
+| 10 | 20 | 0.099 ms | 0.164 ms | 0.0043 ms | **0.0034 ms** | 0.067 ms | 0.127 ms |
+| 25 | 50 | 0.169 ms | 0.538 ms | **0.032 ms** | 0.035 ms | 0.306 ms | 0.641 ms |
+| 50 | 100 | 0.500 ms | 2.13 ms | **0.145 ms** | 0.207 ms | 1.16 ms | 2.88 ms |
+| 100 | 200 | 4.74 ms | 35.9 ms | **0.886 ms** | 1.88 ms | 5.15 ms | 17.1 ms |
+| 200 | 400 | 8.17 ms | 76.1 ms | **6.42 ms** | 16.1 ms | 29.5 ms | 112 ms |
+| 100 | 50 | 0.299 ms | 1.04 ms | **0.113 ms** | 0.360 ms | 1.09 ms | 6.07 ms |
 
 libosqp and Clarabel read sparse matrices, so each is timed from sparse copies built
 beforehand. Both DAQP implementations read dense ones, which is what they are built for.
 
 **An active-set method wins this shape.** These are dense problems with few rows active at
 the solution, which is what an active-set method is for: a few expensive steps, then it stops
-at the exact vertex. PureDAQP is the fastest solver here at every size from `n = 50` up, and
-beats the C implementation it follows by 1.06× to 2.23×. PureIPM beats Clarabel at every size,
-by 1.9× to 5.5×.
+at the exact vertex. PureDAQP is the fastest solver here at every size from `n = 25` up, and
+beats the C implementation it follows by 1.11× to 3.19×. PureIPM beats Clarabel at every size,
+by 1.9× to 5.6×.
 
-**PureDAQP is slower than DAQP on the two smallest problems**, by 1.8× at `n = 10` and 1.4× at
-`n = 25`. Setup is not the reason: building the reduction costs 2.6 µs at `n = 10` against the
-C solver's 2.2 µs, and from `n = 25` up ours is the faster of the two. The difference is the
-per-iteration constant. Both take the same number of iterations — 15 and 51 on these two
-problems — and ours cost more each, because at a working set of a dozen rows an iteration is
-a handful of short loops where a call boundary is a visible fraction of the work. That is
-where a C solver with no such boundaries is hard to beat. The constant stops mattering once
-the work per iteration grows, which is where the crossover at `n = 50` comes from.
+**PureDAQP is slower than DAQP on the smallest problem**, by 1.26× at `n = 10`. The difference
+is the per-iteration constant, not the setup: at a working set of a dozen rows an iteration is
+a handful of short loops where a call boundary is a visible fraction of the work, and a C solver
+with no such boundaries is hard to beat there. The constant stops mattering once the work per
+iteration grows, which is where the crossover at `n = 25` comes from.
 
 For repeated small solves, [`setup`](@ref) with [`update!`](@ref) and [`solve!`](@ref) pays
 the fixed cost once and warm starts from the previous working set, which is a different

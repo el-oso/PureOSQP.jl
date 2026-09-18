@@ -61,9 +61,10 @@ it makes iteration counts depend on the machine, and reproducible counts are wha
 tests check.
 
 **`linsys_solver`, `device`, `profiler_level`, `allocate_solution`.** Selection across QDLDL,
-MKL Pardiso and CUDA backends, and embedded and GPU concerns. The counterpart here is
-`linsys = :auto | :dense | :kkt | :indirect`, which selects a formulation; the library
-underneath is whatever BLAS is loaded, so `using MKL` is the whole of the MKL story.
+MKL Pardiso and CUDA backends, and embedded and GPU concerns. The counterpart here is `linsys`,
+which takes ten values and selects a formulation rather than a library; the library underneath
+is whatever BLAS is loaded, so `using MKL` is the whole of the MKL story. The values are listed
+under [What each `linsys` value means](@ref).
 
 `profiler_level` gates upstream's timing annotations by level. The counterpart here is
 `profile_primdual`, a single switch over the one measurement that needs a clock the solver

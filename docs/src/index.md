@@ -75,23 +75,7 @@ solver factors the full KKT system sparsely instead, so it never squares the mat
 
 The code uses `LinearAlgebra` and `TypeContracts.jl` for the linear-system backend interface.
 
-## Quick start
-
-```julia
-using PureOSQP
-
-P = [4.0 1.0; 1.0 2.0]
-q = [1.0, 1.0]
-A = [1.0 1.0; 1.0 0.0; 0.0 1.0]
-l = [1.0, 0.0, 0.0]
-u = [1.0, 0.7, 0.7]
-
-sol = solve(P, q, A, l, u, OperatorSplitting())
-
-sol.status    # SOLVED
-sol.x         # [0.3, 0.7]
-sol.obj_val   # 1.88
-```
+## Re-using a workspace
 
 For repeated solves, build the workspace once and reuse it — the factorization and all
 buffers are retained, and the previous iterates warm-start the next solve:
@@ -154,7 +138,8 @@ If that Cholesky finds the reduced matrix is not positive definite, `setup` thro
 `linsys = :kkt`. It does not switch backend underneath you, because the backend is fixed at
 `setup` so every solve dispatches statically. Pass `linsys = :kkt` yourself to factor the full
 `(n+m)×(n+m)` system with Bunch-Kaufman, which does not square the conditioning of `A` and is
-the more accurate choice on an ill-conditioned problem.
+the more accurate choice on an ill-conditioned problem. [How a backend is chosen](@ref) has the
+full order and the condition each candidate asks.
 
 ## Watching a solve
 
