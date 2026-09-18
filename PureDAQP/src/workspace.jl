@@ -18,7 +18,7 @@ mutable struct ActiveSetWorkspace{
     # same vectors, which is what an immutable problem costs and all it costs.
     prob::QPData{T, MP, MA, V}
     algorithm::ActiveSet{T, T, T, T}
-    const options::Options{T}
+    options::Options{T}
     # Concretely typed: `DAQPReduction{T}` alone leaves the factorization parameter abstract,
     # which costs a dynamic dispatch on every solve. Rebound by `update!` when `P` or `A`
     # changes, which is the one thing that forces a fresh reduction.
@@ -235,6 +235,23 @@ function update!(
         rebuild_bounds!(ws.red, prob.u0, prob.l0)
     end
     ws.update_time += (time_ns() - t0) / 1.0e9
+    return ws
+end
+
+"""
+    update_settings!(ws; kwargs...) -> ws
+
+Merge the keywords into the workspace's options.
+
+A method of its own because the shared one ends by handing the new options to the
+linear-system backend, and this method has none to hand them to.
+"""
+function update_settings!(ws::ActiveSetWorkspace{T}; kwargs...) where {T}
+    check_option_names(kwargs, ws.algorithm)
+    old = ws.options
+    new = Options{T}(; settings_tuple(old)..., kwargs...)
+    refuse_activeset(new.linsys, new)
+    ws.options = new
     return ws
 end
 
