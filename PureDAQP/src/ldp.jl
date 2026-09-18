@@ -43,6 +43,9 @@ struct LDPWorkspace{T <: Real}
     g::Vector{T}     # scratch: products against the active rows
     Mv::Vector{T}    # scratch: M * v
     price::Vector{T} # scratch: M * u, every row at once
+    v::Vector{T}     # reduced linear term, rebuilt at the start of every pass
+    xbuf::Vector{T}  # primal iterate, and the vector `run_daqp!` returns
+    xold::Vector{T}  # proximal centre of the previous pass
     F::GramLDL{T}
 end
 
@@ -52,7 +55,8 @@ function LDPWorkspace(Mt::Matrix{T}, iseq::AbstractVector{Bool}) where {T <: Rea
     return LDPWorkspace{T}(
         Mt, zeros(T, m), zeros(T, m), collect(Bool, iseq), zeros(Int8, m),
         zeros(Int, kmax), zeros(Int, m), zeros(T, kmax), zeros(T, kmax), zeros(T, kmax),
-        zeros(T, n), zeros(T, kmax), zeros(T, m), zeros(T, m), GramLDL{T}(kmax)
+        zeros(T, n), zeros(T, kmax), zeros(T, m), zeros(T, m),
+        zeros(T, n), zeros(T, n), zeros(T, n), GramLDL{T}(kmax)
     )
 end
 
@@ -210,9 +214,16 @@ function solve_ldp!(
         end
 
         copyto!(view(ws.mu, 1:k), mus)
-        fill!(ws.u, zero(T))
+        # `u = Mₐᵀ μ`, accumulated column by column. One `axpy!` per active row is `k` calls
+        # on vectors of a few dozen elements, where the call costs more than the arithmetic.
+        uu = ws.u
+        fill!(uu, zero(T))
         for i in 1:k
-            axpy!(ws.mu[i], row(ws, ws.active[i]), ws.u)
+            mui = ws.mu[i]
+            col = row(ws, ws.active[i])
+            @simd for j in eachindex(uu, col)
+                uu[j] += mui * col[j]
+            end
         end
 
         # Price every row with one matrix-vector product rather than a dot product per
@@ -332,7 +343,13 @@ function reduce_qp(
     bl = Vector{T}(undef, m)
     for j in 1:m
         col = view(Mt, :, j)
-        nrm = norm(col)
+        sq = zero(T)
+        @simd for i in eachindex(col)
+            sq += col[i]^2
+        end
+        # `norm` computes the same value while scaling against overflow and underflow, which
+        # is what the sum of squares cannot represent; it covers exactly those two cases.
+        nrm = (isfinite(sq) && sq > 0) ? sqrt(sq) : norm(col)
         # A row of `A` in the kernel of `R⁻ᵀ` normalizes to nothing; it is left as it is and
         # its bounds are taken unscaled, which is what a scale of one means.
         scale[j] = nrm > 0 ? nrm : one(T)
@@ -421,10 +438,15 @@ function inner_solve!(
         red::DAQPReduction{T}, f::AbstractVector{T}, x::AbstractVector{T};
         max_iter::Int, zero_tol::T, primal_tol::T
     ) where {T}
-    rhs = iszero(red.eps_prox) ? f : f .- red.eps_prox .* x
+    v = red.ws.v
+    if iszero(red.eps_prox)
+        copyto!(v, f)
+    else
+        @. v = f - red.eps_prox * x
+    end
     # `R.L` on an upper-stored Cholesky materializes the transpose, copying the whole factor
     # on every pass; the lazy transpose solves against the same triangle for nothing.
-    v = transpose(red.R.U) \ rhs
+    ldiv!(transpose(red.R.U), v)
     set_targets!(red, v)
     status, iters = solve_ldp!(red.ws; max_iter, zero_tol, primal_tol)
     return status, iters, v
@@ -443,21 +465,37 @@ function run_daqp!(
         eps_prox::T, eta_prox::T, max_prox::Int
     ) where {T}
     ws = red.ws
-    x = zeros(T, size(ws.Mt, 1))
+    # The returned vector is a workspace buffer. Callers copy it out before starting the
+    # next solve, which writes it again.
+    x = ws.xbuf
+    fill!(x, zero(T))
     if iszero(eps_prox)
         status, iters, v = inner_solve!(red, f, x; max_iter, zero_tol, primal_tol)
-        status == LDP_OPTIMAL || return (T[], status, iters)
-        return (red.R.U \ (-ws.u - v), status, iters)
+        status == LDP_OPTIMAL || return (x, status, iters)
+        primal!(x, red, v)
+        return (x, status, iters)
     end
-    xold = similar(x)
+    xold = ws.xold
     total = 0
     for _ in 1:max_prox
         copyto!(xold, x)
         status, iters, v = inner_solve!(red, f, x; max_iter, zero_tol, primal_tol)
         total += iters
-        status == LDP_OPTIMAL || return (T[], status, total)
-        x = red.R.U \ (-ws.u - v)
-        norm(x - xold, Inf) < eta_prox && return (x, status, total)
+        status == LDP_OPTIMAL || return (x, status, total)
+        primal!(x, red, v)
+        d = zero(T)
+        for i in eachindex(x, xold)
+            d = max(d, abs(x[i] - xold[i]))
+        end
+        d < eta_prox && return (x, status, total)
     end
     return (x, LDP_ITERATION_LIMIT, total)
+end
+
+"Recover the primal point `x = R⁻¹(−u − v)` of the original problem, in place."
+function primal!(x::AbstractVector{T}, red::DAQPReduction{T}, v::AbstractVector{T}) where {T}
+    u = red.ws.u
+    @. x = -u - v
+    ldiv!(red.R.U, x)
+    return x
 end

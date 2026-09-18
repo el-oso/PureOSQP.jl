@@ -129,7 +129,7 @@ function solve!(ws::ActiveSetWorkspace{T}) where {T}
     ws.warm || reset_working_set!(ws.red)
 
     x, status, iters = run_daqp!(
-        ws.red, Vector{T}(prob.q0);
+        ws.red, prob.q0;
         max_iter = ws.options.max_iter, zero_tol = alg.zero_tol,
         primal_tol = alg.primal_tol, eps_prox = alg.eps_prox,
         eta_prox = alg.eta_prox, max_prox = alg.max_prox,
