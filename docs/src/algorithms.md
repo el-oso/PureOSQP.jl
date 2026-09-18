@@ -46,7 +46,16 @@ solve(P, q, A, l, u, InteriorPoint(); rho = 0.2)   # ArgumentError: rho is not a
 
 [`OperatorSplitting`](@ref) is OSQP's ADMM iteration: many cheap iterations that share one
 factorization. [`InteriorPoint`](@ref) is a Mehrotra predictor–corrector method: a few
-iterations, each factoring a new Newton system.
+iterations, each factoring a new Newton system. Both converge toward the solution, so for both
+the question is how many iterations a given tolerance costs. The measurements below are of
+those two.
+
+[`ActiveSet`](@ref) does not belong on that axis. It terminates finitely: each iteration adds
+or drops one row, and when no row prices in it returns the exact solution of the
+equality-constrained QP over the rows that are active, to the accuracy of one triangular solve.
+There is no tolerance to tighten and no accuracy to trade against iteration count. What decides
+its cost is how many rows enter the working set before it settles, which is a property of the
+problem rather than of a setting.
 
 `PureIPM/bench/ipm_vs_clarabel.jl` runs both on the smallest instance of each OSQP suite problem
 class, `InteriorPoint` at `eps_abs = eps_rel = 1e-8` and `OperatorSplitting` at `1e-6`, the
@@ -77,7 +86,8 @@ lot.
 This does not say `InteriorPoint` is always faster. Each of its iterations costs a
 factorization, while ADMM's iterations only apply the one it already has, so where they cross
 depends on the problem. [Benchmarks](@ref "The interior-point method against Clarabel") has the
-times, not just the iteration counts.
+times, not just the iteration counts, and
+[Against other solvers](@ref "Against other solvers") times all three on the same problems.
 
 ## Re-solving a sequence
 
@@ -121,11 +131,14 @@ entry throws at [`setup`](@ref). The other two limit none of the matrix types in
 [Matrix types](matrices.md) or [Structured operators](@ref) beyond what `linsys` asks for. They
 differ in what an operator you supply needs, and in which `linsys` backends each one accepts.
 
-| | `OperatorSplitting` | `InteriorPoint` |
-|---|---|---|
-| matrix-free operators (`linsys = :indirect`) | works with the built-in Jacobi preconditioner, or none | needs `linsys = :indirect`, a **caller-supplied** preconditioner, and `scaling = 0`; passing the built-in preconditioners or equilibration throws, naming the remedy ([Operators under the interior-point method](@ref)) |
-| `linsys = :kronecker` | works | throws: the Kronecker backend needs one weight for every row, and the interior-point method's weights are per-row |
-| `linsys = :lowrank` | works | throws: the Woodbury solve misses the tolerance on linear programs ([Algorithm](@ref "Backends under the interior-point method")) |
+| | `OperatorSplitting` | `InteriorPoint` | `ActiveSet` |
+|---|---|---|---|
+| matrix-free operators (`linsys = :indirect`) | works with the built-in Jacobi preconditioner, or none | needs `linsys = :indirect`, a **caller-supplied** preconditioner, and `scaling = 0`; passing the built-in preconditioners or equilibration throws, naming the remedy ([Operators under the interior-point method](@ref)) | throws: the reduction needs entries |
+| `linsys = :kronecker` | works | throws: the Kronecker backend needs one weight for every row, and the interior-point method's weights are per-row | throws: no backend to select |
+| `linsys = :lowrank` | works | throws: the Woodbury solve misses the tolerance on linear programs ([Algorithm](@ref "Backends under the interior-point method")) | throws: no backend to select |
+| `scaling` | any value | any value | throws unless `0`: the reduction normalizes its own rows |
+| `polishing = true` | works | works, and is required before a derivative | throws: the answer is already exact over the working set |
+| an indefinite `P` | throws at `setup` | throws at `setup` | throws at `setup`, from the Cholesky of `P + eps_prox*I` |
 
 We measured why `InteriorPoint` needs a preconditioner of your own on an operator. We did not
 assume it. Its row weights reach `1/reg_dual`, `1e8` by default, on equality and active rows,
