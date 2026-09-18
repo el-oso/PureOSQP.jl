@@ -12,11 +12,14 @@ warm start cheap here.
 """
 mutable struct ActiveSetWorkspace{
         T <: Real, MP <: AbstractMatrix, MA <: AbstractMatrix, V <: AbstractVector{T},
+        RD <: DAQPReduction{T},
     } <: QPWorkspace{T}
     prob::Problem{T, MP, MA, V}
     algorithm::ActiveSet{T, T, T, T}
     options::Options{T}
-    red::DAQPReduction{T}
+    # Concretely typed: `DAQPReduction{T}` alone leaves the factorization parameter abstract,
+    # which costs a dynamic dispatch on every solve.
+    red::RD
     x::V
     y::V
     z::V
@@ -107,7 +110,7 @@ function setup_backend(
         iseq; eps_prox = resolved.eps_prox
     )
 
-    ws = ActiveSetWorkspace{T, typeof(prob.P), typeof(prob.A), typeof(prob.q)}(
+    ws = ActiveSetWorkspace{T, typeof(prob.P), typeof(prob.A), typeof(prob.q), typeof(red)}(
         prob, resolved, options, red,
         zeros(T, n), zeros(T, m), zeros(T, m),
         UNSOLVED, false, POLISH_NOT_PERFORMED, 0, false,
@@ -130,7 +133,7 @@ function solve!(ws::ActiveSetWorkspace{T}) where {T}
     prob, alg = ws.prob, ws.algorithm
     ws.warm || reset_working_set!(ws.red)
 
-    x, lambda, _, status, iters = run_daqp!(
+    x, status, iters = run_daqp!(
         ws.red, Vector{T}(prob.q0);
         max_iter = ws.options.max_iter, zero_tol = alg.zero_tol,
         primal_tol = alg.primal_tol, eps_prox = alg.eps_prox,
@@ -141,7 +144,7 @@ function solve!(ws::ActiveSetWorkspace{T}) where {T}
 
     if status == LDP_OPTIMAL
         copyto!(ws.x, x)
-        multipliers!(ws.y, ws.red, lambda)
+        multipliers!(ws.y, ws.red)
         mul!(ws.z, prob.A, ws.x)
         ws.status = SOLVED
     elseif status == LDP_INFEASIBLE
@@ -208,7 +211,7 @@ function update!(
         )
         ws.warm = false
     elseif !isnothing(l) || !isnothing(u)
-        rebuild_rhs!(ws.red, Vector{T}(prob.u0), Vector{T}(prob.l0))
+        rebuild_bounds!(ws.red, Vector{T}(prob.u0), Vector{T}(prob.l0))
     end
     ws.update_time += (time_ns() - t0) / 1.0e9
     return ws
