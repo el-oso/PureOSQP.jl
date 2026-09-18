@@ -173,14 +173,18 @@ at the exact vertex. PureDAQP is the fastest solver here at every size from `n =
 beats the C implementation it follows by 1.06× to 2.23×. PureIPM beats Clarabel at every size,
 by 1.9× to 5.5×.
 
-**PureDAQP is slower than DAQP on the two smallest problems**, 2.3× at `n = 10` and 1.4× at
-`n = 25`. That is setup, not the iteration. Building the reduction costs 1.8 µs of the 6.8 µs
-a `n = 10` solve takes, and validating the problem costs more on top; the iteration itself is
-1.1 µs. DAQP is a C solver with a preallocated workspace and no equivalent of
-[`Problem`](@ref PureQPBase.Problem) to build, so it pays almost nothing fixed. The fixed cost
-stops mattering once the `O(mn²)` work of the reduction outgrows it, which is where the
-crossover at `n = 50` comes from. Through [`setup`](@ref) and repeated [`solve!`](@ref) it is
-paid once rather than per solve.
+**PureDAQP is slower than DAQP on the two smallest problems**, by 1.8× at `n = 10` and 1.4× at
+`n = 25`. Setup is not the reason: building the reduction costs 2.6 µs at `n = 10` against the
+C solver's 2.2 µs, and from `n = 25` up ours is the faster of the two. The difference is the
+per-iteration constant. Both take the same number of iterations — 15 and 51 on these two
+problems — and ours cost more each, because at a working set of a dozen rows an iteration is
+a handful of short loops where a call boundary is a visible fraction of the work. That is
+where a C solver with no such boundaries is hard to beat. The constant stops mattering once
+the work per iteration grows, which is where the crossover at `n = 50` comes from.
+
+For repeated small solves, [`setup`](@ref) with [`update!`](@ref) and [`solve!`](@ref) pays
+the fixed cost once and warm starts from the previous working set, which is a different
+question from the one this table asks.
 
 ADMM is the better fit when you re-solve a problem many times: warm starts, updates that keep
 the factorization, and one factorization reused across hundreds of iterations. It is also the

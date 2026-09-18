@@ -12,9 +12,9 @@ function build_solution(ws::ActiveSetWorkspace{T}) where {T}
     prob = ws.prob
     run_time = ws.setup_time + ws.update_time + ws.solve_time
     if has_solution(ws.status)
-        obj = obj_value(ws)
-        prim, dual = residuals(ws)
-        gap = duality_gap(ws)
+        # `Px` serves the objective, the dual residual and the gap, and `ws.z` already holds
+        # `Ax` from the solve. Asking for either again is the same matrix product repeated.
+        obj, prim, dual, gap = report(ws)
     else
         obj = ws.status == PRIMAL_INFEASIBLE ? T(Inf) : T(-Inf)
         prim = dual = gap = T(NaN)
@@ -29,37 +29,40 @@ function build_solution(ws::ActiveSetWorkspace{T}) where {T}
     )
 end
 
-"½ xᵀPx + qᵀx at the current point, from the caller's data."
-function obj_value(ws::ActiveSetWorkspace{T}) where {T}
+"""
+    report(ws) -> (objective, primal_residual, dual_residual, duality_gap)
+
+Everything a [`Solution`](@ref) reports about the point, from the caller's own data, in one
+pass.
+
+They share their terms: `Px` appears in the objective, the dual residual and the gap, and
+`Ax` is already in `ws.z` from the solve. Computed separately, a three-line report costs four
+matrix products where two will do.
+
+- objective `½ xᵀPx + qᵀx`
+- primal `‖max(Ax−u, 0) + max(l−Ax, 0)‖∞`
+- dual `‖Px + q + Aᵀy‖∞`
+- gap `xᵀPx + qᵀx + uᵀmax(y,0) + lᵀmin(y,0)`, which an exact answer drives to rounding
+"""
+function report(ws::ActiveSetWorkspace{T}) where {T}
     prob = ws.prob
     Px = prob.P * ws.x
-    return T(0.5) * dot(ws.x, Px) + dot(prob.q0, ws.x)
-end
+    quad = dot(ws.x, Px)
+    linear = dot(prob.q0, ws.x)
 
-"""
-    residuals(ws) -> (primal, dual)
-
-`‖max(Ax−u,0) + max(l−Ax,0)‖∞` and `‖Px + q + Aᵀy‖∞`, both in the caller's own scaling.
-"""
-function residuals(ws::ActiveSetWorkspace{T}) where {T}
-    prob = ws.prob
-    Ax = prob.A * ws.x
     prim = zero(T)
-    for i in eachindex(Ax)
-        prim = max(prim, max(Ax[i] - prob.u0[i], zero(T)), max(prob.l0[i] - Ax[i], zero(T)))
+    for i in eachindex(ws.z)
+        zi = ws.z[i]
+        prim = max(prim, max(zi - prob.u0[i], zero(T)), max(prob.l0[i] - zi, zero(T)))
     end
-    r = prob.P * ws.x + prob.q0 + prob.A' * ws.y
-    return prim, maximum(abs, r; init = zero(T))
-end
 
-"""
-    duality_gap(ws) -> gap
+    r = Px
+    mul!(r, transpose(prob.A), ws.y, one(T), one(T))
+    dual = zero(T)
+    for j in eachindex(r)
+        dual = max(dual, abs(r[j] + prob.q0[j]))
+    end
 
-`xᵀPx + qᵀx + uᵀmax(y,0) + lᵀmin(y,0)`, the gap between the primal objective and the dual
-one. An exact active-set answer drives this to rounding.
-"""
-function duality_gap(ws::ActiveSetWorkspace{T}) where {T}
-    prob = ws.prob
     support = zero(T)
     for i in eachindex(ws.y)
         yi = ws.y[i]
@@ -69,6 +72,6 @@ function duality_gap(ws::ActiveSetWorkspace{T}) where {T}
             isfinite(prob.l0[i]) && (support += prob.l0[i] * yi)
         end
     end
-    Px = prob.P * ws.x
-    return dot(ws.x, Px) + dot(prob.q0, ws.x) + support
+
+    return T(0.5) * quad + linear, prim, dual, quad + linear + support
 end

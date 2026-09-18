@@ -42,6 +42,7 @@ struct LDPWorkspace{T <: Real}
     u::Vector{T}     # primal point of the least-distance problem, Mₐᵀμ
     g::Vector{T}     # scratch: products against the active rows
     Mv::Vector{T}    # scratch: M * v
+    price::Vector{T} # scratch: M * u, every row at once
     F::GramLDL{T}
 end
 
@@ -51,7 +52,7 @@ function LDPWorkspace(Mt::Matrix{T}, iseq::AbstractVector{Bool}) where {T <: Rea
     return LDPWorkspace{T}(
         Mt, zeros(T, m), zeros(T, m), collect(Bool, iseq), zeros(Int8, m),
         zeros(Int, kmax), zeros(Int, m), zeros(T, kmax), zeros(T, kmax), zeros(T, kmax),
-        zeros(T, n), zeros(T, kmax), zeros(T, m), GramLDL{T}(kmax)
+        zeros(T, n), zeros(T, kmax), zeros(T, m), zeros(T, m), GramLDL{T}(kmax)
     )
 end
 
@@ -214,17 +215,25 @@ function solve_ldp!(
             axpy!(ws.mu[i], row(ws, ws.active[i]), ws.u)
         end
 
-        # Price the inactive rows. Dantzig's rule takes the worst violation, which is the
-        # fast choice but can cycle: a row that keeps swapping sides re-enters forever.
-        # Past `bland_after` iterations the run switches to the lowest violated index,
-        # Bland's rule, which terminates finitely at the cost of taking more steps.
+        # Price every row with one matrix-vector product rather than a dot product per
+        # inactive row. The working set is priced too and its values ignored, which is `k`
+        # wasted products out of `m` — cheaper than it sounds, because a dot product per row
+        # is `m` BLAS calls per iteration, and on a short row a call costs about what the
+        # arithmetic does. One call for all of them is what makes the small sizes competitive.
+        mul!(ws.price, transpose(ws.Mt), ws.u)
+
+        # Dantzig's rule takes the worst violation, which is the fast choice but can cycle:
+        # a row that keeps swapping sides re-enters forever. Past `bland_after` iterations
+        # the run switches to the lowest violated index, Bland's rule, which terminates
+        # finitely at the cost of taking more steps.
         bland = iter > bland_after
         worst = primal_tol
         entering = 0
         entering_side = SIDE_UPPER
-        for r in 1:m
+        # Not `@simd`: this is an argmax search, and the `slot` test skips the working set.
+        @inbounds for r in 1:m
             iszero(ws.slot[r]) || continue
-            rr = dot(row(ws, r), ws.u)
+            rr = ws.price[r]
             over = rr - ws.hi[r]
             under = ws.lo[r] - rr
             if over > worst

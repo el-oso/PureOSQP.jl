@@ -26,19 +26,55 @@ end
 
 Base.size(F::GramLDL) = F.k
 
+"""
+Working sets up to this size solve through plain loops rather than LAPACK.
+
+`ldiv!` on a triangular view routes to `trtrs!`, whose call overhead dominates at this scale:
+58 ns against 14 ns for a loop at `k = 8`. These solves run twice per iteration, so on a
+small problem they are a third of it. LAPACK wins again once the triangle is big enough for
+its blocking to pay, which is why this is a threshold and not a replacement.
+"""
+const SMALL_TRIANGLE = 32
+
 "Solve `L y = b` in place over the leading `length(b)` block."
-function forward_L!(F::GramLDL, b::AbstractVector)
+function forward_L!(F::GramLDL{T}, b::AbstractVector{T}) where {T}
     isempty(b) && return b
     k = length(b)
-    ldiv!(UnitLowerTriangular(view(F.L, 1:k, 1:k)), b)
+    if k > SMALL_TRIANGLE
+        ldiv!(UnitLowerTriangular(view(F.L, 1:k, 1:k)), b)
+        return b
+    end
+    # Column-oriented: each column of `L` is contiguous, and the update walks the tail of
+    # `b`. `k <= F.k <= size(L, 1)` by construction, so the indices are in range.
+    L = F.L
+    @inbounds for j in 1:k
+        bj = b[j]
+        @simd for i in (j + 1):k
+            b[i] -= L[i, j] * bj
+        end
+    end
     return b
 end
 
 "Solve `Lᵀ y = b` in place over the leading `length(b)` block."
-function backward_L!(F::GramLDL, b::AbstractVector)
+function backward_L!(F::GramLDL{T}, b::AbstractVector{T}) where {T}
     isempty(b) && return b
     k = length(b)
-    ldiv!(UnitLowerTriangular(view(F.L, 1:k, 1:k))', b)
+    if k > SMALL_TRIANGLE
+        ldiv!(UnitLowerTriangular(view(F.L, 1:k, 1:k))', b)
+        return b
+    end
+    # `Lᵀ` is upper triangular, so this runs backwards, reading down column `i` of `L`. No
+    # `@simd`: this is a reduction, and reassociating it moves the answer at the last digit,
+    # which is where agreement with the reference solver is measured.
+    L = F.L
+    @inbounds for i in k:-1:1
+        acc = b[i]
+        for j in (i + 1):k
+            acc -= L[j, i] * b[j]
+        end
+        b[i] = acc
+    end
     return b
 end
 
@@ -49,7 +85,7 @@ Solve `Mₐ Mₐᵀ x = rhs` in place through the stored factors.
 """
 function solve_gram!(F::GramLDL, rhs::AbstractVector)
     forward_L!(F, rhs)
-    for i in eachindex(rhs)
+    @inbounds @simd for i in eachindex(rhs)
         rhs[i] /= F.D[i]
     end
     backward_L!(F, rhs)
@@ -79,15 +115,16 @@ function add_row!(F::GramLDL{T}, g::AbstractVector{T}, beta::T, zero_tol::T = sq
     # An explicit loop rather than `copyto!`: that checks lengths and throws, and building
     # the exception is an allocation site the hot-path guarantee sees whether or not the
     # branch can be reached. The caller always passes `k` entries.
-    for i in 1:k
+    @inbounds @simd for i in 1:k
         b[i] = g[i]
     end
     forward_L!(F, b)
 
     d = beta
-    for i in 1:k
-        # A zero pivot must not be divided by; the dependent direction it marks
-        # is handled by the singular branch instead.
+    # The `D[i] > zero_tol` test cannot leave this loop: a zero pivot must not be divided by,
+    # and which pivots are zero is a property of the data. It predicts well, being false only
+    # on the dependent rows, which are rare.
+    @inbounds for i in 1:k
         lki = F.D[i] > zero_tol ? b[i] / F.D[i] : zero(T)
         F.L[k + 1, i] = lki
         d -= F.D[i] * lki^2
@@ -107,11 +144,15 @@ factorizations*, Math. Comp. 28(126):505-535, 1974. `l` is overwritten.
 """
 function rank_one!(F::GramLDL{T}, off::Int, l::AbstractVector{T}, delta::T, n::Int) where {T}
     a = delta
-    for j in 1:n
+    # `off + n <= F.k <= size(L, 1)`, so every index is in range. The inner loop is not
+    # `@simd`: `l[r]` is written then read in the same iteration, a dependence that
+    # reassociating would break.
+    @inbounds for j in 1:n
         p = l[j]
         dold = F.D[off + j]
         dnew = dold + a * p^2
         F.D[off + j] = dnew > 0 ? dnew : zero(T)
+        # A pivot reaching zero ends the sweep's contribution rather than dividing by it.
         if !(dnew > 0)
             a = zero(T)
             continue
