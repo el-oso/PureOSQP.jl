@@ -282,7 +282,20 @@ function reduce_qp(
             Hs[i, i] += eps_prox
         end
     end
-    R = cholesky(Symmetric(Hs))
+    # `check = false` so an indefinite `H` is a value to test rather than an exception to
+    # catch, and so this one factorization also answers the convexity question: factoring it
+    # twice, once to check and once to use, is most of what setup costs.
+    R = cholesky(Symmetric(Hs), NoPivot(); check = false)
+    issuccess(R) || throw(
+        ArgumentError(
+            iszero(eps_prox) ?
+                "P is not positive definite, which ActiveSet() needs when eps_prox = 0, " *
+                "because the reduction factors it. Pass eps_prox > 0 to run proximal-point " *
+                "iterations instead, which accept a positive semidefinite P." :
+                "P + eps_prox*I is not positive definite, so P is not positive semidefinite " *
+                "and the problem is not convex."
+        )
+    )
     # `Mᵀ = (A R⁻¹)ᵀ = R⁻ᵀ Aᵀ`, built transposed from the start rather than transposing a
     # built `M`: one triangular solve either way, and the result is the layout the loop
     # wants.
@@ -386,7 +399,9 @@ function inner_solve!(
         max_iter::Int, zero_tol::T, primal_tol::T
     ) where {T}
     rhs = iszero(red.eps_prox) ? f : f .- red.eps_prox .* x
-    v = red.R.L \ rhs
+    # `R.L` on an upper-stored Cholesky materializes the transpose, copying the whole factor
+    # on every pass; the lazy transpose solves against the same triangle for nothing.
+    v = transpose(red.R.U) \ rhs
     set_targets!(red, v)
     status, iters = solve_ldp!(red.ws; max_iter, zero_tol, primal_tol)
     return status, iters, v

@@ -56,7 +56,7 @@ include("solution.jl")
 # Every workspace and algorithm this package defines must satisfy its contract, asserted for
 # each subtype defined by the time the module finishes rather than type by type, so a new
 # type cannot acquire the guarantee only by someone remembering to ask for it.
-@verify QPWorkspace subtypes = true
-@verify QPAlgorithm subtypes = true
+@verify QPWorkspace subtypes = true trim_compat = true
+@verify QPAlgorithm subtypes = true trim_compat = true
 
 end # module PureDAQP

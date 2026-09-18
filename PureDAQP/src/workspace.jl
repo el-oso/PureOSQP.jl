@@ -93,14 +93,8 @@ function setup_backend(
                 "A / R for the Cholesky factor R of P, which an operator cannot supply."
         )
     )
-    iszero(resolved.eps_prox) && !is_convex(T, P, zero(T)) && throw(
-        ArgumentError(
-            "P is not positive definite, which ActiveSet() needs when eps_prox = 0, because " *
-                "the reduction factors it. Pass eps_prox > 0 to run proximal-point iterations " *
-                "instead, which accept a singular P."
-        )
-    )
-
+    # Convexity is not checked here: `reduce_qp` factors `P + eps_prox*I` and reports a
+    # failure, which is the same question asked once instead of twice.
     prob = validated_problem(T, n, m, P, q, A, l, u, options.scaling)
     Pd = Matrix{T}(P)
     Ad = Matrix{T}(A)
