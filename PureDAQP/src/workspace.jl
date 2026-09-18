@@ -36,7 +36,7 @@ end
 function Base.show(io::IO, ws::ActiveSetWorkspace{T}) where {T}
     n, m = dimensions(ws)
     print(io, "ActiveSetWorkspace{", T, "}: ", n, " variables, ", m, " rows, ")
-    print(io, length(ws.red.ws.active), " rows in the working set")
+    print(io, ws.red.ws.F.k, " rows in the working set")
     return nothing
 end
 

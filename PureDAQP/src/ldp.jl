@@ -28,6 +28,10 @@ mutable struct LDPWorkspace{T <: Real}
     lo::Vector{T}
     iseq::Vector{Bool}
     side::Vector{Int8}
+    # `active` and `mu` are preallocated to the largest working set and share their live
+    # length with the factorization's `F.k`. Growing them with `push!` instead would allocate
+    # on a cold solve — invisible to a measurement, because `deleteat!` keeps the capacity a
+    # previous solve grew, but a real allocation in the hot path all the same.
     active::Vector{Int}
     slot::Vector{Int}
     mu::Vector{T}          # signed multipliers of the active rows, in `active` order
@@ -44,13 +48,16 @@ function LDPWorkspace(Mt::Matrix{T}, iseq::AbstractVector{Bool}) where {T <: Rea
     kmax = min(m, n) + 1
     return LDPWorkspace{T}(
         Mt, zeros(T, m), zeros(T, m), collect(Bool, iseq), zeros(Int8, m),
-        Int[], zeros(Int, m), T[], zeros(T, kmax), zeros(T, kmax),
+        zeros(Int, kmax), zeros(Int, m), zeros(T, kmax), zeros(T, kmax), zeros(T, kmax),
         zeros(T, n), zeros(T, kmax), zeros(T, m), GramLDL{T}(kmax)
     )
 end
 
 "Row `r` of the constraint matrix, contiguous because the matrix is stored transposed."
 @inline row(ws::LDPWorkspace, r::Integer) = view(ws.Mt, :, r)
+
+"The working set, as the live prefix of the preallocated buffer."
+@inline activeset(ws::LDPWorkspace) = view(ws.active, 1:ws.F.k)
 
 "The bound row `j` is held at, given the side it entered on."
 @inline target(ws::LDPWorkspace, j::Integer) = ws.side[j] == SIDE_LOWER ? ws.lo[j] : ws.hi[j]
@@ -70,28 +77,29 @@ function activate!(ws::LDPWorkspace{T}, r::Integer, side::Int8) where {T}
     k = ws.F.k
     m_r = row(ws, r)
     g = view(ws.g, 1:k)
-    for (j, a) in enumerate(ws.active)
-        g[j] = dot(row(ws, a), m_r)
+    for j in 1:k
+        g[j] = dot(row(ws, ws.active[j]), m_r)
     end
     add_row!(ws.F, g, dot(m_r, m_r))
-    push!(ws.active, r)
-    push!(ws.mu, zero(T))
+    ws.active[k + 1] = r
+    ws.mu[k + 1] = zero(T)
     ws.side[r] = side
-    ws.slot[r] = length(ws.active)
+    ws.slot[r] = k + 1
     return ws
 end
 
 "Take the `i`-th working-set row back out."
 function deactivate!(ws::LDPWorkspace, i::Integer)
+    k = ws.F.k
     r = ws.active[i]
     remove_row!(ws.F, i)
-    deleteat!(ws.active, i)
-    deleteat!(ws.mu, i)
-    ws.slot[r] = 0
-    ws.side[r] = SIDE_INACTIVE
-    for j in i:length(ws.active)
+    for j in i:(k - 1)
+        ws.active[j] = ws.active[j + 1]
+        ws.mu[j] = ws.mu[j + 1]
         ws.slot[ws.active[j]] = j
     end
+    ws.slot[r] = 0
+    ws.side[r] = SIDE_INACTIVE
     return ws
 end
 
@@ -107,7 +115,7 @@ An equality row never blocks: its multiplier is free in sign.
 function step_and_drop!(ws::LDPWorkspace{T}, p::AbstractVector{T}, zero_tol::T) where {T}
     alpha = typemax(T)
     blocking = 0
-    for i in eachindex(ws.active)
+    for i in 1:ws.F.k
         r = ws.active[i]
         ws.iseq[r] && continue
         # Feasibility is `musign * mu >= 0`, so the step blocks when `musign * p < 0`.
@@ -119,7 +127,7 @@ function step_and_drop!(ws::LDPWorkspace{T}, p::AbstractVector{T}, zero_tol::T) 
         end
     end
     iszero(blocking) && return false
-    for i in eachindex(ws.mu)
+    for i in 1:ws.F.k
         ws.mu[i] += alpha * p[i]
     end
     deactivate!(ws, blocking)
@@ -340,8 +348,8 @@ solve then starts where a fresh setup would.
 """
 function reset_working_set!(red::DAQPReduction)
     ws = red.ws
-    while !isempty(ws.active)
-        deactivate!(ws, length(ws.active))
+    while ws.F.k > 0
+        deactivate!(ws, ws.F.k)
     end
     for j in eachindex(ws.iseq)
         ws.iseq[j] && activate!(ws, j, SIDE_UPPER)
@@ -358,7 +366,7 @@ sign already distinguishes the two bounds, so nothing else is needed.
 function multipliers!(y::AbstractVector{T}, red::DAQPReduction{T}) where {T}
     fill!(y, zero(T))
     ws = red.ws
-    for (slot, j) in enumerate(ws.active)
+    for (slot, j) in enumerate(activeset(ws))
         # The signed multiplier already distinguishes the two bounds: non-negative for a row
         # held at the caller's upper bound, non-positive at the lower one.
         y[j] = ws.mu[slot] / red.scale[j]

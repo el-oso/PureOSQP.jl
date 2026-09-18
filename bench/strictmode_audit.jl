@@ -8,17 +8,53 @@
 # only reports, so it cannot gate.
 using PureOSQP
 using PureIPM                  # supplies the interior-point algorithm
+using PureDAQP                 # supplies the dual active-set algorithm
 using PureQPBase               # holds the backends and their extensions
 using Krylov                   # supplies the :indirect backend, a weak dependency
 using LDLFactorizations        # supplies the LDLᵀ backends, likewise
 using BandedMatrices           # supplies the banded backend, likewise
 using StrictMode, StrictModeTest
 using LinearAlgebra, SparseArrays, Random
+using InteractiveUtils: subtypes
 
 include(joinpath(@__DIR__, "..", "PureOSQP", "bench", "lazy_operator.jl"))
 
 # A disabled audit prints exactly like a clean one. Never report a pass without this.
 StrictMode.assert_enabled()
+
+"""
+Refuse to run unless every algorithm in the repository is covered below.
+
+The kernel lists in this file are written by hand, so an algorithm added without a section
+here would leave the audit printing a clean pass over a hot path nobody checked -- and a
+skipped check looks exactly like a passing one from outside. Two things are asserted, because
+either alone leaves a way through: every subdirectory package must be loaded, and every
+`QPAlgorithm` that loading them defines must appear in `AUDITED`.
+
+This is the same reasoning as `@verify QPAlgorithm subtypes = true` in each package: a
+per-algorithm opt-in is only as good as whoever remembered to opt in.
+"""
+const AUDITED = Set{Type}(
+    [PureOSQP.OperatorSplitting, PureIPM.InteriorPoint, PureDAQP.ActiveSet]
+)
+
+let root = dirname(@__DIR__)
+    # A package, not merely a directory with a Project.toml: `docs/` has one of those, and a
+    # `src/` full of Markdown. The entry point `src/<name>.jl` is what distinguishes them.
+    packages = filter(readdir(root)) do d
+        isfile(joinpath(root, d, "Project.toml")) && isfile(joinpath(root, d, "src", d * ".jl"))
+    end
+    unloaded = filter(p -> isnothing(Base.find_package(p)) || !isdefined(Main, Symbol(p)), packages)
+    isempty(unloaded) || error(
+        "strictmode_audit.jl does not load " * join(unloaded, ", ") *
+            ": add `using` for it above and give it a section below, or its hot path ships unaudited."
+    )
+    unaudited = setdiff(Set{Type}(subtypes(PureQPBase.QPAlgorithm)), AUDITED)
+    isempty(unaudited) || error(
+        "no StrictMode section for " * join(string.(collect(unaudited)), ", ") *
+            ": add its kernels below and list it in AUDITED."
+    )
+end
 
 function example_workspace(backend::Symbol)
     Random.seed!(1)
@@ -488,6 +524,75 @@ for example_kind in (:auto, :sparse_kkt, :diagonal, :tridiagonal, :banded, :bloc
                 extra = ", noalloc (measured: 0 bytes)"
             end
             claims = isempty(GUARANTEES[tier]) ? "no static claim (sparse arithmetic)" : join(GUARANTEES[tier], ", ")
+            println("  ✓ ", label, "  ", claims, extra)
+        catch e
+            push!(failures, label)
+            println("  ✗ ", label)
+            println(sprint(showerror, e))
+        end
+    end
+end
+
+# ---------------------------------------------------------------- PureDAQP
+#
+# The dual active-set method has no `LinearSystem` backend, so there is nothing to sweep over:
+# it maintains one `LDLᵀ` of the working set's Gram matrix. What runs per iteration is the
+# row-update trio and the triangular solves, and those are what carry the guarantee.
+#
+# `solve_ldp!` itself takes only keyword arguments beyond the workspace, which
+# `test_signatures` cannot express, so the whole loop is held to a measured claim instead --
+# the same split used for the matrix-free backend above, and for the same reason: what cannot
+# be proved statically is measured rather than dropped.
+let
+    Random.seed!(1)
+    n, m = 12, 30
+    X = randn(n, n)
+    P = Matrix(X'X / n + I)
+    A = randn(m, n)
+    b = A * randn(n)
+    q = randn(n)
+    ws = PureDAQP.setup(P, q, A, b .- rand(m), b .+ rand(m), PureDAQP.ActiveSet())
+    PureDAQP.solve!(ws)          # compile every specialization before analysing it
+
+    red = ws.red
+    lw = red.ws
+    F = lw.F
+    LW = typeof(lw)
+    FT = typeof(F)
+    T = Float64
+    # The views the loop actually passes, so the analysed signature is the one that runs.
+    PV = typeof(view(lw.p, 1:1))
+    GV = typeof(view(lw.g, 1:1))
+
+    loop() = @allocated PureDAQP.solve_ldp!(
+        lw; max_iter = 1000, zero_tol = sqrt(eps(T)), primal_tol = sqrt(eps(T))
+    )
+
+    checks = Any[
+        (PureDAQP.activate!, (LW, Int, Int8), :hot, nothing),
+        (PureDAQP.deactivate!, (LW, Int), :hot, nothing),
+        (PureDAQP.step_and_drop!, (LW, PV, T), :hot, nothing),
+        (PureDAQP.add_row!, (FT, GV, T), :hot, nothing),
+        (PureDAQP.remove_row!, (FT, Int), :hot, nothing),
+        (PureDAQP.solve_gram!, (FT, PV), :hot, nothing),
+        (PureDAQP.singular_direction!, (PV, FT, Int), :hot, nothing),
+        (PureDAQP.set_targets!, (typeof(red), Vector{T}), :hot, nothing),
+        (PureDAQP.solve_ldp!, nothing, :hot_measured, loop),
+    ]
+
+    println("PureDAQP (dual active set)")
+    for (f, types, tier, measure) in checks
+        label = "  " * string(nameof(f))
+        try
+            isnothing(types) ||
+                test_signatures([(f, types)]; guarantees = GUARANTEES[tier])
+            extra = ""
+            if tier === :hot_measured
+                measured_noalloc(measure)
+                extra = ", noalloc (measured: 0 bytes)"
+            end
+            claims = isnothing(types) ? "measured only (keyword-only signature)" :
+                join(GUARANTEES[tier], ", ")
             println("  ✓ ", label, "  ", claims, extra)
         catch e
             push!(failures, label)

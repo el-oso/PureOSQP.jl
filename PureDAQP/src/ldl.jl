@@ -1,4 +1,3 @@
-
 """
 In-place `LDLᵀ` of the Gram matrix of an active row set, maintained under row
 insertion and deletion.
@@ -65,7 +64,7 @@ those already active. It is stored as an exact zero: that is what makes the
 dependency detectable, since the caller scans `D` for a zero and takes the
 singular branch instead of dividing by it.
 """
-function add_row!(F::GramLDL{T}, g::AbstractVector{T}, beta::T; zero_tol = sqrt(eps(T))) where {T}
+function add_row!(F::GramLDL{T}, g::AbstractVector{T}, beta::T, zero_tol::T = sqrt(eps(T))) where {T}
     k = F.k
     if iszero(k)
         F.L[1, 1] = one(T)
@@ -74,7 +73,12 @@ function add_row!(F::GramLDL{T}, g::AbstractVector{T}, beta::T; zero_tol = sqrt(
         return F
     end
     b = view(F.b, 1:k)
-    copyto!(b, g)
+    # An explicit loop rather than `copyto!`: that checks lengths and throws, and building
+    # the exception is an allocation site the hot-path guarantee sees whether or not the
+    # branch can be reached. The caller always passes `k` entries.
+    for i in 1:k
+        b[i] = g[i]
+    end
     forward_L!(F, b)
 
     d = beta
@@ -82,11 +86,11 @@ function add_row!(F::GramLDL{T}, g::AbstractVector{T}, beta::T; zero_tol = sqrt(
         # A zero pivot must not be divided by; the dependent direction it marks
         # is handled by the singular branch instead.
         lki = F.D[i] > zero_tol ? b[i] / F.D[i] : zero(T)
-        F.L[k+1, i] = lki
+        F.L[k + 1, i] = lki
         d -= F.D[i] * lki^2
     end
-    F.L[k+1, k+1] = one(T)
-    F.D[k+1] = d > zero_tol ? d : zero(T)
+    F.L[k + 1, k + 1] = one(T)
+    F.D[k + 1] = d > zero_tol ? d : zero(T)
     F.k = k + 1
     return F
 end
@@ -102,19 +106,19 @@ function rank_one!(F::GramLDL{T}, off::Int, l::AbstractVector{T}, delta::T, n::I
     a = delta
     for j in 1:n
         p = l[j]
-        dold = F.D[off+j]
+        dold = F.D[off + j]
         dnew = dold + a * p^2
-        F.D[off+j] = dnew > 0 ? dnew : zero(T)
+        F.D[off + j] = dnew > 0 ? dnew : zero(T)
         if !(dnew > 0)
             a = zero(T)
             continue
         end
         b = p * a / dnew
         a = dold * a / dnew
-        for r in (j+1):n
-            lrj = F.L[off+r, off+j]
+        for r in (j + 1):n
+            lrj = F.L[off + r, off + j]
             l[r] -= p * lrj
-            F.L[off+r, off+j] = lrj + b * l[r]
+            F.L[off + r, off + j] = lrj + b * l[r]
         end
     end
     return F
@@ -133,20 +137,20 @@ function remove_row!(F::GramLDL{T}, i::Integer) where {T}
     if ntail > 0
         l = view(F.w, 1:ntail)
         for r in 1:ntail
-            l[r] = F.L[i+r, i]
+            l[r] = F.L[i + r, i]
         end
         rank_one!(F, i, l, F.D[i], ntail)
 
         # Shift the repaired trailing block, and the columns left of i, up-left.
-        for c in 1:(i-1), r in 1:ntail
-            F.L[i+r-1, c] = F.L[i+r, c]
+        for c in 1:(i - 1), r in 1:ntail
+            F.L[i + r - 1, c] = F.L[i + r, c]
         end
-        for j in 1:ntail, r in (j+1):ntail
-            F.L[i+r-1, i+j-1] = F.L[i+r, i+j]
+        for j in 1:ntail, r in (j + 1):ntail
+            F.L[i + r - 1, i + j - 1] = F.L[i + r, i + j]
         end
         for r in 1:ntail
-            F.D[i+r-1] = F.D[i+r]
-            F.L[i+r-1, i+r-1] = one(T)
+            F.D[i + r - 1] = F.D[i + r]
+            F.L[i + r - 1, i + r - 1] = one(T)
         end
     end
     F.k = k - 1
@@ -163,10 +167,10 @@ singular, for the dependency marked by a zero at `D[i]`. It satisfies
 function singular_direction!(p::AbstractVector{T}, F::GramLDL{T}, i::Integer) where {T}
     fill!(p, zero(T))
     if i > 1
-        for j in 1:(i-1)
+        for j in 1:(i - 1)
             p[j] = -F.L[i, j]
         end
-        backward_L!(F, view(p, 1:(i-1)))
+        backward_L!(F, view(p, 1:(i - 1)))
     end
     p[i] = one(T)
     return p
