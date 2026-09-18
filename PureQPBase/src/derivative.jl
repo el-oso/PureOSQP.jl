@@ -28,7 +28,7 @@ Throws rather than returning anything when the derivative does not exist. See
 [`adjoint_derivative`](@ref) for why there is no fallback.
 """
 function active_kkt(
-        prob::Problem{T}, x::AbstractVector{T}, y::AbstractVector{T}, z::AbstractVector{T}
+        prob::AnyProblem{T}, x::AbstractVector{T}, y::AbstractVector{T}, z::AbstractVector{T}
     ) where {T}
     require_entries(
         prob.P, prob.A, "differentiating the solution",
@@ -147,9 +147,9 @@ function active_kkt(ws::QPWorkspace{T}) where {T}
             "differentiate it."
     )
     derivative_ready(ws)
-    x = prob.D .* ws.x
-    y = (prob.E .* ws.y) ./ prob.c
-    z = ws.z ./ prob.E
+    # An algorithm that works on the caller's problem directly holds a `QPData` and has no
+    # equilibration to undo, which is what the second method of this is for.
+    x, y, z = unscaled_iterates(prob, ws.x, ws.y, ws.z)
     return active_kkt(prob, x, y, z)
 end
 

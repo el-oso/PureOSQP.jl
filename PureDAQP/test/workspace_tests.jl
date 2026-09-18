@@ -1,3 +1,52 @@
+@testitem "settings merge by keyword as well as by algorithm object" begin
+    using PureDAQP, LinearAlgebra
+
+    # The shared keyword method ends by handing the new options to the linear-system backend,
+    # which this method does not have, so it carries its own.
+    P = [4.0 1.0; 1.0 2.0]
+    q = [1.0, 1.0]
+    A = [1.0 1.0; 1.0 0.0; 0.0 1.0]
+    l = [1.0, 0.0, 0.0]
+    u = [1.0, 0.7, 0.7]
+    ws = setup(P, q, A, l, u, ActiveSet())
+    solve!(ws)
+
+    update_settings!(ws; max_iter = 500)
+    @test ws.options.max_iter == 500
+    @test solve!(ws).status == SOLVED
+
+    # What the workspace refuses at setup it still refuses here.
+    @test_throws ArgumentError update_settings!(ws; linsys = :kkt)
+    @test_throws ArgumentError update_settings!(ws; scaling = 10)
+end
+
+@testitem "the solution differentiates without polishing" begin
+    using PureDAQP, PureQPBase, LinearAlgebra
+
+    # The active-set method holds the caller's problem rather than an equilibrated copy, so
+    # the shared derivative has no scaling to undo. Bounds wide enough to leave the minimum
+    # interior: a solution pinned at a vertex has a zero derivative, which a wrong answer
+    # would match.
+    P = [4.0 1.0; 1.0 2.0]
+    q = [1.0, -2.0]
+    A = [1.0 1.0; 1.0 0.0; 0.0 1.0]
+    l = fill(-9.0, 3)
+    u = fill(9.0, 3)
+    ws = setup(P, q, A, l, u, ActiveSet())
+    sol = solve!(ws)
+    @test sol.status == SOLVED
+    @test sol.x ≈ -(P \ q) atol = 1.0e-9
+
+    # `∂x₁/∂q` of an unconstrained minimum is the first row of `-P⁻¹`.
+    d = PureQPBase.adjoint_derivative(ws, [1.0, 0.0], zeros(3))
+    @test d.dq ≈ -inv(P)[1, :] atol = 1.0e-8
+
+    f(qq) = solve!(setup(P, qq, A, l, u, ActiveSet())).x[1]
+    h = 1.0e-6
+    fd = [(f(q .+ h .* (1:2 .== i)) - f(q .- h .* (1:2 .== i))) / (2h) for i in 1:2]
+    @test d.dq ≈ fd atol = 1.0e-7
+end
+
 @testitem "a solve allocates nothing, proved rather than scanned" begin
     using PureDAQP, StrictMode, StrictModeTest, LinearAlgebra
 

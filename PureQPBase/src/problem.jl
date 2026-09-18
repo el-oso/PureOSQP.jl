@@ -73,6 +73,27 @@ or not the algorithm asking scaled it.
 const AnyProblem{T, MP, MA, V} = Union{QPData{T, MP, MA, V}, Problem{T, MP, MA, V}}
 
 """
+    unscaled_iterates(prob, x, y, z) -> (x, y, z)
+
+The iterates an algorithm holds, in the caller's units.
+
+Fresh vectors either way: the caller is handed them to work with, and the workspace's own
+must not be what it gets. A [`QPData`](@ref) was never equilibrated, so returning them is all
+there is to undo.
+"""
+function unscaled_iterates(
+        prob::Problem{T}, x::AbstractVector{T}, y::AbstractVector{T}, z::AbstractVector{T}
+    ) where {T}
+    return (prob.D .* x, (prob.E .* y) ./ prob.c, z ./ prob.E)
+end
+
+function unscaled_iterates(
+        ::QPData{T}, x::AbstractVector{T}, y::AbstractVector{T}, z::AbstractVector{T}
+    ) where {T}
+    return (copy(x), copy(y), copy(z))
+end
+
+"""
     Problem(T, P, q, A, l, u; scaling) -> Problem
 
 Validate `P`, `q`, `A`, `l`, `u`, allocate the buffers `similar` to `q` follows, and run
