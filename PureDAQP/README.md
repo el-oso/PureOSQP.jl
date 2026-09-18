@@ -38,13 +38,15 @@ reduction forms `A R⁻¹` for the Cholesky factor `R` of `P`, which is dense wh
 large sparse problem is the other two algorithms' case.
 [Choosing an algorithm](https://el-oso.github.io/PureQP.jl/dev/algorithms) compares all three.
 
-On random dense problems at `1e-6`, against the C implementation it follows:
+On random dense problems at `1e-6`, it is faster than the C implementation it follows from
+`n = 25` up, by a margin that widens with size:
 
-| | n = 10 | n = 25 | n = 50 | n = 100 | n = 200 |
-|---|---|---|---|---|---|
-| PureDAQP / DAQP | 0.79× | 1.11× | 1.43× | 2.12× | 2.51× |
+| | n = 25 | n = 50 | n = 100 | n = 200 |
+|---|---|---|---|---|
+| PureDAQP / DAQP | 1.11× | 1.43× | 2.12× | 2.51× |
 
-Full tables in [Benchmarks](https://el-oso.github.io/PureQP.jl/dev/benchmarks).
+Below that the per-iteration constant dominates and DAQP is ahead, by 1.26× at `n = 10`. Full
+tables in [Benchmarks](https://el-oso.github.io/PureQP.jl/dev/benchmarks).
 
 ## What it does
 

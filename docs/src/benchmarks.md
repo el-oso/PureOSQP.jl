@@ -170,14 +170,13 @@ beforehand. Both DAQP implementations read dense ones, which is what they are bu
 **An active-set method wins this shape.** These are dense problems with few rows active at
 the solution, which is what an active-set method is for: a few expensive steps, then it stops
 at the exact vertex. PureDAQP is the fastest solver here at every size from `n = 25` up, and
-beats the C implementation it follows by 1.11× to 3.19×. PureIPM beats Clarabel at every size,
-by 1.9× to 5.6×.
+beats the C implementation it follows by 1.11× to 3.19×, the margin widening with size. PureIPM
+beats Clarabel at every size, by 1.9× to 5.6×.
 
-**PureDAQP is slower than DAQP on the smallest problem**, by 1.26× at `n = 10`. The difference
-is the per-iteration constant, not the setup: at a working set of a dozen rows an iteration is
-a handful of short loops where a call boundary is a visible fraction of the work, and a C solver
-with no such boundaries is hard to beat there. The constant stops mattering once the work per
-iteration grows, which is where the crossover at `n = 25` comes from.
+The exception is `n = 10`, where DAQP is 1.26× faster. At a working set of a dozen rows an
+iteration is a handful of short loops, so the per-iteration constant is most of the time and a C
+solver with no call boundaries is hard to beat. That constant stops mattering once the work per
+iteration grows.
 
 For repeated small solves, [`setup`](@ref) with [`update!`](@ref) and [`solve!`](@ref) pays
 the fixed cost once and warm starts from the previous working set, which is a different

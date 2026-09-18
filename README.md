@@ -42,13 +42,13 @@ rather than of stopping rules:
 |---|---|---|---|---|
 | **PureOSQP** | libosqp 1.0 (C) | OSQP's suite, 7 classes | 1.08× – 1.92× | identical |
 | **PureIPM** | [Clarabel.jl](https://github.com/oxfordcontrol/Clarabel.jl) | random QPs, `n` = 50 … 400 | 1.4× – 4.3× | within one |
-| **PureDAQP** | [DAQP](https://github.com/darnstrom/daqp) 0.9 (C) | random dense QPs, `n` = 10 … 200 | 0.79× – 3.19× | — |
+| **PureDAQP** | [DAQP](https://github.com/darnstrom/daqp) 0.9 (C) | random dense QPs, `n` = 25 … 200 | 1.11× – 3.19× | — |
 
 The interior-point margin grows with size — 2.3× to 4.3× dense from `n` = 50 to 400, 1.4× to
 2.3× sparse. Passing a structured `A` rather than its sparsity pattern is worth another 1.7×
 to 52× on top. The active-set margin grows with size too, and it is the fastest of the six on
-these dense problems from `n` = 25 up; only at `n` = 10 does the C solver stay ahead. Full
-tables, and the ill-conditioned and matrix-free families, in
+these dense problems from `n` = 25 up. Full tables, including the one smaller size where the C
+solver stays ahead, and the ill-conditioned and matrix-free families, in
 [Benchmarks](https://el-oso.github.io/PureQP.jl/dev/benchmarks).
 
 These packages are developed with the assistance of Claude Code. Generated code is reviewed
