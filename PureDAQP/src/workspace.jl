@@ -1,7 +1,7 @@
 """
     ActiveSetWorkspace
 
-The state a dual active-set solve runs on: the [`Problem`](@ref), the resolved
+The state a dual active-set solve runs on: the [`QPData`](@ref), the resolved
 [`ActiveSet`](@ref), the [`Options`](@ref), the reduction to a least-distance problem, and
 the iterates in problem space.
 
@@ -14,7 +14,9 @@ mutable struct ActiveSetWorkspace{
         T <: Real, MP <: AbstractMatrix, MA <: AbstractMatrix, V <: AbstractVector{T},
         RD <: DAQPReduction{T},
     } <: QPWorkspace{T}
-    const prob::Problem{T, MP, MA, V}
+    # Not `const`: `update!` replaces `P` or `A` by handing back another `QPData` around the
+    # same vectors, which is what an immutable problem costs and all it costs.
+    prob::QPData{T, MP, MA, V}
     algorithm::ActiveSet{T, T, T, T}
     const options::Options{T}
     # Concretely typed: `DAQPReduction{T}` alone leaves the factorization parameter abstract,
@@ -32,6 +34,9 @@ mutable struct ActiveSetWorkspace{
     const setup_time::Float64
     update_time::Float64
     solve_time::Float64
+    # `Px`, which the objective, the dual residual and the gap all share. Owned here: the
+    # method has no linear-system backend, so there is no problem scratch to borrow.
+    const px::V
     # Refilled and handed back by every solve, so a solve allocates nothing at all. Its `x`
     # and `y` are this workspace's own arrays. `Solution` says what that means for a caller
     # holding one across a solve.
@@ -111,7 +116,10 @@ function setup_backend(
     )
     # Convexity is not checked here: `reduce_qp` factors `P + eps_prox*I` and reports a
     # failure, which is the same question asked once instead of twice.
-    prob = validated_problem(T, n, m, P, q, A, l, u, options.scaling)
+    # The caller's data and nothing else: this method never forms the scaled products and has
+    # no linear-system backend, so it asks for neither the equilibrated copy nor their scratch.
+    # `refuse_activeset` has already required `options.scaling` to be zero.
+    prob = validated_data(T, n, m, P, q, A, l, u)
     # `convert` rather than `Matrix{T}`/`Vector{T}`: those copy even when the argument
     # already has the type asked for, and the reduction only reads this data.
     iseq = [prob.l0[i] == prob.u0[i] for i in 1:m]
@@ -124,11 +132,12 @@ function setup_backend(
     # The reported point is these arrays, not copies of them, so the solution the workspace
     # hands back is built here and refilled rather than rebuilt.
     x, y, z = zeros(T, n), zeros(T, m), zeros(T, m)
-    ws = ActiveSetWorkspace{T, typeof(prob.P), typeof(prob.A), typeof(prob.q), typeof(red)}(
+    ws = ActiveSetWorkspace{T, typeof(prob.P), typeof(prob.A), typeof(prob.q0), typeof(red)}(
         prob, resolved, options, red,
         x, y, z,
         UNSOLVED, false, POLISH_NOT_PERFORMED, 0, false,
         (time_ns() - t0) / 1.0e9, 0.0, 0.0,
+        zeros(T, n),
         empty_solution(x, y),
     )
     return ws
@@ -211,7 +220,8 @@ function update!(
     t0 = time_ns()
     prob = ws.prob
     validate_update!(prob, NoBackend(); P, A, q, l, u)
-    adopt_update!(prob; P, A, q, l, u)
+    ws.prob = adopt_update!(prob; P, A, q, l, u)
+    prob = ws.prob
     if !isnothing(P) || !isnothing(A)
         m = prob.m
         iseq = [prob.l0[i] == prob.u0[i] for i in 1:m]

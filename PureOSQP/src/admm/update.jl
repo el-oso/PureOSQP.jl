@@ -61,7 +61,8 @@ function update!(
         end
     end
 
-    adopt_update!(prob; P, A, q, l, u)
+    ws.prob = adopt_update!(prob; P, A, q, l, u)
+    prob = ws.prob
     refactor_needed = !isnothing(P) || !isnothing(A)
     if !isnothing(l) || !isnothing(u)
         # A row that becomes (or stops being) an equality or a free row changes its rho,

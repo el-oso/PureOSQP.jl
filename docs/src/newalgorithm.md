@@ -33,8 +33,8 @@ Operator splitting takes `1e-3` and `4000`.
 
 **2. A workspace.** Make it a subtype of [`QPWorkspace`](@ref PureQPBase.QPWorkspace). Put the
 iterates and your scratch space in it. It also carries three things the shared code reads: the
-[`Problem`](@ref PureQPBase.Problem), the [`SystemWeights`](@ref PureQPBase.SystemWeights),
-and the backend. Give every field a concrete type. The speed guarantees depend on it.
+problem, the [`SystemWeights`](@ref PureQPBase.SystemWeights), and the backend. Give every
+field a concrete type. The speed guarantees depend on it.
 
 **3. A `setup_backend` method.** It checks the data, builds the options and the problem, picks
 a backend, and factors it. PureIPM's runs to 90 lines. Most of those lines refuse work its
@@ -59,9 +59,16 @@ method calls [`factorize!`](@ref PureQPBase.factorize!) and
 [`solve_system!`](@ref PureQPBase.solve_system!). It never asks which backend answered. One
 algorithm gets all of them — see [How a backend is chosen](@ref).
 
-**The problem.** [`Problem`](@ref PureQPBase.Problem) checks the data and scales it with Ruiz
-equilibration. It holds `P` and `A` by reference, so each product uses the matrix the caller
-passed. `mul_A!`, `mul_At!` and `mul_P!` apply the scaling as they go.
+**The problem, in two pieces.** [`QPData`](@ref PureQPBase.QPData) is what the caller gave:
+`P` and `A` by reference, so each product uses the matrix the caller passed, and the linear
+term and bounds clamped. [`Problem`](@ref PureQPBase.Problem) is built around one of those and
+adds the Ruiz equilibration and the scratch the scaled products and the backends need;
+`mul_A!`, `mul_At!` and `mul_P!` apply the scaling as they go.
+
+Ask for the one your method works on. An algorithm with no backend that multiplies `P` and
+`A` itself holds the `QPData` and allocates none of the rest — reaching for `prob.D` or
+`prob.work_n` is then an error naming the field, rather than an array that happens to be
+there.
 
 **Termination and certificates.** The base declares
 [`check_termination`](@ref PureQPBase.check_termination) and each algorithm extends it. Both

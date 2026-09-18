@@ -151,6 +151,7 @@ PureQPBase.PolishStatus
 
 ```@docs
 PureQPBase.LinearSystem
+PureQPBase.QPData
 PureQPBase.Problem
 PureQPBase.SystemWeights
 PureQPBase.check_update

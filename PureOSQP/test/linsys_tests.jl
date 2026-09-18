@@ -311,7 +311,8 @@ end
     )
     @test PureOSQP.backend_name(ws.linsys) === :tridiagonal
     @test !PureOSQP.is_convex(Float64, bad, sigma)
-    ws.prob.P = bad
+    # The problem is immutable, so a replaced `P` comes back as another one to hold.
+    ws.prob = PureOSQP.adopt_update!(ws.prob; P = bad)
     PureOSQP.set_rho_vec!(ws, 50.0)
     @test PureOSQP.factorize!(ws.linsys, ws.prob, ws.weights)
 end

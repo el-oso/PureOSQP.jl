@@ -77,9 +77,7 @@ matrix products where two will do.
 """
 function report(ws::ActiveSetWorkspace{T}) where {T}
     prob = ws.prob
-    # `work_n` is the problem's own scratch, untouched here because the active-set algorithm
-    # runs without a linear-system backend.
-    Px = prob.work_n
+    Px = ws.px
     mul!(Px, prob.P, ws.x)
     quad = dot(ws.x, Px)
     linear = dot(prob.q0, ws.x)

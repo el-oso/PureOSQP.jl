@@ -61,21 +61,6 @@ function kkt_residuals(P, q, A, l, u, x, y)
     return (r_prim, r_dual, max(r_gap, r_sign))
 end
 
-"""
-    raw_problem(P, A, n, m; D = ones(n), E = ones(m), c = 1.0) -> PureOSQP.Problem
-
-A `Problem` built directly from these fields, without the validation or equilibration
-`setup` performs — for exercising one selection-ladder rung against matrices that do not
-support those operations.
-"""
-function raw_problem(P, A, n::Integer, m::Integer; D = ones(n), E = ones(m), c = 1.0)
-    zn, zm = zeros(n), zeros(m)
-    return PureOSQP.Problem(
-        P, A, n, m, zn, zm, zm, copy(zn), copy(zm), copy(zm),
-        collect(D), collect(E), c, 0, copy(zn), copy(zm), copy(zn), copy(zm),
-    )
-end
-
 "A `SystemWeights` built directly from `rho` and `sigma`, for the same purpose."
 raw_weights(rho, sigma) = PureOSQP.SystemWeights(rho, inv.(rho), sigma)
 

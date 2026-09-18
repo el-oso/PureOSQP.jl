@@ -75,9 +75,12 @@ matrices that do not support those operations.
 """
 function raw_problem(P, A, n::Integer, m::Integer; D = ones(n), E = ones(m), c = 1.0)
     zn, zm = zeros(n), zeros(m)
-    return PureQPBase.Problem(
-        P, A, n, m, zn, zm, zm, copy(zn), copy(zm), copy(zm),
-        collect(D), collect(E), c, 0, copy(zn), copy(zm), copy(zn), copy(zm),
+    data = PureQPBase.QPData{Float64, typeof(P), typeof(A), Vector{Float64}}(
+        P, A, n, m, zn, zm, zm,
+    )
+    return PureQPBase.Problem{Float64, typeof(P), typeof(A), Vector{Float64}}(
+        data, copy(zn), copy(zm), copy(zm), collect(D), collect(E), c, 0,
+        copy(zn), copy(zm), copy(zn), copy(zm),
     )
 end
 

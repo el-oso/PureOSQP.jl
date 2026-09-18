@@ -53,7 +53,9 @@ mutable struct InteriorPointWorkspace{
         T <: Real, MP <: AbstractMatrix, MA <: AbstractMatrix, V <: AbstractVector{T},
         VI <: AbstractVector{Int8}, VB <: AbstractVector{Bool}, LS <: LinearSystem,
     } <: QPWorkspace{T}
-    const prob::Problem{T, MP, MA, V}
+    # Not `const`: `update!` replaces `P` or `A` by handing back another problem around the
+    # same vectors, which is what an immutable problem costs and all it costs.
+    prob::Problem{T, MP, MA, V}
     const linsys::LS
     # `sigma` is the current `reg_primal`, so a regularization bump replaces the object; `w`
     # and `w_inv` are rewritten in place every outer iteration.
@@ -425,7 +427,8 @@ function update!(
             "P + reg_primal*I is not positive definite: P is indefinite, so the problem is not convex."
         )
     )
-    adopt_update!(prob; P, A, q, l, u)
+    ws.prob = adopt_update!(prob; P, A, q, l, u)
+    prob = ws.prob
     if !isnothing(l) || !isnothing(u)
         ws.n_sides = classify_rows!(ws.rclass, ws.has_l, ws.has_u, prob)
     end
