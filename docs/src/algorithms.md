@@ -1,18 +1,31 @@
 # Choosing an algorithm
 
-Three algorithms solve the same problem, and they come from three packages. PureOSQP.jl
-supplies [`OperatorSplitting`](@ref). PureIPM.jl supplies [`InteriorPoint`](@ref).
-PureDAQP.jl supplies [`ActiveSet`](@ref). Each re-exports PureQPBase.jl, which holds what they
-share, so `using` any one is enough to solve a problem. `using` several puts all their
+Three algorithms solve the same problem. PureOSQP.jl supplies [`OperatorSplitting`](@ref),
+PureIPM.jl supplies [`InteriorPoint`](@ref), PureDAQP.jl supplies [`ActiveSet`](@ref). Each
+re-exports PureQPBase.jl, so `using` any one is enough; `using` several puts all their
 algorithms on the same [`solve`](@ref).
 
-`OperatorSplitting` and `InteriorPoint` are the pair that share the matrix support and the
-linear-system backends: either one takes a sparse, structured or matrix-free `P` and `A` and
-chooses a backend for it. `ActiveSet` reads dense matrices only and maintains its own
-factorization, so most of what the two have in common does not apply to it. Each section below
-says which algorithms it is about.
+## Start here
 
-The sixth argument of [`solve`](@ref) and [`setup`](@ref) picks the algorithm. It also holds the
+Read down the table and take the first row that describes your problem.
+
+| if | use | because |
+|---|---|---|
+| you re-solve a sequence, changing only `q`, `l` or `u` | `OperatorSplitting` | it keeps the factorization across [`update!`](@ref) and warm starts from the last answer |
+| `P` or `A` is matrix-free, and you have no preconditioner | `OperatorSplitting` | the only one that takes an operator with the built-in Jacobi preconditioner |
+| the data is dense **and** few rows are active at the solution | `ActiveSet` | it costs about one iteration per active row and returns the exact answer |
+| you want `1e-8` or better from a single solve | `InteriorPoint` | a handful of Newton steps reach it whatever the conditioning |
+| `P` or `A` is large and sparse or structured | `InteriorPoint` | it factors the pattern; `ActiveSet` would densify it |
+| none of the above | `OperatorSplitting` | the default, and the cheapest per iteration |
+
+**"Few rows active" is the whole of the active-set question**, and it is a property of the
+problem, not a setting. Each iteration adds or drops one row, so the iteration count lands near
+the number of rows active at the solution. Where that is a small fraction of `m` nothing here
+beats it; where most rows end up active it is the slowest of the three, by a wide margin. The
+[measurements below](@ref "Accuracy and iteration count") show both ends on the same suite. If
+you do not know how many rows will be active, solve once and read `sol.iter`.
+
+The sixth argument of [`solve`](@ref) and [`setup`](@ref) picks the algorithm and holds the
 settings only that algorithm reads. Everything shared is a keyword argument of
 [`Options`](@ref). The five-argument form runs [`OperatorSplitting`](@ref).
 
@@ -46,31 +59,39 @@ solve(P, q, A, l, u, InteriorPoint(); rho = 0.2)   # ArgumentError: rho is not a
 
 [`OperatorSplitting`](@ref) is OSQP's ADMM iteration: many cheap iterations that share one
 factorization. [`InteriorPoint`](@ref) is a Mehrotra predictor–corrector method: a few
-iterations, each factoring a new Newton system. Both converge toward the solution, so for both
-the question is how many iterations a given tolerance costs. The measurements below are of
-those two.
+iterations, each factoring a new Newton system. For both, the iteration count is the price of a
+tolerance. For [`ActiveSet`](@ref) it is not: it adds or drops one row per iteration and stops
+at the exact solution over the active rows, so the count measures the problem's active set
+rather than the accuracy asked for.
 
-[`ActiveSet`](@ref) does not belong on that axis. It terminates finitely: each iteration adds
-or drops one row, and when no row prices in it returns the exact solution of the
-equality-constrained QP over the rows that are active, to the accuracy of one triangular solve.
-There is no tolerance to tighten and no accuracy to trade against iteration count. What decides
-its cost is how many rows enter the working set before it settles, which is a property of the
-problem rather than of a setting.
+`PureIPM/bench/ipm_vs_clarabel.jl` runs all three on the smallest instance of each OSQP suite
+problem class: `InteriorPoint` at `eps_abs = eps_rel = 1e-8`, `OperatorSplitting` at `1e-6` —
+the tightest tolerance ADMM reaches in a modest iteration count on these problems — and
+`ActiveSet` on dense copies of the same data
+(`PureIPM/bench/results/ipm_vs_clarabel.json`). Every solver agrees on `x` to `2e-5` or better.
 
-`PureIPM/bench/ipm_vs_clarabel.jl` runs both on the smallest instance of each OSQP suite problem
-class, `InteriorPoint` at `eps_abs = eps_rel = 1e-8` and `OperatorSplitting` at `1e-6`, the
-tightest tolerance ADMM reaches in a modest iteration count on these problems
-(`PureIPM/bench/results/ipm_vs_clarabel.json`):
+| class | m | ADMM (`1e-6`) | IPM (`1e-8`) | ActiveSet | ADMM | IPM | ActiveSet |
+|---|---|---|---|---|---|---|---|
+| Random QP | 60 | 200 | 9 | **7** | 0.054 ms | 0.075 ms | **0.005 ms** |
+| Eq QP | 10 | 50 | 2 | **1** | 0.026 ms | 0.033 ms | **0.004 ms** |
+| Control | 108 | 50 | 7 | **3** | 0.097 ms | 0.228 ms | **0.062 ms** |
+| Portfolio | 102 | 125 | 10 | 99 | **0.177 ms** | 0.240 ms | 0.394 ms |
+| Lasso | 204 | 100 | 6 | 6 | 0.214 ms | **0.195 ms** | 1.051 ms |
+| SVM | 400 | 375 | 9 | 204 | 0.715 ms | **0.340 ms** | 3.950 ms |
+| Huber | 600 | 125 | 9 | 397 | 0.788 ms | **0.836 ms** | 45.408 ms |
 
-| class | ADMM iterations (`1e-6`) | IPM iterations (`1e-8`) |
-|---|---|---|
-| Random QP | 200 | 9 |
-| Eq QP | 50 | 2 |
-| Portfolio | 125 | 10 |
-| Lasso | 100 | 6 |
-| SVM | 375 | 9 |
-| Huber | 125 | 9 |
-| Control | 50 | 7 |
+The first three columns are iteration counts, the last three wall clock.
+
+**The active-set rows split in two, and the iteration count says which half.** Where it settles
+in a handful of iterations — 7 of 60 rows on Random QP, 3 of 108 on Control — it is the fastest
+of the three by 4× to 15×. Where most rows enter the working set — 204 of 400 on SVM, 397 of 600
+on Huber — each iteration is a rank-one update of a working set that keeps growing, and it ends
+up 12× to 54× slower. Portfolio sits between, at 99 active rows out of 102.
+
+That is the same measurement the [Benchmarks](@ref "Against other solvers") page makes from the
+other direction: dense problems with few active rows are where an active-set method wins, and
+these classes were built to exercise sparsity, so four of the seven have a singular `P` and need
+`eps_prox = 1e-4` before it will run at all.
 
 `InteriorPoint` reaches a tighter tolerance in 2 to 10 outer iterations. `OperatorSplitting`
 takes 50 to 375 at a looser one on the same problems. The gap is not a fixed offset. Run the
@@ -204,12 +225,7 @@ method's own argument rules out and so signals a numerical breakdown. ADMM never
 | derivatives | ready from the iterate as it stands | require `polishing = true` first | ready: inactive multipliers are exactly zero |
 | infeasibility certificates | yes | yes, through the same test | primal only, and without a certificate |
 
-Pick `ActiveSet` for dense problems with few rows active at the solution, especially when you
-want the exact answer rather than one to a tolerance. Pick `InteriorPoint` when you need a
-tolerance tighter than ADMM reaches in a modest iteration count, or when you solve once rather
-than in a loop that reuses a factorization. Pick `OperatorSplitting` for repeated solves through
-`update!`, for sparse or structured data, and for matrix-free operators when you have no
-preconditioner of your own.
+The [table at the top](@ref "Start here") is the short version of this one.
 
 [Benchmarks](@ref "The interior-point method against Clarabel") and the suite tables above it
 give times, not just iteration counts. This page says which algorithm fits a given problem, not

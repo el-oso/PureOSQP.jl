@@ -9,7 +9,7 @@
 # into the same referee.
 #
 #     julia --project=bench PureIPM/bench/ipm_vs_clarabel.jl    # writes PureIPM/bench/results/ipm_vs_clarabel.json
-using PureOSQP, PureIPM, Clarabel
+using PureOSQP, PureIPM, PureDAQP, Clarabel
 using LinearAlgebra, SparseArrays, Random, JSON, Chairmarks, Printf
 
 include(joinpath(@__DIR__, "..", "..", "bench", "suite_problems.jl"))
@@ -34,6 +34,32 @@ const SMALL_CASES = [
 
 include(joinpath(@__DIR__, "..", "..", "bench", "helpers_clarabel.jl"))
 
+"""
+The active-set method on the same problem, as dense matrices and with the proximal loop
+switched on only where it is needed.
+
+Its iteration count is not a tolerance's price the way the other two are: it adds or drops one
+row per iteration and stops at the exact solution over the rows that are active. `eps_prox = 0`
+runs the plain method and needs `P ≻ 0`; most of these classes have a singular `P`, so the
+value the method's authors report is used for them and recorded alongside the count.
+"""
+function run_activeset(P, q, A, l, u)
+    Pd, Ad = Matrix(P), Matrix(A)
+    for eps_prox in (0.0, 1.0e-4)
+        try
+            s = PureOSQP.solve(Pd, q, Ad, l, u, PureDAQP.ActiveSet(; eps_prox); max_iter = 20_000)
+            bm = @b PureOSQP.solve($Pd, $q, $Ad, $l, $u, PureDAQP.ActiveSet(; eps_prox); max_iter = 20_000) seconds = SECONDS
+            return (;
+                iter = s.iter, status = String(Symbol(s.status)),
+                time_ms = 1.0e3bm.time, obj = s.obj_val, eps_prox, x = s.x,
+            )
+        catch err
+            err isa ArgumentError || rethrow()
+        end
+    end
+    return (; iter = -1, status = "REFUSED", time_ms = NaN, obj = NaN, eps_prox = NaN, x = Float64[])
+end
+
 function run_case(name, gen)
     P, q, A, l, u = gen()
     n, m = size(A, 2), size(A, 1)
@@ -47,13 +73,18 @@ function run_case(name, gen)
     clar = run_clarabel(P, q, A, l, u; tol = IPM_TOL)
     clar_bm = @b run_clarabel($P, $q, $A, $l, $u; tol = IPM_TOL) seconds = SECONDS
 
+    aset = run_activeset(P, q, A, l, u)
+
     dx_clarabel = maximum(abs, ipm.x .- clar.x; init = 0.0) / max(1.0, maximum(abs, ipm.x; init = 0.0))
     dx_admm = maximum(abs, ipm.x .- admm.x; init = 0.0) / max(1.0, maximum(abs, ipm.x; init = 0.0))
+    dx_aset = isempty(aset.x) ? NaN :
+        maximum(abs, ipm.x .- aset.x; init = 0.0) / max(1.0, maximum(abs, ipm.x; init = 0.0))
 
     @printf(
-        "%-10s n=%-4d m=%-5d | ipm %3d it %7.3f ms | clarabel %3d it %7.3f ms | admm %5d it %7.3f ms | dx(ipm,clarabel)=%.1e dx(ipm,admm)=%.1e\n",
+        "%-10s n=%-4d m=%-5d | ipm %3d it %7.3f ms | clarabel %3d it %7.3f ms | admm %5d it %7.3f ms | aset %5d it %7.3f ms (eps_prox=%g) | dx(ipm,clarabel)=%.1e dx(ipm,admm)=%.1e dx(ipm,aset)=%.1e\n",
         name, n, m, ipm.iter, 1.0e3ipm_bm.time, clar.iterations, 1.0e3clar_bm.time,
-        admm.iter, 1.0e3admm_bm.time, dx_clarabel, dx_admm,
+        admm.iter, 1.0e3admm_bm.time, aset.iter, aset.time_ms, aset.eps_prox,
+        dx_clarabel, dx_admm, dx_aset,
     )
     flush(stdout)
     return (;
@@ -61,7 +92,8 @@ function run_case(name, gen)
         ipm = (; iter = ipm.iter, status = String(Symbol(ipm.status)), time_ms = 1.0e3ipm_bm.time, obj = ipm.obj_val),
         clarabel = (; iter = clar.iterations, status = String(Symbol(clar.status)), time_ms = 1.0e3clar_bm.time, obj = clar.obj_val),
         admm = (; iter = admm.iter, status = String(Symbol(admm.status)), time_ms = 1.0e3admm_bm.time, obj = admm.obj_val),
-        dx_ipm_clarabel = dx_clarabel, dx_ipm_admm = dx_admm,
+        activeset = (; iter = aset.iter, status = aset.status, time_ms = aset.time_ms, obj = aset.obj, eps_prox = aset.eps_prox),
+        dx_ipm_clarabel = dx_clarabel, dx_ipm_admm = dx_admm, dx_ipm_activeset = dx_aset,
     )
 end
 
@@ -84,8 +116,9 @@ open(RESULTS, "w") do io
                 Dict(
                     "name" => r.name, "n" => r.n, "m" => r.m,
                     "ipm" => Dict(pairs(r.ipm)), "clarabel" => Dict(pairs(r.clarabel)),
-                    "admm" => Dict(pairs(r.admm)),
+                    "admm" => Dict(pairs(r.admm)), "activeset" => Dict(pairs(r.activeset)),
                     "dx_ipm_clarabel" => r.dx_ipm_clarabel, "dx_ipm_admm" => r.dx_ipm_admm,
+                    "dx_ipm_activeset" => r.dx_ipm_activeset,
                 ) for r in results
             ],
         ), 2
