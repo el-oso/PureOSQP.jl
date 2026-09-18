@@ -25,12 +25,14 @@ PureQPBase.Solution
 PureQPBase.QPAlgorithm
 PureOSQP.OperatorSplitting
 PureIPM.InteriorPoint
+PureDAQP.ActiveSet
 PureQPBase.Options
 PureQPBase.LINSYS_OPTIONS
 PureQPBase.default_options
 PureQPBase.QPWorkspace
 PureOSQP.OperatorSplittingWorkspace
 PureIPM.InteriorPointWorkspace
+PureDAQP.ActiveSetWorkspace
 PureQPBase.conforms
 ```
 

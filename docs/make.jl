@@ -1,4 +1,4 @@
-using Documenter, DocumenterVitepress, PureOSQP, PureIPM, PureQPBase
+using Documenter, DocumenterVitepress, PureOSQP, PureIPM, PureDAQP, PureQPBase
 
 """
     Mermaid()
@@ -39,7 +39,7 @@ end
 
 makedocs(;
     plugins = [Mermaid()],
-    modules = [PureOSQP, PureIPM, PureQPBase],
+    modules = [PureOSQP, PureIPM, PureDAQP, PureQPBase],
     authors = "el-oso",
     sitename = "PureQP.jl",
     format = DocumenterVitepress.MarkdownVitepress(
