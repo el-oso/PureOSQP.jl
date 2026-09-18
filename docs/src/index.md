@@ -208,13 +208,25 @@ Use [`has_solution`](@ref PureQPBase.has_solution) to check.
 ## What is rejected
 
 `setup` throws when:
-* `P` is not symmetric, or is indefinite.
+* `P` is not symmetric. The test is exact: `issymmetric(P)`.
+* `P + σI` is not positive definite, where `σ` is `sigma` under [`OperatorSplitting`](@ref) and
+  `reg_primal` under [`InteriorPoint`](@ref). See below.
 * `q` holds a `NaN` or an `Inf`.
 * `l` or `u` holds a `NaN`.
 * `l[i] > u[i]` in any row.
 * `l[i] == +Inf`, or `u[i] == -Inf`.
 * The dimensions do not match.
 * A setting is out of range: `sigma <= 0`, `alpha` outside `(0, 2)`, or `max_iter <= 0`.
+
+**The convexity test is shifted, so it is not a test that `P` is positive semidefinite.** A `P`
+whose most negative eigenvalue is smaller than `σ` passes it. At the default `sigma = 1e-6`, a
+`P` with an eigenvalue of `-1e-9` solves and reports `SOLVED`; the same `P` throws at
+`sigma = 1e-12`. Lower `σ` to tighten the test. A clearly indefinite `P` is rejected at any `σ`
+you would use.
+
+Both of these are stricter than the C library, which reads only the upper triangle of `P` and
+therefore cannot see an asymmetry at all. On convexity the two agree: libosqp also refuses a
+clearly negative eigenvalue at setup, and also accepts one of `-1e-9`.
 
 ## Citation
 
