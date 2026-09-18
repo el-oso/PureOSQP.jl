@@ -19,32 +19,30 @@ of an iteration.
 `active` lists the working set in the order it was built, matching the order of the `LDLᵀ`;
 `slot[j]` is where row `j` sits in it, or 0.
 """
-# Nothing here is ever rebound: every field is a buffer written through, and the live size
-# lives in `F.k`. They are all `const` to say so. The struct stays `mutable` even so, because
-# an immutable one inlines into the workspace that holds it and loses the nonnull and
-# alignment facts the vectorizer needs, which turns these loops scalar.
-mutable struct LDPWorkspace{T <: Real}
+# Immutable: nothing here is ever rebound. Every field is a buffer written through, and the
+# live size lives in `F.k`, which is why that one stays in a mutable struct of its own.
+struct LDPWorkspace{T <: Real}
     # Stored transposed, `n × m`: every kernel here reads one *row* of `M`, which as a
     # column of `Mt` is contiguous. Held the other way round each read is strided, BLAS
     # drops to its scalar path, and every element costs a cache line.
-    const Mt::Matrix{T}
-    const hi::Vector{T}    # upper target, recomputed whenever `v` changes
-    const lo::Vector{T}
-    const iseq::Vector{Bool}
-    const side::Vector{Int8}
+    Mt::Matrix{T}
+    hi::Vector{T}    # upper target, recomputed whenever `v` changes
+    lo::Vector{T}
+    iseq::Vector{Bool}
+    side::Vector{Int8}
     # `active` and `mu` are preallocated to the largest working set and share their live
     # length with the factorization's `F.k`. Growing them with `push!` instead would allocate
     # on a cold solve — invisible to a measurement, because `deleteat!` keeps the capacity a
     # previous solve grew, but a real allocation in the hot path all the same.
-    const active::Vector{Int}
-    const slot::Vector{Int}
-    const mu::Vector{T}    # signed multipliers of the active rows, in `active` order
-    const mu_star::Vector{T}
-    const p::Vector{T}
-    const u::Vector{T}     # primal point of the least-distance problem, Mₐᵀμ
-    const g::Vector{T}     # scratch: products against the active rows
-    const Mv::Vector{T}    # scratch: M * v
-    const F::GramLDL{T}
+    active::Vector{Int}
+    slot::Vector{Int}
+    mu::Vector{T}    # signed multipliers of the active rows, in `active` order
+    mu_star::Vector{T}
+    p::Vector{T}
+    u::Vector{T}     # primal point of the least-distance problem, Mₐᵀμ
+    g::Vector{T}     # scratch: products against the active rows
+    Mv::Vector{T}    # scratch: M * v
+    F::GramLDL{T}
 end
 
 function LDPWorkspace(Mt::Matrix{T}, iseq::AbstractVector{Bool}) where {T <: Real}
