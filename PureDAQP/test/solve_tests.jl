@@ -9,11 +9,15 @@
     @test sol.status == SOLVED
     @test sol.x ≈ [0.3, 0.7] atol = 1.0e-9
     @test sol.obj_val ≈ 1.88 atol = 1.0e-9
-    # An active-set method stops at a vertex of its working set, so the point is exact
-    # rather than within a tolerance.
-    @test iszero(sol.prim_res)
+    # An active-set method stops at a vertex of its working set rather than at a tolerance,
+    # so the residuals are at rounding level rather than at `eps_abs`. Not exactly zero: the
+    # working-set equations hold exactly in exact arithmetic, but these residuals are
+    # recomputed in floating point from the original data, and how they round depends on the
+    # BLAS underneath.
+    @test sol.prim_res < 1.0e-14
     @test sol.dual_res < 1.0e-12
-    # Row 2 is inactive, and its multiplier is exactly zero rather than merely small.
+    # Row 2 is inactive. This one *is* exactly zero: `y` is zeroed and only the working set
+    # is written into it, so an inactive row is never assigned at all.
     @test iszero(sol.y[2])
 end
 
