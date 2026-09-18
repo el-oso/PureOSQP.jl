@@ -173,11 +173,6 @@ at the exact vertex. PureDAQP is the fastest solver here at every size from `n =
 beats the C implementation it follows by 1.11× to 3.19×, the margin widening with size. PureIPM
 beats Clarabel at every size, by 1.9× to 5.6×.
 
-The exception is `n = 10`, where DAQP is 1.26× faster. At a working set of a dozen rows an
-iteration is a handful of short loops, so the per-iteration constant is most of the time and a C
-solver with no call boundaries is hard to beat. That constant stops mattering once the work per
-iteration grows.
-
 For repeated small solves, [`setup`](@ref) with [`update!`](@ref) and [`solve!`](@ref) pays
 the fixed cost once and warm starts from the previous working set, which is a different
 question from the one this table asks.
