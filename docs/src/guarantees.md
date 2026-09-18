@@ -61,7 +61,7 @@ backends, and `:indirect` with a caller preconditioner.
 
 Two notes:
 - A sparse arithmetic backend can allocate inside its own library. That covers `factorize!`,
-  `refactor_weights!` and `solve!` on the sparse KKT family under both algorithms.
+  `refactor_weights!` and `solve!` on the sparse KKT family under both algorithms that use one.
   `solve_multiplier!` there is this package's own code, so it keeps the full guarantee.
 - We check the matrix-free backend by measurement, because its static analysis shows branches
   that are possible but never taken. Under the interior-point method, the `try`/`catch` that

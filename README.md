@@ -5,22 +5,23 @@
 [![Coverage](https://coveralls.io/repos/github/el-oso/PureQP.jl/badge.svg?branch=main)](https://coveralls.io/github/el-oso/PureQP.jl?branch=main)
 
 Pure-Julia solvers for convex quadratic programs, `minimize ½ xᵀPx + qᵀx subject to
-l ≤ Ax ≤ u`. Three packages live here, each registered on its own and each with its own
-README. They handle every matrix representation — dense, sparse, structured, lazy, anything
-satisfying `AbstractMatrix` — over any `Real` element type, allocation-free on the hot path
-and compiling under `juliac --trim`.
+l ≤ Ax ≤ u`. Four packages live here, each registered on its own and each with its own
+README. The first three handle every matrix representation — dense, sparse, structured, lazy,
+anything satisfying `AbstractMatrix` — over any `Real` element type, allocation-free on the hot
+path and compiling under `juliac --trim`.
 
 | package | what it is | [license](https://el-oso.github.io/PureQP.jl/dev/attribution) |
 |---|---|---|
 | [**PureQPBase**](PureQPBase) | the problem, the linear-system backends and their selection, equilibration, the contracts. No algorithm. | MIT |
 | [**PureOSQP**](PureOSQP) | operator splitting — [OSQP](https://osqp.org)'s ADMM iteration | Apache-2.0 |
 | [**PureIPM**](PureIPM) | a Mehrotra predictor–corrector interior-point method | MIT |
+| [**PureDAQP**](PureDAQP) | a dual active-set method, dense matrices only | MIT |
 
-Either solver re-exports the base, so one `using` is enough; loading both puts both
+Every solver re-exports the base, so one `using` is enough; loading several puts all their
 algorithms on the same `solve`, named as the sixth argument:
 
 ```julia
-using PureOSQP, PureIPM
+using PureOSQP, PureIPM, PureDAQP
 
 P = [4.0 1.0; 1.0 2.0]
 q = [1.0, 1.0]
@@ -30,6 +31,7 @@ u = [1.0, 0.7, 0.7]
 
 solve(P, q, A, l, u, OperatorSplitting())   # ADMM: warm starts, loose tolerances
 solve(P, q, A, l, u, InteriorPoint())       # interior point: few iterations, tight answers
+solve(P, q, A, l, u, ActiveSet())           # active set: dense, few rows active, exact
 ```
 
 Each solver is measured against the established implementation of its own method, at the same
@@ -40,10 +42,13 @@ rather than of stopping rules:
 |---|---|---|---|---|
 | **PureOSQP** | libosqp 1.0 (C) | OSQP's suite, 7 classes | 1.08× – 1.92× | identical |
 | **PureIPM** | [Clarabel.jl](https://github.com/oxfordcontrol/Clarabel.jl) | random QPs, `n` = 50 … 400 | 1.4× – 4.3× | within one |
+| **PureDAQP** | [DAQP](https://github.com/darnstrom/daqp) 0.9 (C) | random dense QPs, `n` = 10 … 200 | 0.79× – 3.19× | — |
 
 The interior-point margin grows with size — 2.3× to 4.3× dense from `n` = 50 to 400, 1.4× to
 2.3× sparse. Passing a structured `A` rather than its sparsity pattern is worth another 1.7×
-to 52× on top. Full tables, and the ill-conditioned and matrix-free families, in
+to 52× on top. The active-set margin grows with size too, and it is the fastest of the six on
+these dense problems from `n` = 25 up; only at `n` = 10 does the C solver stay ahead. Full
+tables, and the ill-conditioned and matrix-free families, in
 [Benchmarks](https://el-oso.github.io/PureQP.jl/dev/benchmarks).
 
 These packages are developed with the assistance of Claude Code. Generated code is reviewed

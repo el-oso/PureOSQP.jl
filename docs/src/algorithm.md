@@ -1,10 +1,14 @@
 # Algorithm
 
-This page explains how the solver works inside. It has two algorithms:
+This page explains how two of the three algorithms work inside:
 [`OperatorSplitting`](@ref), OSQP's ADMM iteration, and [`InteriorPoint`](@ref), a Mehrotra
 predictor–corrector method. Both reduce every iteration to one linear system of the same shape,
 and both use the same set of backends. [The linear system](@ref) and the way a backend is picked
 belong to neither algorithm; they are shared.
+
+[`ActiveSet`](@ref) is not on this page. It forms no such system and has no backend: it reduces
+the problem to a least-distance problem once and then maintains an `LDLᵀ` of the working set's
+Gram matrix under rank-one updates. Its docstring and [Choosing an algorithm](@ref) describe it.
 
 The algorithms differ in what changes inside that system from one iteration to the next, and in
 what the outer loop does with the answer. Each section below covers its own. Equilibration,
@@ -40,7 +44,7 @@ y^{k+1} &= y^k + \rho \odot \left(\alpha \tilde z^{k+1} + (1-\alpha) z^k - z^{k+
 
 ## The linear system
 
-This section and [Choosing a backend](@ref) below describe parts both algorithms share. Every
+This section and [Choosing a backend](@ref) below describe parts these two algorithms share. Every
 backend named here also serves the interior-point method further down this page, at the row
 weights that method hands it in place of ADMM's `ρ`. The reference implementation factors the
 `(n+m)×(n+m)` quasi-definite matrix with a sparse pivot-free LDLᵀ. An equivalent `n×n` symmetric
@@ -355,7 +359,7 @@ your matrices are operators and you have no preconditioner to supply.
   around the operator-splitting method. An optimizer runs the algorithm of the package that
   supplies it. It takes the shared options plus that algorithm's own parameters, and nothing
   else.
-- `verbose` prints under either algorithm: a header, one line per termination check, and a
+- `verbose` prints under either of these two: a header, one line per termination check, and a
   footer. It prints `mu` and `alpha` in place of ADMM's `rho`. The interior-point footer also
   gives the run time. On the matrix-free backend its rows gain a `cg iters` column, and its
   footer gains a line for the total CG iterations and the missed inner solves. Only

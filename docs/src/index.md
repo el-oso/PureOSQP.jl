@@ -12,16 +12,20 @@ Pure-Julia solvers for convex quadratic programs:
 `P` is symmetric positive semidefinite, `A` is `m×n`, and `l`, `u` may contain `∓Inf`. Rows where `l == u` are equality constraints.
 
 !!! note "PureQP.jl is the project, not a package to install"
-    There is no `PureQP` package. The name covers three that are installed separately:
-    **PureOSQP.jl** and **PureIPM.jl**, the two solvers, and **PureQPBase.jl**, which both
-    build on and both re-export. Install whichever solver you want — one `using` is enough —
-    or both, to have the two algorithms side by side.
+    There is no `PureQP` package. The name covers four that are installed separately:
+    **PureOSQP.jl**, **PureIPM.jl** and **PureDAQP.jl**, the three solvers, and
+    **PureQPBase.jl**, which each builds on and each re-exports. Install whichever solver you
+    want — one `using` is enough — or several, to have their algorithms side by side.
 
-Two algorithms solve it, sharing the same matrix support and the same problem interface.
+Three algorithms solve it, sharing the same problem interface.
 [`OperatorSplitting`](@ref), which PureOSQP.jl supplies, is OSQP's ADMM iteration, and is at
 its best on repeated solves, warm starts and matrix-free operators. [`InteriorPoint`](@ref),
 which PureIPM.jl supplies, is a Mehrotra predictor–corrector method that reaches `1e-8` in a
-few iterations. [Choosing an algorithm](@ref) compares them.
+few iterations. [`ActiveSet`](@ref), which PureDAQP.jl supplies, is a dual active-set method
+for dense problems with few rows active at the solution, and it stops at the exact answer
+rather than converging toward one. The first two share the matrix support and the
+linear-system backends described below; `ActiveSet` reads dense matrices and maintains its own
+factorization. [Choosing an algorithm](@ref) compares all three.
 
 ```julia
 using PureOSQP                                                 # ] add PureOSQP
@@ -29,9 +33,13 @@ sol = solve(P, q, A, l, u, OperatorSplitting())
 
 using PureIPM                                                  # ] add PureIPM
 sol = solve(P, q, A, l, u, InteriorPoint(); eps_abs = 1e-9)
+
+using PureDAQP                                                 # ] add PureDAQP
+sol = solve(P, q, A, l, u, ActiveSet())
 ```
 
-Loading both gives one `solve` that takes either algorithm as its sixth positional argument.
+Loading several gives one `solve` that takes any of their algorithms as its sixth positional
+argument.
 
 ## Your first solve
 
@@ -130,6 +138,9 @@ make the answer worse.
 
 ## Which backend you get
 
+This is a choice `OperatorSplitting` and `InteriorPoint` make; `ActiveSet` has no backend to
+choose and refuses any `linsys` but `:auto`.
+
 `linsys = :auto` takes the first backend that fits. For two dense matrices that is an `n×n`
 Cholesky of the reduced system. A structured matrix — diagonal, banded and the rest — is caught
 earlier. A matrix-free operator goes to the matrix-free backend.
@@ -143,8 +154,9 @@ full order and the condition each candidate asks.
 
 ## Watching a solve
 
-`verbose = true` prints progress under either algorithm: a header, one line per termination
-check, and a footer with the status, the iterations and the residuals.
+`verbose = true` prints progress under `OperatorSplitting` and `InteriorPoint`: a header, one
+line per termination check, and a footer with the status, the iterations and the residuals.
+`ActiveSet` keeps no iteration log and prints nothing.
 
 ```
  iter      objective      prim res      dual res           rho

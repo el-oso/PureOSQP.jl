@@ -57,7 +57,7 @@ and `cg_tol_fraction` — are in [`default_options`](@ref) and in
 | `device` | `0` | — | | GPU device selection; no counterpart |
 | `osqp_linsys_solver_type` | direct | `linsys` | `:auto` | upstream picks a *library*, this picks a *formulation* — see [Algebra backends](@ref) |
 | `allocate_solution` | `true` | — | | an embedded-allocation concern; no counterpart |
-| `verbose` | `true` | `verbose` | `false` | a library that prints by default is the wrong default for a package; both algorithms read it |
+| `verbose` | `true` | `verbose` | `false` | a library that prints by default is the wrong default for a package; `OperatorSplitting` and `InteriorPoint` read it, `ActiveSet` keeps no iteration log |
 | `profiler_level` | `0` | `profile_primdual` | `false` | one switch over the one measurement that needs a clock |
 | `warm_starting` | `true` | `warm_starting` | `true` | |
 | `scaling` | `10` | `scaling` | `10` | |

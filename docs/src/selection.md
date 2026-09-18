@@ -2,10 +2,14 @@
 
 ## What a backend is
 
-Both algorithms spend nearly all their time in one place: solving a linear system, over and
-over, against a matrix built from `P`, `A` and a set of weights the algorithm updates as it
-goes. Operator splitting does this once per iteration for hundreds or thousands of
+Two of the three algorithms spend nearly all their time in one place: solving a linear system,
+over and over, against a matrix built from `P`, `A` and a set of weights the algorithm updates
+as it goes. Operator splitting does this once per iteration for hundreds or thousands of
 iterations; the interior-point method does it a handful of times per iteration for ten or so.
+
+This whole page is about those two. [`ActiveSet`](@ref) forms no such system: it reduces the
+problem once and maintains its own `LDLᵀ` thereafter, so it has no backend to choose and
+refuses any `linsys` but `:auto`.
 Everything else — the vector updates, the projections, the residual tests — is `O(n + m)` and
 costs almost nothing beside it.
 
@@ -64,8 +68,7 @@ what `linsys` and `recommend_linsys` are for.
 
 ## The two systems
 
-Both algorithms need the same solve, `(x, z)` from `(b_x, b_z)`, and there are two forms of
-it.
+Both need the same solve, `(x, z)` from `(b_x, b_z)`, and there are two forms of it.
 
 The **augmented** system keeps the constraints as rows:
 
@@ -155,8 +158,8 @@ selection decision made after `setup` has already chosen.
 
 A pair with no `choose_backend` method of its own falls back to a fixed list of candidates.
 Each candidate is a function that either builds a backend for the pair or declines, and
-`select_backend` takes the first that does not decline. Both algorithms draw on the same
-candidates and differ in which ones they consider, and in where they stop.
+`select_backend` takes the first that does not decline. The two draw on the same candidates and
+differ in which ones they consider, and in where they stop.
 
 ```mermaid
 flowchart TB
@@ -230,7 +233,7 @@ never enter it, so a problem's backend does not change when its numbers do, and 
 factor once with the values the solve will use.
 
 A row spanning every variable fills the reduced matrix by itself, so a pattern holding one
-sends both algorithms to the augmented form. That is the shape of a budget constraint, and it
+sends both to the augmented form. That is the shape of a budget constraint, and it
 is why the OSQP suite's Portfolio class factors the `(n+m)` system.
 
 `sparse_form` answers for `SparseMatrixCSC` pairs. A structured type that is not stored as CSC

@@ -49,7 +49,7 @@ matrices](https://ral.ac.uk/Publications/RAL-TR-2001-034.pdf) (Ruiz, 2001).
 **Infeasibility certificates:** [Infeasibility detection in the alternating direction method
 of multipliers for convex optimization](https://doi.org/10.1007/s10957-019-01575-y) (Banjac
 et al., 2019). The certificate tests hold for any direction, whatever produced it, which is
-why both algorithms use them unchanged.
+why operator splitting and the interior-point method use them unchanged.
 
 The linear-system backends, the backend selection, the problem representation and the polishing
 and derivative kernels are this package's own.

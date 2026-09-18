@@ -26,10 +26,12 @@ Put in it only the parameters your method reads. PureIPM puts the regularization
 refinement count in `InteriorPoint`. Operator splitting puts `rho`, `sigma` and `alpha` in
 its own.
 
-Settings that both algorithms read are already there. `max_iter`, the tolerances, `scaling`
+Settings more than one algorithm reads are already there. `max_iter`, the tolerances, `scaling`
 and `linsys` all live in [`Options`](@ref PureQPBase.Options). Use `algorithm_defaults` to
 change a default your method needs. PureIPM asks for `eps_abs = 1e-8` and `max_iter = 100`.
-Operator splitting takes `1e-3` and `4000`.
+Operator splitting takes `1e-3` and `4000`. A method that cannot honour a shared option should
+throw when it is set rather than ignore it, as PureDAQP does for `linsys`, `scaling` and
+`polishing`.
 
 **2. A workspace.** Make it a subtype of [`QPWorkspace`](@ref PureQPBase.QPWorkspace). Put the
 iterates and your scratch space in it. It also carries three things the shared code reads: the
@@ -71,8 +73,8 @@ Ask for the one your method works on. An algorithm with no backend that multipli
 there.
 
 **Termination and certificates.** The base declares
-[`check_termination`](@ref PureQPBase.check_termination) and each algorithm extends it. Both
-algorithms report the same [`Status`](@ref PureQPBase.Status) values, and they mean the same
+[`check_termination`](@ref PureQPBase.check_termination) and each algorithm extends it. Every
+algorithm reports the same [`Status`](@ref PureQPBase.Status) values, and they mean the same
 thing. The infeasibility tests do not care which method made the direction they read:
 [`is_primal_infeasible`](@ref PureQPBase.is_primal_infeasible) and
 [`is_dual_infeasible`](@ref PureQPBase.is_dual_infeasible) work on any of them.

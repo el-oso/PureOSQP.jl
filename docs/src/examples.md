@@ -767,7 +767,7 @@ point.
 [`adjoint_derivative`](@ref) differentiates the KKT conditions at the solution the workspace
 holds. From one factorization it gives you the gradients of a scalar loss against all five
 pieces of problem data. Give it `∂L/∂x` and `∂L/∂y`, and it returns `∂L/∂P`, `∂L/∂q`, `∂L/∂A`,
-`∂L/∂l` and `∂L/∂u`. Both algorithms support it. On an `InteriorPointWorkspace` the solve that
+`∂L/∂l` and `∂L/∂u`. Every algorithm supports it. On an `InteriorPointWorkspace` the solve that
 produced the solution must have run with `polishing = true`, or it throws and names the
 workspace ([Choosing an algorithm](@ref "Polishing, derivatives and infeasibility")).
 

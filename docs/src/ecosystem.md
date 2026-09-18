@@ -8,9 +8,9 @@ gain capabilities as you load packages, through Julia's extension mechanism.
 Two things are at work here:
 
 **Extensions** are code that loads only when you load a trigger package. The ones below belong
-to PureQPBase, because they extend the backends rather than either algorithm. PureOSQP adds two
+to PureQPBase, because they extend the backends rather than any algorithm. PureOSQP adds two
 of its own, for COSMOAccelerators and for its MathOptInterface optimizer, and PureIPM adds one,
-for its optimizer.
+for its optimizer. PureDAQP adds none: it has no backend to extend, and no optimizer yet.
 
 **Generic code** lets the solver take any numeric or matrix type that behaves correctly.
 Precision types work this way, with no extension.
@@ -81,10 +81,10 @@ model = Model(PureOSQP.Optimizer)        # InteriorPoint
 One wrapper serves both. It lives in PureQPBase and carries the algorithm, so the two behave the
 same apart from the method they run and the parameters they take.
 
-The wrapper passes `MOI.Test` under both algorithms. That suite is far more thorough than
-anything we could write by hand, and `PureOSQP/test/moi_tests.jl` runs it against both
-optimizers. Three attributes are left out: `ConstraintBasisStatus`, `VariableBasisStatus` and
-`ObjectiveBound`. Neither algorithm produces a basis or a bound.
+The wrapper passes `MOI.Test` under both optimizers. That suite is far more thorough than
+anything we could write by hand, and `PureOSQP/test/moi_tests.jl` runs it against both. Three
+attributes are left out: `ConstraintBasisStatus`, `VariableBasisStatus` and `ObjectiveBound`.
+Neither algorithm produces a basis or a bound.
 
 You pass settings by name, as in `set_attribute(model, "linsys", :kkt)`. A name is either an
 [`Options`](@ref) field or a parameter of that optimizer's algorithm. A parameter of the other

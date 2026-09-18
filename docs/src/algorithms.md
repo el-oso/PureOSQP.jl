@@ -1,12 +1,19 @@
 # Choosing an algorithm
 
-Two algorithms solve the same problem, and they come from two packages. PureOSQP.jl supplies
-[`OperatorSplitting`](@ref). PureIPM.jl supplies [`InteriorPoint`](@ref). Both re-export
-PureQPBase.jl, which holds everything they share, so `using` either one is enough to solve a
-problem. `using` both puts both algorithms on the same [`solve`](@ref).
+Three algorithms solve the same problem, and they come from three packages. PureOSQP.jl
+supplies [`OperatorSplitting`](@ref). PureIPM.jl supplies [`InteriorPoint`](@ref).
+PureDAQP.jl supplies [`ActiveSet`](@ref). Each re-exports PureQPBase.jl, which holds what they
+share, so `using` any one is enough to solve a problem. `using` several puts all their
+algorithms on the same [`solve`](@ref).
+
+`OperatorSplitting` and `InteriorPoint` are the pair that share the matrix support and the
+linear-system backends: either one takes a sparse, structured or matrix-free `P` and `A` and
+chooses a backend for it. `ActiveSet` reads dense matrices only and maintains its own
+factorization, so most of what the two have in common does not apply to it. Each section below
+says which algorithms it is about.
 
 The sixth argument of [`solve`](@ref) and [`setup`](@ref) picks the algorithm. It also holds the
-settings only that algorithm reads. Everything both read is a keyword argument of
+settings only that algorithm reads. Everything shared is a keyword argument of
 [`Options`](@ref). The five-argument form runs [`OperatorSplitting`](@ref).
 
 ```julia
@@ -19,11 +26,15 @@ update_settings!(ws; eps_abs = 1e-10)                    # change an option
 update_settings!(ws, InteriorPoint(reg_primal = 1e-6))   # replace the algorithm parameters
 ```
 
-The keyword arguments are the fields of [`Options`](@ref). The two algorithms default some of
-them differently: `max_iter` is `4000` for `OperatorSplitting` and `100` for `InteriorPoint`,
-and the tolerances are `1e-3` and `1e-8`. [`default_options`](@ref) shows the full set for
-either. A value you pass is always used as you gave it. A setting passed in the wrong place
-throws, and names where it belongs:
+The keyword arguments are the fields of [`Options`](@ref). The algorithms default some of
+them differently: `max_iter` is `4000` for `OperatorSplitting`, `100` for `InteriorPoint` and
+`1000` for `ActiveSet`, and the tolerances are `1e-3`, `1e-8` and `sqrt(eps)`.
+[`default_options`](@ref) shows the full set for any of them. `ActiveSet` reads only `max_iter`
+from this set. It refuses `linsys`, `scaling` and `polishing` outright, and the rest do not
+reach it: its tolerances are its own parameters, `primal_tol` and `zero_tol`, because it prices
+normalized rows rather than measuring a residual against `eps_abs`, and it carries its working
+set across a re-solve whatever `warm_starting` says. A value you pass is always used as you
+gave it. A setting passed in the wrong place throws, and names where it belongs:
 
 ```julia
 InteriorPoint(rho = 0.2)                           # MethodError: rho is not an InteriorPoint parameter
@@ -70,9 +81,10 @@ times, not just the iteration counts.
 
 ## Re-solving a sequence
 
-Both algorithms accept [`update!`](@ref), [`warm_start!`](@ref), [`cold_start!`](@ref) and
-[`update_settings!`](@ref), and both start a re-solve from the previous point when
-`warm_starting = true` (the default).
+All three accept [`update!`](@ref), [`warm_start!`](@ref), [`cold_start!`](@ref) and
+[`update_settings!`](@ref). `OperatorSplitting` and `InteriorPoint` start a re-solve from the
+previous point when `warm_starting = true` (the default); `ActiveSet` restarts from the
+previous working set instead, which [`cold_start!`](@ref) is what drops.
 
 **`OperatorSplitting` can skip the factorization altogether.** Updating `q` alone never
 refactorizes. Updating `l` or `u` refactorizes only when a row moves between equality,
@@ -103,9 +115,11 @@ from the previous answer's active rows, which is the whole of what a warm start 
 
 ## What each algorithm throws on
 
-Neither algorithm limits the matrix types in [Matrix types](matrices.md) or
-[Structured operators](@ref) beyond what `linsys` asks for. They differ in what an operator you
-supply needs, and in which `linsys` backends each one accepts.
+`ActiveSet` takes dense `P` and `A` and nothing else: the reduction forms `A R⁻¹`, which an
+operator cannot supply and which is dense whatever `A` was, so a matrix it cannot read entry by
+entry throws at [`setup`](@ref). The other two limit none of the matrix types in
+[Matrix types](matrices.md) or [Structured operators](@ref) beyond what `linsys` asks for. They
+differ in what an operator you supply needs, and in which `linsys` backends each one accepts.
 
 | | `OperatorSplitting` | `InteriorPoint` |
 |---|---|---|
@@ -166,20 +180,23 @@ method's own argument rules out and so signals a numerical breakdown. ADMM never
 
 ## Summary
 
-| | `OperatorSplitting` (default) | `InteriorPoint` |
-|---|---|---|
-| iteration cost | many cheap iterations, one factorization reused until `ρ` changes | a few iterations, a fresh factorization each |
-| default tolerance | `1e-3` | `1e-8` |
-| `update!` | can skip refactorization entirely (`q`-only updates always do) | refactorizes every outer iteration regardless |
-| matrix-free operators | no restriction | needs a caller-supplied preconditioner and `scaling = 0` |
-| `linsys = :kronecker`, `:lowrank` | works | throws |
-| derivatives | ready from the iterate as it stands | require `polishing = true` first |
-| infeasibility certificates | yes | yes, through the same test |
+| | `OperatorSplitting` (default) | `InteriorPoint` | `ActiveSet` |
+|---|---|---|---|
+| iteration cost | many cheap iterations, one factorization reused until `ρ` changes | a few iterations, a fresh factorization each | a few iterations, each a rank-one update of the working set's `LDLᵀ` |
+| default tolerance | `1e-3` | `1e-8` | exact at the working set; `primal_tol` decides which rows enter |
+| matrices | any `AbstractMatrix`, structure and sparsity exploited | the same | dense only, structure and sparsity ignored |
+| `update!` | can skip refactorization entirely (`q`-only updates always do) | refactorizes every outer iteration regardless | keeps the reduction unless `P` or `A` changes |
+| matrix-free operators | no restriction | needs a caller-supplied preconditioner and `scaling = 0` | not supported |
+| `linsys` | every backend | all but `:kronecker` and `:lowrank` | none: it has no backend to choose |
+| derivatives | ready from the iterate as it stands | require `polishing = true` first | ready: inactive multipliers are exactly zero |
+| infeasibility certificates | yes | yes, through the same test | primal only, and without a certificate |
 
-Pick `InteriorPoint` when you need a tolerance tighter than ADMM reaches in a modest iteration
-count, or when you solve once rather than in a loop that reuses a factorization. Pick
-`OperatorSplitting` for repeated solves through `update!`, and for matrix-free operators when
-you have no preconditioner of your own.
+Pick `ActiveSet` for dense problems with few rows active at the solution, especially when you
+want the exact answer rather than one to a tolerance. Pick `InteriorPoint` when you need a
+tolerance tighter than ADMM reaches in a modest iteration count, or when you solve once rather
+than in a loop that reuses a factorization. Pick `OperatorSplitting` for repeated solves through
+`update!`, for sparse or structured data, and for matrix-free operators when you have no
+preconditioner of your own.
 
 [Benchmarks](@ref "The interior-point method against Clarabel") and the suite tables above it
 give times, not just iteration counts. This page says which algorithm fits a given problem, not

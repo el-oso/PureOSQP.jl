@@ -284,7 +284,7 @@ is not symmetric. Wrap it in `Symmetric` to say which triangle is the real one.
 
 ### Which backend a sparse matrix gets
 
-Eliminate the dual variable from either algorithm's system and you get an `n×n` reduced
+Eliminate the dual variable from either backend-using algorithm's system and you get an `n×n` reduced
 matrix. Whether that matrix is worth keeping sparse depends on its pattern, not on how dense
 your input was. `linsys = :auto` reads four things from the pattern: the densest row of `A`,
 the size of the symbolic `AᵀA ∪ P` pattern, `n`, and `m`. It factors nothing to decide, so
