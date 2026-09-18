@@ -28,7 +28,7 @@ module PureDAQP
 
 using LinearAlgebra
 using TypeContracts: TypeContracts, @contract, @verify
-using StrictMode: @strict_function, @assert_typestable
+using StrictMode: @strict_function, @strict
 using PureQPBase
 
 import PureQPBase:
@@ -64,10 +64,12 @@ let
     A = [1.0 1.0; 1.0 0.0; 0.0 1.0]
     l = [1.0, 0.0, 0.0]
     u = [1.0, 0.7, 0.7]
-    ws = @assert_typestable setup(P, q, A, l, u, ActiveSet())
-    @assert_typestable solve!(ws)
-    @assert_typestable update!(ws; q = q)
-    @assert_typestable update_settings!(ws, ActiveSet())
+    # `setup` builds the workspace, so it allocates by contract and carries no such claim.
+    ws = setup(P, q, A, l, u, ActiveSet())
+    @strict solve!(ws)
+    @strict update!(ws; q = q)
+    @strict update!(ws; l = l, u = u)
+    @strict update_settings!(ws, ActiveSet())
 end
 
 # Every workspace and algorithm this package defines must satisfy its contract, asserted for

@@ -219,7 +219,7 @@ function update!(
         )
         ws.warm = false
     elseif !isnothing(l) || !isnothing(u)
-        rebuild_bounds!(ws.red, Vector{T}(prob.u0), Vector{T}(prob.l0))
+        rebuild_bounds!(ws.red, prob.u0, prob.l0)
     end
     ws.update_time += (time_ns() - t0) / 1.0e9
     return ws
