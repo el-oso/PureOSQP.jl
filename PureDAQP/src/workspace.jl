@@ -32,6 +32,10 @@ mutable struct ActiveSetWorkspace{
     const setup_time::Float64
     update_time::Float64
     solve_time::Float64
+    # Refilled and handed back by every solve, so a solve allocates nothing at all. Its `x`
+    # and `y` are this workspace's own arrays. `Solution` says what that means for a caller
+    # holding one across a solve.
+    const sol::Solution{T}
 end
 
 """
@@ -117,11 +121,15 @@ function setup_backend(
         iseq; eps_prox = resolved.eps_prox
     )
 
+    # The reported point is these arrays, not copies of them, so the solution the workspace
+    # hands back is built here and refilled rather than rebuilt.
+    x, y, z = zeros(T, n), zeros(T, m), zeros(T, m)
     ws = ActiveSetWorkspace{T, typeof(prob.P), typeof(prob.A), typeof(prob.q), typeof(red)}(
         prob, resolved, options, red,
-        zeros(T, n), zeros(T, m), zeros(T, m),
+        x, y, z,
         UNSOLVED, false, POLISH_NOT_PERFORMED, 0, false,
         (time_ns() - t0) / 1.0e9, 0.0, 0.0,
+        empty_solution(x, y),
     )
     return ws
 end
@@ -140,12 +148,7 @@ function solve!(ws::ActiveSetWorkspace{T}) where {T}
     prob, alg = ws.prob, ws.algorithm
     ws.warm || reset_working_set!(ws.red)
 
-    x, status, iters = run_daqp!(
-        ws.red, prob.q0;
-        max_iter = ws.options.max_iter, zero_tol = alg.zero_tol,
-        primal_tol = alg.primal_tol, eps_prox = alg.eps_prox,
-        eta_prox = alg.eta_prox, max_prox = alg.max_prox,
-    )
+    x, status, iters = run_daqp!(ws.red, prob.q0, alg, ws.options.max_iter)
     ws.iter = iters
     ws.warm = true
 

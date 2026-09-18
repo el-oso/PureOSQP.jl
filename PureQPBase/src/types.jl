@@ -168,8 +168,22 @@ across however many calls were made, and it *is* counted in `run_time`: in the l
 `update!` exists for, a cycle is an update followed by a solve, and that pair is what the
 caller pays. It resets once reported, so each solve accounts for its own updates and no
 others.
+
+!!! warning "An algorithm may hand back the same `Solution` on every solve"
+    The type is mutable so that an algorithm can keep one and refill it, which is what lets a
+    solve allocate nothing at all — a fresh one costs an allocation for the object itself
+    however few of its arrays are new. [`ActiveSet`](@ref) does this: the object
+    [`solve!`](@ref) returns is the workspace's own, its `x` and `y` are the workspace's own
+    arrays, and the next solve writes through all of it.
+
+    So a `Solution` held across a solve is not a record of the earlier one. To keep an
+    answer, copy what you need — `copy(sol.x)`, `sol.obj_val` — before solving again.
+    Reading it straight after the solve that produced it, which is what almost every caller
+    does, is unaffected.
+
+    [`OperatorSplitting`](@ref) and [`InteriorPoint`](@ref) return a fresh one per solve.
 """
-struct Solution{T <: Real}
+mutable struct Solution{T <: Real}
     x::Vector{T}
     y::Vector{T}
     status::Status

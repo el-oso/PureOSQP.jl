@@ -4,12 +4,16 @@
 Package the workspace's point as a [`Solution`](@ref), with the residuals recomputed from the
 caller's own data.
 
+The workspace's own solution is refilled and returned, and its `x` and `y` are the
+workspace's own arrays, so a solve allocates nothing. Building a fresh one instead costs an
+allocation for the object whatever its arrays are. What this means for a caller holding the
+result across a solve is on [`Solution`](@ref).
+
 Several fields are structurally zero here and stay that way: there is no `ρ` to report, no
 accelerator, no conjugate-gradient count and no primal-dual integral, because none of those
 exist in an active-set method.
 """
 function build_solution(ws::ActiveSetWorkspace{T}) where {T}
-    prob = ws.prob
     run_time = ws.setup_time + ws.update_time + ws.solve_time
     if has_solution(ws.status)
         # `Px` serves the objective, the dual residual and the gap, and `ws.z` already holds
@@ -19,12 +23,39 @@ function build_solution(ws::ActiveSetWorkspace{T}) where {T}
         obj = ws.status == PRIMAL_INFEASIBLE ? T(Inf) : T(-Inf)
         prim = dual = gap = T(NaN)
     end
+    sol = ws.sol
+    sol.status = ws.status
+    sol.obj_val = obj
+    sol.dual_obj_val = obj - gap
+    sol.duality_gap = gap
+    sol.prim_res = prim
+    sol.dual_res = dual
+    sol.rel_kkt_error = max(prim, dual, abs(gap))
+    sol.iter = ws.iter
+    sol.polished = ws.polished
+    sol.status_polish = ws.status_polish
+    sol.setup_time = ws.setup_time
+    sol.update_time = ws.update_time
+    sol.solve_time = ws.solve_time
+    sol.run_time = run_time
+    return sol
+end
+
+"""
+    empty_solution(x, y) -> Solution
+
+The solution a workspace keeps and refills, reporting through the arrays it is given and
+holding no answer yet.
+
+The fields an active-set method never reports are set here and not touched again.
+"""
+function empty_solution(x::AbstractVector{T}, y::AbstractVector{T}) where {T}
     return Solution{T}(
-        copy(ws.x), copy(ws.y), ws.status, obj, obj - gap, gap,
-        prim, dual, max(prim, dual, abs(gap)), ws.iter,
+        x, y, UNSOLVED, zero(T), zero(T), zero(T),
+        zero(T), zero(T), zero(T), 0,
         0.0, 0.0, zero(T), 0, 0, 0,
-        ws.polished, ws.status_polish,
-        ws.setup_time, ws.update_time, ws.solve_time, 0.0, run_time,
+        false, POLISH_NOT_PERFORMED,
+        0.0, 0.0, 0.0, 0.0, 0.0,
         T[], T[],
     )
 end

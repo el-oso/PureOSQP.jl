@@ -48,9 +48,11 @@ export SOLVED, PRIMAL_INFEASIBLE, DUAL_INFEASIBLE, MAX_ITER_REACHED, NON_CONVEX,
 export TIME_LIMIT_REACHED, INTERRUPTED, NUMERICAL_ERROR
 export SOLVED_INACCURATE, PRIMAL_INFEASIBLE_INACCURATE, DUAL_INFEASIBLE_INACCURATE
 
+# `settings.jl` first: the loop takes its tolerances as an `ActiveSet`, so the type has to
+# exist before the methods that name it.
+include("settings.jl")
 include("ldl.jl")
 include("ldp.jl")
-include("settings.jl")
 include("workspace.jl")
 include("solution.jl")
 

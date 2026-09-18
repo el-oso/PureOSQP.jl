@@ -1,3 +1,77 @@
+@testitem "a solve allocates nothing, proved rather than scanned" begin
+    using PureDAQP, StrictMode, StrictModeTest, LinearAlgebra
+
+    # `bench/strictmode_audit.jl` proves the per-iteration kernels. These are the claims the
+    # entry points make, which the audit does not reach, proved here from the package's own
+    # test environment. A disabled tier prints exactly like a clean one.
+    StrictMode.assert_enabled()
+
+    P = [4.0 1.0; 1.0 2.0]
+    q = [1.0, 1.0]
+    A = [1.0 1.0; 1.0 0.0; 0.0 1.0]
+    l = [1.0, 0.0, 0.0]
+    u = [1.0, 0.7, 0.7]
+    ws = setup(P, q, A, l, u, ActiveSet())
+    solve!(ws)
+
+    @test_noalloc PureDAQP.report(ws)
+
+    # `solve!` is measured rather than proved: it records its own `solve_time`, and
+    # AllocCheck counts the `jl_hrtime` call behind `time_ns` as an allocating runtime call.
+    # Every one of the sites it reports for `solve!` is that call.
+    #
+    # A discarded result is elided by the optimizer, so measuring one says nothing about a
+    # caller that keeps it. Storing it is what makes the measurement mean something.
+    function hold!(sink, w)
+        sink[] = solve!(w)
+        return nothing
+    end
+    # Measured inside a function, so the workspace and the sink are locals with known types.
+    # Reading them as globals of the test module makes the call itself allocate, which is
+    # what the measurement would then be reporting.
+    function held_bytes(w)
+        sink = Ref{Any}()
+        hold!(sink, w)
+        return @allocated hold!(sink, w)
+    end
+    held_bytes(ws)
+    @test iszero(held_bytes(ws))
+    @test solve!(ws) === ws.sol
+
+    # `@strict` also reports a union-typed local here. That signal is a lead with no proving
+    # counterpart, and it does not answer the same way twice: for this method it reads true
+    # in a fresh process and false in one that has already asked inference about the call
+    # graph. It is not asserted for that reason. What is provable is asserted instead, and
+    # holds: the return type is concrete and the optimization analysis is clean.
+    @test_typestable solve!(ws)
+end
+
+@testitem "the reported point is the workspace's own" begin
+    using PureDAQP, LinearAlgebra
+
+    # What buys the allocation-free solve: `x` and `y` are the workspace's arrays, not copies
+    # of them, so the next solve writes through a result still being held. `Solution` says so.
+    P = [4.0 1.0; 1.0 2.0]
+    q = [1.0, 1.0]
+    A = [1.0 1.0; 1.0 0.0; 0.0 1.0]
+    l = [1.0, 0.0, 0.0]
+    u = [1.0, 0.7, 0.7]
+    ws = setup(P, q, A, l, u, ActiveSet())
+    sol = solve!(ws)
+    @test sol.x === ws.x
+    @test sol.y === ws.y
+
+    # Writing the workspace shows through a result already handed out. Asserted directly
+    # rather than through a second solve, whose answer need not differ.
+    ws.x[1] += 1.0
+    @test sol.x[1] == ws.x[1]
+    ws.x[1] -= 1.0
+
+    update!(ws; q = [2.0, -1.0])
+    again = solve!(ws)
+    @test again.x === sol.x            # the same array, refilled
+end
+
 @testitem "ActiveSet honours the Solution and Status contract" begin
     using PureQPBase, PureDAQP
     # The assertions live in PureQPBase, which owns `Solution` and `Status`, so every

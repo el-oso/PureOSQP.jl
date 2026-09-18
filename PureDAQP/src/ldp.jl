@@ -319,8 +319,12 @@ with the caller's bounds in the same scaling, and the working state.
 Only the targets change between proximal-point iterations, so `R`, `M` and the `LDLᵀ` of the
 working set are all reused.
 """
-struct DAQPReduction{T <: Real, F <: Cholesky}
+struct DAQPReduction{T <: Real, F <: Cholesky, FT}
     R::F
+    # `transpose(R.U)`, kept rather than formed per pass. It solves against the stored
+    # triangle without copying it, but the wrapper itself is a heap allocation on Julia 1.13,
+    # once per solve in a loop that has none otherwise.
+    Rt::FT
     bu::Vector{T}     # the caller's bounds, divided by the row norms
     bl::Vector{T}
     eps_prox::T
@@ -407,7 +411,8 @@ function reduce_qp(
     end
 
     ws = LDPWorkspace(Mt, iseq)
-    return DAQPReduction{T, typeof(R)}(R, bu, bl, eps_prox, ws, scale)
+    Rt = transpose(R.U)
+    return DAQPReduction{T, typeof(R), typeof(Rt)}(R, Rt, bu, bl, eps_prox, ws, scale)
 end
 
 """
@@ -476,16 +481,19 @@ function multipliers!(y::AbstractVector{T}, red::DAQPReduction{T}) where {T}
 end
 
 """
-    inner_solve!(red, f, x) -> (status, iters, v)
+    inner_solve!(red, f, x, alg, max_iter) -> (status, iters, v)
 
 One pass of Algorithm 1 at the current proximal centre `x`: rebuild the targets from
 `v = R⁻ᵀ(f − εx)`, then run the dual active-set loop, warm-started from whatever working set
 is in place.
+
+Takes its tolerances from `alg` for the reason [`run_daqp!`](@ref) does.
 """
 function inner_solve!(
-        red::DAQPReduction{T}, f::AbstractVector{T}, x::AbstractVector{T};
-        max_iter::Int, zero_tol::T, primal_tol::T
+        red::DAQPReduction{T}, f::AbstractVector{T}, x::AbstractVector{T},
+        alg::ActiveSet{T}, max_iter::Int
     ) where {T}
+    zero_tol, primal_tol = alg.zero_tol, alg.primal_tol
     v = red.ws.v
     if iszero(red.eps_prox)
         copyto!(v, f)
@@ -493,32 +501,36 @@ function inner_solve!(
         @. v = f - red.eps_prox * x
     end
     # `R.L` on an upper-stored Cholesky materializes the transpose, copying the whole factor
-    # on every pass; the lazy transpose solves against the same triangle for nothing.
-    ldiv!(transpose(red.R.U), v)
+    # on every pass; `Rt` solves against the same triangle without copying it.
+    ldiv!(red.Rt, v)
     set_targets!(red, v)
     status, iters = solve_ldp!(red.ws; max_iter, zero_tol, primal_tol)
     return status, iters, v
 end
 
 """
-    run_daqp!(red, f; ...) -> (x, status, iters)
+    run_daqp!(red, f, alg, max_iter) -> (x, status, iters)
 
 Algorithm 1, or Algorithm 2 wrapped around it when `eps_prox > 0`, on a reduction that
 already exists. The working set is whatever the reduction holds, so a repeated call warm
 starts from the previous answer.
+
+The tolerances are taken from `alg` rather than passed one by one: a keyword call here is
+boxed on Julia 1.13, which is an allocation in the one function a solve is meant not to have
+any in.
 """
 function run_daqp!(
-        red::DAQPReduction{T}, f::AbstractVector{T};
-        max_iter::Int, zero_tol::T, primal_tol::T,
-        eps_prox::T, eta_prox::T, max_prox::Int
+        red::DAQPReduction{T}, f::AbstractVector{T}, alg::ActiveSet{T}, max_iter::Int
     ) where {T}
+    zero_tol, primal_tol = alg.zero_tol, alg.primal_tol
+    eps_prox, eta_prox, max_prox = alg.eps_prox, alg.eta_prox, alg.max_prox
     ws = red.ws
     # The returned vector is a workspace buffer. Callers copy it out before starting the
     # next solve, which writes it again.
     x = ws.xbuf
     fill!(x, zero(T))
     if iszero(eps_prox)
-        status, iters, v = inner_solve!(red, f, x; max_iter, zero_tol, primal_tol)
+        status, iters, v = inner_solve!(red, f, x, alg, max_iter)
         status == LDP_OPTIMAL || return (x, status, iters)
         primal!(x, red, v)
         return (x, status, iters)
@@ -527,7 +539,7 @@ function run_daqp!(
     total = 0
     for _ in 1:max_prox
         copyto!(xold, x)
-        status, iters, v = inner_solve!(red, f, x; max_iter, zero_tol, primal_tol)
+        status, iters, v = inner_solve!(red, f, x, alg, max_iter)
         total += iters
         status == LDP_OPTIMAL || return (x, status, total)
         primal!(x, red, v)
