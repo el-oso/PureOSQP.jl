@@ -28,6 +28,7 @@ module PureDAQP
 
 using LinearAlgebra
 using TypeContracts: TypeContracts, @contract, @verify
+using StrictMode: @strict_function, @assert_typestable
 using PureQPBase
 
 import PureQPBase:
@@ -52,6 +53,22 @@ include("ldp.jl")
 include("settings.jl")
 include("workspace.jl")
 include("solution.jl")
+
+# The entry points that reach forward, held to the same guarantee as the ones declared at
+# their definitions. `solve!` calls `build_solution`, which `solution.jl` defines after it,
+# so inference has the whole call graph only once every file is in. Running them on a problem
+# small enough to solve here also compiles the path a caller arrives on.
+let
+    P = [4.0 1.0; 1.0 2.0]
+    q = [1.0, 1.0]
+    A = [1.0 1.0; 1.0 0.0; 0.0 1.0]
+    l = [1.0, 0.0, 0.0]
+    u = [1.0, 0.7, 0.7]
+    ws = @assert_typestable setup(P, q, A, l, u, ActiveSet())
+    @assert_typestable solve!(ws)
+    @assert_typestable update!(ws; q = q)
+    @assert_typestable update_settings!(ws, ActiveSet())
+end
 
 # Every workspace and algorithm this package defines must satisfy its contract, asserted for
 # each subtype defined by the time the module finishes rather than type by type, so a new

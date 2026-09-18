@@ -34,6 +34,17 @@ mutable struct ActiveSetWorkspace{
     solve_time::Float64
 end
 
+"""
+The workspace `solve(P, q, A, l, u, ActiveSet())` builds for dense data.
+
+The guarantees on the entry points are stated against this instantiation: a `where` clause
+binds its type variables to the method rather than the module, so a parametric declaration
+has no concrete signature to check and needs the instantiations named.
+"""
+const DenseWorkspace{T} = ActiveSetWorkspace{
+    T, Matrix{T}, Matrix{T}, Vector{T}, DAQPReduction{T, Cholesky{T, Matrix{T}}},
+}
+
 function Base.show(io::IO, ws::ActiveSetWorkspace{T}) where {T}
     n, m = dimensions(ws)
     print(io, "ActiveSetWorkspace{", T, "}: ", n, " variables, ", m, " rows, ")
@@ -157,7 +168,7 @@ function solve!(ws::ActiveSetWorkspace{T}) where {T}
     return build_solution(ws)
 end
 
-function warm_start!(ws::ActiveSetWorkspace{T}; x = nothing, y = nothing) where {T}
+@strict_function signatures = [(DenseWorkspace{Float64},)] function warm_start!(ws::ActiveSetWorkspace{T}; x = nothing, y = nothing) where {T}
     prob = ws.prob
     if !isnothing(x)
         length(x) == prob.n || throw(ArgumentError("length(x) must be $(prob.n)"))
@@ -175,7 +186,7 @@ function warm_start!(ws::ActiveSetWorkspace{T}; x = nothing, y = nothing) where 
     return ws
 end
 
-function cold_start!(ws::ActiveSetWorkspace{T}) where {T}
+@strict_function signatures = [(DenseWorkspace{Float64},)] function cold_start!(ws::ActiveSetWorkspace{T}) where {T}
     fill!(ws.x, zero(T))
     fill!(ws.y, zero(T))
     fill!(ws.z, zero(T))

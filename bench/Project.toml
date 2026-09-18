@@ -31,6 +31,7 @@ StrictMode = "0e98b4f4-d0e6-42ac-af0a-707c24852f32"
 StrictModeTest = "a64655d1-1e86-453c-b761-1219f9f51c2b"
 
 [sources]
+PureDAQP = {path = "../PureDAQP"}
 PureIPM = {path = "../PureIPM"}
 PureOSQP = {path = "../PureOSQP"}
 PureQPBase = {path = "../PureQPBase"}
