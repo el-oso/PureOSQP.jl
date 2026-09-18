@@ -97,11 +97,12 @@ function setup_backend(
     # Convexity is not checked here: `reduce_qp` factors `P + eps_prox*I` and reports a
     # failure, which is the same question asked once instead of twice.
     prob = validated_problem(T, n, m, P, q, A, l, u, options.scaling)
-    Pd = Matrix{T}(P)
-    Ad = Matrix{T}(A)
+    # `convert` rather than `Matrix{T}`/`Vector{T}`: those copy even when the argument
+    # already has the type asked for, and the reduction only reads this data.
     iseq = [prob.l0[i] == prob.u0[i] for i in 1:m]
     red = reduce_qp(
-        Pd, Vector{T}(prob.q0), Ad, Vector{T}(prob.u0), Vector{T}(prob.l0),
+        convert(Matrix{T}, P), convert(Matrix{T}, A),
+        convert(Vector{T}, prob.u0), convert(Vector{T}, prob.l0),
         iseq; eps_prox = resolved.eps_prox
     )
 
@@ -201,8 +202,9 @@ function update!(
         m = prob.m
         iseq = [prob.l0[i] == prob.u0[i] for i in 1:m]
         ws.red = reduce_qp(
-            Matrix{T}(prob.P), Vector{T}(prob.q0), Matrix{T}(prob.A),
-            Vector{T}(prob.u0), Vector{T}(prob.l0), iseq; eps_prox = ws.algorithm.eps_prox
+            convert(Matrix{T}, prob.P), convert(Matrix{T}, prob.A),
+            convert(Vector{T}, prob.u0), convert(Vector{T}, prob.l0),
+            iseq; eps_prox = ws.algorithm.eps_prox
         )
         ws.warm = false
     elseif !isnothing(l) || !isnothing(u)

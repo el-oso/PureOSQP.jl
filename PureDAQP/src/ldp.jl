@@ -58,7 +58,7 @@ function LDPWorkspace(Mt::Matrix{T}, iseq::AbstractVector{Bool}) where {T <: Rea
     n, m = size(Mt)
     kmax = min(m, n) + 1
     return LDPWorkspace{T}(
-        Mt, zeros(T, m), zeros(T, m), collect(Bool, iseq), zeros(Int8, m),
+        Mt, zeros(T, m), zeros(T, m), convert(Vector{Bool}, iseq), zeros(Int8, m),
         zeros(Int, kmax), zeros(Int, m), zeros(T, kmax), zeros(T, kmax), zeros(T, kmax),
         zeros(T, n), zeros(T, kmax), zeros(T, m),
         Matrix{T}(undef, n, kmax >= PACKED_KMIN ? kmax : 0), zeros(T, m),
@@ -329,7 +329,7 @@ struct DAQPReduction{T <: Real, F <: Cholesky}
 end
 
 """
-    reduce_qp(H, f, A, bupper, blower, iseq; eps_prox) -> DAQPReduction
+    reduce_qp(H, A, bupper, blower, iseq; eps_prox) -> DAQPReduction
 
 Factor `H + εI` and transform the constraints into `lo ≤ Mu ≤ hi` with `M = A R⁻¹`.
 
@@ -338,7 +338,7 @@ With `eps_prox = 0` this needs `H ≻ 0`. Any `ε > 0` makes `H + εI` positive 
 extreme case.
 """
 function reduce_qp(
-        H::AbstractMatrix{T}, f::AbstractVector{T}, A::AbstractMatrix{T},
+        H::AbstractMatrix{T}, A::AbstractMatrix{T},
         bupper::AbstractVector{T}, blower::AbstractVector{T},
         iseq::AbstractVector{Bool}; eps_prox::T = zero(T)
     ) where {T <: Real}
