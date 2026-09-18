@@ -183,7 +183,7 @@ function step_and_drop!(ws::LDPWorkspace{T}, p::AbstractVector{T}, zero_tol::T) 
 end
 
 """
-    solve_ldp!(ws; max_iter, zero_tol, primal_tol) -> (status, iterations)
+    solve_ldp!(ws, alg, max_iter) -> (status, iterations)
 
 Algorithm 1 of Arnström, Bemporad & Axehill, *A dual active-set solver for embedded
 quadratic programming using recursive LDLᵀ updates*, IEEE TAC 2022, on the two-sided
@@ -194,11 +194,12 @@ that are feasible in sign make the point dual feasible, and the run stops once n
 row is outside its bounds; otherwise the worst violator enters at the side it violates.
 Multipliers that are not lead to a step toward them, dropping the first row whose multiplier
 reaches zero. A singular Gram matrix is handled by walking along its null direction.
+
+Takes its tolerances from `alg` for the reason [`run_daqp!`](@ref) does, which also leaves it
+a signature `test_signatures` can state.
 """
-function solve_ldp!(
-        ws::LDPWorkspace{T}; max_iter::Int = 1000,
-        zero_tol::T = sqrt(eps(T)), primal_tol::T = sqrt(eps(T))
-    ) where {T}
+function solve_ldp!(ws::LDPWorkspace{T}, alg::ActiveSet{T}, max_iter::Int) where {T}
+    zero_tol, primal_tol = alg.zero_tol, alg.primal_tol
     m = size(ws.Mt, 2)
     bland_after = 4 * (m + 1)
     for iter in 1:max_iter
@@ -254,7 +255,13 @@ function solve_ldp!(
             continue
         end
 
-        copyto!(view(ws.mu, 1:k), mus)
+        # An explicit loop rather than `copyto!`: between two views of a vector that checks
+        # whether they alias and copies the source if it cannot tell, which is an allocation
+        # site the hot-path guarantee sees whether or not the branch can be reached.
+        mu = ws.mu
+        @simd for i in 1:k
+            mu[i] = mus[i]
+        end
         # `u = Mₐᵀ μ`, one product against the packed working set.
         if ispacked(ws)
             mul!(ws.u, view(ws.Ma, :, 1:k), view(ws.mu, 1:k))
@@ -493,7 +500,6 @@ function inner_solve!(
         red::DAQPReduction{T}, f::AbstractVector{T}, x::AbstractVector{T},
         alg::ActiveSet{T}, max_iter::Int
     ) where {T}
-    zero_tol, primal_tol = alg.zero_tol, alg.primal_tol
     v = red.ws.v
     if iszero(red.eps_prox)
         copyto!(v, f)
@@ -504,7 +510,7 @@ function inner_solve!(
     # on every pass; `Rt` solves against the same triangle without copying it.
     ldiv!(red.Rt, v)
     set_targets!(red, v)
-    status, iters = solve_ldp!(red.ws; max_iter, zero_tol, primal_tol)
+    status, iters = solve_ldp!(red.ws, alg, max_iter)
     return status, iters, v
 end
 

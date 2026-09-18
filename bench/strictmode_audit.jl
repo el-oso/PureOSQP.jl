@@ -539,10 +539,9 @@ end
 # it maintains one `LDLᵀ` of the working set's Gram matrix. What runs per iteration is the
 # row-update trio and the triangular solves, and those are what carry the guarantee.
 #
-# `solve_ldp!` itself takes only keyword arguments beyond the workspace, which
-# `test_signatures` cannot express, so the whole loop is held to a measured claim instead --
-# the same split used for the matrix-free backend above, and for the same reason: what cannot
-# be proved statically is measured rather than dropped.
+# `solve_ldp!` is the whole loop, and it is proved here like the rest: it takes its
+# tolerances as an `ActiveSet` rather than as keywords, which is a signature
+# `test_signatures` can state.
 let
     Random.seed!(1)
     n, m = 12, 30
@@ -564,9 +563,7 @@ let
     PV = typeof(view(lw.p, 1:1))
     GV = typeof(view(lw.g, 1:1))
 
-    loop() = @allocated PureDAQP.solve_ldp!(
-        lw; max_iter = 1000, zero_tol = sqrt(eps(T)), primal_tol = sqrt(eps(T))
-    )
+    AT = typeof(ws.algorithm)
 
     checks = Any[
         (PureDAQP.activate!, (LW, Int, Int8), :hot, nothing),
@@ -577,7 +574,7 @@ let
         (PureDAQP.solve_gram!, (FT, PV), :hot, nothing),
         (PureDAQP.singular_direction!, (PV, FT, Int), :hot, nothing),
         (PureDAQP.set_targets!, (typeof(red), Vector{T}), :hot, nothing),
-        (PureDAQP.solve_ldp!, nothing, :hot_measured, loop),
+        (PureDAQP.solve_ldp!, (LW, AT, Int), :hot, nothing),
     ]
 
     println("PureDAQP (dual active set)")
