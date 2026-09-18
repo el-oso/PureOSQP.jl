@@ -42,6 +42,57 @@ end
     end
 end
 
+@testitem "matches libdaqp once the working set is gathered" begin
+    using PureDAQP, LinearAlgebra, Random
+    import DAQP
+
+    # Sized past `PACKED_KMIN`, so the working set is held as a packed block and the loop
+    # takes its products against that rather than one row at a time. The smaller random
+    # problems above stay under that capacity and never reach this path.
+    rng = MersenneTwister(77)
+    for _ in 1:25
+        n, m = rand(rng, 18:40), rand(rng, 30:70)
+        @test min(n, m) + 1 >= PureDAQP.PACKED_KMIN
+        Q = qr(randn(rng, n, n)).Q
+        H = Matrix(Symmetric(Q * Diagonal(exp10.(range(0, 2; length = n))) * Q'))
+        f = randn(rng, n)
+        A = randn(rng, m, n)
+        bu = 0.5 .* abs.(A * randn(rng, n)) .+ 0.05
+        sol = solve(H, f, A, -bu, bu, ActiveSet())
+        @test sol.status == SOLVED
+        xr = DAQP.quadprog(H, f, A, bu, -bu)[1]
+        @test norm(sol.x - xr, Inf) / (1 + norm(xr, Inf)) < 1.0e-9
+        @test sol.prim_res < 1.0e-10
+        @test sol.dual_res < 1.0e-9
+    end
+end
+
+@testitem "equality rows leave the gathered working set in order" begin
+    using PureDAQP, LinearAlgebra, Random
+
+    # Rows dropped from the middle of a packed working set shift the block that follows them.
+    # Equalities never leave, so a run that drops inequalities around them checks that the
+    # gathered rows stay paired with the factorization they belong to.
+    rng = MersenneTwister(78)
+    for _ in 1:20
+        n = rand(rng, 20:30)
+        P = Matrix(1.0I, n, n)
+        q = randn(rng, n)
+        A = randn(rng, n + 12, n)
+        b = A * randn(rng, n)
+        l = copy(b)
+        u = copy(b)
+        l[4:end] .-= 0.4 .* abs.(randn(rng, n + 9))
+        u[4:end] .+= 0.4 .* abs.(randn(rng, n + 9))
+        sol = solve(P, q, A, l, u, ActiveSet())
+        @test sol.status == SOLVED
+        for i in 1:3
+            @test abs(dot(A[i, :], sol.x) - b[i]) < 1.0e-9
+        end
+        @test sol.prim_res < 1.0e-9
+    end
+end
+
 @testitem "proximal-point iterations accept a singular P" begin
     using PureDAQP, LinearAlgebra, Random
 

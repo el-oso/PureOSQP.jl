@@ -42,6 +42,11 @@ struct LDPWorkspace{T <: Real}
     u::Vector{T}     # primal point of the least-distance problem, Mₐᵀμ
     g::Vector{T}     # scratch: products against the active rows
     Mv::Vector{T}    # scratch: M * v
+    # The active rows of `M`, packed contiguously in working-set order, `n × kmax`. The same
+    # rows live scattered through the columns of `Mt`; gathered here, the two products the
+    # loop takes against the working set are single matrix-vector products rather than one
+    # short BLAS call per active row, which is where the small sizes are won.
+    Ma::Matrix{T}
     price::Vector{T} # scratch: M * u, every row at once
     v::Vector{T}     # reduced linear term, rebuilt at the start of every pass
     xbuf::Vector{T}  # primal iterate, and the vector `run_daqp!` returns
@@ -55,13 +60,29 @@ function LDPWorkspace(Mt::Matrix{T}, iseq::AbstractVector{Bool}) where {T <: Rea
     return LDPWorkspace{T}(
         Mt, zeros(T, m), zeros(T, m), collect(Bool, iseq), zeros(Int8, m),
         zeros(Int, kmax), zeros(Int, m), zeros(T, kmax), zeros(T, kmax), zeros(T, kmax),
-        zeros(T, n), zeros(T, kmax), zeros(T, m), zeros(T, m),
+        zeros(T, n), zeros(T, kmax), zeros(T, m),
+        Matrix{T}(undef, n, kmax >= PACKED_KMIN ? kmax : 0), zeros(T, m),
         zeros(T, n), zeros(T, n), zeros(T, n), GramLDL{T}(kmax)
     )
 end
 
+"""
+Smallest working-set capacity for which the packed block is worth keeping.
+
+Gathering the active rows turns the loop's two products against the working set into single
+matrix-vector products, which from about eight active rows up runs two to three times faster
+than one short call per row. Below that a matrix-vector call costs more than the products it
+performs, and the copying that keeps the block current is not repaid. A solve holds about
+half its capacity in the working set on average, so the capacity has to be twice the point
+where the products themselves break even.
+"""
+const PACKED_KMIN = 16
+
 "Row `r` of the constraint matrix, contiguous because the matrix is stored transposed."
 @inline row(ws::LDPWorkspace, r::Integer) = view(ws.Mt, :, r)
+
+"Whether this workspace keeps the active rows gathered; see [`PACKED_KMIN`](@ref)."
+@inline ispacked(ws::LDPWorkspace) = !isempty(ws.Ma)
 
 "The working set, as the live prefix of the preallocated buffer."
 @inline activeset(ws::LDPWorkspace) = view(ws.active, 1:ws.F.k)
@@ -84,10 +105,24 @@ function activate!(ws::LDPWorkspace{T}, r::Integer, side::Int8) where {T}
     k = ws.F.k
     m_r = row(ws, r)
     g = view(ws.g, 1:k)
-    for j in 1:k
-        g[j] = dot(row(ws, ws.active[j]), m_r)
+    if ispacked(ws)
+        mul!(g, transpose(view(ws.Ma, :, 1:k)), m_r)
+    else
+        for j in 1:k
+            g[j] = dot(row(ws, ws.active[j]), m_r)
+        end
     end
     add_row!(ws.F, g, dot(m_r, m_r))
+    # The entering row joins the packed block at the position it takes in the working set.
+    # An explicit loop rather than `copyto!`: between two views of a matrix that checks
+    # whether they alias and copies the source if it cannot tell, which is an allocation site
+    # the hot-path guarantee sees whether or not the branch can be reached.
+    if ispacked(ws)
+        dest = view(ws.Ma, :, k + 1)
+        @simd for i in eachindex(dest, m_r)
+            dest[i] = m_r[i]
+        end
+    end
     ws.active[k + 1] = r
     ws.mu[k + 1] = zero(T)
     ws.side[r] = side
@@ -100,6 +135,12 @@ function deactivate!(ws::LDPWorkspace, i::Integer)
     k = ws.F.k
     r = ws.active[i]
     remove_row!(ws.F, i)
+    # Close the gap in the packed block. Columns `i+1:k` sit in one contiguous run of
+    # storage, so the whole tail moves as a single block rather than column by column.
+    if ispacked(ws) && i < k
+        n = size(ws.Ma, 1)
+        copyto!(ws.Ma, (i - 1) * n + 1, ws.Ma, i * n + 1, (k - i) * n)
+    end
     for j in i:(k - 1)
         ws.active[j] = ws.active[j + 1]
         ws.mu[j] = ws.mu[j + 1]
@@ -214,15 +255,18 @@ function solve_ldp!(
         end
 
         copyto!(view(ws.mu, 1:k), mus)
-        # `u = Mₐᵀ μ`, accumulated column by column. One `axpy!` per active row is `k` calls
-        # on vectors of a few dozen elements, where the call costs more than the arithmetic.
-        uu = ws.u
-        fill!(uu, zero(T))
-        for i in 1:k
-            mui = ws.mu[i]
-            col = row(ws, ws.active[i])
-            @simd for j in eachindex(uu, col)
-                uu[j] += mui * col[j]
+        # `u = Mₐᵀ μ`, one product against the packed working set.
+        if ispacked(ws)
+            mul!(ws.u, view(ws.Ma, :, 1:k), view(ws.mu, 1:k))
+        else
+            uu = ws.u
+            fill!(uu, zero(T))
+            for i in 1:k
+                mui = ws.mu[i]
+                col = row(ws, ws.active[i])
+                @simd for j in eachindex(uu, col)
+                    uu[j] += mui * col[j]
+                end
             end
         end
 
