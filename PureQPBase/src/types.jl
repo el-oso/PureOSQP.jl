@@ -172,7 +172,7 @@ others.
 !!! warning "An algorithm may hand back the same `Solution` on every solve"
     The type is mutable so that an algorithm can keep one and refill it, which is what lets a
     solve allocate nothing at all — a fresh one costs an allocation for the object itself
-    however few of its arrays are new. [`ActiveSet`](@ref) does this: the object
+    however few of its arrays are new. `ActiveSet` does this: the object
     [`solve!`](@ref) returns is the workspace's own, its `x` and `y` are the workspace's own
     arrays, and the next solve writes through all of it.
 
@@ -181,7 +181,7 @@ others.
     Reading it straight after the solve that produced it, which is what almost every caller
     does, is unaffected.
 
-    [`OperatorSplitting`](@ref) and [`InteriorPoint`](@ref) return a fresh one per solve.
+    `OperatorSplitting` and `InteriorPoint` return a fresh one per solve.
 """
 mutable struct Solution{T <: Real}
     x::Vector{T}
