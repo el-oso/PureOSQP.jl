@@ -14,21 +14,22 @@ mutable struct ActiveSetWorkspace{
         T <: Real, MP <: AbstractMatrix, MA <: AbstractMatrix, V <: AbstractVector{T},
         RD <: DAQPReduction{T},
     } <: QPWorkspace{T}
-    prob::Problem{T, MP, MA, V}
+    const prob::Problem{T, MP, MA, V}
     algorithm::ActiveSet{T, T, T, T}
-    options::Options{T}
+    const options::Options{T}
     # Concretely typed: `DAQPReduction{T}` alone leaves the factorization parameter abstract,
-    # which costs a dynamic dispatch on every solve.
+    # which costs a dynamic dispatch on every solve. Rebound by `update!` when `P` or `A`
+    # changes, which is the one thing that forces a fresh reduction.
     red::RD
-    x::V
-    y::V
-    z::V
+    const x::V
+    const y::V
+    const z::V
     status::Status
-    polished::Bool
-    status_polish::PolishStatus
+    const polished::Bool
+    const status_polish::PolishStatus
     iter::Int
     warm::Bool          # carry the working set into the next solve
-    setup_time::Float64
+    const setup_time::Float64
     update_time::Float64
     solve_time::Float64
 end

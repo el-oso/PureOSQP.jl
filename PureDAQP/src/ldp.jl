@@ -19,28 +19,32 @@ of an iteration.
 `active` lists the working set in the order it was built, matching the order of the `LDLᵀ`;
 `slot[j]` is where row `j` sits in it, or 0.
 """
+# Nothing here is ever rebound: every field is a buffer written through, and the live size
+# lives in `F.k`. They are all `const` to say so. The struct stays `mutable` even so, because
+# an immutable one inlines into the workspace that holds it and loses the nonnull and
+# alignment facts the vectorizer needs, which turns these loops scalar.
 mutable struct LDPWorkspace{T <: Real}
     # Stored transposed, `n × m`: every kernel here reads one *row* of `M`, which as a
     # column of `Mt` is contiguous. Held the other way round each read is strided, BLAS
     # drops to its scalar path, and every element costs a cache line.
-    Mt::Matrix{T}
-    hi::Vector{T}          # upper target, recomputed whenever `v` changes
-    lo::Vector{T}
-    iseq::Vector{Bool}
-    side::Vector{Int8}
+    const Mt::Matrix{T}
+    const hi::Vector{T}    # upper target, recomputed whenever `v` changes
+    const lo::Vector{T}
+    const iseq::Vector{Bool}
+    const side::Vector{Int8}
     # `active` and `mu` are preallocated to the largest working set and share their live
     # length with the factorization's `F.k`. Growing them with `push!` instead would allocate
     # on a cold solve — invisible to a measurement, because `deleteat!` keeps the capacity a
     # previous solve grew, but a real allocation in the hot path all the same.
-    active::Vector{Int}
-    slot::Vector{Int}
-    mu::Vector{T}          # signed multipliers of the active rows, in `active` order
-    mu_star::Vector{T}
-    p::Vector{T}
-    u::Vector{T}           # primal point of the least-distance problem, Mₐᵀμ
-    g::Vector{T}           # scratch: products against the active rows
-    Mv::Vector{T}          # scratch: M * v
-    F::GramLDL{T}
+    const active::Vector{Int}
+    const slot::Vector{Int}
+    const mu::Vector{T}    # signed multipliers of the active rows, in `active` order
+    const mu_star::Vector{T}
+    const p::Vector{T}
+    const u::Vector{T}     # primal point of the least-distance problem, Mₐᵀμ
+    const g::Vector{T}     # scratch: products against the active rows
+    const Mv::Vector{T}    # scratch: M * v
+    const F::GramLDL{T}
 end
 
 function LDPWorkspace(Mt::Matrix{T}, iseq::AbstractVector{Bool}) where {T <: Real}
@@ -276,16 +280,23 @@ function reduce_qp(
         bupper::AbstractVector{T}, blower::AbstractVector{T},
         iseq::AbstractVector{Bool}; eps_prox::T = zero(T)
     ) where {T <: Real}
-    Hs = Matrix(Symmetric((H + H') / 2))
+    n = size(H, 1)
+    # Symmetrize into one buffer. `(H + H') / 2` reads pleasantly and allocates four
+    # matrices to produce one, which is most of what a small solve costs.
+    Hs = Matrix{T}(undef, n, n)
+    for j in 1:n, i in 1:n
+        Hs[i, j] = (H[i, j] + H[j, i]) / 2
+    end
     if !iszero(eps_prox)
-        for i in axes(Hs, 1)
+        for i in 1:n
             Hs[i, i] += eps_prox
         end
     end
     # `check = false` so an indefinite `H` is a value to test rather than an exception to
     # catch, and so this one factorization also answers the convexity question: factoring it
-    # twice, once to check and once to use, is most of what setup costs.
-    R = cholesky(Symmetric(Hs), NoPivot(); check = false)
+    # twice, once to check and once to use, is most of what setup costs. `cholesky!` works in
+    # the buffer just filled, which is not needed afterwards.
+    R = cholesky!(Symmetric(Hs), NoPivot(); check = false)
     issuccess(R) || throw(
         ArgumentError(
             iszero(eps_prox) ?
@@ -298,22 +309,27 @@ function reduce_qp(
     )
     # `Mᵀ = (A R⁻¹)ᵀ = R⁻ᵀ Aᵀ`, built transposed from the start rather than transposing a
     # built `M`: one triangular solve either way, and the result is the layout the loop
-    # wants.
-    Mt = Matrix{T}(transpose(R.U) \ Matrix{T}(transpose(A)))
+    # wants. Written straight into its own buffer and solved in place, so the transpose and
+    # the solve's result are not two more matrices.
+    m = size(A, 1)
+    Mt = Matrix{T}(undef, n, m)
+    for j in 1:m, i in 1:n
+        Mt[i, j] = A[j, i]
+    end
+    ldiv!(transpose(R.U), Mt)
 
     # Row normalization, as the reference does: it makes `primal_tol` mean the same thing on
     # every row however that row happened to be scaled.
-    m = size(Mt, 2)
-    scale = ones(T, m)
+    scale = Vector{T}(undef, m)
     bu = Vector{T}(undef, m)
     bl = Vector{T}(undef, m)
     for j in 1:m
         col = view(Mt, :, j)
         nrm = norm(col)
-        if nrm > 0
-            col ./= nrm
-            scale[j] = nrm
-        end
+        # A row of `A` in the kernel of `R⁻ᵀ` normalizes to nothing; it is left as it is and
+        # its bounds are taken unscaled, which is what a scale of one means.
+        scale[j] = nrm > 0 ? nrm : one(T)
+        nrm > 0 && (col ./= nrm)
         bu[j] = bupper[j] / scale[j]
         bl[j] = blower[j] / scale[j]
     end

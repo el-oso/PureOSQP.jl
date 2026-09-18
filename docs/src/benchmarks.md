@@ -150,36 +150,45 @@ the picture at these sizes: at n=200, m=400 it took 25.4 ms on 1 thread, 25.8 ms
 
 ## Against other solvers
 
-The same dense QPs solved by libosqp 1.0 and by two solvers that use other algorithms: DAQP
-(active set) and Clarabel (interior point). Reproduce with
-`julia --project=bench PureOSQP/bench/solvers.jl`; samples are in `PureOSQP/bench/results/solvers.json`.
+The same dense QPs solved by all three algorithms here and by the outside implementation of
+each: libosqp 1.0 for operator splitting, DAQP for the active-set method, Clarabel for the
+interior-point one. Reproduce with `julia --project=bench PureOSQP/bench/solvers.jl`; samples
+are in `PureOSQP/bench/results/solvers.json`.
 
-| n | m | PureOSQP | libosqp 1.0 | DAQP | Clarabel |
-|---|---|---|---|---|---|
-| 10 | 20 | 0.088 ms | 0.163 ms | **0.003 ms** | 0.126 ms |
-| 25 | 50 | 0.170 ms | 0.538 ms | **0.036 ms** | 0.654 ms |
-| 50 | 100 | 0.491 ms | 2.14 ms | **0.211 ms** | 2.94 ms |
-| 100 | 200 | 4.54 ms | 34.8 ms | **1.89 ms** | 17.6 ms |
-| 200 | 400 | **8.65 ms** | 77.6 ms | 16.3 ms | 114 ms |
-| 100 | 50 | **0.303 ms** | 1.04 ms | 0.366 ms | 6.08 ms |
+| n | m | PureOSQP | libosqp 1.0 | PureDAQP | DAQP | PureIPM | Clarabel |
+|---|---|---|---|---|---|---|---|
+| 10 | 20 | 0.090 ms | 0.163 ms | 0.007 ms | **0.003 ms** | 0.066 ms | 0.126 ms |
+| 25 | 50 | 0.163 ms | 0.535 ms | 0.052 ms | **0.036 ms** | 0.308 ms | 0.643 ms |
+| 50 | 100 | 0.488 ms | 2.15 ms | **0.197 ms** | 0.209 ms | 1.18 ms | 2.90 ms |
+| 100 | 200 | 4.86 ms | 35.3 ms | **1.21 ms** | 1.88 ms | 5.17 ms | 17.3 ms |
+| 200 | 400 | 8.49 ms | 76.8 ms | **7.62 ms** | 16.2 ms | 29.8 ms | 112 ms |
+| 100 | 50 | 0.300 ms | 1.03 ms | **0.162 ms** | 0.361 ms | 1.10 ms | 6.08 ms |
 
 libosqp and Clarabel read sparse matrices, so each is timed from sparse copies built
-beforehand.
+beforehand. Both DAQP implementations read dense ones, which is what they are built for.
 
-**DAQP is much faster on small problems**: 29× faster than PureOSQP at `n = 10`. The gap
-narrows as the problem grows, and at `n = 200, m = 400` PureOSQP is 1.9× faster. An active-set
-method takes a few expensive steps and stops at the exact solution, which suits problems with
-few active constraints. The cost of each ADMM iteration grows more slowly with size. For a
-single small dense QP, use DAQP.
+**An active-set method wins this shape.** These are dense problems with few rows active at
+the solution, which is what an active-set method is for: a few expensive steps, then it stops
+at the exact vertex. PureDAQP is the fastest solver here at every size from `n = 50` up, and
+beats the C implementation it follows by 1.06× to 2.23×. PureIPM beats Clarabel at every size,
+by 1.9× to 5.5×.
+
+**PureDAQP is slower than DAQP on the two smallest problems**, 2.3× at `n = 10` and 1.4× at
+`n = 25`. That is setup, not the iteration. Building the reduction costs 1.8 µs of the 6.8 µs
+a `n = 10` solve takes, and validating the problem costs more on top; the iteration itself is
+1.1 µs. DAQP is a C solver with a preallocated workspace and no equivalent of
+[`Problem`](@ref PureQPBase.Problem) to build, so it pays almost nothing fixed. The fixed cost
+stops mattering once the `O(mn²)` work of the reduction outgrows it, which is where the
+crossover at `n = 50` comes from. Through [`setup`](@ref) and repeated [`solve!`](@ref) it is
+paid once rather than per solve.
 
 ADMM is the better fit when you re-solve a problem many times: warm starts, updates that keep
-the factorization, and one factorization reused across hundreds of iterations. Clarabel is
-slower than PureOSQP at every size here, and faster than libosqp only at `n = 10` and
-`n = 100`.
+the factorization, and one factorization reused across hundreds of iterations. It is also the
+only one of the three that takes an operator it can only multiply by.
 
-The four solutions agree to about `1e-4`, which is expected at `eps_abs = eps_rel = 1e-6`.
-DAQP and Clarabel stop at exact optimality conditions; ADMM stops when its residuals fall
-below the tolerance.
+The six solutions agree to about `1e-4`, which is expected at `eps_abs = eps_rel = 1e-6`.
+The active-set and interior-point solvers stop at exact optimality conditions; ADMM stops when
+its residuals fall below the tolerance.
 
 ## Choosing a representation
 

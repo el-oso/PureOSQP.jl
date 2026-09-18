@@ -9,12 +9,15 @@ thousands of constraints allocates only at setup.
 The factored matrix is `Mₐ Mₐᵀ`, where `Mₐ` holds the rows of `M` currently
 active, in the order they were added.
 """
+# `const` on every field but `k`: only the live size is rebound, the buffers are written
+# through. A fully immutable struct would be the wrong trade -- inlined into the workspace it
+# loses the nonnull and alignment facts the vectorizer needs, and these loops go scalar.
 mutable struct GramLDL{T <: Real}
-    L::Matrix{T}
-    D::Vector{T}
+    const L::Matrix{T}
+    const D::Vector{T}
     k::Int
-    w::Vector{T}   # scratch for the rank-one sweep
-    b::Vector{T}   # scratch for the forward solve
+    const w::Vector{T}   # scratch for the rank-one sweep
+    const b::Vector{T}   # scratch for the forward solve
 end
 
 function GramLDL{T}(kmax::Integer) where {T <: Real}

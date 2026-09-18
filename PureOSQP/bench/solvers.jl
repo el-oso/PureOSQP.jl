@@ -1,14 +1,16 @@
-# PureOSQP against three other solvers on dense QPs, one per algorithm family:
+# This repository's algorithms against the outside implementation of each, on dense QPs:
 #
-#   libosqp   operator splitting, sparse linear algebra  (the reference implementation)
-#   DAQP      dense active set                            (built for exactly this shape)
-#   Clarabel  interior point
+#   PureOSQP  operator splitting        against libosqp, the reference implementation
+#   PureDAQP  dense active set          against DAQP, the C solver it follows
+#   PureIPM   interior point            against Clarabel
 #
-# DAQP is the one that matters most here. Every other comparison in this repository puts a
-# sparse solver on dense data, which is its worst case; DAQP is designed for dense QPs, so
-# it is the honest question "is a dense ADMM solver competitive with a dense active-set
-# one" rather than "does dense beat sparse on dense data".
-using PureOSQP, DAQP, Clarabel
+# The two active-set solvers matter most here. Every other comparison in this repository puts
+# a sparse solver on dense data, which is its worst case; both DAQP implementations are
+# designed for dense QPs, so this asks the honest question "is a dense ADMM solver
+# competitive with a dense active-set one" rather than "does dense beat sparse on dense
+# data" -- and, now that we have one of each, how the two implementations of a given
+# algorithm compare.
+using PureOSQP, PureIPM, PureDAQP, DAQP, Clarabel
 using LinearAlgebra, SparseArrays, BenchmarkTools, Random, Printf, JSON
 
 include(joinpath(@__DIR__, "osqp_v1.jl"))
@@ -43,6 +45,15 @@ osqp(data, q, l, u) = solve_v1(
 
 daqp(P, q, A, l, u) = DAQP.quadprog(P, q, A, u, l, zeros(Cint, length(l)))[1]
 
+# The two Newton-type solvers stop at optimality conditions rather than on a residual
+# tolerance, so `TOL` reaches them only as the tolerance their own termination reports
+# against; neither takes the iteration budget the two operator-splitting solvers need.
+puredaqp(P, q, A, l, u) = PureDAQP.solve(P, q, A, l, u, PureDAQP.ActiveSet()).x
+
+pureipm(P, q, A, l, u) = PureIPM.solve(
+    P, q, A, l, u, PureIPM.InteriorPoint(); eps_abs = TOL, eps_rel = TOL
+).x
+
 function clarabel(P, q, A, b, m)
     settings = Clarabel.Settings(verbose = false, tol_gap_abs = TOL, tol_gap_rel = TOL)
     solver = Clarabel.Solver()
@@ -56,7 +67,9 @@ end
 const SOLVERS = [
     "PureOSQP" => (identity, pure),
     "OSQP" => (((P, q, A, l, u),) -> (CSCData(P, A), q, l, u), osqp),
+    "PureDAQP" => (identity, puredaqp),
     "DAQP" => (identity, daqp),
+    "PureIPM" => (identity, pureipm),
     "Clarabel" => (
         ((P, q, A, l, u),) -> (sparse(triu(P)), q, sparse([A; -A]), [u; -l], length(l)),
         clarabel,
@@ -67,10 +80,10 @@ const CASES = [(10, 20), (25, 50), (50, 100), (100, 200), (200, 400), (100, 50)]
 function run_cases()
     results = NamedTuple[]
     @printf(
-        "%5s %6s | %10s %10s %10s %10s | %9s\n",
-        "n", "m", "PureOSQP", "OSQP", "DAQP", "Clarabel", "max |Δx|"
+        "%5s %6s | %11s %11s | %11s %11s | %11s %11s | %9s\n",
+        "n", "m", "PureOSQP", "libosqp", "PureDAQP", "DAQP", "PureIPM", "Clarabel", "max |Δx|"
     )
-    println("-"^74)
+    println("-"^112)
     for (n, m) in CASES
         P, q, A, l, u = make_problem(n, m; seed = n + m)
         inputs = Dict(name => prep((P, q, A, l, u)) for (name, (prep, _)) in SOLVERS)
@@ -84,8 +97,9 @@ function run_cases()
         end
         push!(results, (; n, m, times = ts, max_dx = dx))
         @printf(
-            "%5d %6d | %8.3f ms %8.3f ms %8.3f ms %8.3f ms | %9.1e\n",
-            n, m, 1.0e3ts["PureOSQP"], 1.0e3ts["OSQP"], 1.0e3ts["DAQP"], 1.0e3ts["Clarabel"], dx
+            "%5d %6d | %8.3f ms %8.3f ms | %8.3f ms %8.3f ms | %8.3f ms %8.3f ms | %9.1e\n",
+            n, m, 1.0e3ts["PureOSQP"], 1.0e3ts["OSQP"], 1.0e3ts["PureDAQP"], 1.0e3ts["DAQP"],
+            1.0e3ts["PureIPM"], 1.0e3ts["Clarabel"], dx
         )
         flush(stdout)
     end
@@ -106,6 +120,8 @@ open(joinpath(@__DIR__, "results", "solvers.json"), "w") do io
                 ),
                 "DAQP" => string(pkgversion(DAQP)),
                 "Clarabel" => string(pkgversion(Clarabel)),
+                "PureDAQP" => string(pkgversion(PureDAQP)),
+                "PureIPM" => string(pkgversion(PureIPM)),
             ),
             "results" => [
                 Dict("n" => r.n, "m" => r.m, "max_dx" => r.max_dx, "times" => r.times)
