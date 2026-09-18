@@ -369,37 +369,41 @@ function reduce_qp(
                 "and the problem is not convex."
         )
     )
-    # `Mᵀ = (A R⁻¹)ᵀ = R⁻ᵀ Aᵀ`, built transposed from the start rather than transposing a
-    # built `M`: one triangular solve either way, and the result is the layout the loop
-    # wants. Written straight into its own buffer and solved in place, so the transpose and
-    # the solve's result are not two more matrices.
+    # `M = A R⁻¹`, solved with the triangle on the right of the constraint matrix. Each step
+    # of that substitution scales and subtracts whole columns of `M`, which are contiguous
+    # and carry no dependence within a column; solving `R⁻ᵀ Aᵀ` instead makes every entry a
+    # short dot product against the entries above it, and runs well under half the speed.
     m = size(A, 1)
-    Mt = Matrix{T}(undef, n, m)
-    for j in 1:m, i in 1:n
-        Mt[i, j] = A[j, i]
-    end
-    ldiv!(transpose(R.U), Mt)
+    Mr = Matrix{T}(undef, m, n)
+    copyto!(Mr, A)
+    rdiv!(Mr, R.U)
 
     # Row normalization, as the reference does: it makes `primal_tol` mean the same thing on
-    # every row however that row happened to be scaled.
+    # every row however that row happened to be scaled. The rows are written out to `Mt` in
+    # the layout the loop reads, so the transpose costs no pass of its own.
+    Mt = Matrix{T}(undef, n, m)
     scale = Vector{T}(undef, m)
     bu = Vector{T}(undef, m)
     bl = Vector{T}(undef, m)
     for j in 1:m
-        col = view(Mt, :, j)
         sq = zero(T)
-        @simd for i in eachindex(col)
-            sq += col[i]^2
+        # `ivdep` throughout this loop: `Mr`, `Mt` and the bound vectors are separate buffers
+        # allocated here, so no iteration can reach another's memory.
+        @simd ivdep for i in 1:n
+            sq += Mr[j, i]^2
         end
         # `norm` computes the same value while scaling against overflow and underflow, which
         # is what the sum of squares cannot represent; it covers exactly those two cases.
-        nrm = (isfinite(sq) && sq > 0) ? sqrt(sq) : norm(col)
-        # A row of `A` in the kernel of `R⁻ᵀ` normalizes to nothing; it is left as it is and
-        # its bounds are taken unscaled, which is what a scale of one means.
-        scale[j] = nrm > 0 ? nrm : one(T)
-        nrm > 0 && (col ./= nrm)
-        bu[j] = bupper[j] / scale[j]
-        bl[j] = blower[j] / scale[j]
+        nrm = (isfinite(sq) && sq > 0) ? sqrt(sq) : norm(view(Mr, j, :))
+        # A row of `A` in the kernel of `R⁻ᵀ` normalizes to nothing; it is taken unscaled,
+        # which is what a scale of one means.
+        s = nrm > 0 ? nrm : one(T)
+        scale[j] = s
+        @simd ivdep for i in 1:n
+            Mt[i, j] = Mr[j, i] / s
+        end
+        bu[j] = bupper[j] / s
+        bl[j] = blower[j] / s
     end
 
     ws = LDPWorkspace(Mt, iseq)
